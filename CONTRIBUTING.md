@@ -143,6 +143,27 @@ that you are taking it, and open one before starting a large change, so nobody d
   [src/film-doc.mjs](packages/openfilm/src/film-doc.mjs), and described in the spec in the same pull request.
 - **No adapters.** Pages use the web as it is; libraries load from pinned public CDNs.
 
+## Adding a media provider
+
+A provider is one file in [studio/server/providers/](packages/openfilm/studio/server/providers/) that keeps the
+contract in `contract.mjs`, listed in `OWN` in `index.mjs`; [groq.mjs](packages/openfilm/studio/server/providers/groq.mjs)
+is a small one to start from. Its pull request comes with:
+
+- **Tests against a fake service** on 127.0.0.1, as `groq.test.mjs` does: what is sent, what lands in the project, and
+  what the person is told when it fails. CI runs them with no key.
+- **What the real service did**, in the description: the commands you ran with your own key, what they printed, and
+  a sample of what it made (an audio file, a picture). **Never a key**: not in the code, the tests, the description
+  or a screenshot. We do not ask for one.
+- **Its mark** in [lib/provider-marks.ts](packages/openfilm/studio/ui/src/lib/provider-marks.ts), from
+  [Lobe Icons](https://github.com/lobehub/lobe-icons) or [Simple Icons](https://simpleicons.org) (a test holds every
+  provider to having one).
+- **Every word it shows in Studio** in all five languages: en, zh-CN, ja, ko and es. A key in a format of its own
+  (a region with it, say) says so where it is pasted.
+- **A changeset**.
+
+Maintainers try a provider with their own key when they have one; otherwise it is merged on its tests and on what you
+showed. When a service changes and its provider breaks, whoever added it is asked first.
+
 ## Pull requests
 
 Keep each one to one change, with a test when it fixes a bug. `pnpm test` and `pnpm typecheck` must pass on macOS,

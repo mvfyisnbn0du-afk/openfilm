@@ -7,4 +7,5 @@
 - [ ] One change
 - [ ] A test, if it fixes a bug
 - [ ] SPEC.md updated, if it changes film.html
+- [ ] A new media provider: tests against a fake service, what the real service did (never a key), its mark, its words in five languages
 - [ ] `pnpm test` and `pnpm typecheck` pass
