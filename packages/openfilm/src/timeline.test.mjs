@@ -240,6 +240,38 @@ test('a video loaded only when its frame is asked draws the same picture as one 
   }
 });
 
+test('an exact frame of a video sought there waits for its own frame on screen, not one presented before the seek was done', { skip: !hasFfmpeg && 'no ffmpeg', timeout: 60_000 }, async () => {
+  const dir = footage('of-sought-frame-');
+  writeFileSync(join(dir, 'film.html'), filmHtml({ stage: { w: 320, h: 180 }, tracks: [{ clips: [{ id: 'v', src: 'a.mp4', at: 1, time: [0, 4] }] }] }));
+  const s = await open(dir);
+  try {
+    const seen = await s.film.page.evaluate(async () => {
+      const v = document.querySelector('video');
+      await window.film.frame(1);
+      /* every frame presented from here, and one more presentation before the seek is done: the old frame shown again
+         (a video turning visible), as a slow machine has it */
+      const real = v.requestVideoFrameCallback.bind(v);
+      const presented = [];
+      const watch = () => real((now, meta) => { presented.push(meta.mediaTime); watch(); });
+      watch();
+      const old = v.currentTime;
+      let early = true;
+      v.requestVideoFrameCallback = (callback) => {
+        if (!early) return real(callback);
+        early = false;
+        queueMicrotask(() => callback(performance.now(), { mediaTime: old }));
+        return 0;
+      };
+      await window.film.frame(3.25);
+      return presented;
+    });
+    /* 10 frames a second: the frame at 2.25 s of the video is the one from 2.2 s */
+    assert.ok(seen.some((m) => Math.abs(m - 2.2) < 0.01), `the frame at 2.25 s was on screen when the frame was done: ${seen}`);
+  } finally {
+    await s.close();
+  }
+});
+
 test('an edit that splits, adds, removes or moves clips to a new track changes the film in place, without loading it again', { skip: !hasFfmpeg && 'no ffmpeg', timeout: 120_000 }, async () => {
   const dir = footage('of-inplace-');
   writeFileSync(join(dir, 'title.html'), page('title', 2));

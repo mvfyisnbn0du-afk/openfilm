@@ -180,7 +180,8 @@ const SAME_TIME = 1e-4; // s: a video's currentTime is kept to the microsecond, 
  * Put a video on the frame at `t` and wait until that frame is the one on screen. `seeked` fires when the decoder
  * has the frame, not when the compositor shows it: captured right after, the picture is still the previous one
  * (often a stretch back, after a long seek), and the same t drew different pictures. The frame callback is the
- * moment the new frame is presented.
+ * moment the new frame is presented; one before the seek is done is still the old frame (shown again as its video turns
+ * visible), and is not taken for it.
  */
 async function showVideoAt(v, t) {
   /* a seek still under way (the start a video was woken at, see wake): its `seeked` and its frame would be taken for
@@ -189,8 +190,17 @@ async function showVideoAt(v, t) {
   /* the same time again (to the microsecond the element keeps): no seek, nothing new to present (a seek there would
      present nothing, and the wait would run out) */
   if (!v.seeking && Math.abs(v.currentTime - t) < SAME_TIME && v.readyState >= 2) return;
+  /* the old frame is the one nearer where the video was than where it is sought (a frame there would look the same) */
+  const before = v.currentTime;
+  let sought = false;
   const presented = typeof v.requestVideoFrameCallback === 'function'
-    ? new Promise((done) => { v.requestVideoFrameCallback(() => done()); setTimeout(done, 3000); })
+    ? new Promise((done) => {
+      const next = () => v.requestVideoFrameCallback((now, frame) => {
+        if (sought || Math.abs(frame.mediaTime - t) <= Math.abs(frame.mediaTime - before)) done(); else next();
+      });
+      next();
+      setTimeout(done, 3000);
+    })
     : null;
   v.currentTime = t;
   await new Promise((done) => {
@@ -199,6 +209,7 @@ async function showVideoAt(v, t) {
     v.addEventListener('loadeddata', done, { once: true });
     setTimeout(done, 10000);
   });
+  sought = true;
   if (presented) await presented;
 }
 
