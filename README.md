@@ -44,7 +44,8 @@ It opens the film in Studio and you watch it take shape. If your agent has no sk
 `npx -y openfilm@latest` and follow the manual it prints."
 
 Or download the desktop app for macOS or Windows from [openfilm.dev](https://openfilm.dev) or
-[Releases](https://github.com/openfilm/openfilm/releases): Studio with a chat beside it for the agents you have.
+[Releases](https://github.com/openfilm/openfilm/releases): Studio with a chat beside it for the agents you have. It
+comes with ffmpeg and the headless browser, so there is nothing else to install.
 
 Making, editing and rendering films needs no account. For generated voice, music, images and video, connect the
 services you use (ElevenLabs, OpenAI, Google, fal and others) with your own keys in Studio's Settings → Providers.

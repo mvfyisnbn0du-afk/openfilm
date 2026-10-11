@@ -8,7 +8,7 @@
  * ffmpeg, updates (preload.cjs). The window opens straight into the last project.
  */
 import { BaseWindow, Menu, WebContentsView, app, dialog, ipcMain, nativeTheme, safeStorage, screen, shell } from 'electron';
-import { appendFileSync, createReadStream, mkdirSync, statSync } from 'node:fs';
+import { appendFileSync, createReadStream, existsSync, mkdirSync, statSync } from 'node:fs';
 import { basename, join } from 'node:path';
 import { Readable } from 'node:stream';
 import { fileURLToPath } from 'node:url';
@@ -23,7 +23,7 @@ import { createRoster } from './agent-roster.mjs';
 import { listAgents, openAgentSignIn } from './agents.mjs';
 import { installOpenfilmCommand } from './openfilm-command.mjs';
 import { startUpdates } from './updates.mjs';
-import { ensureFfmpeg, ffmpegDir, ffmpegDownloadable, ffmpegOnPath } from './ffmpeg-runtime.mjs';
+import { ensureFfmpeg, ffmpegDir, ffmpegDownloadable, ffmpegIn, ffmpegOnPath } from './ffmpeg-runtime.mjs';
 import { PATH_SEP } from './environment.mjs';
 
 const here = (path) => fileURLToPath(new URL(path, import.meta.url));
@@ -209,10 +209,17 @@ async function start() {
   });
 
 
-  /* no ffmpeg on this computer: the app's own goes first on the PATH of Studio and the agents, and is downloaded
-     once the window is up (they find it the moment it lands) */
-  const needFfmpeg = !ffmpegOnPath(env.PATH) && ffmpegDownloadable();
-  if (needFfmpeg) env.PATH = [ffmpegDir(DATA), env.PATH].join(PATH_SEP);
+  /* what the installer brings (scripts/release.mjs): ffmpeg and ffprobe, first on the PATH of Studio and the agents,
+     and the headless browser Studio and `openfilm` draw pages in. A build without them (from source): no ffmpeg on
+     this computer, the app's own goes first on the PATH and is downloaded once the window is up (they find it the
+     moment it lands); the browser, Studio downloads the first time (studio-process.mjs) */
+  const runtime = app.isPackaged ? join(process.resourcesPath, 'runtime') : null;
+  const ownFfmpeg = runtime && ffmpegIn(join(runtime, 'ffmpeg')) ? join(runtime, 'ffmpeg') : null;
+  const needFfmpeg = !ownFfmpeg && !ffmpegOnPath(env.PATH) && ffmpegDownloadable();
+  const ffmpegHere = ownFfmpeg ?? (needFfmpeg ? ffmpegDir(DATA) : null);
+  if (ffmpegHere) env.PATH = [ffmpegHere, env.PATH].join(PATH_SEP);
+  const browsers = runtime && existsSync(join(runtime, 'ms-playwright')) ? { PLAYWRIGHT_BROWSERS_PATH: join(runtime, 'ms-playwright') } : {};
+  Object.assign(env, browsers);
 
   const display = screen.getPrimaryDisplay().workArea;
   const width = Math.min(1480, display.width);
@@ -291,9 +298,9 @@ async function start() {
     log,
     /* Studio refuses to delete a project an agent is working in */
     onWorking: tellWorking,
-    /* the `openfilm` command, and the app's ffmpeg when the computer has none (several folders, PATH-joined) */
-    binDir: [installOpenfilmCommand(DATA), ...(needFfmpeg ? [ffmpegDir(DATA)] : [])].join(PATH_SEP),
-    env: { OPENFILM_HOME: env.OPENFILM_HOME, ...(env.OPENFILM_LIBRARY ? { OPENFILM_LIBRARY: env.OPENFILM_LIBRARY } : {}) },
+    /* the `openfilm` command, and the app's ffmpeg (several folders, PATH-joined) */
+    binDir: [installOpenfilmCommand(DATA), ...(ffmpegHere ? [ffmpegHere] : [])].join(PATH_SEP),
+    env: { OPENFILM_HOME: env.OPENFILM_HOME, ...(env.OPENFILM_LIBRARY ? { OPENFILM_LIBRARY: env.OPENFILM_LIBRARY } : {}), ...browsers },
     harness: async (id) => roster?.harness(id) ?? null,
   });
   /* Settings → Agents (in Studio's page) and the chat's agent menu: one roster, both told of every change */

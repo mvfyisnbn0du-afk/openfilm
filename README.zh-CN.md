@@ -43,7 +43,8 @@ npx skills add openfilm/openfilm
 `npx -y openfilm@latest`，按它打印的手册来做。”
 
 也可以从 [openfilm.dev](https://openfilm.dev) 或 [Releases](https://github.com/openfilm/openfilm/releases)
-下载 macOS 或 Windows 桌面版：就是 Studio，旁边多了一个对话窗口，接上你已有的智能体。
+下载 macOS 或 Windows 桌面版：就是 Studio，旁边多了一个对话窗口，接上你已有的智能体。它自带 ffmpeg 和无界面浏览器，
+不用另外安装。
 
 制作、剪辑和渲染片子都不需要账号。需要生成配音、音乐、图片和视频时，在 Studio 的设置 → 服务商里，用你自己的 key
 连接你在用的服务（ElevenLabs、OpenAI、Google、fal 等）。

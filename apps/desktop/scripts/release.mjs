@@ -14,6 +14,11 @@
  *      and the updater. Optional dependencies are left out: the adapters would bring the makers' own Claude Code and
  *      Codex programs (200–330 MB each), and the app uses the person's own installation instead (src/agents.mjs).
  *      The staged `openfilm` package gets the build's product.json;
+ *   2b. the programs the app needs that are not node modules, for the platform and chip built for, in the app's
+ *      resources (runtime/; src/main.mjs puts them to use): ffmpeg and ffprobe with their license (src/ffmpeg-runtime.mjs),
+ *      and the headless browser Studio and `openfilm` draw pages in (Playwright's, the revision the staged
+ *      playwright-core takes). People never download either: on a slow or blocked connection the first start used to
+ *      fail there;
  *   3. electron-builder makes the .dmg (to download) and the .zip (for updates), signed with the Developer ID
  *      OPENFILM_SIGN_IDENTITY ("Name (TEAMID)") and notarized (APPLE_TEAM_ID, the `openfilm-notary` keychain profile or
  *      OPENFILM_NOTARY_PROFILE), with the update feed written in (none without one). Without OPENFILM_SIGN_IDENTITY
@@ -33,7 +38,7 @@ import { cpSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, write
 import { createRequire } from 'node:module';
 import { createHash } from 'node:crypto';
 import { basename, dirname, join, resolve } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 
 const require = createRequire(import.meta.url);
 const desktop = resolve(dirname(fileURLToPath(import.meta.url)), '..');
@@ -94,6 +99,16 @@ run('npm', ['install', '--omit=dev', '--omit=optional', '--no-audit', '--no-fund
 /* the build's product file */
 cpSync(productFile, join(stage, 'node_modules/openfilm/product.json'));
 
+/* 2b. ffmpeg and the headless browser, for the platform and chip built for */
+const runtime = join(work, 'runtime');
+const { ffmpegDownloadable, fetchFfmpeg } = await import(pathToFileURL(join(desktop, 'src/ffmpeg-runtime.mjs')).href);
+const platform = win ? 'win32' : 'darwin';
+if (ffmpegDownloadable(platform, arch)) await fetchFfmpeg(join(runtime, 'ffmpeg'), { platform, arch, license: true });
+else console.warn(`No ffmpeg build for ${platform}-${arch}: this app downloads none either; people install their own.`);
+run(process.execPath, [join(stage, 'node_modules/playwright-core/cli.js'), 'install', 'chromium-headless-shell'], {
+  env: { ...process.env, PLAYWRIGHT_BROWSERS_PATH: join(runtime, 'ms-playwright'), PLAYWRIGHT_HOST_PLATFORM_OVERRIDE: win ? 'win64' : arch === 'arm64' ? 'mac15-arm64' : 'mac15' },
+});
+
 /* 3. the app */
 const builder = require('electron-builder');
 const electronVersion = require('electron/package.json').version;
@@ -129,6 +144,8 @@ await builder.build({
     /* run by Electron as Node from outside the archive: the CLI the agents run, the agents' adapters */
     asarUnpack: ['node_modules/openfilm/**', 'node_modules/@agentclientprotocol/**', 'node_modules/playwright-core/**'],
     files: ['src/**/*', 'shell/dist/**/*', 'package.json', 'node_modules/**/*'],
+    /* ffmpeg and the headless browser (2b), as files of their own beside the archive: they run as programs */
+    extraResources: [{ from: runtime, to: 'runtime' }],
     directories: { output: out, buildResources: join(desktop, 'build') },
     electronFuses: {
       runAsNode: true,
