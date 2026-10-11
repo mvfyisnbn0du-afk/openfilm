@@ -7,12 +7,6 @@ export const enUS = {
     manage: 'Manage',
   },
   banner: {
-    restart: 'Restart to update',
-    updateReady: 'OpenFilm {version} is ready.',
-    updateInstalling: 'Restarting to update…',
-    updateAgentBusy: 'OpenFilm {version} is ready. An agent is still working: restart when it has finished.',
-    updateExporting: 'OpenFilm {version} is ready. An export is running: restart when it has finished.',
-    updateInstallFailed: 'OpenFilm {version} could not be installed now. Quit OpenFilm and open it again to install it.',
     studioFailed: 'Studio did not start: {error}',
     ffmpegMissing: 'Studio needs ffmpeg for video pictures, sound waves and exports. Install it, then reopen OpenFilm:',
     ffmpegDownloading: 'Getting ffmpeg for video pictures, sound and exports (about 50 MB, once)… {n}%',

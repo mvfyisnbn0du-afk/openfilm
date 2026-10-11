@@ -10,6 +10,15 @@ export const zhCN: Words = {
     projects: '项目',
     desktop: '桌面版',
   },
+  /* the app's update, ready to install (Studio's top bar, in an app that has updates: lib/host.ts `update`) */
+  update: {
+    restart: '重启以更新',
+    ready: 'OpenFilm {version} 已准备好。现在重启即可安装，或在下次退出时自动安装。',
+    agentBusy: '智能体还在工作，等它完成后再重启。',
+    exporting: '正在导出，导出完成后再重启。',
+    installFailed: 'OpenFilm {version} 暂时无法安装。退出 OpenFilm 后重新打开即可安装。',
+    installing: '正在重启…',
+  },
   host: {
     refer: '在对话中引用',
     regionHint: '拖出一个框，在对话中引用',

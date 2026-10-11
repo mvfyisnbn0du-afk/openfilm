@@ -8,12 +8,6 @@ export const ko: Words = {
     manage: '관리',
   },
   banner: {
-    restart: '다시 시작하여 업데이트',
-    updateReady: 'OpenFilm {version}이(가) 준비되었습니다.',
-    updateInstalling: '업데이트를 위해 다시 시작하는 중…',
-    updateAgentBusy: 'OpenFilm {version}이(가) 준비되었습니다. 에이전트가 아직 작업 중입니다. 끝난 뒤 다시 시작하세요.',
-    updateExporting: 'OpenFilm {version}이(가) 준비되었습니다. 내보내는 중입니다. 끝난 뒤 다시 시작하세요.',
-    updateInstallFailed: '지금은 OpenFilm {version}을(를) 설치하지 못했습니다. OpenFilm을 종료했다가 다시 열면 설치됩니다.',
     studioFailed: 'Studio를 시작하지 못했습니다: {error}',
     ffmpegMissing: '영상 화면, 음파, 내보내기에는 ffmpeg가 필요합니다. 설치한 뒤 OpenFilm을 다시 여세요:',
     ffmpegDownloading: '영상 화면, 소리, 내보내기용 ffmpeg를 받는 중(약 50MB, 한 번만)… {n}%',

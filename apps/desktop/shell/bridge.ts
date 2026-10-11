@@ -10,7 +10,7 @@
  * (src/preload.cjs). Imported before Studio's modules and the chat's: Studio reads its host as it loads.
  */
 import { flushSync } from 'react-dom';
-import type { HostAgent, HostAsk, StudioCommand, StudioHost, StudioRef, StudioSelection } from 'openfilm/studio-ui/lib/host.ts';
+import type { HostAgent, HostAsk, HostUpdate, StudioCommand, StudioHost, StudioRef, StudioSelection } from 'openfilm/studio-ui/lib/host.ts';
 
 type Listener<T> = (value: T) => void;
 type Stop = () => void;
@@ -202,6 +202,24 @@ const developer = {
   onChange: (listener: Listener<boolean>) => native.prefs.onChange((prefs) => listener(prefs.developer)),
 };
 
+/* ── the app's update, for Studio's top bar: a version downloaded and ready (src/updates.mjs), Restart to install it ── */
+const WAITING = ['agent-busy', 'exporting', 'install-failed'] as const;
+function shownUpdate(state: unknown): HostUpdate | null {
+  const s = state as { status?: string; availableVersion?: string | null; error?: string | null } | null;
+  if (!s || (s.status !== 'ready' && s.status !== 'installing')) return null;
+  const waiting = WAITING.find((w) => w === s.error) ?? null;
+  return { status: s.status, version: s.availableVersion ?? '', waiting };
+}
+const update: NonNullable<StudioHost['update']> = {
+  onChange(listener) {
+    /* the state the app started with, unless a newer one came first */
+    let told = false;
+    void hello.then((h) => { if (!told) listener(shownUpdate(h.update)); });
+    return native.onUpdate((state) => { told = true; listener(shownUpdate(state)); });
+  },
+  restart: native.restartToUpdate,
+};
+
 /* ── Studio's host ── */
 const mac = native.platform === 'darwin';
 const windows = native.platform === 'win32';
@@ -237,6 +255,7 @@ const host: StudioHost = {
   agents: native.agents,
   asks: { show: (list, answer) => { answerAsk = answer; asks.set(list); } },
   developer,
+  update,
   folders: { pick: native.pickFolder, pathOf: native.pathForFile },
 };
 (window as unknown as { openfilmHost: StudioHost }).openfilmHost = host;
@@ -290,7 +309,7 @@ const uploadName = (name: string) => name.split(/[\\/]/).pop()!.replace(/[\u0000
     await projectReady;
     return {
       platform: native.platform, flavor: h.flavor, theme: theme.get(), language: language.get(), chatOpen: layout.open,
-      project: project.get(), selection: selection.get(), ffmpeg: h.ffmpeg, update: h.update, version: h.version, chatMin: layout.min,
+      project: project.get(), selection: selection.get(), ffmpeg: h.ffmpeg, version: h.version, chatMin: layout.min,
     };
   },
   onTheme: theme.on,
@@ -303,7 +322,6 @@ const uploadName = (name: string) => name.split(/[\\/]/).pop()!.replace(/[\u0000
   onRefer: refer.on,
   onSelection: (listener: Listener<StudioSelection>) => selection.on((s) => { if (s) listener(s); }),
   onFfmpeg: native.onFfmpeg,
-  onUpdate: native.onUpdate,
   showInStudio: (ref: StudioRef) => command?.(commandFor(ref)),
   /* a reference made in the chat (⌘L there, the @ menu) gets its picture as Studio's own do */
   withPicture: (ref: StudioRef) => { const done = pictured.then(() => withPicture(ref)); pictured = done.then(() => {}); return done; },
@@ -344,7 +362,6 @@ const uploadName = (name: string) => name.split(/[\\/]/).pop()!.replace(/[\u0000
   },
   /* a menu of the chat's floats in its own layer over everything: nothing to make room for */
   setMenuOpen() {},
-  restartToUpdate: native.restartToUpdate,
   /* the chat's record of each project, in its .film/chat and .film/logs */
   chat: native.chat,
   asks: { get: asks.get, onChange: asks.on, answer: (id: string, allow: boolean) => answerAsk(id, allow) },

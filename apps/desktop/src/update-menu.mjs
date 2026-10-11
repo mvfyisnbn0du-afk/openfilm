@@ -35,7 +35,7 @@ export function createManualUpdateCheck({ controller, showMessage, focusWindow, 
         const progress = state.status === 'downloading' && state.progress ? ` (${Math.round(state.progress)}%)` : '';
         await say({
           type: 'info', message: `${['Downloading', productName, next].filter(Boolean).join(' ')}${progress}`,
-          detail: 'It downloads in the background: keep working. A Restart button appears in the chat when it is ready.',
+          detail: 'It downloads in the background: keep working. A Restart button appears at the top left when it is ready.',
         });
       } else {
         await say({

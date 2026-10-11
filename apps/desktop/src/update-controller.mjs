@@ -10,7 +10,7 @@
  *   agent-busy | exporting | install-failed   Restart was refused or did not work (the update stays ready)
  */
 
-/** What the menu's dialogs say for each code; the chat has its own words (chat/src/i18n). */
+/** What the menu's dialogs say for each code; Studio's top bar has its own words (its i18n, `update`). */
 export const UPDATE_ERRORS = {
   offline: 'Could not reach the update service. Check your connection and try again.',
   unavailable: 'Updates are unavailable right now. Please try again later.',

@@ -2,7 +2,7 @@
  * Updates, for the packaged app only. electron-updater reads the feed written into the app when it was built
  * (scripts/release.mjs: the product's `desktop.updates`; a build with none never looks for updates), on the channel
  * chosen here (update-channel.mjs), and downloads a new version in the background (update-controller.mjs says where
- * it is; update-schedule.mjs when to look). The chat offers Restart once it is ready, and the menu's "Check for Updates…" answers with a dialog
+ * it is; update-schedule.mjs when to look). Studio's top bar offers Restart once it is ready (shell/bridge.ts `update`), and the menu's "Check for Updates…" answers with a dialog
  * (update-menu.mjs). Quitting installs it too: nothing is lost by not restarting now.
  *
  * logs/updates.log has what happened, state and versions only: no URLs, no messages from the feed's host.

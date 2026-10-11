@@ -9,6 +9,15 @@ export const es: Words = {
     projects: 'Proyectos',
     desktop: 'Escritorio',
   },
+  /* the app's update, ready to install (Studio's top bar, in an app that has updates: lib/host.ts `update`) */
+  update: {
+    restart: 'Reiniciar para actualizar',
+    ready: 'OpenFilm {version} está listo. Reinicia para instalarlo, o se instalará la próxima vez que salgas.',
+    agentBusy: 'Un agente sigue trabajando. Reinicia cuando termine.',
+    exporting: 'Hay una exportación en curso. Reinicia cuando termine.',
+    installFailed: 'No se pudo instalar OpenFilm {version}. Sal de OpenFilm y vuelve a abrirlo para instalarlo.',
+    installing: 'Reiniciando…',
+  },
   host: {
     refer: 'Mencionar en el chat',
     regionHint: 'Arrastra un recuadro para mencionarlo en el chat',

@@ -9,6 +9,15 @@ export const ja: Words = {
     projects: 'プロジェクト',
     desktop: 'デスクトップ版',
   },
+  /* the app's update, ready to install (Studio's top bar, in an app that has updates: lib/host.ts `update`) */
+  update: {
+    restart: '再起動してアップデート',
+    ready: 'OpenFilm {version} の準備ができました。今すぐ再起動してインストールするか、次に終了するときに自動でインストールされます。',
+    agentBusy: 'エージェントがまだ作業中です。終わってから再起動してください。',
+    exporting: '書き出し中です。終わってから再起動してください。',
+    installFailed: 'OpenFilm {version} をインストールできませんでした。OpenFilm を終了してもう一度開くとインストールされます。',
+    installing: '再起動しています…',
+  },
   host: {
     refer: 'チャットで参照',
     regionHint: '枠をドラッグしてチャットで参照',

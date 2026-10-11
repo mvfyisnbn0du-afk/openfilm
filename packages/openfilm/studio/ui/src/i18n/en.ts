@@ -10,6 +10,15 @@ export const en = {
     projects: 'Projects',
     desktop: 'Desktop',
   },
+  /* the app's update, ready to install (Studio's top bar, in an app that has updates: lib/host.ts `update`) */
+  update: {
+    restart: 'Restart to update',
+    ready: 'OpenFilm {version} is ready. Restart to install it, or it installs the next time you quit.',
+    agentBusy: 'An agent is still working. Restart when it has finished.',
+    exporting: 'An export is running. Restart when it has finished.',
+    installFailed: 'OpenFilm {version} could not install. Quit OpenFilm and open it again to install it.',
+    installing: 'Restarting…',
+  },
   host: {
     refer: 'Reference in chat',
     regionHint: 'Drag a box to reference it in chat',

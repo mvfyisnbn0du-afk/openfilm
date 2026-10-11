@@ -15,18 +15,8 @@ export type FfmpegState = boolean | null | { state: 'downloading'; progress?: nu
  * Where an update is (src/update-controller.mjs). The chat shows only a ready one, and why Restart had to wait
  * (`error`: 'agent-busy' | 'exporting' | 'install-failed'); a failed check is the menu's to say.
  */
-export interface UpdateState {
-  status: 'idle' | 'checking' | 'current' | 'available' | 'downloading' | 'staging' | 'ready' | 'installing' | 'error';
-  version: string;
-  channel: 'stable' | 'beta';
-  availableVersion: string | null;
-  progress: number;
-  checkedAt: number | null;
-  error: string | null;
-}
-
 interface AppBridge {
-  hello(): Promise<{ platform: string; flavor: string; theme: Theme; language: string; chatOpen: boolean; project: Project | null; selection: StudioSelection | null; ffmpeg: FfmpegState; update: UpdateState | null; version: string; chatMin: number }>;
+  hello(): Promise<{ platform: string; flavor: string; theme: Theme; language: string; chatOpen: boolean; project: Project | null; selection: StudioSelection | null; ffmpeg: FfmpegState; version: string; chatMin: number }>;
   onTheme(listener: (theme: Theme) => void): () => void;
   /** Studio's language (its <html lang>) */
   onLanguage(listener: (language: string) => void): () => void;
@@ -36,7 +26,6 @@ interface AppBridge {
   onStudioFailed(listener: (message: string) => void): () => void;
   onRefer(listener: (ref: StudioRef) => void): () => void;
   onFfmpeg(listener: (state: FfmpegState) => void): () => void;
-  onUpdate(listener: (state: UpdateState) => void): () => void;
   /** take the person to a reference in Studio */
   showInStudio(ref: StudioRef): void;
   /** the reference with its picture: the viewer as it is now, for one that shows it (lib/host.ts StudioRefImage) */
@@ -54,8 +43,6 @@ interface AppBridge {
   onSelection(listener: (selection: StudioSelection) => void): () => void;
   setChatWidth(width: number, done?: boolean): void;
   setChatOpen(open: boolean): void;
-  /** install a ready update: refused (the update stays ready) while an agent works or Studio exports */
-  restartToUpdate(): Promise<{ ok: boolean; error?: string }>;
   /** the project's assets, drawn by Studio over this column while open (main.mjs `assets`) */
   assetsOpen(): boolean;
   setAssetsOpen(open: boolean): void;

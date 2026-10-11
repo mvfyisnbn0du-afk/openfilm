@@ -52,7 +52,7 @@ import { useLiveActivityFromStore } from '@/lib/live-activity';
 import { loadLastSession, loadSessions, newSession, saveLastSession, saveSessions } from '@/lib/local-sessions';
 import type { ProjectSessionItem } from '@/lib/project-sessions';
 import type { TranscriptItem } from '@/lib/agent-transcript';
-import { app, type FfmpegState, type Project, type StudioRef, type StudioSelection, type UpdateState } from './app-bridge';
+import { app, type FfmpegState, type Project, type StudioRef, type StudioSelection } from './app-bridge';
 import { Divider } from './components/Divider';
 import { draftRefs, pillCard, refFromPill, refPill, sameStudioThing, selectionMoment, selectionRange, selectionRefs, studioReferencesText } from './studio-refs';
 import { inChat } from './lib/chat-layer';
@@ -61,9 +61,6 @@ import { ChatProjectContext, WaitingContext } from './lib/developer';
 
 const NO_ITEMS: TranscriptItem[] = [];
 const EMPTY_STORE: LocalTranscriptStore = { get: () => NO_ITEMS, subscribe: () => () => {} };
-
-/** why Restart had to wait (the update stays ready) */
-const UPDATE_WAIT: Record<string, string> = { 'agent-busy': 'banner.updateAgentBusy', exporting: 'banner.updateExporting', 'install-failed': 'banner.updateInstallFailed' };
 
 const isActive = (turn: Turn | undefined) => turn?.status === 'generating' || turn?.status === 'failing' || turn?.status === 'canceling';
 
@@ -76,15 +73,13 @@ function PlayMark() {
   );
 }
 
-export function App({ initialProject, initialSelection, initialUpdate, initialFfmpeg }: {
+export function App({ initialProject, initialSelection, initialFfmpeg }: {
   initialProject: Project | null;
   initialSelection: StudioSelection | null;
-  initialUpdate: UpdateState | null;
   initialFfmpeg: FfmpegState;
 }) {
   const t = useT();
   const [project, setProject] = React.useState<Project | null>(initialProject);
-  const [update, setUpdate] = React.useState<UpdateState | null>(initialUpdate);
   const [ffmpeg, setFfmpeg] = React.useState<FfmpegState>(initialFfmpeg);
   const [browser, setBrowser] = React.useState<{ state: string; message?: string } | null>(null);
   const [studioFailed, setStudioFailed] = React.useState<string | null>(null);
@@ -96,7 +91,6 @@ export function App({ initialProject, initialSelection, initialUpdate, initialFf
       app.onAssets(setAssetsOpen),
       app.onProject(setProject),
       app.onSelection(setSelection),
-      app.onUpdate(setUpdate),
       app.onFfmpeg(setFfmpeg),
       app.onStudioBrowser(setBrowser),
       app.onStudioFailed(setStudioFailed),
@@ -109,9 +103,6 @@ export function App({ initialProject, initialSelection, initialUpdate, initialFf
   const ffState = typeof ffmpeg === 'object' && ffmpeg ? ffmpeg : null;
   const banners = (
     <>
-      {update?.status === 'ready' ? (
-        <Banner action={{ label: t('banner.restart'), onClick: () => void app.restartToUpdate() }}>{t(UPDATE_WAIT[update.error ?? ''] ?? 'banner.updateReady').replace('{version}', update.availableVersion ?? '')}</Banner>
-      ) : update?.status === 'installing' ? <Banner>{t('banner.updateInstalling')}</Banner> : null}
       {studioFailed ? <Banner tone="error">{t('banner.studioFailed').replace('{error}', studioFailed)}</Banner> : null}
       {ffmpeg === false ? <Banner>{t('banner.ffmpegMissing')} <code className="font-mono">{navigator.platform.startsWith('Win') ? 'winget install ffmpeg' : 'brew install ffmpeg'}</code></Banner> : null}
       {ffState?.state === 'downloading' ? <Banner>{t('banner.ffmpegDownloading').replace('{n}', String(Math.round((ffState.progress ?? 0) * 100)))}</Banner> : null}

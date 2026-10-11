@@ -8,12 +8,6 @@ export const es: Words = {
     manage: 'Gestionar',
   },
   banner: {
-    restart: 'Reiniciar para actualizar',
-    updateReady: 'OpenFilm {version} está listo.',
-    updateInstalling: 'Reiniciando para actualizar…',
-    updateAgentBusy: 'OpenFilm {version} está listo. Un agente sigue trabajando: reinicia cuando termine.',
-    updateExporting: 'OpenFilm {version} está listo. Hay una exportación en curso: reinicia cuando termine.',
-    updateInstallFailed: 'OpenFilm {version} no se pudo instalar ahora. Cierra OpenFilm y vuelve a abrirlo para instalarlo.',
     studioFailed: 'Studio no se inició: {error}',
     ffmpegMissing: 'Studio necesita ffmpeg para las imágenes de video, las ondas de sonido y las exportaciones. Instálalo y vuelve a abrir OpenFilm:',
     ffmpegDownloading: 'Obteniendo ffmpeg para imágenes de video, sonido y exportaciones (unos 50 MB, una sola vez)… {n} %',

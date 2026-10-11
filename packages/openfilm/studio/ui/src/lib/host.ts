@@ -79,6 +79,16 @@ export interface StudioHost {
    */
   asks?: { show: (asks: HostAsk[], answer: (id: string, allow: boolean) => void) => void };
   /**
+   * The app's own updates, shown in Studio's top bar beside the projects button: a new version downloaded and ready,
+   * and Restart to install it. `onChange` gives the state now and on every change (null: nothing to show), and returns
+   * a way to stop listening. `restart` is refused while an agent works or Studio exports; the update then stays ready,
+   * with the reason (`waiting`).
+   */
+  update?: {
+    onChange: (listener: (update: HostUpdate | null) => void) => () => void;
+    restart: () => Promise<{ ok: boolean; error?: string }>;
+  };
+  /**
    * The app's developer mode, for Settings → Developer: on, its chat shows each turn's full log (everything the agent
    * sent and was answered, as it happened). `onChange` tells of a change from anywhere and returns a way to stop.
    */
@@ -97,6 +107,9 @@ export interface StudioHost {
 
 /** A question about spending, worded for the person (see `asks`). */
 export interface HostAsk { id: string; title: string; body: string | null; allowLabel: string; denyLabel: string }
+
+/** An update of the app, ready to install or installing; `waiting`: why the last Restart did not go ahead. */
+export type HostUpdate = { status: 'ready' | 'installing'; version: string; waiting?: 'agent-busy' | 'exporting' | 'install-failed' | null };
 
 export type HostAgentId = 'codex' | 'claude' | 'gemini' | 'copilot' | 'cursor' | 'opencode' | 'codebuddy' | 'qwen' | 'kimi' | 'byok';
 /** The API a person's own key is for: OpenAI's Responses or Chat Completions, or Anthropic's Messages. */
@@ -252,4 +265,12 @@ export function useHostPanel(): HostPanel | null {
     setWidth: (width, done) => panel.setWidth?.(width, done),
     assets: setAssetsOpen ? { open: state.open && state.assetsOpen, bottom: state.bottom, setOpen: (open) => setAssetsOpen(open) } : null,
   };
+}
+
+/** The app's update to show in the top bar (see `update`), kept current. Null without one. */
+export function useHostUpdate(): { update: HostUpdate; restart: () => Promise<{ ok: boolean; error?: string }> } | null {
+  const host = studioHost?.update;
+  const [update, setUpdate] = React.useState<HostUpdate | null>(null);
+  React.useEffect(() => host?.onChange(setUpdate), [host]);
+  return host && update ? { update, restart: host.restart } : null;
 }

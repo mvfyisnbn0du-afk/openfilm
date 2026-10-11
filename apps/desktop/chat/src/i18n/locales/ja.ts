@@ -8,12 +8,6 @@ export const ja: Words = {
     manage: '管理',
   },
   banner: {
-    restart: '再起動してアップデート',
-    updateReady: 'OpenFilm {version} の準備ができました。',
-    updateInstalling: '再起動してアップデートしています…',
-    updateAgentBusy: 'OpenFilm {version} の準備ができました。エージェントが作業中です。終わってから再起動してください。',
-    updateExporting: 'OpenFilm {version} の準備ができました。書き出し中です。終わってから再起動してください。',
-    updateInstallFailed: 'OpenFilm {version} を今はインストールできませんでした。OpenFilm を終了して開き直すとインストールされます。',
     studioFailed: 'Studio を起動できませんでした：{error}',
     ffmpegMissing: '動画の表示、波形、書き出しには ffmpeg が必要です。インストールしてから OpenFilm を開き直してください：',
     ffmpegDownloading: '動画の表示、音声、書き出し用の ffmpeg を取得中（約 50 MB、初回のみ）… {n}%',

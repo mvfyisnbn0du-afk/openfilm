@@ -8,12 +8,6 @@ export const zhCN: Words = {
     manage: '管理',
   },
   banner: {
-    restart: '重启以更新',
-    updateReady: 'OpenFilm {version} 已准备好。',
-    updateInstalling: '正在重启以更新…',
-    updateAgentBusy: 'OpenFilm {version} 已准备好。智能体还在工作，等它完成后再重启。',
-    updateExporting: 'OpenFilm {version} 已准备好。正在导出，导出完成后再重启。',
-    updateInstallFailed: 'OpenFilm {version} 暂时无法安装。退出 OpenFilm 后重新打开即可安装。',
     studioFailed: 'Studio 没有启动：{error}',
     ffmpegMissing: 'Studio 需要 ffmpeg 来显示视频画面、声音波形和导出。安装后重新打开 OpenFilm：',
     ffmpegDownloading: '正在获取 ffmpeg，用于视频画面、声音和导出（约 50 MB，仅一次）… {n}%',

@@ -14,6 +14,6 @@ export async function mountChat(root: HTMLElement) {
   setLanguage(hello.language);
   app.onLanguage(setLanguage);
   createRoot(root).render(
-    <StrictMode><App initialProject={hello.project} initialSelection={hello.selection} initialUpdate={hello.update} initialFfmpeg={hello.ffmpeg} /></StrictMode>,
+    <StrictMode><App initialProject={hello.project} initialSelection={hello.selection} initialFfmpeg={hello.ffmpeg} /></StrictMode>,
   );
 }
