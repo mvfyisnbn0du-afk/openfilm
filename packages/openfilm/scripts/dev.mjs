@@ -7,7 +7,8 @@
  * your browser (OPENFILM_NO_BROWSER=1: it only prints the address). Ctrl+C stops it all.
  *
  * It also writes .dev/bin/openfilm (and openfilm.cmd on Windows): this checkout's command on this Studio, for your own
- * agent to try your changes with.
+ * agent to try your changes with; and in .dev/projects (this Studio's library) an AGENTS.md and a CLAUDE.md saying so,
+ * so an agent opened in that folder uses it without being told.
  */
 import { spawn } from 'node:child_process';
 import { chmodSync, existsSync, mkdirSync, readFileSync, watch, writeFileSync } from 'node:fs';
@@ -38,6 +39,23 @@ chmodSync(sh, 0o755);
 if (process.platform === 'win32') {
   writeFileSync(join(BIN, 'openfilm.cmd'), `@echo off\r\n${SHARED.map((k) => `set "${k}=${env[k]}"`).join('\r\n')}\r\nset "OPENFILM_RUN=%~f0"\r\n"${process.execPath}" "${CLI}" %*\r\n`);
 }
+
+/* an agent opened in this Studio's library (Codex reads AGENTS.md, Claude Code CLAUDE.md) makes its films with this
+   checkout, on this Studio: the skill's `npx openfilm@latest` is the release, on the Studio of an installed OpenFilm */
+const command = process.platform === 'win32' ? join(BIN, 'openfilm.cmd') : sh;
+const AGENT_NOTE = `# Films made with an OpenFilm checkout
+
+This folder is the library of the Studio that \`pnpm dev\` runs from an OpenFilm checkout. Here OpenFilm is that
+checkout: wherever a skill or the manual says \`openfilm\` or \`npx openfilm\`, run
+
+    ${command}
+
+and never \`npx openfilm\` (the published version, on another Studio). Run it with no arguments for the manual. Make
+each film in a folder of its own here; it shows in that Studio.
+`;
+mkdirSync(env.OPENFILM_LIBRARY, { recursive: true });
+writeFileSync(join(env.OPENFILM_LIBRARY, 'AGENTS.md'), AGENT_NOTE);
+writeFileSync(join(env.OPENFILM_LIBRARY, 'CLAUDE.md'), AGENT_NOTE);
 
 /* a small film to open: one page, drawn by frame(t) */
 const SAMPLE = join(DEV, 'projects', 'Sample');
@@ -109,8 +127,7 @@ for (const end = Date.now() + 30_000; Date.now() < end; await new Promise((r) =>
     body: JSON.stringify({ path: SAMPLE, now: !quiet, fallback: 0 }),
   }).catch((e) => ({ ok: false, json: async () => ({ error: e.message }) }));
   const said = await res.json();
-  const command = process.platform === 'win32' ? join(BIN, 'openfilm.cmd') : sh;
-  console.log(res.ok ? `\nStudio (dev)  ${said.url}\nhome          ${env.OPENFILM_HOME}\nyour agent    tell it to run ${command} instead of npx openfilm: this checkout, on this Studio\n` : `\ncould not open the sample: ${said.error}\n`);
+  console.log(res.ok ? `\nStudio (dev)  ${said.url}\nhome          ${env.OPENFILM_HOME}\nyour agent    open it in ${env.OPENFILM_LIBRARY} (its AGENTS.md and CLAUDE.md say to run ${command}): this checkout, on this Studio\n` : `\ncould not open the sample: ${said.error}\n`);
   break;
 }
 

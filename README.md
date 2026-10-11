@@ -143,7 +143,7 @@ pnpm dev            # Studio from this checkout, with a sample film, apart from 
 pnpm test
 ```
 
-`pnpm dev` also prints a command your coding agent can run to make films with your checkout, in that Studio.
+Open your coding agent in `packages/openfilm/.dev/projects` and it makes films with your checkout, in that Studio.
 
 `pnpm dev:desktop` runs the desktop app from source, and `pnpm typecheck`, `pnpm build` and `pnpm audit:public` do
 what they say.

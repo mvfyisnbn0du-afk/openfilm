@@ -138,7 +138,7 @@ pnpm dev            # 用这份源码运行 Studio，带一部示例片，和你
 pnpm test
 ```
 
-`pnpm dev` 还会打印一条命令，你的编程智能体运行它，就能用这份源码在这个 Studio 里做片子。
+在 `packages/openfilm/.dev/projects` 里打开你的编程智能体，它就会用这份源码在这个 Studio 里做片子。
 
 `pnpm dev:desktop` 从源码运行桌面版；`pnpm typecheck`、`pnpm build` 和 `pnpm audit:public` 分别是类型检查、构建和
 公开内容审计。各个包的详细说明见 [CONTRIBUTING.md](CONTRIBUTING.md)（英文）。
