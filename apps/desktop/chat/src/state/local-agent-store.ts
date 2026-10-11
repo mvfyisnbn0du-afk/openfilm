@@ -73,23 +73,28 @@ function save(s: Persisted): void {
   } catch { /* private mode */ }
 }
 
-/**
- * What an agent's model is called, when Settings sets it rather than the agent: the own key's model. Null for the
- * person's own agents, whose own option list says.
- */
-export function fixedModel(agent: LocalAgentId, roster: RosterAgent[] | null): string | null {
-  if (agent === 'byok') return roster?.find((a) => a.id === 'byok')?.byok?.model ?? null;
-  return null;
+/** The own key's models, as Settings names them (the first one to begin with). */
+function byokModels(roster: RosterAgent[] | null): string[] {
+  const byok = roster?.find((a) => a.id === 'byok')?.byok;
+  if (!byok) return [];
+  return byok.models?.length ? byok.models : [byok.model].filter(Boolean);
 }
 
 /**
- * Which of an agent's options the menu offers. The app's own agent runs the model Settings names (Codex would list
- * OpenAI's, which the person's service may not have), and no OpenAI fast mode; through the Chat Completions
- * translator, no reasoning effort either (it does not carry it).
+ * An agent's option list, for the menu. The own key's is its models, from Settings: no session has to start to know
+ * them (the app's own agent reports the same `model` option, apps/desktop/src/pi-config.mjs modelOption). The person's
+ * own agents' is the one a session last reported.
  */
+export function agentOptions(state: Pick<LocalAgentStore, 'options' | 'roster'>, agent: LocalAgentId): ConfigOptions | undefined {
+  if (agent !== 'byok') return state.options[agent];
+  const models = byokModels(state.roster);
+  if (!models.length) return undefined;
+  return [{ id: 'model', name: 'Model', category: 'model', type: 'select', currentValue: models[0], options: models.map((m) => ({ value: m, name: m })) }];
+}
+
+/** Which of an agent's options the menu offers. The app's own agent offers its models, and no OpenAI fast mode. */
 export function offeredOption(agent: LocalAgentId, roster: RosterAgent[] | null, option: { id: string; category?: string; name: string }): boolean {
   if (agent !== 'byok') return true;
-  if (option.category === 'model') return false;
   if (/^(fast|fast-mode|speed)$/i.test(option.id) || option.category === 'speed') return false;
   if (option.category === 'thought_level') return roster?.find((a) => a.id === 'byok')?.byok?.format !== 'chat';
   return true;
@@ -128,8 +133,8 @@ export const useLocalAgents = create<LocalAgentStore>((set, get) => ({
         for (const before of get().roster ?? []) {
           const now = roster.find((a) => a.id === before.id);
           if (before.status === 'ready' && now?.status !== 'ready') forgetLocalAgentSessions(before.id);
-          /* another model (the own key's): its sessions were closed for the next one to use it */
-          else if (before.byok?.model !== now?.byok?.model) forgetLocalAgentSessions(before.id);
+          /* other models (the own key's): its sessions were closed for the next ones to use them */
+          else if (String(byokModels([before])) !== String(byokModels(now ? [now] : []))) forgetLocalAgentSessions(before.id);
         }
         set({ roster });
       });
@@ -155,7 +160,8 @@ export const useLocalAgents = create<LocalAgentStore>((set, get) => ({
     save(get());
   },
   async ensureOptions(agent) {
-    if (get().options[agent] || probing.has(agent)) return;
+    /* the own key's are known from Settings (agentOptions) */
+    if (agent === 'byok' || get().options[agent] || probing.has(agent)) return;
     const api = desktopBridge()?.localAgents;
     if (!api) return;
     probing.add(agent);
@@ -192,7 +198,10 @@ export function effectivePrefs(prefs: Persisted['prefs'], agent: LocalAgentId, r
   const claudeHarness = agent === 'byok' && roster?.find((a) => a.id === 'byok')?.byok?.format === 'anthropic';
   /* "default" was a row the menu no longer offers (the agents name their default for what it is): the agent's own
      current value stands instead */
-  const kept = Object.fromEntries(Object.entries(prefs[agent] ?? {}).filter(([, value]) => value !== 'default'));
+  /* a model the own key no longer names: its first one stands instead */
+  const models = agent === 'byok' ? byokModels(roster ?? null) : null;
+  const kept = Object.fromEntries(Object.entries(prefs[agent] ?? {})
+    .filter(([id, value]) => value !== 'default' && !(models && id === 'model' && !models.includes(String(value)))));
   const effort = options?.find((o) => o.category === 'thought_level');
   const high = effort && !(effort.id in kept) && effort.options?.some((o) => o.value === 'high') ? { [effort.id]: 'high' } : {};
   return { ...high, ...kept, ...(AGENT_FORCED_PREFS[claudeHarness ? 'claude' : agent] ?? {}) };

@@ -1,8 +1,8 @@
 /**
  * What the app's own agent (Pi, src/pi-agent.mjs) runs with, and how what it does reads in the chat (ACP).
  *
- * The service is one provider in Pi's `models.json`: the person's own key on one of three APIs, with the one model
- * they named.
+ * The service is one provider in Pi's `models.json`: the person's own key on one of three APIs, with the models they
+ * named; the chat's menu switches between them (`modelOption`).
  *
  * Reads no Electron module, so `node --test` can use it.
  */
@@ -14,17 +14,17 @@ export const PI_APIS = Object.freeze({ chat: 'openai-completions', responses: 'o
 const CONTEXT = 128_000;
 
 /**
- * Pi's `models.json` for the service and its model.
- * @param {{ id: string, api: string, baseUrl: string, apiKeyEnv: string }} provider @param {string} model
+ * Pi's `models.json` for the service and its models.
+ * @param {{ id: string, api: string, baseUrl: string, apiKeyEnv: string }} provider @param {string[] | string} models
  */
-export function modelsJson(provider, model) {
+export function modelsJson(provider, models) {
   return {
     providers: {
       [provider.id]: {
         baseUrl: provider.baseUrl,
         api: provider.api,
         apiKey: `$${provider.apiKeyEnv}`,
-        models: [{
+        models: [models].flat().map((model) => ({
           id: model,
           name: model,
           input: ['text', 'image'],
@@ -32,10 +32,15 @@ export function modelsJson(provider, model) {
           maxTokens: Math.floor(CONTEXT / 4),
           reasoning: false,
           cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
-        }],
+        })),
       },
     },
   };
+}
+
+/** The model as a config option the chat's menu reads (ACP): the models named, and the one a session runs. */
+export function modelOption(models, current) {
+  return { id: 'model', name: 'Model', category: 'model', type: 'select', currentValue: current, options: models.map((m) => ({ value: m, name: m })) };
 }
 
 /** A tool call as the chat reads it (ACP): its kind, its title, and what it was run with. */

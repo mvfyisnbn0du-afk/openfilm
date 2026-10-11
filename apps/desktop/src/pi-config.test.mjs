@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { contextUsed, modelsJson, outOfBalance, stopReason, toolCall, toolContent } from './pi-config.mjs';
+import { contextUsed, modelOption, modelsJson, outOfBalance, stopReason, toolCall, toolContent } from './pi-config.mjs';
 
 test('the person\'s own key is one provider in Pi\'s models.json, with the one model they named', () => {
   const p = modelsJson({ id: 'byok', api: 'openai-completions', baseUrl: 'https://api.deepseek.com/v1', apiKeyEnv: 'K' }, 'vision').providers.byok;
@@ -13,6 +13,15 @@ test('the person\'s own key is one provider in Pi\'s models.json, with the one m
   assert.deepEqual(model.input, ['text', 'image']);
   assert.equal(model.contextWindow, 128_000, 'a length when the service gives none');
   assert.equal(model.reasoning, false);
+});
+
+test('several models are each one of the provider\'s, and the chat\'s menu reads them as the model option', () => {
+  const p = modelsJson({ id: 'byok', api: 'openai-responses', baseUrl: 'https://api.openai.com/v1', apiKeyEnv: 'K' }, ['gpt-a', 'gpt-b']).providers.byok;
+  assert.deepEqual(p.models.map((m) => m.id), ['gpt-a', 'gpt-b']);
+  assert.deepEqual(modelOption(['gpt-a', 'gpt-b'], 'gpt-b'), {
+    id: 'model', name: 'Model', category: 'model', type: 'select', currentValue: 'gpt-b',
+    options: [{ value: 'gpt-a', name: 'gpt-a' }, { value: 'gpt-b', name: 'gpt-b' }],
+  });
 });
 
 test('what Pi does reads in the chat as Codex\'s did: a command\'s kind and title, a file\'s path, the result\'s text and pictures', () => {

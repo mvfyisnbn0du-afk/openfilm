@@ -19,7 +19,7 @@ import { Tooltip } from '@/components/Tooltip';
 import { AgentIcon } from '@/components/AgentIcons';
 import { POPOVER_CHROME } from '@/components/ComposerCard';
 import { desktopBridge, type LocalAgentId, type RosterAgent } from '@/lib/desktop-bridge';
-import { agentModelSummary, currentAgent, effectivePrefs, fixedModel, offeredOption, optionLabel, optionValue, shownAgents, useLocalAgents } from '@/state/local-agent-store';
+import { agentModelSummary, agentOptions, currentAgent, effectivePrefs, offeredOption, optionLabel, optionValue, shownAgents, useLocalAgents } from '@/state/local-agent-store';
 import { chatLayer } from '@/lib/chat-layer';
 
 /** the card, wider when it lists the agents; the side menu's least width; the gap between them; the window's margin */
@@ -94,11 +94,11 @@ export function ModelPopover({ placement = 'bottom', align = 'start' }: { placem
     });
   }, [open, refresh, ensureOptions]);
 
-  const options = la.options[agent];
-  const prefs = effectivePrefs(la.prefs, agent, la.roster, la.options[agent]);
+  const options = agentOptions(la, agent);
+  const prefs = effectivePrefs(la.prefs, agent, la.roster, options);
   const rows = menuOptions(options).filter((o) => offeredOption(agent, la.roster, o));
   const summary = agentModelSummary(options, prefs);
-  const triggerModel = fixedModel(agent, la.roster) ?? summary.model;
+  const triggerModel = summary.model;
   const triggerEffort = rows.some((o) => o.category === 'thought_level') ? summary.effort : null;
   const valueOf = (o: Option) => (o.category === 'model' ? triggerModel : null) ?? optionLabel(options, o.id, optionValue(options, prefs, o.id)) ?? '';
   const rowLabel = (o: Option) => (o.category === 'model' ? t('composer.model') : o.category === 'thought_level' ? t('composer.effort') : isSpeed(o) ? t('composer.speed') : o.name);
@@ -232,7 +232,7 @@ export function ModelPopover({ placement = 'bottom', align = 'start' }: { placem
                 {current ? `${nameOf(current)}: ${statusOf(current) ?? ''}` : t('composer.agentLoading')}{' '}
                 <button type="button" onMouseDown={keepFocus} onClick={openSettings} className="text-[var(--text)] underline underline-offset-2">{t('composer.openSettings')}</button>
               </div>
-            ) : rows.length === 0 ? (
+            ) : rows.length === 0 && options && !la.optionsError[agent] ? null : rows.length === 0 ? (
               <p className="px-2.5 py-1.5 text-[12px] leading-relaxed text-[var(--text-muted)]">
                 {la.optionsError[agent]
                   ? <>{t('composer.agentOptionsFailed')} <button type="button" onMouseDown={keepFocus} onClick={() => void la.ensureOptions(agent)} className="text-[var(--text)] underline underline-offset-2">{t('project.retry')}</button></>

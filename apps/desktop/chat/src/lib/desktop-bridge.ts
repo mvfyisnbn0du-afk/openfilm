@@ -24,7 +24,7 @@ export interface RosterAgent {
   install?: string | null;
   setupRequired?: string | null;
   error?: string;
-  byok?: { format: 'responses' | 'chat' | 'anthropic'; baseUrl: string; model: string; last4: string };
+  byok?: { format: 'responses' | 'chat' | 'anthropic'; baseUrl: string; model: string; models?: string[]; last4: string };
 }
 
 export interface LocalAgentState {

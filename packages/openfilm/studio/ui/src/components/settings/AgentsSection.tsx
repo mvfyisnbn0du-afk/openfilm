@@ -110,7 +110,7 @@ export function AgentsSection() {
                 {t('settings.agents.recommended')}
               </span>
             ) : null}
-            {agent.status === 'ready' && chosen ? <SettingsStatus>{ownKey ? `${agent.byok!.model} · •••• ${agent.byok!.last4}` : t('settings.agents.ready')}</SettingsStatus> : null}
+            {agent.status === 'ready' && chosen ? <SettingsStatus>{ownKey ? `${byokModels(agent).join(', ')} · •••• ${agent.byok!.last4}` : t('settings.agents.ready')}</SettingsStatus> : null}
           </>
         )}
         description={agent.status === 'ready' ? null : statusLine(agent)}
@@ -162,14 +162,23 @@ const FORMATS: ReadonlyArray<{ value: HostByokFormat; label: string; address: st
   { value: 'anthropic', label: 'Anthropic Messages', address: 'https://api.anthropic.com' },
 ];
 
-/** The person's own key: the API format, its address (the official one, or any service that speaks it), the model and the key. Checked before it is kept. */
+/** The own key's models, the first one the chat begins with. */
+const byokModels = (agent: HostAgent) => (agent.byok?.models?.length ? agent.byok.models : [agent.byok?.model ?? ''].filter(Boolean));
+
+/** Model names typed in one field, separated by commas or new lines: trimmed, each once. */
+const modelNames = (text: string) => [...new Set(text.split(/[,\n]/).map((m) => m.trim()).filter(Boolean))];
+
+/**
+ * The person's own key: the API format, its address (the official one, or any service that speaks it), the models (the
+ * chat's menu switches between them) and the key. Checked before it is kept.
+ */
 function ByokForm({ agent, onDone }: { agent: HostAgent; onDone: () => void }) {
   const t = useT();
   const host = studioHost?.agents;
   const [format, setFormat] = React.useState<HostByokFormat>(agent.byok?.format ?? 'responses');
   const official = FORMATS.find((f) => f.value === format)!;
   const [baseUrl, setBaseUrl] = React.useState(agent.byok?.baseUrl ?? official.address);
-  const [model, setModel] = React.useState(agent.byok?.model ?? '');
+  const [models, setModels] = React.useState(byokModels(agent).join(', '));
   const [key, setKey] = React.useState('');
   const [state, setState] = React.useState<{ busy: boolean; error: string | null }>({ busy: false, error: null });
   /* another format: its official address, unless the person typed one of their own */
@@ -180,11 +189,11 @@ function ByokForm({ agent, onDone }: { agent: HostAgent; onDone: () => void }) {
   const save = () => {
     if (!host) return;
     setState({ busy: true, error: null });
-    void host.configureByok({ format, baseUrl, model, ...(key ? { key } : {}) })
+    void host.configureByok({ format, baseUrl, models: modelNames(models), ...(key ? { key } : {}) })
       .then((r) => { if (r.ok) { setKey(''); setState({ busy: false, error: null }); onDone(); } else setState({ busy: false, error: r.error ?? t('settings.agents.failed') }); })
       .catch((e: unknown) => setState({ busy: false, error: e instanceof Error ? e.message : String(e) }));
   };
-  const ready = model.trim() && baseUrl.trim() && (key.trim() || agent.byok);
+  const ready = modelNames(models).length > 0 && baseUrl.trim() && (key.trim() || agent.byok);
   const label = (text: string) => <span className="w-[92px] shrink-0 text-[13px] text-[var(--text-muted)]">{text}</span>;
   return (
     <SettingsInset>
@@ -200,7 +209,7 @@ function ByokForm({ agent, onDone }: { agent: HostAgent; onDone: () => void }) {
         </div>
         <div className="flex items-center gap-2">
           {label(t('settings.agents.model'))}
-          <SettingsField value={model} onChange={(e) => setModel(e.target.value)} placeholder={t('settings.agents.modelPlaceholder')} aria-label={t('settings.agents.model')} spellCheck={false} />
+          <SettingsField value={models} onChange={(e) => setModels(e.target.value)} placeholder={t('settings.agents.modelPlaceholder')} aria-label={t('settings.agents.model')} spellCheck={false} />
         </div>
         <div className="flex items-center gap-2">
           {label(t('settings.agents.key'))}

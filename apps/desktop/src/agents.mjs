@@ -389,7 +389,7 @@ export class AgentSession {
     const own = !harness ? {} : {
       ...harness.env,
       OPENFILM_GET_WEB: '1',
-      OPENFILM_PI: JSON.stringify({ agentDir: harness.home, provider: harness.provider, model: harness.model, systemPrompt: ownAgentPrompt() }),
+      OPENFILM_PI: JSON.stringify({ agentDir: harness.home, provider: harness.provider, model: harness.model, models: harness.models ?? [harness.model], systemPrompt: ownAgentPrompt() }),
     };
     /* an agent that speaks ACP itself: its own program, started as the registry starts it */
     const native = cli && !this.spec.adapter ? starting(cli.path, this.spec.args) : null;

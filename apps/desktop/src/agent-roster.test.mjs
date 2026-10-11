@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, readFileSync } from 'node:fs';
+import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createRoster, probeRequest, readChoices } from './agent-roster.mjs';
@@ -43,7 +43,7 @@ test('a key is kept only once the service took it with a picture; a model that c
   assert.match((await r.configureByok({ format: 'chat', baseUrl: 'https://api.deepseek.com/v1', model: 'm', key: 'bad' })).error, /did not accept/);
   answer = { status: 200, body: { choices: [] } };
   assert.deepEqual(await r.configureByok({ format: 'chat', baseUrl: 'https://api.deepseek.com/v1/', model: 'vision', key: 'sk-good-9876' }), { ok: true });
-  assert.deepEqual(readChoices(dir).byok, { format: 'chat', baseUrl: 'https://api.deepseek.com/v1', model: 'vision', last4: '9876' });
+  assert.deepEqual(readChoices(dir).byok, { format: 'chat', baseUrl: 'https://api.deepseek.com/v1', model: 'vision', models: ['vision'], last4: '9876' });
   assert.equal(readChoices(dir).shown.byok, true, 'set up: shown in the chat');
   assert.equal(readFileSync(join(dir, 'byok.key'), 'utf8'), 'sealed:sk-good-9876', 'the key sealed');
   assert.equal(JSON.stringify(readChoices(dir)).includes('sk-good'), false, 'never in the choices file');
@@ -71,6 +71,37 @@ test('each format is Pi\'s provider on that API, the key in its own variable', a
   assert.equal(h.provider.api, 'anthropic-messages');
   assert.equal(h.provider.baseUrl, 'https://api.anthropic.com');
   assert.equal(h.model, 'claude-x');
+});
+
+test('a key may name several models: each is asked with a picture, the first is the one a session starts on', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'of-roster-'));
+  const asked = [];
+  const fetch = async (_url, init) => {
+    const { model } = JSON.parse(init.body);
+    asked.push(model);
+    return model === 'text-only'
+      ? new Response(JSON.stringify({ error: { message: 'This model does not support image input.' } }), { status: 400 })
+      : new Response('{}', { status: 200 });
+  };
+  const r = roster(dir, fetch);
+  const refused = await r.configureByok({ format: 'chat', baseUrl: 'https://api.deepseek.com/v1', models: 'vision, text-only', key: 'sk-1234' });
+  assert.equal(refused.ok, false);
+  assert.match(refused.error, /^text-only: /, 'says which model');
+  assert.equal(readChoices(dir).byok, null, 'nothing kept');
+  asked.length = 0;
+  assert.deepEqual(await r.configureByok({ format: 'chat', baseUrl: 'https://api.deepseek.com/v1', models: 'vision\n big , vision,', key: 'sk-1234' }), { ok: true });
+  assert.deepEqual(asked.sort(), ['big', 'vision']);
+  assert.deepEqual(readChoices(dir).byok.models, ['vision', 'big'], 'trimmed, each once, in order');
+  const h = r.harness('byok');
+  assert.equal(h.model, 'vision');
+  assert.deepEqual(h.models, ['vision', 'big']);
+  assert.deepEqual(r.list().find((a) => a.id === 'byok').byok.models, ['vision', 'big']);
+});
+
+test('a key kept with one model, before there could be several, reads as that one', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'of-roster-'));
+  writeFileSync(join(dir, 'agents.json'), JSON.stringify({ byok: { format: 'responses', baseUrl: 'https://api.openai.com/v1', model: 'gpt-x', last4: 'abcd' } }));
+  assert.deepEqual(readChoices(dir).byok, { format: 'responses', baseUrl: 'https://api.openai.com/v1', model: 'gpt-x', models: ['gpt-x'], last4: 'abcd' });
 });
 
 test("Codex and Claude Code are shown in the chat from the start, the person's other agents once connected or switched on", async () => {

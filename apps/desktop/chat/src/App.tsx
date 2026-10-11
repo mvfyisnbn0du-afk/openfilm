@@ -47,7 +47,7 @@ import { readBalance, type TurnBalance } from '@/lib/balance';
 import { BalanceNotice } from '@/components/BalanceNotice';
 import { readStudioFilm } from '@/lib/studio-film';
 import { studioRefsFromTransfer, transferHasStudioRefs } from '@/lib/studio-transfer';
-import { agentModelSummary, currentAgent, effectivePrefs, fixedModel, offeredOption, useLocalAgents } from '@/state/local-agent-store';
+import { agentModelSummary, agentOptions, currentAgent, effectivePrefs, offeredOption, useLocalAgents } from '@/state/local-agent-store';
 import { useLiveActivityFromStore } from '@/lib/live-activity';
 import { loadLastSession, loadSessions, newSession, saveLastSession, saveSessions } from '@/lib/local-sessions';
 import type { ProjectSessionItem } from '@/lib/project-sessions';
@@ -412,13 +412,13 @@ function ChatPane({ project, banners, selection, assetsOpen }: { project: Projec
   function startTurn(id: string, instruction: string, prepared: Promise<{ text: string; images: PromptImage[] }>, promptDisplay: Turn['promptDisplay'] | null, attachments: Turn['attachments'] = []): void {
     const turn = createLocalAgentTurn(id, agent, ordered.length);
     const agentStore = useLocalAgents.getState();
-    const prefs = effectivePrefs(agentStore.prefs, agent, agentStore.roster, agentStore.options[agent]);
-    const summary = agentModelSummary(agentStore.options[agent], prefs);
-    const fixed = fixedModel(agent, agentStore.roster);
+    const options = agentOptions(agentStore, agent);
+    const prefs = effectivePrefs(agentStore.prefs, agent, agentStore.roster, options);
+    const summary = agentModelSummary(options, prefs);
     /* how hard it thinks, as the menu offers it */
-    const effortOption = agentStore.options[agent]?.find((o) => o.category === 'thought_level');
+    const effortOption = options?.find((o) => o.category === 'thought_level');
     const effort = effortOption && offeredOption(agent, agentStore.roster, effortOption) ? summary.effort : null;
-    const modelLabel = [fixed ?? summary.model, effort].filter(Boolean).join(' · ');
+    const modelLabel = [summary.model, effort].filter(Boolean).join(' · ');
     const started: Turn = {
       ...makePlaceholder(id, 'video', instruction, { projectId: projectKey, sessionId }),
       ...(promptDisplay ? { promptDisplay } : {}),

@@ -9,8 +9,9 @@
  *     connects one or switches it on.
  *   · byok — the app's own agent (Pi, pi-agent.mjs) on the person's own key, on a standard API in one of three formats: the OpenAI
  *     Responses API (…/v1/responses), the OpenAI Chat Completions API (…/v1/chat/completions) or the Anthropic Messages
- *     API (…/v1/messages); Pi speaks each. The model has to read pictures (the agent looks at its own frames): setting
- *     it up sends one small request with a picture, and a model that cannot take it is refused.
+ *     API (…/v1/messages); Pi speaks each. It may name several models (the chat's menu switches between them, the first
+ *     one to begin with). Each has to read pictures (the agent looks at its own frames): setting it up sends one small
+ *     request with a picture to each, and a model that cannot take it is refused.
  *
  * Each has a switch for whether the chat's menu shows it. Kept in the app's data folder: agents.json (the choices) and
  * byok.key (the key, sealed with the system's keychain by the caller's `seal`/`unseal`).
@@ -60,13 +61,25 @@ export function readChoices(dataDir) {
   const shown = { ...DEFAULT_SHOWN };
   for (const id of AGENT_IDS) if (typeof raw.shown?.[id] === 'boolean') shown[id] = raw.shown[id];
   const byok = raw.byok && typeof raw.byok === 'object' && Object.hasOwn(BYOK_FORMATS, raw.byok.format)
-    ? { format: raw.byok.format, baseUrl: String(raw.byok.baseUrl ?? ''), model: String(raw.byok.model ?? ''), last4: String(raw.byok.last4 ?? '') }
+    ? byokChoice(raw.byok)
     : null;
   return {
     shown,
     disconnected: Array.isArray(raw.disconnected) ? raw.disconnected.filter((id) => AGENT_IDS.includes(id)) : [],
     byok,
   };
+}
+
+/** The own key's choice as kept: its models (one kept before there could be several is the one), the first the default. */
+function byokChoice(raw) {
+  const models = modelList(Array.isArray(raw.models) && raw.models.length ? raw.models : [raw.model]);
+  return { format: raw.format, baseUrl: String(raw.baseUrl ?? ''), model: models[0] ?? '', models, last4: String(raw.last4 ?? '') };
+}
+
+/** Model names, from a list or text (separated by commas or new lines): trimmed, each once, in order. */
+export function modelList(value) {
+  const names = (Array.isArray(value) ? value : String(value ?? '').split(/[,\n]/)).map((m) => String(m ?? '').trim()).filter(Boolean);
+  return [...new Set(names)];
 }
 
 function writeChoices(dataDir, choices) {
@@ -170,7 +183,7 @@ export function createRoster(deps) {
       shown: choices.shown[id] ?? false,
       ...stateOf(id),
       ...(live.errors[id] ? { error: live.errors[id] } : {}),
-      ...(id === 'byok' && choices.byok ? { byok: { format: choices.byok.format, baseUrl: choices.byok.baseUrl, model: choices.byok.model, last4: choices.byok.last4 } } : {}),
+      ...(id === 'byok' && choices.byok ? { byok: { ...choices.byok, models: [...choices.byok.models] } } : {}),
     }));
   }
 
@@ -240,21 +253,23 @@ export function createRoster(deps) {
     },
 
     /**
-     * The person's own key: checked (key accepted, model reads pictures) before it is kept. A key left empty keeps
-     * the one kept already (the model or the address changed).
-     * @param {{ format: string, baseUrl?: string, model: string, key?: string }} config
+     * The person's own key: checked (key accepted, each model reads pictures) before it is kept. A key left empty keeps
+     * the one kept already (the models or the address changed). `models`: a list, or text with the names separated by
+     * commas or new lines (`model`, one name, as before).
+     * @param {{ format: string, baseUrl?: string, models?: string[] | string, model?: string, key?: string }} config
      */
     async configureByok(config) {
       const format = BYOK_FORMATS[config?.format];
       if (!format) return { ok: false, error: 'Choose the API format.' };
       const baseUrl = String(config.baseUrl || format.baseUrl).trim().replace(/\/+$/, '');
       if (!/^https?:\/\/[^\s]+$/.test(baseUrl)) return { ok: false, error: 'The address has to start with https:// (or http:// for one on this computer).' };
-      const model = String(config.model ?? '').trim();
-      if (!model) return { ok: false, error: 'Name the model.' };
+      const models = modelList(config.models ?? config.model);
+      if (!models.length) return { ok: false, error: 'Name the model.' };
       const key = String(config.key ?? '').trim() || byokKey();
       if (!key) return { ok: false, error: 'Paste the key.' };
-      const probe = await probeModel({ format: config.format, baseUrl, key, model, fetch: deps.fetch });
-      if (!probe.ok) return probe;
+      const probes = await Promise.all(models.map((model) => probeModel({ format: config.format, baseUrl, key, model, fetch: deps.fetch })));
+      const failed = probes.findIndex((p) => !p.ok);
+      if (failed >= 0) return models.length > 1 ? { ...probes[failed], error: `${models[failed]}: ${probes[failed].error}` } : probes[failed];
       mkdirSync(dataDir, { recursive: true });
       writeFileSync(keyFile, deps.seal(key), { mode: 0o600 });
       delete live.errors.byok;
@@ -262,7 +277,7 @@ export function createRoster(deps) {
         ...choices,
         shown: { ...choices.shown, byok: true },
         disconnected: choices.disconnected.filter((a) => a !== 'byok'),
-        byok: { format: config.format, baseUrl, model, last4: key.slice(-4) },
+        byok: { format: config.format, baseUrl, model: models[0], models, last4: key.slice(-4) },
       });
       deps.closeSessions('byok');
       changed();
@@ -271,15 +286,16 @@ export function createRoster(deps) {
 
     /**
      * What a session of the app's own agent runs with (pi-agent.mjs): Pi's own folder, the service (Pi's provider:
-     * its API, address and the variable its key is in), the model, and the key itself (`env`).
+     * its API, address and the variable its key is in), the models (`model` the one it starts on), and the key itself
+     * (`env`).
      */
     harness(id) {
       if (id !== 'byok') return null;
       const key = byokKey();
       if (!choices.byok || !key) return null;
-      const { format, baseUrl, model } = choices.byok;
+      const { format, baseUrl, model, models } = choices.byok;
       const provider = { id: 'byok', api: PI_APIS[format], baseUrl, apiKeyEnv: 'OPENFILM_BYOK_KEY' };
-      return { home: join(dataDir, 'agents', 'byok', 'pi'), provider, model, env: { OPENFILM_BYOK_KEY: key } };
+      return { home: join(dataDir, 'agents', 'byok', 'pi'), provider, model, models: [...models], env: { OPENFILM_BYOK_KEY: key } };
     },
   };
 }

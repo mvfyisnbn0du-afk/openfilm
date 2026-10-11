@@ -68,7 +68,7 @@ export interface StudioHost {
     connect: (id: HostAgentId) => Promise<{ ok: boolean; error?: string }>;
     disconnect: (id: HostAgentId) => Promise<unknown>;
     setShown: (id: HostAgentId, shown: boolean) => Promise<unknown>;
-    configureByok: (config: { format: HostByokFormat; baseUrl?: string; model: string; key?: string }) => Promise<{ ok: boolean; error?: string; code?: string }>;
+    configureByok: (config: { format: HostByokFormat; baseUrl?: string; models: string[]; key?: string }) => Promise<{ ok: boolean; error?: string; code?: string }>;
     onChange: (listener: (agents: HostAgent[]) => void) => () => void;
   };
   /**
@@ -116,7 +116,7 @@ export interface HostAgent {
   /** What installing it takes, when `install` is not a download: 'code-tab', Claude Code comes with the Claude app (its Code tab). */
   setupRequired?: string | null;
   error?: string;
-  byok?: { format: HostByokFormat; baseUrl: string; model: string; last4: string };
+  byok?: { format: HostByokFormat; baseUrl: string; model: string; models?: string[]; last4: string };
 }
 
 /** A box on the picture, in the film's stage pixels (the stage is `stage.w` × `stage.h`, film.html's stage). */
