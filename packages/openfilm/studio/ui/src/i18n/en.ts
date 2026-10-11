@@ -1390,7 +1390,7 @@ export const en = {
       connected: 'Connected',
       and: 'and',
       keyNote: 'Your key pays the service directly. It stays on this computer and goes only to its own service.',
-      getKey: 'Get a {name} key',
+      getKey: 'Get your {name} key',
       pasteKey: 'Paste your {name} API key',
       save: 'Save',
       cancel: 'Cancel',

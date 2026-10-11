@@ -60,6 +60,8 @@ async function call<T = ProvidersState>(path: string, init?: { method: string; j
 export interface ProvidersHook {
   state: ProvidersState | null;
   problem: string | null;
+  /** the provider or kind of media the last change that failed was for (null: loading failed) */
+  problemFor: string | null;
   /** the provider or kind of media a change is being saved for */
   busy: string | null;
   /** keep a key; resolves whether it was kept */
@@ -74,6 +76,7 @@ export interface ProvidersHook {
 export function useProviders(): ProvidersHook {
   const [state, setState] = React.useState<ProvidersState | null>(null);
   const [problem, setProblem] = React.useState<string | null>(null);
+  const [problemFor, setProblemFor] = React.useState<string | null>(null);
   const [busy, setBusy] = React.useState<string | null>(null);
 
   React.useEffect(() => {
@@ -82,7 +85,7 @@ export function useProviders(): ProvidersHook {
     /* asked again a few times when it fails: Studio restarting, or busy for a moment, must not leave Settings empty */
     const load = (attempt: number) => {
       call('').then(
-        (next) => { if (live) { setState(next); setProblem(null); } },
+        (next) => { if (live) { setState(next); setProblem(null); setProblemFor(null); } },
         (e: Error) => {
           if (!live) return;
           if (attempt < 4) timer = window.setTimeout(() => load(attempt + 1), 1000 * 2 ** attempt);
@@ -98,12 +101,12 @@ export function useProviders(): ProvidersHook {
     setBusy(what);
     setProblem(null);
     try { setState(await call(path, init)); return true; }
-    catch (e) { setProblem(e instanceof Error ? e.message : String(e)); return false; }
+    catch (e) { setProblem(e instanceof Error ? e.message : String(e)); setProblemFor(what); return false; }
     finally { setBusy(null); }
   }, []);
 
   return {
-    state, problem, busy,
+    state, problem, problemFor, busy,
     saveKey: (id, key) => change(id, `/${encodeURIComponent(id)}/key`, { method: 'PUT', json: { key } }),
     removeKey: async (id) => { await change(id, `/${encodeURIComponent(id)}/key`, { method: 'DELETE' }); },
     useEnvKey: (id) => change(id, `/${encodeURIComponent(id)}/key`, { method: 'PUT', json: { env: true } }),

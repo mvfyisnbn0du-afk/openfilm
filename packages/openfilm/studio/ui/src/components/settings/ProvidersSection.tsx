@@ -27,7 +27,8 @@ export function ProvidersSection() {
       <SettingsGroup footnote={t('settings.providers.keyNote')}>
         {rows.map((provider) => <KeyRow key={provider.id} provider={provider} hook={providers} />)}
       </SettingsGroup>
-      {providers.problem ? <p className={settingsError}>{providers.problem}</p> : null}
+      {/* a key that was refused says why under its own field (KeyRow), not down here past the list */}
+      {providers.problem && !rows.some((p) => p.id === providers.problemFor) ? <p className={settingsError}>{providers.problem}</p> : null}
     </SettingsPage>
   );
 }
@@ -111,6 +112,7 @@ function KeyRow({ provider, hook }: { provider: OwnProvider; hook: ProvidersHook
               <SettingsButton variant="quiet" onClick={close}>{t('settings.providers.cancel')}</SettingsButton>
               <SettingsButton type="submit" variant="primary" disabled={!draft.trim() || saving}>{t('settings.providers.save')}</SettingsButton>
             </div>
+            {hook.problem && hook.problemFor === provider.id ? <p className={settingsError} role="alert">{hook.problem}</p> : null}
             {/* the environment has a key for it: connect with that one, nothing to paste */}
             {provider.envKey ? (
               <button type="button" disabled={saving} onClick={() => void hook.useEnvKey(provider.id).then((ok) => { if (ok) close(); })} className={`${settingsLink} self-start text-[14.5px]`}>
