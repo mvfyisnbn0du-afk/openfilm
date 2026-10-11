@@ -22,6 +22,7 @@ export function Popover({
   placement = 'bottom',
   align = 'start',
   layer = 10000,
+  block = false,
 }: {
   open: boolean;
   onOpenChange: (v: boolean) => void;
@@ -32,6 +33,8 @@ export function Popover({
   align?: 'start' | 'end';
   /** its z-index: above a dialog it opens in */
   layer?: number;
+  /** the trigger takes the width it is given (a field), not only its own */
+  block?: boolean;
 }) {
   const ref = React.useRef<HTMLDivElement | null>(null);
   const panelRef = React.useRef<HTMLDivElement | null>(null);
@@ -146,8 +149,8 @@ export function Popover({
     ) : null;
 
   return (
-    <div ref={ref} className="inline-flex w-fit">
-      <div className="inline-flex w-fit" onMouseDown={keepFocus} onClick={() => onOpenChange(!open)}>
+    <div ref={ref} className={block ? 'flex min-w-0 flex-1' : 'inline-flex w-fit'}>
+      <div className={block ? 'flex min-w-0 flex-1' : 'inline-flex w-fit'} onMouseDown={keepFocus} onClick={() => onOpenChange(!open)}>
         {trigger}
       </div>
       {typeof document !== 'undefined' && panel ? createPortal(panel, document.body) : null}

@@ -9,6 +9,7 @@ import {
 } from '@/lib/subtitles';
 import { SUBTITLE_FONT_SYSTEM, useSubtitleFonts, type SubtitleFontOption } from '@/lib/use-subtitle-font';
 import { Tooltip } from './Tooltip';
+import { MenuSelect } from './MenuSelect';
 import { InspectorPanel } from './InspectorPanel';
 import { SubtitleRowToggle } from './SubtitleRow';
 import styles from './SubtitleInspector.module.css';
@@ -548,21 +549,16 @@ function SubtitleLanguage({ style, set, translate, sourceLanguage }: {
   return (
     <StyleGroup label={t('timeline.subtitleLanguageGroup')}>
       <div className="flex min-h-8 items-center gap-2 py-1">
-        <select
+        <MenuSelect
+          label={t('timeline.subtitleLanguageGroup')}
           value={chosen ?? ''}
-          aria-label={t('timeline.subtitleLanguageGroup')}
           disabled={state.busy}
-          onChange={(e) => pick(e.target.value)}
-          className="h-7 min-w-0 flex-1 rounded-md border px-2 text-[11px]"
-          style={{ background: 'var(--fill-tsp)', borderColor: 'var(--border)', color: 'var(--text)' }}
-        >
-          <option value="">
-            {sourceLanguage ? t('timeline.subtitleLanguageOriginalNamed').replace('{lang}', nameOf(sourceLanguage)) : t('timeline.subtitleLanguageOriginal')}
-          </option>
-          <optgroup label={t('timeline.subtitleLanguageTranslate')}>
-            {targets.map((item) => <option key={item.code} value={item.code}>{item.native}</option>)}
-          </optgroup>
-        </select>
+          onPick={pick}
+          groups={[
+            { choices: [{ value: '', label: sourceLanguage ? t('timeline.subtitleLanguageOriginalNamed').replace('{lang}', nameOf(sourceLanguage)) : t('timeline.subtitleLanguageOriginal') }] },
+            { label: t('timeline.subtitleLanguageTranslate'), choices: targets.map((item) => ({ value: item.code, label: item.native })) },
+          ]}
+        />
       </div>
       {state.busy ? (
         <p className="flex items-center gap-1.5 pb-1 text-[11px]" role="status" style={{ color: 'var(--text-muted)' }}>
@@ -768,24 +764,15 @@ function StyleFamily({
       <span className="w-[58px] shrink-0 text-[11px]" style={{ color: 'var(--text-muted)' }}>
         {label}
       </span>
-      <select
+      <MenuSelect
+        label={label}
         value={value}
-        aria-label={label}
-        onChange={(e) => onPick(e.target.value)}
-        className="h-7 min-w-0 flex-1 rounded-md border px-2 text-[11px]"
-        style={{
-          background: 'var(--fill-tsp)',
-          borderColor: 'var(--border)',
-          color: 'var(--text)',
-        }}
-      >
-        <option value={SUBTITLE_FONT_SYSTEM}>{t('timeline.subtitleFamilyDefault')}</option>
-        {groups.map(([locale, list]) => (
-          <optgroup key={locale} label={locale}>
-            {list.map((f) => <option key={f.family} value={f.family}>{f.family}</option>)}
-          </optgroup>
-        ))}
-      </select>
+        onPick={onPick}
+        groups={[
+          { choices: [{ value: SUBTITLE_FONT_SYSTEM, label: t('timeline.subtitleFamilyDefault') }] },
+          ...groups.map(([locale, list]) => ({ label: locale, choices: list.map((f) => ({ value: f.family, label: f.family })) })),
+        ]}
+      />
     </div>
   );
 }

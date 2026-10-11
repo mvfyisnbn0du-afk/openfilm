@@ -1,0 +1,124 @@
+/**
+ * A field that opens a menu of choices, drawn as Studio's own menus are (a card in the panel's colors, the chosen one
+ * checked), in place of the browser's own list: that one is drawn by the system, light in a dark Studio, and with
+ * the field's text color it read as if every choice were disabled. Choices may come in groups, each under a small
+ * heading. The arrow keys move through them, Enter picks, Esc closes.
+ */
+import React from 'react';
+import { Check, ChevronDown } from 'lucide-react';
+import { Popover } from './Popover';
+
+export type MenuChoice = { value: string; label: string };
+export type MenuGroup = { label?: string; choices: MenuChoice[] };
+
+export function MenuSelect({
+  label, value, groups, onPick, disabled = false, className = '',
+}: {
+  /** what it chooses, for screen readers (the field shows the choice) */
+  label: string;
+  value: string;
+  groups: MenuGroup[];
+  onPick: (value: string) => void;
+  disabled?: boolean;
+  className?: string;
+}) {
+  const [open, setOpen] = React.useState(false);
+  const [width, setWidth] = React.useState(0);
+  const [active, setActive] = React.useState(-1);
+  const triggerRef = React.useRef<HTMLButtonElement | null>(null);
+  const listRef = React.useRef<HTMLDivElement | null>(null);
+  const all = React.useMemo(() => groups.flatMap((g) => g.choices), [groups]);
+  const current = all.find((c) => c.value === value);
+
+  /* opened: as wide as the field, the chosen one in view and lit for the keys */
+  React.useLayoutEffect(() => {
+    if (!open) return;
+    setWidth(triggerRef.current?.getBoundingClientRect().width ?? 0);
+    setActive(Math.max(0, all.findIndex((c) => c.value === value)));
+  }, [open]); // eslint-disable-line react-hooks/exhaustive-deps
+  React.useEffect(() => {
+    if (!open || active < 0) return;
+    listRef.current?.querySelector(`[data-index="${active}"]`)?.scrollIntoView({ block: 'nearest' });
+  }, [open, active]);
+
+  const pick = (choice: MenuChoice) => {
+    setOpen(false);
+    triggerRef.current?.focus();
+    if (choice.value !== value) onPick(choice.value);
+  };
+  const onKeyDown = (e: React.KeyboardEvent) => {
+    if (disabled) return;
+    if (!open) {
+      if (e.key === 'ArrowDown' || e.key === 'ArrowUp' || e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setOpen(true); }
+      return;
+    }
+    if (e.key === 'ArrowDown') { e.preventDefault(); setActive((i) => Math.min(all.length - 1, i + 1)); }
+    else if (e.key === 'ArrowUp') { e.preventDefault(); setActive((i) => Math.max(0, i - 1)); }
+    else if (e.key === 'Home') { e.preventDefault(); setActive(0); }
+    else if (e.key === 'End') { e.preventDefault(); setActive(all.length - 1); }
+    else if ((e.key === 'Enter' || e.key === ' ') && all[active]) { e.preventDefault(); pick(all[active]); }
+    else if (e.key === 'Tab') setOpen(false);
+  };
+
+  let index = -1;
+  return (
+    <Popover open={open && !disabled} onOpenChange={(next) => setOpen(next && !disabled)} placement="auto" block trigger={(
+      <button
+        ref={triggerRef}
+        type="button"
+        aria-label={label}
+        aria-haspopup="listbox"
+        aria-expanded={open}
+        disabled={disabled}
+        /* the popover keeps focus where it was on a press: the keys need it here */
+        onClick={(e) => e.currentTarget.focus()}
+        onKeyDown={onKeyDown}
+        className={`flex h-7 min-w-0 flex-1 items-center gap-1.5 rounded-md border border-[var(--border)] bg-[var(--fill-tsp)] pl-2 pr-1.5 text-left text-[11px] text-[var(--text)] outline-none transition hover:border-[var(--text-faint)] focus-visible:border-[var(--accent)] disabled:opacity-50 ${open ? 'border-[var(--accent)]' : ''} ${className}`}
+      >
+        <span className="min-w-0 flex-1 truncate">{current?.label ?? value}</span>
+        <ChevronDown size={12} aria-hidden className={`shrink-0 text-[var(--text-faint)] transition-transform ${open ? 'rotate-180' : ''}`} />
+      </button>
+    )}>
+      <div
+        ref={listRef}
+        data-film-inspector=""
+        role="listbox"
+        aria-label={label}
+        onKeyDown={onKeyDown}
+        className="overflow-y-auto rounded-[8px] border border-[var(--border)] bg-[var(--panel)] p-1 shadow-[var(--shadow-lg)]"
+        style={{ width: Math.max(width, 160), maxHeight: 'min(320px, var(--popover-max-h, 320px))' }}
+      >
+        {groups.map((group, g) => (
+          <div key={group.label ?? g} role="group" aria-label={group.label}>
+            {group.label ? (
+              <div className={`px-2 pb-1 text-[10.5px] font-medium text-[var(--text-faint)] ${g > 0 ? 'mt-1 border-t border-[var(--border)] pt-2' : 'pt-1'}`}>
+                {group.label}
+              </div>
+            ) : g > 0 ? <div className="mx-1 my-1 h-px bg-[var(--border)]" /> : null}
+            {group.choices.map((choice) => {
+              index += 1;
+              const i = index;
+              const chosen = choice.value === value;
+              return (
+                <button
+                  key={choice.value}
+                  type="button"
+                  role="option"
+                  aria-selected={chosen}
+                  data-index={i}
+                  onMouseEnter={() => setActive(i)}
+                  onMouseDown={(e) => e.preventDefault()}
+                  onClick={() => pick(choice)}
+                  className={`flex h-7 w-full items-center gap-2 rounded-[5px] px-2 text-left text-[11.5px] text-[var(--text)] ${i === active ? 'bg-[var(--bg-hover)]' : ''}`}
+                >
+                  <span className="min-w-0 flex-1 truncate">{choice.label}</span>
+                  {chosen ? <Check size={12} aria-hidden className="shrink-0 text-[var(--accent)]" /> : null}
+                </button>
+              );
+            })}
+          </div>
+        ))}
+      </div>
+    </Popover>
+  );
+}
