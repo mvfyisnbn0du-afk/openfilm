@@ -1,10 +1,12 @@
 // film render: the deliverable. Frames are rendered in parallel page instances, averaged
 // over the shutter for motion blur, encoded with tagged BT.709 color, and muxed with the mix of the film's sounds.
-import { mkdirSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { availableParallelism, totalmem } from 'node:os';
 import { basename, dirname, extname, join, resolve } from 'node:path';
-import { FilmPage } from './host.mjs';
-import { ffmpeg, filmSound, fmt, kill, mix, open, outDir, parseTarget, shown, UsageError, write } from './shared.mjs';
+import { clipKind, kindOf, readFilmFile } from './film-doc.mjs';
+import { FilmPage, launch } from './host.mjs';
+import { seekableCopies } from './seekable.mjs';
+import { ffmpeg, fileOf, filmSound, fmt, kill, mix, open, outDir, parseTarget, shown, UsageError, write } from './shared.mjs';
 
 const BT709 = ['-colorspace', 'bt709', '-color_primaries', 'bt709', '-color_trc', 'bt709', '-color_range', 'tv'];
 const TAG_709 = ['-bsf:v', 'h264_metadata=colour_primaries=1:transfer_characteristics=1:matrix_coefficients=1:video_full_range_flag=0'];
@@ -20,9 +22,17 @@ export async function render(args, opts = {}) {
   const started = Date.now();
   const { film: target, at, range } = parseTarget(args);
   if (at != null) throw new UsageError(`render takes a range (for example ${at}-${at + 2}), not one time; for one frame use openfilm look ${at}`);
-  /* `root`: the folder to serve (a host rendering an edit kept elsewhere in a project serves the project) */
-  const probe = await open(target, opts.root ? { root: opts.root } : {});
-  const { entry, dir, name, site, browser, isFilm } = probe;
+  /* `root`: the folder to serve (a host rendering an edit kept elsewhere in a project serves the project). The videos
+     the pages ask for are noted, and served as their fast-seeking copies once there are some (seekable.mjs). */
+  const videos = new Set();
+  /** @type {Map<string, string>} */
+  let copies = new Map();
+  const swap = (/** @type {string} */ file) => {
+    if (clipKind(file) === 'video') videos.add(file);
+    return copies.get(file) ?? null;
+  };
+  const probe = await open(target, { ...(opts.root ? { root: opts.root } : {}), swap });
+  const { entry, dir, name, site, browser, isFilm, root } = probe;
   const meta = probe.film.meta;
   await probe.film.close();
 
@@ -51,6 +61,18 @@ export async function render(args, opts = {}) {
   const format = { ...container, ...opts.format };
   if (alpha && extname(out).toLowerCase() === '.mp4') { await probe.close(); throw new UsageError('mp4 has no transparency: write .webm or .mov with --alpha'); }
   const workers = Math.max(1, Math.min(Number(opts.workers ?? defaultWorkers()), total));
+  /* a render of more than a moment: its videos seek fast (a film's video clips load only when their time comes, so
+     they are read from film.html; a page's own videos are the ones it asked for) */
+  if (total >= fps * 2 && opts.seekable !== false) {
+    if (isFilm) {
+      try {
+        const doc = readFilmFile(readFileSync(join(root, entry), 'utf8')).doc;
+        for (const track of doc?.tracks ?? []) for (const clip of track.clips) if (kindOf(clip) === 'video') videos.add(fileOf(root, entry, clip.src));
+      } catch { /* the pages ask for what they need */ }
+    }
+    /* only ever faster: a copy that could not be made leaves its video as it is */
+    if (videos.size) copies = await seekableCopies([...videos], dir, { signal: opts.signal }).catch(() => new Map());
+  }
 
   if (!process.stderr.isTTY && !opts.onProgress) process.stderr.write(`  rendering ${total} frames with ${workers} browser${workers > 1 ? 's' : ''}…\n`);
   const work = join(outDir(dir, 'render'), `.parts-${process.pid}`);
@@ -77,10 +99,14 @@ export async function render(args, opts = {}) {
   const cancelled = opts.signal?.aborted ? Promise.reject(new Error('cancelled'))
     : new Promise((_, fail) => opts.signal?.addEventListener('abort', () => fail(new Error('cancelled')), { once: true }));
   cancelled.catch(() => {});
+  /** @type {import('playwright-core').Browser[]} */
+  const browsers = [];
   /* what is left of a step given up fails as the browsers close: that is no one's error */
   const unlessCancelled = (/** @type {Promise<any>} */ step) => { step.catch(() => {}); return Promise.race([step, cancelled]); };
   try {
-    const pages = await unlessCancelled(Promise.all(Array.from({ length: workers }, () => FilmPage.open(browser, site.url, entry, { scale, transparent: alpha }))));
+    /* a browser each: pages sharing one browser share its GPU process, and stop getting faster after three or four */
+    const more = await unlessCancelled(Promise.all(Array.from({ length: workers - 1 }, () => launch().then((b) => { browsers.push(b); return b; }))));
+    const pages = await unlessCancelled(Promise.all([browser, ...more].map((b) => FilmPage.open(b, site.url, entry, { scale, transparent: alpha }))));
     /* a film paints its stage behind its clips (black, or its own background): with alpha, only what the clips draw is kept */
     if (alpha && isFilm) await Promise.all(pages.map((p) => p.page.addStyleTag({ content: 'html, body { background: transparent !important; }' })));
     const per = Math.ceil(total / workers);
@@ -105,6 +131,7 @@ export async function render(args, opts = {}) {
   } finally {
     /* Windows lets go of a file a moment after ffmpeg exits */
     rmSync(work, { recursive: true, force: true, maxRetries: 5 });
+    await Promise.allSettled(browsers.map((b) => b.close()));
     await probe.close();
   }
   const seconds = (Date.now() - started) / 1000;
@@ -122,8 +149,9 @@ export async function render(args, opts = {}) {
  * One browser per three cores, at most four, and memory to spare (a page with its media takes 1.5 GB or more, and the
  * encoder and the person's own apps need theirs): a render leaves the computer usable while it runs.
  */
-function defaultWorkers() {
-  return Math.max(1, Math.min(4, Math.floor(availableParallelism() / 3), Math.floor(totalmem() / (4 * 2 ** 30))));
+/** A browser for every two cores (a core's two threads), with 3 GB of memory each, up to 8. */
+export function defaultWorkers(threads = availableParallelism(), memory = totalmem()) {
+  return Math.max(1, Math.min(8, Math.floor(threads / 2), Math.floor(memory / (3 * 2 ** 30))));
 }
 
 /** Frames [a, b) of one page into one file; sub-frames are averaged by ffmpeg (tmix) and every n-th kept. */

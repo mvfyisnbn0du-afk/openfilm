@@ -68,7 +68,7 @@ export async function open(target, opts = {}) {
     const { problems } = readFilmFile(readFileSync(join(loc.dir, FILM_FILE), 'utf8'));
     if (problems.length) throw new FrameError(problems.length === 1 ? problems[0] : `${FILM_FILE} has ${problems.length} problems:\n  ${problems.join('\n  ')}`);
   }
-  const site = await serve(loc.root);
+  const site = await serve(loc.root, { swap: opts.swap });
   let browser;
   try { browser = await launch(opts.launch); }
   catch (e) { await site.close(); throw e; }

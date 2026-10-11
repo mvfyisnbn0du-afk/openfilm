@@ -5,7 +5,7 @@ import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, 
 import { homedir, tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { createExports, exportCapabilities, exportsRoot, ExportError, frameBox, dimsForShortEdge, projectFiles, projectSizes } from './exports.mjs';
+import { createExports, exportCapabilities, exportsRoot, ExportError, frameBox, dimsForShortEdge, hardwareEncoder, hardwareOptions, projectFiles, projectSizes } from './exports.mjs';
 import { allocateLanes, containMotion, fadeKeyframes, frameSpan, nleRate, planNleTimeline, xmemlDocument } from './nle.mjs';
 import { pptxParts } from './slides.mjs';
 import { filmSubtitleSrt, parseFilmSubtitleStyle } from './film-subtitle.mjs';
@@ -662,4 +662,24 @@ test('an editing-software export of a film whose clip leads out of the project (
   assert.match(done.error, /\.\.\/private\.wav is not a file inside the project/);
   const made = readdirSync(exportsRoot()).filter((n) => n.startsWith('Outside'));
   assert.deepEqual(made.flatMap((n) => readdirSync(join(exportsRoot(), n), { recursive: true })).filter((f) => /private/.test(String(f))), []);
+});
+
+test('each graphics chip\'s encoder gets a bitrate it keeps to, with HEVC tagged for Apple players', () => {
+  for (const encoder of ['h264_videotoolbox', 'h264_nvenc', 'h264_qsv', 'h264_amf', 'h264_mf', 'hevc_videotoolbox', 'hevc_nvenc', 'hevc_qsv', 'hevc_amf', 'hevc_mf']) {
+    const options = hardwareOptions(encoder, 8e6);
+    assert.deepEqual(options.slice(0, 2), ['-c:v', encoder]);
+    assert.equal(options[options.indexOf('-b:v') + 1], '8000k', encoder);
+    assert.equal(options.includes('hvc1'), encoder.startsWith('hevc_'), encoder);
+  }
+  assert.ok(hardwareOptions('h264_mf', 8e6).join(' ').includes('-hw_encoding 1'), 'never Windows\' software encoder');
+});
+
+test('a hardware encoder is used only when this ffmpeg has it and it works', ffmpeg, async () => {
+  assert.equal(await hardwareEncoder('h264', new Set(['libx264']), 'win32'), null, 'none built in');
+  assert.equal(await hardwareEncoder('h264', new Set(['h264_nvenc']), 'darwin'), null, 'not one of this platform\'s');
+  const have = new Set(execFileSync('ffmpeg', ['-hide_banner', '-encoders']).toString().match(/^ V\S{5} (\S+)/gm)?.map((l) => l.trim().split(/\s+/)[1]) ?? []);
+  if (process.platform === 'darwin' && have.has('h264_videotoolbox')) {
+    assert.equal(await hardwareEncoder('h264', have), 'h264_videotoolbox');
+    assert.equal(await hardwareEncoder('hevc', have), have.has('hevc_videotoolbox') ? 'hevc_videotoolbox' : null);
+  }
 });

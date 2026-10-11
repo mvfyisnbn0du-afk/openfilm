@@ -4,7 +4,7 @@ import { execFileSync } from 'node:child_process';
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { render } from './render.mjs';
+import { defaultWorkers, render } from './render.mjs';
 
 const hasFfmpeg = (() => { try { execFileSync('ffmpeg', ['-version'], { stdio: 'ignore' }); return true; } catch { return false; } })();
 
@@ -21,4 +21,12 @@ test('an encoder that fails to start fails the render with ffmpeg\'s error, inst
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
+});
+
+test('a browser for every two threads, with 3 GB of memory each, at least one and at most eight', () => {
+  const GB = 2 ** 30;
+  assert.equal(defaultWorkers(10, 16 * GB), 5);
+  assert.equal(defaultWorkers(8, 8 * GB), 2, 'memory first');
+  assert.equal(defaultWorkers(32, 128 * GB), 8);
+  assert.equal(defaultWorkers(2, 4 * GB), 1);
 });

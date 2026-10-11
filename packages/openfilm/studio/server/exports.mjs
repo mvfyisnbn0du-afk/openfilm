@@ -526,25 +526,86 @@ const BT709 = ['-colorspace', 'bt709', '-color_primaries', 'bt709', '-color_trc'
 const TO_709 = 'scale=out_color_matrix=bt709:out_range=tv';
 
 /**
- * How render should encode a codec: its encoder (for the person's list), and the container format render takes. H.264
- * below master is the Mac's own encoder when it has one (`hardware` not false), as editors do: far faster, and the
- * processor stays free for the person; master stays x264 at its slowest and best.
- * @param {VideoCodec} codec @param {Quality} quality @param {{ w: number, h: number }} size @param {number} fps @param {Set<string>} have @param {boolean} [hardware]
+ * The graphics chip's encoders for H.264 and HEVC that this platform's ffmpeg may have, in the order they are tried:
+ * the Mac's own; on Windows NVIDIA's, Intel's, AMD's, then Windows' own (Media Foundation, through whichever chip
+ * there is); NVIDIA's on Linux.
  */
-function encoding(codec, quality, size, fps, have, hardware = true) {
-  const bitrate = (/** @type {number} */ k) => `${Math.round(Math.min(120e6, Math.max(2e6, size.w * size.h * fps * BPP[quality] * k)) / 1000)}k`;
+const HARDWARE = /** @type {Record<string, Record<'h264' | 'hevc', string[]>>} */ ({
+  darwin: { h264: ['h264_videotoolbox'], hevc: ['hevc_videotoolbox'] },
+  win32: { h264: ['h264_nvenc', 'h264_qsv', 'h264_amf', 'h264_mf'], hevc: ['hevc_nvenc', 'hevc_qsv', 'hevc_amf', 'hevc_mf'] },
+  linux: { h264: ['h264_nvenc'], hevc: ['hevc_nvenc'] },
+});
+
+/**
+ * A hardware encoder's options at a bitrate (they take no quality number that means the same on every chip): peaks
+ * allowed at half again, for cuts and screen text.
+ * @param {string} encoder @param {number} bits a second
+ */
+export function hardwareOptions(encoder, bits) {
+  const k = (/** @type {number} */ n) => `${Math.round(n / 1000)}k`;
+  const rate = ['-b:v', k(bits), '-maxrate', k(bits * 1.5), '-bufsize', k(bits * 2)];
+  const hevc = encoder.startsWith('hevc_');
+  const tag = hevc ? ['-tag:v', 'hvc1'] : [];
+  switch (encoder.slice(encoder.indexOf('_') + 1)) {
+    case 'videotoolbox': return ['-c:v', encoder, ...(hevc ? [] : ['-profile:v', 'high']), '-b:v', k(bits), ...tag];
+    case 'nvenc': return ['-c:v', encoder, '-preset', 'p5', '-rc', 'vbr', ...rate, ...tag];
+    case 'qsv': return ['-c:v', encoder, '-preset', 'medium', ...rate, ...tag];
+    case 'amf': return ['-c:v', encoder, '-quality', 'quality', '-rc', 'vbr_peak', ...rate, ...tag];
+    /* the chip's own encoder, never Windows' software one (x264 is better at that) */
+    case 'mf': return ['-c:v', encoder, '-hw_encoding', '1', '-rate_control', 'u_vbr', '-b:v', k(bits), ...tag];
+    default: return ['-c:v', encoder, '-b:v', k(bits), ...tag];
+  }
+}
+
+/** @type {Map<string, Promise<boolean>>} */
+const tried = new Map();
+/**
+ * Whether a hardware encoder works on this machine: one built into ffmpeg may have no chip or driver behind it, so a
+ * moment of video goes through it first (once a launch; `broken` remembers one that failed an export after that).
+ * @param {string} encoder
+ */
+function works(encoder) {
+  if (!tried.has(encoder)) {
+    tried.set(encoder, new Promise((done) => {
+      execFile('ffmpeg', ['-hide_banner', '-loglevel', 'error', '-f', 'lavfi', '-i', 'testsrc2=size=640x360:rate=30', '-frames:v', '10',
+        '-vf', 'format=yuv420p', ...hardwareOptions(encoder, 2e6), '-f', 'null', '-'], { timeout: 20_000, windowsHide: true }, (error) => done(!error));
+    }));
+  }
+  return /** @type {Promise<boolean>} */ (tried.get(encoder));
+}
+/** A hardware encoder that failed an export: the rest of this launch uses another. @param {string} encoder */
+const broken = (encoder) => { tried.set(encoder, Promise.resolve(false)); };
+
+/**
+ * The first hardware encoder for H.264 or HEVC that works here, or null.
+ * @param {'h264' | 'hevc'} codec @param {Set<string>} have @param {string} [platform]
+ */
+export async function hardwareEncoder(codec, have, platform = process.platform) {
+  for (const encoder of HARDWARE[platform]?.[codec] ?? []) if (have.has(encoder) && await works(encoder)) return encoder;
+  return null;
+}
+
+/**
+ * How render should encode a codec: its encoder (for the person's list), and the container format render takes. H.264
+ * and HEVC below master go through the graphics chip's encoder when it has one that works (`hw`, hardwareEncoder),
+ * as editors do: several times faster, and the processor stays free for drawing the frames and for the person; master
+ * stays x264 and x265 at their slowest and best.
+ * @param {VideoCodec} codec @param {Quality} quality @param {{ w: number, h: number }} size @param {number} fps @param {Set<string>} have @param {string | null} [hw]
+ */
+function encoding(codec, quality, size, fps, have, hw = null) {
+  const bits = (/** @type {number} */ k) => Math.min(120e6, Math.max(2e6, size.w * size.h * fps * BPP[quality] * k));
+  const bitrate = (/** @type {number} */ k) => `${Math.round(bits(k) / 1000)}k`;
   switch (codec) {
     case 'h264':
-      if (hardware && quality !== 'master' && have.has('h264_videotoolbox')) {
-        /* a bitrate (it takes no quality number on every Mac), with room for screen text: half again the dialog's scale */
-        return { encoder: 'h264_videotoolbox', format: { video: ['-c:v', 'h264_videotoolbox', '-profile:v', 'high', '-b:v', bitrate(1.5), ...BT709] } };
-      }
+      /* with room for screen text: half again the dialog's scale */
+      if (hw && quality !== 'master') return { encoder: hw, format: { video: [...hardwareOptions(hw, bits(1.5)), ...BT709] } };
       return { encoder: 'libx264', format: { video: ['-c:v', 'libx264', '-preset', quality === 'master' ? 'slow' : 'medium', '-crf', String(H264_CRF[quality]), ...BT709] } };
     case 'hevc':
+      if (hw && quality !== 'master') return { encoder: hw, format: { video: [...hardwareOptions(hw, bits(0.8)), ...BT709], tag: ['-tag:v', 'hvc1'] } };
       if (have.has('libx265')) {
         return { encoder: 'libx265', format: { video: ['-c:v', 'libx265', '-preset', 'medium', '-crf', String(X265_CRF[quality]), '-x265-params', 'log-level=error', '-tag:v', 'hvc1', ...BT709], tag: ['-tag:v', 'hvc1'] } };
       }
-      if (have.has('hevc_videotoolbox')) return { encoder: 'hevc_videotoolbox', format: { video: ['-c:v', 'hevc_videotoolbox', '-b:v', bitrate(0.6), '-tag:v', 'hvc1', ...BT709], tag: ['-tag:v', 'hvc1'] } };
+      if (have.has('hevc_videotoolbox')) return { encoder: 'hevc_videotoolbox', format: { video: ['-c:v', 'hevc_videotoolbox', '-b:v', bitrate(0.8), '-tag:v', 'hvc1', ...BT709], tag: ['-tag:v', 'hvc1'] } };
       throw new ExportError('this computer\'s ffmpeg has no HEVC encoder (libx265 or hevc_videotoolbox)');
     case 'vp9':
       return { encoder: 'libvpx-vp9', format: { video: ['-c:v', 'libvpx-vp9', '-b:v', '0', '-crf', String(VP9_CRF[quality]), '-row-mt', '1'] } };
@@ -736,15 +797,32 @@ export function createExports({ onChange = () => {}, captions = subtitlesForExpo
       }
       /* no fps asked: render's own (30) */
       const fps = ask.fps;
-      const { encoder, format } = encoding(codec, ask.quality ?? 'high', size, fps ?? 30, await encoders(), ask.hardware !== false);
-      const container = /** @type {{ pix?: string }} */ (format).pix ?? (codec === 'h264' || codec === 'hevc' ? `${TO_709},format=yuv420p` : codec === 'vp9' ? 'format=yuva420p' : 'format=yuva444p10le');
-      const opts = { fps, scale: place.scale, alpha, silent: ask.audio === false || codec === 'png', format: { ...format, pix: `${place.vf},${container}` }, ...(clip || burn ? { root } : {}) };
+      const quality = ask.quality ?? 'high';
+      const have = await encoders();
+      const hw = ask.hardware !== false && quality !== 'master' && (codec === 'h264' || codec === 'hevc') ? await hardwareEncoder(codec, have) : null;
+      /** @param {string | null} chip */
+      const how = (chip) => {
+        const { encoder, format } = encoding(codec, quality, size, fps ?? 30, have, chip);
+        const container = /** @type {{ pix?: string }} */ (format).pix ?? (codec === 'h264' || codec === 'hevc' ? `${TO_709},format=yuv420p` : codec === 'vp9' ? 'format=yuva420p' : 'format=yuva444p10le');
+        return { encoder, opts: { fps, scale: place.scale, alpha, silent: ask.audio === false || codec === 'png', format: { ...format, pix: `${place.vf},${container}` }, ...(clip || burn ? { root } : {}) } };
+      };
+      let { encoder, opts } = how(hw);
       update(job, { encoder });
       const target = clip ? clip.dir : burn ? burn.dir : root;
       const out = freeFile(dir, baseName(job.name, ask), CODEC_EXT[codec]);
       if (codec !== 'png') {
         update(job, { out, outputs: [out] });
-        await renderTo(job, target, out, opts, signal);
+        try {
+          await renderTo(job, target, out, opts, signal);
+        } catch (e) {
+          /* the graphics chip's encoder gave up partway (a driver, a size it does not take): the rest of this launch
+             encodes without it, starting with this export again */
+          if (!hw || signal.aborted || !/^ffmpeg: /.test(e instanceof Error ? e.message : '')) throw e;
+          broken(hw);
+          ({ encoder, opts } = how(null));
+          update(job, { encoder, framesDone: 0, progress: 0, etaMs: null });
+          await renderTo(job, target, out, opts, signal);
+        }
         if (alpha) update(job, { alpha: await alphaOf(out, codec === 'vp9') });
         /* the subtitles as a file beside it, timed to the part exported */
         if (ask.sidecar) {

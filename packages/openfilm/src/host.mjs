@@ -56,9 +56,10 @@ const TYPES = {
  * `headers` go on every response (a host adds its own policy); the film (film.html) is played by the built-in
  * timeline, and gets `timelineInject` instead of `inject` (a host that drives it, like Studio, adds its bridge there). Returns false when the path is not inside
  * `root`, or leads out of it through a link.
- * @param {string} root @param {{ inject?: string, timelineInject?: string, headers?: Record<string, string> }} [options]
+ * `swap(file)` may name another file to serve in a file's place (a render's fast-seeking copy of a video, seekable.mjs).
+ * @param {string} root @param {{ inject?: string, timelineInject?: string, headers?: Record<string, string>, swap?: (file: string) => string | null }} [options]
  */
-export function folderFiles(root, { inject = `<script>${HOST_FLAG}</script>`, timelineInject = inject, headers: extraHeaders = {} } = {}) {
+export function folderFiles(root, { inject = `<script>${HOST_FLAG}</script>`, timelineInject = inject, headers: extraHeaders = {}, swap } = {}) {
   root = resolve(root);
   return (req, res, path, query) => {
     /* beside any film, wherever in the folder it is (its page asks for them relative to itself) */
@@ -76,14 +77,16 @@ export function folderFiles(root, { inject = `<script>${HOST_FLAG}</script>`, ti
     /* an address speaks in `/`: a `\` in it (escaped as %5C) would be a separator on Windows, past every check */
     if (rel.includes('\\') || rel.includes('\0')) { res.writeHead(400, extraHeaders).end('bad address'); return true; }
     if (rel.endsWith('/')) rel += 'index.html';
-    const file = normalize(join(root, rel));
-    if (file !== root && !file.startsWith(root + sep)) return false;
-    let stat;
-    try { stat = statSync(file); } catch { res.writeHead(404, extraHeaders).end('not found'); return true; }
+    const asked = normalize(join(root, rel));
+    if (asked !== root && !asked.startsWith(root + sep)) return false;
+    try { statSync(asked); } catch { res.writeHead(404, extraHeaders).end('not found'); return true; }
     // a link out of the folder is not followed: a film from elsewhere can bring one to any of the person's files
     let inRoot = false;
-    try { inRoot = within(realpathSync(root), realpathSync(file)); } catch { /* gone meanwhile */ }
+    try { inRoot = within(realpathSync(root), realpathSync(asked)); } catch { /* gone meanwhile */ }
     if (!inRoot) return false;
+    const file = swap?.(asked) ?? asked;
+    let stat;
+    try { stat = statSync(file); } catch { res.writeHead(404, extraHeaders).end('not found'); return true; }
     if (stat.isDirectory()) { res.writeHead(302, { ...extraHeaders, location: `${path}/` }).end(); return true; }
     const type = TYPES[extname(file).toLowerCase()] ?? 'application/octet-stream';
     const headers = { ...extraHeaders, 'content-type': type, 'cache-control': 'no-store', 'accept-ranges': 'bytes' };
@@ -119,8 +122,8 @@ const within = (folder, path) => path === folder || path.startsWith(folder.endsW
  * Serve `root`. HTML gets the host flag injected before any page script;
  * ?film-host=0 serves the page untouched, as a visitor would see it.
  */
-export function serve(root, { port = 0 } = {}) {
-  const files = folderFiles(root);
+export function serve(root, { port = 0, swap } = {}) {
+  const files = folderFiles(root, { swap });
   const server = createServer((req, res) => {
     const url = new URL(req.url, 'http://x');
     if (!files(req, res, url.pathname, url.searchParams)) res.writeHead(403).end();
