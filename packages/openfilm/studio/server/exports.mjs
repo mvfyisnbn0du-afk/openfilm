@@ -113,10 +113,14 @@ export class ExportError extends Error {
 
 /** @type {Promise<Set<string>> | null} */
 let encoderList = null;
-/** The encoders this machine's ffmpeg has (none when there is no ffmpeg). */
+/**
+ * The encoders this machine's ffmpeg has (none when there is no ffmpeg). No ffmpeg is asked about again next time:
+ * the desktop app downloads it while Studio is already running.
+ */
 function encoders() {
   encoderList ??= new Promise((done) => {
     execFile('ffmpeg', ['-hide_banner', '-encoders'], { maxBuffer: 8 << 20, windowsHide: true }, (error, stdout) => {
+      if (error) encoderList = null;
       done(new Set(error ? [] : [...String(stdout).matchAll(/^ [VAS][.A-Z]{5} (\S+)/gm)].map((m) => m[1])));
     });
   });

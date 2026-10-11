@@ -135,6 +135,10 @@ async function encode({ film, a, b, file }, { fps, samples, shutter, duration, f
      encode takes seconds to drain); the parts folder goes with it (see render's finally) */
   const stop = () => kill(enc.proc);
   enc.proc.stdin.on('error', () => {});
+  /* an ffmpeg that ends before its last frame (not found, an encoder that fails to start) never drains its input:
+     the frame being written fails with ffmpeg's own error instead of waiting for it forever */
+  const ended = enc.done.then(() => { throw new Error('ffmpeg ended before the last frame'); });
+  ended.catch(() => {});
   signal?.addEventListener('abort', stop, { once: true });
   try {
     for (let f = a; f < b; f++) {
@@ -145,7 +149,8 @@ async function encode({ film, a, b, file }, { fps, samples, shutter, duration, f
       for (let k = 0; k < samples; k++) {
         const t = (f + (samples > 1 ? (k / samples - 0.5) * shutter : 0)) / fps;
         await film.seek(Math.min(Math.max(0, t), duration - 1e-4));
-        await write(enc.proc.stdin, await film.capture(still === 'png' ? { format: 'png' } : { format: 'jpeg', quality: 95 }));
+        const frame = await film.capture(still === 'png' ? { format: 'png' } : { format: 'jpeg', quality: 95 });
+        await Promise.race([write(enc.proc.stdin, frame), ended]);
       }
       onFrame();
     }
