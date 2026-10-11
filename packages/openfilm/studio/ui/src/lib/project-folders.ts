@@ -7,7 +7,8 @@
  *   PUT { folderId } /api/projects/:id/folder (null: no folder)
  */
 
-export type ProjectFolder = { id: string; name: string; createdAt: number };
+/** `parentId`: the folder it is in (none, or one that is gone: the top level). */
+export type ProjectFolder = { id: string; name: string; createdAt: number; parentId?: string };
 
 /** What of a project the list sorts, files and searches by. */
 export type ListedProject = {
@@ -35,7 +36,7 @@ async function call<T>(path: string, method = 'GET', json?: unknown): Promise<T>
 
 export const folderApi = {
   list: () => call<{ folders: ProjectFolder[] }>('folders').then((r) => r.folders),
-  create: (name: string) => call<{ folder: ProjectFolder }>('folders', 'POST', { name }).then((r) => r.folder),
+  create: (name: string, parentId: string | null = null) => call<{ folder: ProjectFolder }>('folders', 'POST', { name, ...(parentId ? { parentId } : {}) }).then((r) => r.folder),
   rename: (id: string, name: string) => call<{ folder: ProjectFolder }>(`folders/${encodeURIComponent(id)}`, 'PATCH', { name }).then((r) => r.folder),
   /** takes the folder off the list; resolves to the ids of the projects that were in it */
   remove: (id: string) => call<{ projects: string[] }>(`folders/${encodeURIComponent(id)}`, 'DELETE').then((r) => r.projects),
@@ -72,10 +73,32 @@ export function visibleProjects<P extends ListedProject>(
     });
 }
 
-/** How many projects each folder holds. */
-export function folderCounts(projects: readonly ListedProject[]): Record<string, number> {
+/** The folder a folder is in, or null (the top level, or its parent is gone). */
+export function parentOf(folder: ProjectFolder, folders: readonly ProjectFolder[]): string | null {
+  return folder.parentId && folders.some((f) => f.id === folder.parentId) ? folder.parentId : null;
+}
+
+/** A folder and the folders it is in, the outermost first (the breadcrumb). A loop is cut where it comes back. */
+export function folderTrail(folders: readonly ProjectFolder[], id: string | null): ProjectFolder[] {
+  const trail: ProjectFolder[] = [];
+  const seen = new Set<string>();
+  for (let at = folders.find((f) => f.id === id); at && !seen.has(at.id); at = folders.find((f) => f.id === parentOf(at!, folders))) {
+    seen.add(at.id);
+    trail.unshift(at);
+  }
+  return trail;
+}
+
+/** The folders that hold `id`, itself first: a project in it counts for each of them. */
+const holders = (folders: readonly ProjectFolder[], id: string) => folderTrail(folders, id).map((f) => f.id).reverse();
+
+/** How many projects each folder holds, those of the folders inside it too. */
+export function folderCounts(projects: readonly ListedProject[], folders: readonly ProjectFolder[] = []): Record<string, number> {
   const counts: Record<string, number> = {};
-  for (const p of projects) if (p.folderId) counts[p.folderId] = (counts[p.folderId] ?? 0) + 1;
+  for (const p of projects) {
+    if (!p.folderId) continue;
+    for (const id of folders.length ? holders(folders, p.folderId) : [p.folderId]) counts[id] = (counts[id] ?? 0) + 1;
+  }
   return counts;
 }
 
@@ -83,13 +106,15 @@ export function folderCounts(projects: readonly ListedProject[]): Record<string,
  * The small covers on each folder's card: its newest projects, up to four, each with its poster when it has one (a
  * cover without one shows that project's own face, as its card does).
  */
-export function folderPosters(projects: readonly ListedProject[]): Record<string, { id: string; poster?: string }[]> {
+export function folderPosters(projects: readonly ListedProject[], folders: readonly ProjectFolder[] = []): Record<string, { id: string; poster?: string }[]> {
   const out: Record<string, { id: string; poster?: string }[]> = {};
   const newest = [...projects].sort((a, b) => (b.createdAt ?? b.openedAt) - (a.createdAt ?? a.openedAt));
   for (const p of newest) {
     if (!p.folderId) continue;
-    const list = (out[p.folderId] ??= []);
-    if (list.length < 4) list.push(p.poster ? { id: p.id, poster: p.poster } : { id: p.id });
+    for (const id of folders.length ? holders(folders, p.folderId) : [p.folderId]) {
+      const list = (out[id] ??= []);
+      if (list.length < 4) list.push(p.poster ? { id: p.id, poster: p.poster } : { id: p.id });
+    }
   }
   return out;
 }

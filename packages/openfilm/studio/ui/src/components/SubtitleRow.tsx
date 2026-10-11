@@ -12,7 +12,7 @@
  * shown or hidden with its button in the toolbar (kept on this machine).
  */
 import React from 'react';
-import { Captions, Combine, Pencil, Plus, Scissors, Trash2 } from 'lucide-react';
+import { Captions, Combine, EyeOff, Pencil, Plus, Scissors, Trash2 } from 'lucide-react';
 import { useT } from '@/i18n';
 import { shortcutHint } from '@/lib/shortcut-hint';
 import {
@@ -62,6 +62,10 @@ function setShown(on: boolean): void {
   try { localStorage.setItem(SHOWN_KEY, on ? '1' : '0'); } catch { /* this session only */ }
   for (const fn of shownListeners) fn();
 }
+/** "Hide the row", in the row's menus: where it comes back is said under it. */
+const hideRowItem = (t: (key: string) => string): ContextMenuEntry => ({
+  id: 'hide', label: t('subtitleRow.hide'), note: t('subtitleRow.hideNote'), icon: <EyeOff size={14} />, onSelect: () => setShown(false),
+});
 export function useSubtitleRowShown(): [boolean, (on: boolean) => void] {
   const on = React.useSyncExternalStore((fn) => { shownListeners.add(fn); return () => { shownListeners.delete(fn); }; }, readShown, () => true);
   return [on, setShown];
@@ -92,11 +96,22 @@ export function SubtitleRowToggle() {
   );
 }
 
-/** The row's head, in the timeline's head column: its name, and a cue added at the playhead. */
+/**
+ * The row's head, in the timeline's head column: its name, and a cue added at the playhead. Its right-click menu adds
+ * one too, or hides the row (it comes back from the subtitle panel's "Edit on timeline").
+ */
 export function SubtitleRowHead({ onAdd }: { onAdd: () => void }) {
   const t = useT();
+  const [menu, setMenu] = React.useState<{ x: number; y: number } | null>(null);
+  const items: ContextMenuEntry[] = [
+    { id: 'add', label: t('subtitleRow.add'), icon: <Plus size={14} />, onSelect: onAdd },
+    { id: 'sep', separator: true },
+    hideRowItem(t),
+  ];
   return (
-    <div className="flex items-center justify-between gap-1 border-b pl-2 pr-1" style={{ height: SUBTITLE_ROW_H, borderColor: 'var(--tl-line)' }}>
+    <div className="flex items-center justify-between gap-1 border-b pl-2 pr-1" style={{ height: SUBTITLE_ROW_H, borderColor: 'var(--tl-line)' }}
+      data-subtitle-row-head=""
+      onContextMenu={(e) => { e.preventDefault(); e.stopPropagation(); setMenu({ x: e.clientX, y: e.clientY }); }}>
       <span className="truncate text-[10.5px] font-medium" style={{ color: 'var(--tl-text)' }}>{t('subtitleRow.name')}</span>
       <Tooltip side="bottom" label={t('subtitleRow.add')}>
         <button type="button" onClick={onAdd} onMouseDown={(e) => e.preventDefault()} aria-label={t('subtitleRow.add')}
@@ -104,6 +119,7 @@ export function SubtitleRowHead({ onAdd }: { onAdd: () => void }) {
           <Plus size={13} />
         </button>
       </Tooltip>
+      {menu ? <ContextMenu x={menu.x} y={menu.y} items={items} onClose={() => setMenu(null)} /> : null}
     </div>
   );
 }
@@ -297,7 +313,11 @@ export const SubtitleRow = React.forwardRef<SubtitleRowHandle, {
     const at = playheadMs();
     if (!cue) {
       setSelected(null);
-      setMenu({ x: e.clientX, y: e.clientY, items: [{ id: 'add', label: t('subtitleRow.add'), icon: <Plus size={14} />, onSelect: () => addAt(at) }] });
+      setMenu({ x: e.clientX, y: e.clientY, items: [
+        { id: 'add', label: t('subtitleRow.add'), icon: <Plus size={14} />, onSelect: () => addAt(at) },
+        { id: 'sep', separator: true },
+        hideRowItem(t),
+      ] });
       return;
     }
     setSelected(cueKey(cue));

@@ -279,3 +279,17 @@ test('fadeGain: a straight ramp in and out, fitted to the clip when longer than 
   assert.equal(fadeGain(0.5, 2, [3, 3]), 0.5);
   assert.equal(fadeGain(1, 2, [3, 3]), 1);
 });
+
+test('a page\'s size is the px it is laid out at: read from size="WxH", written back as it was, a page\'s alone', () => {
+  const text = page([['<iframe id="title" src="title.html#t=0,3" size="1920x1080" style="left: 0px; top: 416px; width: 1080px; height: 608px"></iframe>']]);
+  const { doc, value, problems: found } = readFilmFile(text);
+  assert.deepEqual(found, []);
+  assert.deepEqual(doc.tracks[0].clips[0].size, { w: 1920, h: 1080 });
+  assert.equal(filmHtml(value, text), text);
+  value.tracks[0].clips[0].size = { w: 1280, h: 720 };
+  assert.match(filmHtml(value, text), /<iframe id="title" src="title.html#t=0,3" size="1280x720" style=/);
+  assert.match(said(page([['<iframe src="t.html#t=0,3" size="wide"></iframe>']])), /size="1920x1080"/);
+  assert.match(said(page([['<video src="a.mp4" size="1920x1080"></video>']])), /a file has its own size/);
+  assert.match(problems(film({ src: 't.html', id: 't', time: [0, 3], size: { w: 0, h: 1080 } })), /size is the px/);
+  assert.match(problems(film({ src: 't.html', id: 't', time: [0, 3], size: { w: 9000, h: 1080 } })), /up to 8192/);
+});

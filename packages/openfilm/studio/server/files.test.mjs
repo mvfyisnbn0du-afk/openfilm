@@ -4,7 +4,7 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, symlinkS
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { Readable } from 'node:stream';
-import { FileError, cleanName, extractAudio, freezeFrame, importFile, inProject, inside, listFiles, makeFolder, moveFile, trashFile } from './files.mjs';
+import { FileError, cleanName, extractAudio, freezeFrame, importFile, inProject, inside, listFiles, makeFolder, moveCheck, moveFile, trashFile } from './files.mjs';
 import { execFileSync } from 'node:child_process';
 import { filmHtml, readFilmFile } from '../../src/film-doc.mjs';
 
@@ -116,12 +116,31 @@ test('moving a file or a folder points film.html at the new place; nothing is mo
   writeFileSync(join(root, 'film.html'), filmHtml({ stage: { w: 10, h: 10 }, tracks: [{ clips: [
     { src: 'assets/a.png', id: 'a', time: [0, 2] }, { src: 'assets/sfx/hit.wav', id: 'hit' },
   ] }] }));
-  assert.deepEqual(await moveFile(root, 'assets/a.png', 'assets/stills/logo.png'), { path: 'assets/stills/logo.png', clips: 1 });
+  assert.deepEqual(await moveFile(root, 'assets/a.png', 'assets/stills/logo.png'), { path: 'assets/stills/logo.png', clips: 1, pages: 0 });
   assert.equal((await moveFile(root, 'assets/sfx', 'assets/sounds')).clips, 1);
   const srcs = readFilmFile(readFileSync(join(root, 'film.html'), 'utf8')).value.tracks[0].clips.map((c) => c.src);
   assert.deepEqual(srcs, ['assets/stills/logo.png', 'assets/sounds/hit.wav']);
   await assert.rejects(moveFile(root, 'assets/b.png', 'assets/stills/logo.png'), (e) => e.status === 409);
   await assert.rejects(moveFile(root, 'assets/sounds', 'assets/sounds/inner'), FileError);
+});
+
+test('a page moved into a folder keeps its links; a page linking to a moved picture follows it', async () => {
+  put('assets/logo.png'); put('anim.js');
+  writeFileSync(join(root, 'title.html'), '<script src="anim.js"></script><img src="assets/logo.png"><script type="module">fetch(dir + n)</script>');
+  writeFileSync(join(root, 'end.html'), '<img src="assets/logo.png">');
+  writeFileSync(join(root, 'film.html'), filmHtml({ stage: { w: 10, h: 10 }, tracks: [{ clips: [{ src: 'title.html', id: 't', time: [0, 2] }] }] }));
+  /* asked first: what it cannot see is named, and nothing moves */
+  const [said] = await moveCheck(root, 'title.html', 'scenes/title.html');
+  assert.equal(said.file, 'title.html');
+  assert.ok(said.unseen.some((u) => u.startsWith('fetch(dir')));
+  assert.ok(existsSync(join(root, 'title.html')));
+  const out = await moveFile(root, 'title.html', 'scenes/title.html');
+  assert.deepEqual([out.path, out.clips, out.pages], ['scenes/title.html', 1, 1]);
+  assert.match(readFileSync(join(root, 'scenes', 'title.html'), 'utf8'), /src="\.\.\/anim\.js".*src="\.\.\/assets\/logo\.png"/);
+  /* the picture moves: the pages that show it follow (the moved one too) */
+  await moveFile(root, 'assets/logo.png', 'assets/brand/logo.png');
+  assert.match(readFileSync(join(root, 'end.html'), 'utf8'), /src="assets\/brand\/logo\.png"/);
+  assert.match(readFileSync(join(root, 'scenes', 'title.html'), 'utf8'), /src="\.\.\/assets\/brand\/logo\.png"/);
 });
 
 test('a rename never changes what a file is: another ending of the same kind is fine, a name in another case too', async () => {

@@ -18,8 +18,8 @@ import * as React from 'react';
 import {
   AlignCenterHorizontal, AlignCenterVertical, AlignEndHorizontal, AlignEndVertical, AlignHorizontalDistributeCenter,
   AlignStartHorizontal, AlignStartVertical, AlignVerticalDistributeCenter, ArrowRightToLine, AudioLines, Captions,
-  ChevronRight, CircleAlert, Clapperboard, Film, Gauge, Image as ImageIcon, Link2, Maximize2, MousePointerClick,
-  Lock, MoveHorizontal, Music, RotateCcw, Scissors, Shapes, Square, Type, Unlink2, Video, Volume2, X,
+  Check, ChevronRight, CircleAlert, Clapperboard, Copy, Film, Gauge, Image as ImageIcon, Link2, Maximize2, MousePointerClick,
+  Lock, MoveHorizontal, Music, RotateCcw, Scissors, Shapes, Sparkles, Square, Type, Unlink2, Video, Volume2, X,
 } from 'lucide-react';
 
 import {
@@ -39,12 +39,14 @@ import type { TimelineBlock } from '@/lib/timeline-layout';
 import { editsForMoves } from '@/lib/timeline-drag';
 import { useTimelinePrefs } from '@/lib/timeline-prefs';
 import { formatTimecode, FRAME_RATES, timecodeFps, useTimecodeFps } from '@/lib/timecode';
-import { FILM_FRAME_IDS, filmFrameOf, filmFrameStage, type FilmFrameId } from '@/lib/film-frame';
+import { MenuSelect } from './MenuSelect';
+import { filmFrameOf, filmFrameRatio, type FilmFrameId } from '@/lib/film-frame';
+import { CANVAS_RATIOS, canvasRatioLabel } from './FramePicker';
 import { declared, withDeclarations, type ClipLook } from '@/lib/clip-look';
 import { PANE_BAR, PANE_BTN, PANE_ICON, PANE_TITLE } from './dock-pane-bar';
 import { Tooltip } from './Tooltip';
 import {
-  ColorField, ICON, MIXED, NumField, RadiusGlyph, Row, RotateGlyph, Section, SectionAction, Segmented, SelectField, SliderField, SubLabel,
+  ColorField, ICON, MIXED, NumField, RadiusGlyph, Row, RotateGlyph, Section, SectionAction, Segmented, SliderField,
   useTimeUnit, type FieldApply, type Mixed,
 } from './inspector-fields';
 import {
@@ -153,7 +155,6 @@ export const FilmInspector = React.memo(function FilmInspector({
   onEditMask,
   film,
   onCanvas,
-  frame,
   layers,
   onEditLayers,
   locked = false,
@@ -207,10 +208,8 @@ export const FilmInspector = React.memo(function FilmInspector({
   onEditMask?: (session: MaskSession | null) => void;
   /** The film when nothing is selected. */
   film?: FilmSummary | null;
-  /** The stage's shape, while nothing has been made yet (FramePicker's onCanvas). */
-  onCanvas?: (next: FilmFrameId, size: { w: number; h: number }) => void;
-  /** The delivery frame, once the film has content (FramePicker's delivery mode). */
-  frame?: { value: FilmFrameId; onChange: (next: FilmFrameId) => void } | null;
+  /** The canvas: a shape (the editor grows it around the film), or a size typed. */
+  onCanvas?: (next: FilmFrameId, size?: { w: number; h: number }) => void;
   /** Several layers selected on the picture, and how to write them at once. */
   layers?: readonly StageElement[];
   onEditLayers?: (list: LayerEdit[]) => Promise<string | null>;
@@ -302,7 +301,7 @@ export const FilmInspector = React.memo(function FilmInspector({
         ) : geometry?.kind === 'group' && geometry.group ? (
           <GroupPanel geometry={geometry} group={geometry.group} layers={layers} onEditLayers={onEditLayers} t={t} />
         ) : (
-          <FilmPanel t={t} stage={stageSize} film={film ?? null} onCanvas={onCanvas} frame={frame ?? null} rate={rate ?? null} />
+          <FilmPanel t={t} stage={stageSize} film={film ?? null} onCanvas={onCanvas} rate={rate ?? null} />
         )}
       </div>
       </fieldset>
@@ -312,28 +311,60 @@ export const FilmInspector = React.memo(function FilmInspector({
 
 /* ───────────────────────────── nothing selected: the film ───────────────────────────── */
 
-const STAGE_PRESETS: FilmFrameId[] = ['16:9', '9:16', '1:1', '4:5'];
 
 /** Even sizes: H.264 samples chroma in 2×2 blocks and refuses odd dimensions (as film-frame does). */
 const even = (n: number) => Math.max(2, Math.round(n / 2) * 2);
 
 /**
+ * For a film that has clips: the canvas changes here, and laying the film out again for it is the agent's. The words
+ * that ask for it, with the canvas as it is now, to copy into the chat.
+ */
+function RedesignHint({ t, stage }: { t: T; stage: { w: number; h: number } }) {
+  const [open, setOpen] = React.useState(false);
+  const [copied, setCopied] = React.useState(false);
+  const shape = filmFrameOf(stage);
+  const ask = t('inspector.redesignAsk').replace('{ratio}', shape === 'native' ? `${stage.w}:${stage.h}` : shape).replace('{size}', `${stage.w}×${stage.h}`);
+  React.useEffect(() => { setCopied(false); }, [ask]);
+  return (
+    <div className="flex flex-col gap-2">
+      <button type="button" onClick={() => setOpen((v) => !v)} aria-expanded={open}
+        className="flex h-7 items-center gap-1.5 self-start rounded-md px-1.5 text-[11px] font-medium text-[var(--text-muted)] transition hover:bg-[var(--bg-hover)] hover:text-[var(--text)]">
+        <Sparkles size={12} />
+        {t('inspector.redesignOpen')}
+      </button>
+      {open ? (
+        <div className="flex flex-col gap-2 rounded-lg border border-[var(--border)] bg-[var(--fill-tsp)] p-2.5">
+          <p className="text-[10.5px] leading-[15px] text-[var(--text-muted)]">{t('inspector.redesignBody')}</p>
+          <p className="select-text rounded-md bg-[var(--bg)] px-2 py-1.5 text-[11px] leading-[16px] text-[var(--text)]">{ask}</p>
+          <button type="button"
+            onClick={() => { void navigator.clipboard?.writeText(ask).then(() => setCopied(true), () => {}); }}
+            className="flex h-7 items-center justify-center gap-1.5 rounded-md bg-[var(--text)] text-[11px] font-medium text-[var(--bg)] transition hover:opacity-90">
+            {copied ? <Check size={12} /> : <Copy size={12} />}
+            {t(copied ? 'inspector.redesignCopied' : 'inspector.redesignCopy')}
+          </button>
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+/**
  * The film itself: its name, its stage and shape, how long it is, what is in it. The shape changes as the
- * player's frame button changes it (FramePicker): the stage itself while nothing has been made (no coordinate can
- * break yet), the delivery frame around the film once it has content.
+ * player's ratio button changes it (FramePicker): the canvas itself, at any time, as an image editor's canvas size
+ * (what is on it stays as it is, centered); laying the film out again for it is the agent's (RedesignHint).
  */
 function FilmPanel({
-  t, stage, film, onCanvas, frame, rate,
+  t, stage, film, onCanvas, rate,
 }: {
   t: T;
   stage: { w: number; h: number };
   film: FilmSummary | null;
-  onCanvas?: (next: FilmFrameId, size: { w: number; h: number }) => void;
-  frame: { value: FilmFrameId; onChange: (next: FilmFrameId) => void } | null;
+  onCanvas?: (next: FilmFrameId, size?: { w: number; h: number }) => void;
   rate: { fps: number; fromFootage: boolean; onChange: (fps: number) => void } | null;
 }) {
-  const canvas = Boolean(film?.empty && onCanvas);
-  const shape = filmFrameOf(stage);
+  const canvas = Boolean(onCanvas);
+  const placed = Boolean(film && !film.empty);
+  const preset = CANVAS_RATIOS.find((r) => Math.abs(stage.w / Math.max(1, stage.h) - filmFrameRatio(r.id, stage)) < 0.01);
   const setSize = (w: number, h: number) => {
     const size = { w: even(w), h: even(h) };
     if (size.w === stage.w && size.h === stage.h) return;
@@ -354,43 +385,32 @@ function FilmPanel({
       />
       <Section id="film-stage" title={t('inspector.stage')}>
         {canvas ? (
-          <Segmented
+          <MenuSelect
             label={t('inspector.stageShape')}
-            value={STAGE_PRESETS.includes(shape) ? shape : 'custom'}
-            small
-            options={[...STAGE_PRESETS.map((id) => ({ value: id, label: id })), { value: 'custom', label: t('inspector.custom') }]}
-            onChange={(id) => { if (id !== 'custom') onCanvas?.(id as FilmFrameId, filmFrameStage(stage, id as FilmFrameId)); }}
+            value={preset?.id ?? 'custom'}
+            groups={[
+              { choices: preset ? [] : [{ value: 'custom', label: `${t('viewer.frameCustom')} · ${stage.w}×${stage.h}` }] },
+              { choices: CANVAS_RATIOS.filter((r) => r.group === 'wide').map((r) => ({ value: r.id, label: canvasRatioLabel(t, r) })) },
+              { choices: CANVAS_RATIOS.filter((r) => r.group === 'tall').map((r) => ({ value: r.id, label: canvasRatioLabel(t, r) })) },
+            ].filter((g) => g.choices.length)}
+            onPick={(id) => { if (id !== 'custom') onCanvas?.(id as FilmFrameId); }}
           />
         ) : null}
         <Row>
           <NumField label={t('inspector.width')} prefix="W" value={stage.w} unit="px" min={2} max={8192} disabled={!canvas} onCommit={(w) => setSize(w, stage.h)} />
           <NumField label={t('inspector.height')} prefix="H" value={stage.h} unit="px" min={2} max={8192} disabled={!canvas} onCommit={(h) => setSize(stage.w, h)} />
         </Row>
-        {!canvas && frame ? (
-          <>
-            <SubLabel>{t('inspector.deliveryFrame')}</SubLabel>
-            <Segmented
-              label={t('inspector.deliveryFrame')}
-              value={frame.value}
-              small
-              options={FILM_FRAME_IDS.filter((id) => id === 'native' || STAGE_PRESETS.includes(id)).map((id) => ({
-                value: id,
-                label: id === 'native' ? t('viewer.frameNative') : id,
-              }))}
-              onChange={(id) => frame.onChange(id as FilmFrameId)}
-            />
-          </>
-        ) : null}
-        <p className="text-[10.5px] leading-[15px] text-[var(--text-faint)]">{canvas ? t('viewer.canvasNote') : t('inspector.stageFixed')}</p>
+        <p className="text-[10.5px] leading-[15px] text-[var(--text-faint)]">{t(placed ? 'inspector.stageFixed' : 'viewer.canvasNote')}</p>
+        {/* with clips: the words that ask the agent to lay the film out again for this canvas */}
+        {placed ? <RedesignHint t={t} stage={stage} /> : null}
       </Section>
       {rate ? (
         <Section id="film-rate" title={t('inspector.frameRate')}>
-          <SelectField
+          <MenuSelect
             label={t('inspector.frameRate')}
-            prefix="fps"
             value={String(rate.fps)}
-            options={FRAME_RATES.map((r) => ({ value: String(r), label: String(r) }))}
-            onCommit={(v) => rate.onChange(Number(v))}
+            groups={[{ choices: FRAME_RATES.map((r) => ({ value: String(r), label: `${r} fps` })) }]}
+            onPick={(v) => rate.onChange(Number(v))}
           />
           <p className="text-[10.5px] leading-[15px] text-[var(--text-faint)]">{t(rate.fromFootage ? 'inspector.frameRateFootage' : 'inspector.frameRateNote')}</p>
         </Section>

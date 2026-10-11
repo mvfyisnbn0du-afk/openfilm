@@ -18,8 +18,11 @@ import { useSyncExternalStore } from 'react';
 /** The frame rate before a project says otherwise, and the grid the ruler's steps are counted in. */
 export const DISPLAY_FPS = 30;
 
-/** The rates a project can be set to, as editors name them. */
-export const FRAME_RATES = [23.976, 24, 25, 29.97, 30, 50, 59.94, 60] as const;
+/**
+ * The rates a project can be set to and a video exported at, as editors name them: Premiere's and DaVinci Resolve's
+ * common ones (the NTSC 23.976, 29.97 and 59.94 are what cameras and phones record), and 120 for high frame rate.
+ */
+export const FRAME_RATES = [23.976, 24, 25, 29.97, 30, 48, 50, 59.94, 60, 120] as const;
 
 /** A rate as it really is: the NTSC ones are 24000/1001, 30000/1001 and 60000/1001. */
 export function exactRate(fps: number): number {

@@ -43,10 +43,11 @@ A folder:
   - `at`: where it starts in the film, in seconds; without it, 0.
   - `left`, `top`, `width`, `height` in its `style` (px) and `rotate` (degrees, clockwise): where it sits. Without them, a video or picture is the stage, and a page is its own size, centered. With only `width` or `height`, the other keeps its proportions.
   - Its look is CSS, in `class` or `style`: a video or picture fits whole in its box unless you say otherwise (`object-fit: cover` crops it to the box). The film's CSS holds still; what moves is a page.
-  - `speed` (video and sound): 0.25 to 4. The clip lasts `(out − in) / speed` seconds.
+  - `speed` (video and sound): 0.25 to 4. The clip lasts `(out − in) / speed` seconds. To make it faster or slower, change `speed` only: never make the file again at another speed, nor move its `.vtt`'s times. Its subtitles follow `speed` on their own.
   - `volume` (video and sound): 1 is the file's own level; `muted` silences it.
   - `id`: a name, unique in the film; without it, the file's name.
   - `overrides`: the person's changes made in Studio. Keep them as they are.
+  - `size` (page): the px a page without its own `width` and `height` is laid out at; without it, the stage's. Studio sets it when the frame changes shape. Keep it as it is; remove it only when you lay the page out again for the new frame.
 - Cut a long recording by trimming it: every clip of it is the same file with its own `#t=`. Never cut, crop or re-encode media into new files; CSS crops.
 
 ## A page

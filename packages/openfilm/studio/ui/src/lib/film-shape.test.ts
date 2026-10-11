@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { filmShape, type ClipSpan } from './film-shape.ts';
+import { filmShape, spanShows, type ClipSpan } from './film-shape.ts';
 import { layoutTracks } from './timeline-layout.ts';
 import type { FilmDoc } from './film.ts';
 
@@ -36,4 +36,14 @@ test('where the preview placed a clip, its span stands; a still keeps the length
   const media = new Map([['assets/a.mp4', { duration: 10 }], ['assets/logo.png', { duration: 40 }]]);
   const spans: ClipSpan[] = [{ id: 'a', src: 'assets/a.mp4', at: 0, end: 9, native: 9 }];
   assert.deepEqual(blocks(film, spans, media).map((b) => b.slice(0, 3)), [['a', 0, 9000], ['logo', 9000, 11_000]]);
+});
+
+/* a layer selected on the picture lets go once the playhead leaves its clip (components/FilmStageSelect) */
+test('a clip shows from its start up to, not including, its end', () => {
+  const span = { at: 2, end: 6 };
+  assert.equal(spanShows(span, 1990), false);
+  assert.equal(spanShows(span, 2000), true);
+  assert.equal(spanShows(span, 5999), true);
+  assert.equal(spanShows(span, 6100), false);
+  assert.equal(spanShows(span, 5160), true);
 });

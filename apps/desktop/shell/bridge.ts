@@ -22,7 +22,7 @@ interface Native {
   hello(): Promise<{ flavor: string; version: string; ffmpeg: unknown; update: unknown; chatOpen: boolean; chatWidth: number; chatMin: number; studioMin: number; fullScreen: boolean }>;
   pathForFile(file: File): string;
   revealPath(path: string): Promise<void>;
-  pickFolder(): Promise<string | null>;
+  pickFolder(options?: { title?: string; button?: string; at?: string }): Promise<string | null>;
   capture(rect: { x: number; y: number; width: number; height: number }): Promise<string | null>;
   agents: NonNullable<StudioHost['agents']>;
   localAgents: Record<string, unknown>;

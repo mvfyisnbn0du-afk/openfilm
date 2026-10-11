@@ -11,9 +11,16 @@ import type { TimelineFilm, TimelineBlock } from './timeline-layout.ts';
 /** Where the preview says a clip is: seconds on the film, and its source's own length (none for a still) and size. */
 export type ClipSpan = {
   id: string; src: string; at: number; end: number; native: number | null; w?: number; h?: number;
+  /** a page that sets no size of its own: laid out at its clip's `size`, else the stage's */
+  reflows?: true;
   /** a picture's look, as the film's CSS makes it (see clip-look) */
   look?: ClipLook;
 };
+
+/** Whether a clip is on screen at `timeMs` (its span is in seconds; a few ms either side for rounding). */
+export const spanShows = (span: Pick<ClipSpan, 'at' | 'end'>, timeMs: number): boolean => (
+  timeMs >= span.at * 1000 - 5 && timeMs < span.end * 1000 + 5
+);
 
 /** What probing a media file told: whether a video carries sound, and the file's own length (s). */
 export type MediaFacts = ReadonlyMap<string, { audio?: boolean; duration?: number }>;

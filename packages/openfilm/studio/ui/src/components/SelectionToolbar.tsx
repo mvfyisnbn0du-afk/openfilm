@@ -7,8 +7,8 @@
  *   · **Beside it, never over it** (lib/selection-toolbar placeToolbar): above, else below, inside the area it belongs
  *     to, and clear of what its owner says it must not cover (the other clips on the timeline); placed again on every
  *     render of its owner, so it follows a scroll or a moved frame.
- *   · **Once the selection settles.** It waits SETTLE_MS after the selection last changed (a marquee, a click that
- *     becomes a drag) and stays away while `hidden` (dragging, trimming, cropping, typing, playing).
+ *   · **At once.** It shows with the selection's own frame, in the same paint, and stays away while `hidden` (a
+ *     marquee, dragging, trimming, cropping, typing, playing): its owner says when the selection is still moving.
  *   · **Esc puts it away** until the selection changes.
  *   · **On body**, like the menus: the timeline and the picture clip what spills out of them. Presses on it reach
  *     neither (they would select or drag what is under it in the component tree), and take no focus (Space plays).
@@ -19,9 +19,6 @@ import { createPortal } from 'react-dom';
 
 import { Tooltip } from '@/components/Tooltip';
 import { placeToolbar, type ScreenBox, type ToolbarPlacement } from '@/lib/selection-toolbar';
-
-/** How long the selection must stay the same before the bar shows. */
-const SETTLE_MS = 180;
 
 export interface SelectionTool {
   id: string;
@@ -42,14 +39,14 @@ export type SelectionToolEntry = SelectionTool | { id: string; separator: true }
 export function SelectionToolbar({
   selection, measure, hidden = false, lead, label, tools, ariaLabel,
 }: {
-  /** What is selected, as a key (null: nothing). A new key waits to settle again; Esc hides the bar until it changes. */
+  /** What is selected, as a key (null: nothing). Esc hides the bar until it changes. */
   selection: string | null;
   /**
    * Where the selection is on screen and the area the bar stays in (and the room between, when not the usual; what it
    * must not cover); null when it cannot be seen.
    */
   measure: () => { anchor: ScreenBox; bounds: ScreenBox; gap?: number; avoid?: readonly ScreenBox[] } | null;
-  /** Kept away for now (a drag, playback): shown again once it settles after. */
+  /** Kept away for now (a drag, playback): shown again when it ends. */
   hidden?: boolean;
   /** The first button, always: "Add to chat" (none without a chat). */
   lead?: SelectionTool | null;
@@ -60,20 +57,13 @@ export function SelectionToolbar({
   ariaLabel: string;
 }) {
   const ref = React.useRef<HTMLDivElement | null>(null);
-  const [ready, setReady] = React.useState(false);
   const [dismissed, setDismissed] = React.useState<string | null>(null);
   const [pos, setPos] = React.useState<ToolbarPlacement | null>(null);
   const [, setTick] = React.useState(0);
 
-  React.useEffect(() => {
-    setReady(false);
-    if (!selection || hidden) return undefined;
-    const timer = window.setTimeout(() => setReady(true), SETTLE_MS);
-    return () => window.clearTimeout(timer);
-  }, [selection, hidden]);
   React.useEffect(() => { if (dismissed && dismissed !== selection) setDismissed(null); }, [dismissed, selection]);
 
-  const shown = ready && !hidden && selection != null && dismissed !== selection && (Boolean(lead) || tools.length > 0);
+  const shown = !hidden && selection != null && dismissed !== selection && (Boolean(lead) || tools.length > 0);
 
   React.useEffect(() => {
     if (!shown) return undefined;
@@ -124,8 +114,8 @@ export function SelectionToolbar({
       style={{
         left: pos?.left ?? 0,
         top: pos?.top ?? 0,
+        /* shown at once, where it goes: a rise would trail the click */
         visibility: pos ? 'visible' : 'hidden',
-        animation: pos ? 'openfilm-rise 0.12s ease-out both' : undefined,
       }}
     >
       {lead ? <ToolbarButton tool={lead} side={side} /> : null}

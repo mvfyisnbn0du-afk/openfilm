@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { chooseProvider, listProviders } from './index.mjs';
+import { chooseProvider, listProviders, shownChoices } from './index.mjs';
 
 before(() => {
   /* this machine's own keys must not decide these */
@@ -54,4 +54,14 @@ test('a key in the environment counts as much as a kept one', async () => {
   } finally {
     delete process.env.GOOGLE_API_KEY;
   }
+});
+
+test('Settings shows a choice only while its provider has a key; the choice itself is kept', () => {
+  const kept = settings({}, { image: 'openai', sfx: 'elevenlabs' });
+  const shown = shownChoices({ ...kept, off: [] });
+  assert.equal(shown.use.image, null);
+  assert.equal(shown.model.image, null);
+  assert.equal(shown.use.sfx, null);
+  assert.deepEqual(kept.use, { image: 'openai', sfx: 'elevenlabs' });
+  assert.equal(shownChoices({ ...settings({ openai: 'sk-0123456789' }, { image: 'openai' }), off: [] }).use.image, 'openai');
 });

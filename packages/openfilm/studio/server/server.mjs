@@ -19,7 +19,7 @@ import { mkdir, readFile } from 'node:fs/promises';
 import { createHash } from 'node:crypto';
 import { spawn } from 'node:child_process';
 import { EditError, editProjectFilm, readProjectFilm } from './film.mjs';
-import { FileError, extractAudio, freezeFrame, importFile, inside, listFiles, makeFolder, moveFile, trashFile } from './files.mjs';
+import { FileError, extractAudio, freezeFrame, importFile, inside, listFiles, makeFolder, moveCheck, moveFile, trashFile } from './files.mjs';
 import { ExportError, createExports, exportCapabilities, exportsRoot, projectSizes } from './exports.mjs';
 import { MediaError, frame, loudness, poster, probe, waveform } from './derived.mjs';
 import { HistoryError, checkout, commitChanges, deleteBranch, discardChanges, historyFiles, log, mergeBranch, renameBranch, restoreCommit, status as historyStatus } from './history.mjs';
@@ -33,6 +33,7 @@ import {
 import { FetchError, createFetches } from './fetch-repo.mjs';
 import { BrowseError, browseFolder, browsePlaces } from './browse.mjs';
 import { listExamples } from './examples.mjs';
+import { pickFolder } from './folder-picker.mjs';
 import { npmOpenfilm, olderThanThis } from '../client.mjs';
 import { writeAtomic } from './atomic.mjs';
 import { createWatchers } from './watch.mjs';
@@ -52,6 +53,11 @@ import { createAsks, getRoute, subtitleTranscriber, subtitleTranslator } from '.
 /* the session cookie's name carries the port: cookies are per host, not per port, so two Studios on 127.0.0.1 (an
    installed one and a checkout, say) would otherwise sign each other's pages out */
 const cookieName = (/** @type {number} */ port) => `openfilm_studio_${port}`;
+/* and its twin for a page shown inside another site's frame (an agent's preview pane): a SameSite=Strict cookie is
+   neither kept nor sent there, so Studio would say "open it from the address…" however it was opened. This one is
+   Partitioned (CHIPS): kept for that frame's top-level site only, so a page elsewhere never has it unless it framed the
+   address with the key itself; and a write still has to come from the editor's own origin (authorize) */
+const framedCookieName = (/** @type {number} */ port) => `${cookieName(port)}_framed`;
 /** How long `/open` waits, after a restart, for the pages of the Studio before to come back (they retry every second). */
 const PAGES_BACK_MS = 3000;
 /** The project's website (package.json `homepage`). */
@@ -83,6 +89,9 @@ export function desktopInstaller(os, arch, base = DESKTOP_FILES) {
  */
 export async function startStudio({ port = 4747, key, openBrowser = systemBrowser, advertise = false, onQuit, stays = false, editorDir = EDITOR_DIR, working = () => [] } = {}) {
   let COOKIE = cookieName(port);
+  let FRAMED = framedCookieName(port);
+  /** The key from either session cookie. */
+  const cookieKey = (/** @type {Req} */ req) => (sameKey(cookie(req, COOKIE)) ? cookie(req, COOKIE) : cookie(req, FRAMED));
   key ??= advertise ? studioKey() : randomBytes(24).toString('hex');
   const watchers = createWatchers();
   /** questions about spending for the person, in the pages showing a project (see get.mjs) */
@@ -115,7 +124,7 @@ export async function startStudio({ port = 4747, key, openBrowser = systemBrowse
   /** The caller holds the key; a browser write must also come from the editor's own origin. */
   function authorize(/** @type {Req} */ req) {
     if (sameKey(/** @type {string | undefined} */ (req.headers['x-studio-key']))) return;
-    if (!sameKey(cookie(req, COOKIE))) throw new HttpError(401, 'open Studio from the address `openfilm open` prints');
+    if (!sameKey(cookieKey(req))) throw new HttpError(401, 'open Studio from the address `openfilm open` prints');
     if (req.method !== 'GET' && req.method !== 'HEAD' && req.headers.origin !== origin) throw new HttpError(403, 'not from Studio');
   }
 
@@ -151,7 +160,7 @@ export async function startStudio({ port = 4747, key, openBrowser = systemBrowse
       const to = url.searchParams.get('to') ?? '/';
       res.writeHead(302, {
         location: /^\/(?!\/)[^\s\\]*$/.test(to) ? to : '/',
-        'set-cookie': `${COOKIE}=${key}; Path=/; HttpOnly; SameSite=Strict`,
+        'set-cookie': [`${COOKIE}=${key}; Path=/; HttpOnly; SameSite=Strict`, `${FRAMED}=${key}; Path=/; HttpOnly; Secure; SameSite=None; Partitioned`],
       });
       return res.end();
     }
@@ -227,6 +236,17 @@ export async function startStudio({ port = 4747, key, openBrowser = systemBrowse
       try { return await getRoute(req, res, parts.slice(1), asks); } finally { making -= req.method === 'POST' ? 1 : 0; }
     }
 
+    /* the system's folder dialog, opened here for a page in a browser (folder-picker.mjs): { path } (null: cancelled);
+       501 when this system has none Studio can open */
+    if (parts[0] === 'pick-folder' && parts.length === 1 && req.method === 'POST') {
+      const { title, at } = /** @type {{ title?: unknown, at?: unknown }} */ (await readJson(req).catch(() => ({})) ?? {});
+      try {
+        const path = await pickFolder({ title: typeof title === 'string' && title.trim() ? title.trim().slice(0, 120) : 'Choose a folder', at: typeof at === 'string' ? at : null });
+        return json(res, 200, { path });
+      } catch (e) {
+        throw new HttpError(501, /** @type {Error} */ (e).message);
+      }
+    }
     /* the web editor's folder browser (browse.mjs): `path`'s folders, only under the home folder, and where to start */
     if (parts[0] === 'browse' && parts.length === 1 && req.method === 'GET') {
       const listing = await browseFolder(url.searchParams.get('path'));
@@ -252,12 +272,15 @@ export async function startStudio({ port = 4747, key, openBrowser = systemBrowse
       if (parts.length === 3 && req.method === 'GET') return json(res, 200, { job: fetches.get(parts[2]) });
       if (parts.length === 3 && req.method === 'DELETE') { fetches.cancel(parts[2]); return json(res, 200, {}); }
     }
-    /* the Projects list's folders (projects.mjs): GET / POST { name } `projects/folders`, PATCH { name } / DELETE
-       `projects/folders/:id` (DELETE answers the ids of the projects that were in it), PUT { folderId }
+    /* the Projects list's folders (projects.mjs): GET / POST { name, parentId? } `projects/folders`, PATCH { name } /
+       DELETE `projects/folders/:id` (with the folders inside it; answers the ids of the projects that were in them), PUT { folderId }
        `projects/:id/folder` (null: no folder) */
     if (parts[1] === 'folders' && parts.length <= 3) {
       if (parts.length === 2 && req.method === 'GET') return json(res, 200, { folders: await listFolders() });
-      if (parts.length === 2 && req.method === 'POST') return json(res, 200, { folder: await createFolder(/** @type {{ name?: string }} */ (await readJson(req)).name) });
+      if (parts.length === 2 && req.method === 'POST') {
+        const { name, parentId } = /** @type {{ name?: string, parentId?: string | null }} */ (await readJson(req));
+        return json(res, 200, { folder: await createFolder(name, parentId) });
+      }
       if (parts.length === 3 && req.method === 'PATCH') return json(res, 200, { folder: await renameFolder(parts[2], /** @type {{ name?: string }} */ (await readJson(req)).name) });
       if (parts.length === 3 && req.method === 'DELETE') return json(res, 200, { projects: await deleteFolder(parts[2]) });
     }
@@ -444,7 +467,9 @@ export async function startStudio({ port = 4747, key, openBrowser = systemBrowse
         return json(res, 200, { path: landed, ...(unreadable ? { unreadable } : {}) });
       }
       if (req.method === 'PATCH') {
-        const { from, to } = /** @type {{ from?: string, to?: string }} */ (await readJson(req));
+        const { from, to, check } = /** @type {{ from?: string, to?: string, check?: boolean }} */ (await readJson(req));
+        /* `check`: what the move could not keep true (paths a page makes while it runs), nothing moved */
+        if (check === true) return json(res, 200, { unseen: await moveCheck(project.path, String(from ?? ''), String(to ?? '')) });
         return json(res, 200, await moveFile(project.path, String(from ?? ''), String(to ?? '')));
       }
       if (req.method === 'DELETE') {
@@ -573,7 +598,7 @@ export async function startStudio({ port = 4747, key, openBrowser = systemBrowse
     if (!ownHost(req, /** @type {import('node:net').AddressInfo} */ (editor.address()).port)) return refuse('403 Forbidden');
     void (async () => {
       const path = new URL(req.url ?? '/', origin).pathname;
-      const keyed = sameKey(/** @type {string | undefined} */ (req.headers['x-studio-key'])) || (sameKey(cookie(req, COOKIE)) && req.headers.origin === origin);
+      const keyed = sameKey(/** @type {string | undefined} */ (req.headers['x-studio-key'])) || (sameKey(cookieKey(req)) && req.headers.origin === origin);
       if (!keyed) return refuse('401 Unauthorized');
       const parts = path.split('/').slice(1).map(decodeURIComponent);
       /** @type {() => void} */
@@ -601,6 +626,7 @@ export async function startStudio({ port = 4747, key, openBrowser = systemBrowse
   const address = /** @type {import('node:net').AddressInfo} */ (editor.address());
   origin = `http://127.0.0.1:${address.port}`;
   COOKIE = cookieName(address.port);
+  FRAMED = framedCookieName(address.port);
   /* the film's port is the next one: when it is not free, the editor's is let go again, so a caller can try others */
   const pages = await startPages({ port: port ? address.port + 1 : 0, editorOrigin: () => origin, secret: key, projects: listProjects }).catch(async (e) => {
     watchers.closeAll();

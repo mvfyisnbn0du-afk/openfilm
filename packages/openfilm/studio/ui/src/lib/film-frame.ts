@@ -8,30 +8,43 @@
  * Two ways to fit it: `contain` (default) scales and centers with bars and never crops; `cover` fills the box and
  * crops the overflow, so the edges are really gone — a choice, never the default.
  *
- * The frame is a delivery preference, not part of the film: it is kept per project in this browser's localStorage
- * (unlike the subtitle style, which lives in the project folder's `.film/subtitles.json`) and sent along with an
- * export.
+ * The frame is the export's choice, not part of the film: picked in the export dialog for one export (the film's own
+ * shape is its canvas, which the viewer's ratio button changes).
  */
 
-/** A delivery frame. `native` = no frame, the film at its own size. */
-export type FilmFrameId = 'native' | '16:9' | '9:16' | '1:1' | '4:5' | '4:3' | '21:9';
+/**
+ * A delivery frame: `native` (no frame, the film at its own size), or a ratio written `W:H` ("16:9", "2.39:1"): one of
+ * the presets, or any other the person types, from 1:4 to 4:1.
+ */
+export type FilmFrameId = 'native' | `${number}:${number}`;
 
+/** The presets, as editors offer them: video and social shapes first, then photo and cinema ones. */
 export const FILM_FRAME_IDS: FilmFrameId[] = [
-  'native', '16:9', '9:16', '1:1', '4:5', '4:3', '21:9',
+  'native', '16:9', '9:16', '1:1', '4:5', '4:3', '3:4', '3:2', '2:3', '21:9', '2.39:1', '1.85:1', '2:1',
 ];
 
-/** Width ÷ height of each frame. `native` has none: it follows the film. */
-const FRAME_RATIO: Record<Exclude<FilmFrameId, 'native'>, number> = {
-  '16:9': 16 / 9,
-  '9:16': 9 / 16,
-  '1:1': 1,
-  '4:5': 4 / 5,
-  '4:3': 4 / 3,
-  '21:9': 21 / 9,
-};
+/** How far a frame may go from square, either way (a custom one past it is refused). */
+export const FRAME_RATIO_LIMIT = 4;
+const RATIO = /^(\d{1,4}(?:\.\d{1,3})?):(\d{1,4}(?:\.\d{1,3})?)$/;
+
+/** Width ÷ height of a frame written `W:H`, or null when it is not one (or too far from square). */
+export function frameRatioOf(frame: string): number | null {
+  const m = RATIO.exec(frame);
+  if (!m) return null;
+  const ratio = Number(m[1]) / Number(m[2]);
+  return Number.isFinite(ratio) && ratio >= 1 / FRAME_RATIO_LIMIT && ratio <= FRAME_RATIO_LIMIT ? ratio : null;
+}
+
+/** A frame from a typed width and height ("2.39" and "1"), or null when they make none. */
+export function customFilmFrame(w: number, h: number): FilmFrameId | null {
+  const num = (n: number) => String(Math.round(n * 1000) / 1000);
+  if (!(w > 0) || !(h > 0)) return null;
+  const id = `${num(w)}:${num(h)}`;
+  return frameRatioOf(id) != null ? id as FilmFrameId : null;
+}
 
 export function filmFrameRatio(frame: FilmFrameId, stage: { w: number; h: number }): number {
-  return frame === 'native' ? stage.w / Math.max(1, stage.h) : FRAME_RATIO[frame];
+  return (frame === 'native' ? null : frameRatioOf(frame)) ?? stage.w / Math.max(1, stage.h);
 }
 
 /** Even sizes: H.264 samples chroma in 2×2 blocks and refuses odd dimensions. */
@@ -60,10 +73,10 @@ export function filmFrameBox(
 ): FilmFrameBox {
   const sw = Math.max(1, stage.w);
   const sh = Math.max(1, stage.h);
-  if (frame === 'native') {
+  const ratio = frame === 'native' ? null : frameRatioOf(frame);
+  if (ratio == null) {
     return { w: even(sw), h: even(sh), inner: { w: sw, h: sh, left: 0, top: 0, scale: 1 } };
   }
-  const ratio = FRAME_RATIO[frame];
   /* the frame must hold the film both ways: take the larger */
   const byWidth = { w: sw, h: sw / ratio };
   const byHeight = { w: sh * ratio, h: sh };
@@ -84,8 +97,9 @@ export function filmFrameBox(
 
 /** Whether the frame has the film's own shape (then framing it changes nothing). */
 export function filmFrameIsNative(stage: { w: number; h: number }, frame: FilmFrameId): boolean {
-  if (frame === 'native') return true;
-  return Math.abs(stage.w / Math.max(1, stage.h) - FRAME_RATIO[frame]) < 0.01;
+  const ratio = frame === 'native' ? null : frameRatioOf(frame);
+  if (ratio == null) return true;
+  return Math.abs(stage.w / Math.max(1, stage.h) - ratio) < 0.01;
 }
 
 /**
@@ -98,8 +112,8 @@ export function filmFrameStage(
   stage: { w: number; h: number },
   frame: FilmFrameId,
 ): { w: number; h: number } {
-  if (frame === 'native') return { w: even(stage.w), h: even(stage.h) };
-  const ratio = FRAME_RATIO[frame];
+  const ratio = frame === 'native' ? null : frameRatioOf(frame);
+  if (ratio == null) return { w: even(stage.w), h: even(stage.h) };
   return ratio >= 1
     ? { w: even(HD * ratio), h: even(HD) }
     : { w: even(HD), h: even(HD / ratio) };
@@ -111,27 +125,7 @@ export function filmFrameOf(stage: { w: number; h: number }): FilmFrameId {
 }
 
 export function parseFilmFrame(raw: unknown): FilmFrameId {
-  return typeof raw === 'string' && (FILM_FRAME_IDS as string[]).includes(raw)
+  return typeof raw === 'string' && (raw === 'native' || frameRatioOf(raw) != null)
     ? raw as FilmFrameId
     : 'native';
-}
-
-/**
- * Where the delivery frame is kept: per project ("this one goes vertical" is true of one film, not of every film the
- * person opens), and only in this browser — changing it should not make a version.
- */
-const FRAME_KEY = 'openfilm.frame';
-
-export function readFilmFrame(projectId: string): FilmFrameId {
-  try {
-    return parseFilmFrame(localStorage.getItem(`${FRAME_KEY}.${projectId}`));
-  } catch {
-    return 'native';
-  }
-}
-
-export function writeFilmFrame(projectId: string, frame: FilmFrameId): void {
-  try {
-    localStorage.setItem(`${FRAME_KEY}.${projectId}`, frame);
-  } catch { /* storage off (private window): the choice lasts this session only */ }
 }

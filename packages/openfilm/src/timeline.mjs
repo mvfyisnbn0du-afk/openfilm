@@ -441,6 +441,8 @@ function settle(c, row, track, ti) {
   c.span = clipSpan(row, c.native, where);
   c.end = c.at + c.span.length;
   c.fade = fittedFade(clipFade(row), c.span.length);
+  /* a page that sets no size of its own is laid out at its clip's size, else the stage's */
+  if (c.kind === 'page') { const own = c.own ?? row.size ?? stage; c.nw = own.w; c.nh = own.h; }
   dress(c, row);
   /* the tweaks of a page's elements (the clip's own entry, its fades, is not one) */
   const tweaks = row.overrides?.filter((o) => o.at !== undefined);
@@ -508,8 +510,8 @@ async function load(row, track, ti, el) {
     }
     const win = c.win = el.contentWindow;
     c.child = win.film;
-    const sized = c.child.width > 0 && c.child.height > 0;
-    c.nw = sized ? c.child.width : stage.w; c.nh = sized ? c.child.height : stage.h;
+    /* its own size, when it says one (else its clip's size, or the stage's: see settle) */
+    if (c.child.width > 0 && c.child.height > 0) c.own = { w: c.child.width, h: c.child.height };
     await ready(c.child);
     /* a page without a duration has no end: its clip's #t= is its length, as a still's */
     const length = c.child.duration;
@@ -609,10 +611,12 @@ window.__filmProgress = () => progress;
 /* for `look`: where each picture starts, to check the picture is there */
 window.__filmCuts = () => clips.filter((c) => c.kind !== 'sound' && !c.hidden).map((c) => ({ id: c.id, src: c.src, at: c.at, end: c.end }));
 /* for an editor: where every clip sits on the film, sounds included, in seconds, its source's own length and picture
-   size (a page's width × height, a video's frame, a still's pixels; none for a sound), and how a picture looks */
+   size (a page's width × height, a video's frame, a still's pixels; none for a sound), whether it is a page that sets
+   no size of its own (`reflows`: laid out at its clip's size, else the stage's), and how a picture looks */
 window.__filmSpans = () => clips.map((c) => ({
   id: c.id, src: c.src, track: c.track, at: c.at, end: c.end, native: Number.isFinite(c.native) ? c.native : null,
   ...(c.kind !== 'sound' && c.nw > 0 && c.nh > 0 ? { w: c.nw, h: c.nh } : {}),
+  ...(c.kind === 'page' && !c.own ? { reflows: true } : {}),
   ...(c.el ? { look: lookOf(c) } : {}),
 }));
 /**

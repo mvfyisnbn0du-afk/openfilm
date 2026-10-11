@@ -90,7 +90,7 @@ const pair = (v, ok) => Array.isArray(v) && v.length === 2 && ok(v[0]) && ok(v[1
 
 /** The fields each kind of clip takes, in the order they are written back. */
 const CLIP_FIELDS = {
-  page: ['src', 'id', 'at', 'time', 'box', 'class', 'style', 'overrides', 'attrs'],
+  page: ['src', 'id', 'at', 'time', 'box', 'size', 'class', 'style', 'overrides', 'attrs'],
   video: ['src', 'id', 'at', 'time', 'box', 'volume', 'speed', 'class', 'style', 'overrides', 'attrs'],
   still: ['src', 'id', 'at', 'time', 'box', 'class', 'style', 'overrides', 'attrs'],
   sound: ['src', 'id', 'sound', 'at', 'time', 'volume', 'speed', 'overrides', 'attrs'],
@@ -101,6 +101,8 @@ const KEPT_ATTRIBUTE = /^(alt|title|lang|dir|data-[a-z0-9-]+|aria-[a-z]+)$/;
 const KEPT_TRACK_ATTRIBUTE = /^(id|class|title|lang|dir|data-[a-z0-9-]+|aria-[a-z]+)$/;
 const OVERRIDE_FIELDS = ['at', 'n', 't', 's', 'r', 'style', 'lock', 'text', 'fade'];
 const BOX_FIELDS = ['x', 'y', 'w', 'h', 'r'];
+/** The largest side a page is laid out at (`size`): a stage's. */
+const PAGE_SIZE_MAX = 8192;
 /** A copy of `row` with only `fields`, in that order: what is written back reads the same every time. */
 const ordered = (row, fields) => Object.fromEntries(fields.filter((k) => row[k] !== undefined).map((k) => [k, row[k]]));
 const TRACK_FIELDS = ['clips', 'locked', 'hidden', 'muted', 'attrs'];
@@ -196,6 +198,9 @@ function readClip(raw, where, problems) {
     problems.push(`${at}speed has to be a number from ${SPEED_MIN} to ${SPEED_MAX}.`);
   }
   if (raw.box !== undefined && kind !== 'sound') checkBox(raw.box, at, problems);
+  if (raw.size !== undefined && !(isObject(raw.size) && Object.keys(raw.size).length === 2 && [raw.size.w, raw.size.h].every((v) => Number.isInteger(v) && v > 0 && v <= PAGE_SIZE_MAX))) {
+    problems.push(`${at}size is the px a page is laid out at, whole numbers up to ${PAGE_SIZE_MAX}: { "w": 1920, "h": 1080 }.`);
+  }
   if (raw.overrides !== undefined) {
     if (!Array.isArray(raw.overrides) || raw.overrides.length > 200) problems.push(`${at}overrides has to be a list (at most 200).`);
     else {
@@ -220,6 +225,7 @@ function readClip(raw, where, problems) {
   if (problems.length > before) return null;
   const clip = ordered(raw, CLIP_FIELDS[kind]);
   if (clip.box) clip.box = ordered(clip.box, BOX_FIELDS);
+  if (clip.size) clip.size = { w: clip.size.w, h: clip.size.h };
   if (clip.overrides) clip.overrides = clip.overrides.map((o) => ordered(o, OVERRIDE_FIELDS));
   return clip;
 }
@@ -421,7 +427,7 @@ export function fittedFade(fade, length) {
 
 /**
  * Where a clip's picture lands on the stage. `kind` is the clip's (see clipKind); `own` the picture's own size: a
- * page's width × height (the stage's when it sets none), a video's or still's pixels. The box's w and h, its own size
+ * page's width × height (when it sets none, its clip's `size`, else the stage's), a video's or still's pixels. The box's w and h, its own size
  * without them, and with only one of them the other follows the picture's proportions. A video or still is its box
  * (the stage without one), the picture inside it as CSS says; a page is fitted whole inside its box and centered (its
  * own size, centered, without one). Returns the rectangle drawn `{ x, y, w, h }` before it turns, and `r`: degrees clockwise
@@ -461,14 +467,16 @@ const TRACK_FLAGS = ['hidden', 'muted', 'locked'];
 const TIMED = /^(animation|transition)(-|$)/;
 const STILL_CSS = 'a film\'s CSS holds still — what moves is a web page of its own, a clip (its animation runs on the clip\'s time; in film.html it would run on the film\'s).';
 /** A clip's attributes, each with what it says. */
-const CLIP_ATTRIBUTES = new Set(['id', 'src', 'at', 'speed', 'volume', 'muted', 'class', 'style', 'overrides']);
+const CLIP_ATTRIBUTES = new Set(['id', 'src', 'at', 'speed', 'volume', 'muted', 'size', 'class', 'style', 'overrides']);
 
 /** What one kind of clip does not take, and why. */
 const NO_SOUND = 'has no sound: a sound is a clip of its own, an <audio> (or a <video>\'s own sound)';
+const PAGE_ONLY = 'size is the px a web page is laid out at: a file has its own size.';
 const NOT_OF_KIND = {
   page: { volume: `a page ${NO_SOUND}.`, muted: `a page ${NO_SOUND}.`, speed: 'a page has no speed: its own frame(t) decides how fast it moves.' },
-  still: { volume: `a still ${NO_SOUND}.`, muted: `a still ${NO_SOUND}.`, speed: 'a still has no speed: it holds for as long as its #t=0,length.' },
-  sound: { style: 'a sound has no look: it is heard, not seen.' },
+  video: { size: PAGE_ONLY },
+  still: { volume: `a still ${NO_SOUND}.`, muted: `a still ${NO_SOUND}.`, speed: 'a still has no speed: it holds for as long as its #t=0,length.', size: PAGE_ONLY },
+  sound: { style: 'a sound has no look: it is heard, not seen.', size: PAGE_ONLY },
 };
 
 /**
@@ -668,6 +676,11 @@ function clipOfTag(tag, where, problems) {
         else if (from > 0) raw.time = [from];
       }
     } else if (name === 'class') { if (value.trim()) raw.class = value.trim().split(/\s+/).join(' '); }
+    else if (name === 'size') {
+      const m = /^\s*(\d+)\s*[x×]\s*(\d+)\s*$/i.exec(value);
+      if (!m) problems.push(`${where}: size is the px the page is laid out at, width x height, like size="1920x1080" — "${value}" is not.`);
+      else raw.size = { w: Number(m[1]), h: Number(m[2]) };
+    }
     else if (name === 'muted') muted = true;
     else if (name === 'overrides') {
       try { raw.overrides = JSON.parse(value); }
@@ -858,6 +871,7 @@ export function clipTag(clip) {
   if (clip.speed != null && clip.speed !== 1) parts.push(`speed="${clip.speed}"`);
   if (clip.volume === 0) parts.push('muted');
   else if (clip.volume != null && clip.volume !== 1) parts.push(`volume="${clip.volume}"`);
+  if (clip.size) parts.push(`size="${clip.size.w}x${clip.size.h}"`);
   if (clip.class) parts.push(`class="${escapeAttr(clip.class)}"`);
   const b = clip.box;
   const px = (v) => Number(v.toFixed(3));

@@ -194,6 +194,20 @@ async function wantsTranscript(root, src) {
   return (await probe(root, src).catch(() => null))?.audio === true;
 }
 
+/** How far past its file's end a transcript's last line may run (rounding, a codec's padding) before it is not the file's. */
+const OUTLAST_MS = 1000;
+
+/**
+ * Whether a transcript runs on past the end of its file (`seconds`; unknown: it cannot tell, so no): then it was made
+ * from another version of the file.
+ * @param {readonly { endMs: number }[]} lines @param {number | undefined} seconds
+ */
+export function transcriptOutlasts(lines, seconds) {
+  if (!(typeof seconds === 'number' && seconds > 0)) return false;
+  const end = lines.reduce((m, line) => Math.max(m, line.endMs), 0);
+  return end > seconds * 1000 + OUTLAST_MS;
+}
+
 /**
  * The film's subtitles as film.html is now.
  *   cues           every line, sorted by start (film ms), with `alt` translations, the `clip` id it comes from and the
@@ -228,13 +242,23 @@ export async function filmCaptions(root, options = {}) {
     known.set(src, one);
     return one;
   };
+  /** @type {Map<string, Promise<number | undefined>>} */
+  const lengths = new Map();
+  const lengthOf = (/** @type {string} */ src) => {
+    if (!lengths.has(src)) lengths.set(src, duration(src));
+    return /** @type {Promise<number | undefined>} */ (lengths.get(src));
+  };
   /** @type {FilmSubtitleCue[]} */
   const cues = [];
   const untranscribed = new Set();
   for (const clip of heardClips(root, doc)) {
     const said = await transcriptOf(clip.src);
     if (!said) { if (await wantsTranscript(root, clip.src)) untranscribed.add(clip.src); continue; }
-    const native = clip.time?.length === 2 ? undefined : await duration(clip.src) ?? (said.lines.at(-1)?.endMs ?? 0) / 1000;
+    /* a transcript that runs on past the end of its file is not this file's any more (it was made again faster, or
+       the transcript's times were moved): its lines would drift later and later and the last ones fall off. It is
+       still shown, and made again with the rest (the CC button) */
+    if (await transcriptOutlasts(said.lines, await lengthOf(clip.src))) untranscribed.add(clip.src);
+    const native = clip.time?.length === 2 ? undefined : await lengthOf(clip.src) ?? (said.lines.at(-1)?.endMs ?? 0) / 1000;
     let span;
     try { span = clipSpan(clip, native ?? NaN); } catch { continue; }
     cues.push(...clipCues(said.lines, {
@@ -250,6 +274,13 @@ export async function filmCaptions(root, options = {}) {
     languages: filmSubtitleLanguagesIn(cues),
     untranscribed: [...untranscribed],
   };
+}
+
+/** Whether `src`'s transcript outlasts the file as it is now (see transcriptOutlasts). @param {string} root @param {string} src */
+async function outlastsItsFile(root, src) {
+  const read = await readTranscript(root, src);
+  if (!read) return false;
+  return transcriptOutlasts(read.lines, await probe(root, src).then((p) => p.duration, () => undefined));
 }
 
 /* ── the person's style ──────────────────────────────────────────────────── */
@@ -407,7 +438,8 @@ export async function captionRoutes(req, res, root, rest, { translate = async ()
     /** @type {{ transcribed: string[], failed: { src: string, error: string }[] }} */
     const out = { transcribed: [], failed: [] };
     for (const src of untranscribed) {
-      if (await transcriptIsCurrent(root, src)) continue;
+      /* one made since the file changed is kept, unless it outlasts the file (filmCaptions): then it is not its own */
+      if (await transcriptIsCurrent(root, src) && !(await outlastsItsFile(root, src))) continue;
       if (!transcribe) throw new HttpError(409, CONNECT_TRANSCRIBER, { code: 'no-transcriber' });
       try {
         await transcribe(root, src, controller.signal);

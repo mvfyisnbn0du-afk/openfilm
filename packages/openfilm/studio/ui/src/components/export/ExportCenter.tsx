@@ -18,6 +18,11 @@ import React from 'react';
 import { createPortal } from 'react-dom';
 
 import { useT } from '@/i18n';
+import { studioHost } from '@/lib/host';
+import { MenuSelect } from '@/components/MenuSelect';
+import { CustomFrame } from '@/components/FramePicker';
+import { FRAME_RATES } from '@/lib/timecode';
+import { api } from '@/api';
 import {
   CODEC_LABEL,
   EXPORT_ALPHA_CODECS,
@@ -156,7 +161,8 @@ function saveSettings(s: Settings): void {
 
 const SHORT_EDGES = [480, 720, 1080, 1440, 2160];
 const STILL_EDGES = [720, 1080, 1440, 2160];
-const FPS_CHOICES = [24, 25, 30, 50, 60];
+/** A video's rates: the project's list (lib/timecode), one spec for both. */
+const FPS_CHOICES = FRAME_RATES;
 const GIF_WIDTHS = [320, 480, 640, 800, 1080];
 const GIF_FPS = [10, 12, 15, 20, 24];
 const VIDEO_CODECS: ExportVideoCodec[] = ['h264', 'hevc', 'prores422hq', 'prores4444', 'hevc_alpha', 'vp9', 'png'];
@@ -164,7 +170,6 @@ const ALPHA_SCALES = [0.5, 1, 2];
 const PRESET_GROUPS: ExportPresetGroup[] = ['landscape', 'vertical', 'feed'];
 /** The rates editors take; a source at another NTSC rate (23.976, 59.94) comes as the "source" choice. */
 const NLE_FPS = [23.976, 24, 25, 29.97, 30, 50, 59.94, 60];
-const NLE_FPS_CHOICES = [24, 25, 29.97, 30, 50, 60];
 const VIDEO_SRC = /\.(mp4|m4v|mov|webm|mkv|avi|ogv)$/i;
 
 /** Whether this machine's ffmpeg makes a codec (unknown until the server answers: assumed yes). */
@@ -482,6 +487,24 @@ export function ExportCenter(props: ExportCenterProps) {
     patch('folder', next === defaultFolder ? '' : next);
     setFolderDraft(null);
   };
+  /* the app's own folder dialog where there is an app (lib/host.ts `folders`); in a browser, the path typed */
+  /* the system's folder dialog: the app's own where there is an app (lib/host.ts `folders`), else the one Studio opens
+     on this computer for the page; only where neither can, the path is typed */
+  const [picking, setPicking] = React.useState(false);
+  const changeFolder = async () => {
+    if (picking) return;
+    setPicking(true);
+    try {
+      const ask = { title: t('exportCenter.pickTitle'), button: t('exportCenter.pickButton'), ...(folder ? { at: folder } : {}) };
+      const pick = studioHost?.folders?.pick;
+      const picked = pick ? await pick(ask) : await api.pickFolder(ask.title, ask.at);
+      if (picked) patch('folder', picked === defaultFolder ? '' : picked);
+    } catch {
+      setFolderDraft(folder);
+    } finally {
+      setPicking(false);
+    }
+  };
 
   if (!open || typeof document === 'undefined') return null;
 
@@ -503,8 +526,10 @@ export function ExportCenter(props: ExportCenterProps) {
         onClick={(e) => e.stopPropagation()}
       >
         {/* left: destinations */}
-        <nav className="flex w-[212px] shrink-0 flex-col gap-0.5 border-r border-[var(--border-soft)] bg-[var(--surface-2)] p-3">
-          <h2 className="px-2 pb-2 pt-1 text-[15px] font-semibold tracking-tight text-[var(--text)]">{t('exportCenter.title')}</h2>
+        {/* the list scrolls when the window is short; the note under it stays whole */}
+        <nav className="flex min-h-0 w-[212px] shrink-0 flex-col border-r border-[var(--border-soft)] bg-[var(--surface-2)]">
+          <h2 className="shrink-0 px-5 pb-2 pt-4 text-[15px] font-semibold tracking-tight text-[var(--text)]">{t('exportCenter.title')}</h2>
+          <div className="flex min-h-0 flex-1 flex-col gap-0.5 overflow-y-auto px-3 pb-2">
           {DESTS.map((d) => {
             const on = dest === d.id;
             return (
@@ -527,7 +552,8 @@ export function ExportCenter(props: ExportCenterProps) {
               </button>
             );
           })}
-          <div className="mt-auto px-2 pt-3 text-[10.5px] leading-relaxed text-[var(--text-faint)]">
+          </div>
+          <div className="shrink-0 border-t border-[var(--border-soft)] px-5 py-3 text-[10.5px] leading-relaxed text-[var(--text-faint)]">
             {t('exportCenter.engineDesktop')}
           </div>
         </nav>
@@ -652,13 +678,12 @@ export function ExportCenter(props: ExportCenterProps) {
                   </Field>
                   <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                     <Field label={t('exportCenter.fps')}>
-                      <Chips<number | 'source'>
-                        value={s.video.fps === projectFps ? 'source' : s.video.fps}
-                        options={[
-                          { value: 'source' as const, label: `${projectFps}`, sub: t('exportCenter.fpsProject') },
-                          ...FPS_CHOICES.filter((f) => f !== projectFps).map((f) => ({ value: f, label: `${f}` })),
-                        ]}
-                        onChange={(fps) => patch('video', { fps })}
+                      <FpsSelect
+                        label={t('exportCenter.fps')}
+                        value={fpsFor(s.video.fps)}
+                        rates={FPS_CHOICES}
+                        own={{ fps: projectFps, note: t('exportCenter.fpsProject') }}
+                        onPick={(fps) => patch('video', { fps: fps === projectFps ? 'source' : fps })}
                       />
                     </Field>
                     {!(videoCodec.startsWith('prores') || videoCodec === 'png') && (
@@ -752,7 +777,13 @@ export function ExportCenter(props: ExportCenterProps) {
                       </Field>
                     )}
                     <Field label={t('exportCenter.fps')}>
-                      <Chips value={s.alpha.fps} options={FPS_CHOICES.map((f) => ({ value: f, label: `${f}` }))} onChange={(fps) => patch('alpha', { fps })} />
+                      <FpsSelect
+                        label={t('exportCenter.fps')}
+                        value={s.alpha.fps}
+                        rates={FPS_CHOICES}
+                        own={{ fps: projectFps, note: t('exportCenter.fpsProject') }}
+                        onPick={(fps) => patch('alpha', { fps })}
+                      />
                     </Field>
                   </div>
                   {alphaCodec !== 'png' && (
@@ -765,13 +796,12 @@ export function ExportCenter(props: ExportCenterProps) {
               {dest === 'nle' && (
                 <>
                   <Field label={t('exportCenter.fps')}>
-                    <Chips<number | 'source'>
-                      value={s.nle.fps === 'source' && !nleSourceFps ? 30 : s.nle.fps}
-                      options={[
-                        ...(nleSourceFps ? [{ value: 'source' as const, label: `${nleSourceFps}`, sub: t('exportCenter.fpsSource') }] : []),
-                        ...NLE_FPS_CHOICES.filter((f) => f !== nleSourceFps).map((f) => ({ value: f, label: `${f}` })),
-                      ]}
-                      onChange={(fps) => patch('nle', { fps })}
+                    <FpsSelect
+                      label={t('exportCenter.fps')}
+                      value={s.nle.fps === 'source' ? (nleSourceFps ?? 30) : s.nle.fps}
+                      rates={NLE_FPS}
+                      own={nleSourceFps ? { fps: nleSourceFps, note: t('exportCenter.fpsSource') } : null}
+                      onPick={(fps) => patch('nle', { fps: fps === nleSourceFps ? 'source' : fps })}
                     />
                   </Field>
                   <Field label={t('exportCenter.nleAudio')}>
@@ -1031,60 +1061,67 @@ export function ExportCenter(props: ExportCenterProps) {
             </div>
           </div>
 
-          {/* bottom: where it goes, the summary, the primary button */}
-          <div className="shrink-0 border-t border-[var(--border-soft)] px-5 py-3.5">
-            <div className="mb-3 flex items-center gap-2 text-[12px]">
-              <FolderOpen size={14} className="shrink-0 text-[var(--text-faint)]" />
-              <span className="shrink-0 text-[var(--text-muted)]">{t('exportCenter.saveTo')}</span>
-              {folderDraft != null ? (
-                <input
-                  autoFocus
-                  value={folderDraft}
-                  spellCheck={false}
-                  aria-label={t('exportCenter.saveTo')}
-                  onChange={(e) => setFolderDraft(e.target.value)}
-                  onFocus={(e) => e.currentTarget.select()}
-                  onBlur={commitFolder}
-                  onKeyDown={(e) => {
-                    if (e.key === 'Enter') { e.preventDefault(); commitFolder(); }
-                    if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); setFolderDraft(null); }
-                  }}
-                  className="h-6 min-w-0 flex-1 rounded-md border border-[var(--border)] bg-[var(--bg)] px-1.5 font-mono text-[11.5px] text-[var(--text)] outline-none focus:border-[var(--text-faint)]"
-                />
-              ) : (
-                <span className="min-w-0 flex-1 truncate font-mono text-[11.5px] text-[var(--text)]" title={folder}>{folder || '—'}</span>
-              )}
-              {folderDraft == null && (
-                <button
-                  type="button"
-                  onClick={() => setFolderDraft(folder)}
-                  className="shrink-0 rounded-md px-2 py-1 text-[12px] font-medium text-[var(--text-muted)] transition hover:bg-[var(--bg-hover)] hover:text-[var(--text)]"
-                >
-                  {t('exportCenter.change')}
-                </button>
-              )}
-            </div>
-            <div className="flex items-center gap-3">
-              <div className="min-w-0 flex-1 text-[12px] leading-relaxed">
+          {/* bottom: where it goes (the folder, a click changes it), what comes out, and the primary button */}
+          <div className="flex shrink-0 flex-wrap items-center gap-x-4 gap-y-3 border-t border-[var(--border-soft)] bg-[color-mix(in_srgb,var(--surface-2)_45%,transparent)] px-5 py-3.5">
+            {folderDraft != null ? (
+              <input
+                autoFocus
+                value={folderDraft}
+                spellCheck={false}
+                aria-label={t('exportCenter.saveTo')}
+                onChange={(e) => setFolderDraft(e.target.value)}
+                onFocus={(e) => e.currentTarget.select()}
+                onBlur={commitFolder}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') { e.preventDefault(); commitFolder(); }
+                  if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); setFolderDraft(null); }
+                }}
+                className="h-10 min-w-[200px] flex-1 rounded-lg border border-[var(--border)] bg-[var(--bg)] px-3 font-mono text-[12px] text-[var(--text)] outline-none focus:border-[var(--text-faint)]"
+              />
+            ) : (
+              <button
+                type="button"
+                onClick={() => void changeFolder()}
+                disabled={picking}
+                title={folder}
+                aria-label={`${t('exportCenter.saveTo')}: ${folder || '—'}. ${t('exportCenter.change')}`}
+                className="group -ml-2 flex min-w-0 max-w-[340px] flex-1 items-center gap-2.5 rounded-lg px-2 py-1.5 text-left transition hover:bg-[var(--bg-hover)] disabled:opacity-60"
+              >
+                <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-[var(--surface-2)] text-[var(--text-muted)] ring-1 ring-[var(--border)] transition group-hover:text-[var(--text)]">
+                  {picking ? <Loader2 size={15} className="animate-spin" /> : <FolderOpen size={15} />}
+                </span>
+                <span className="flex min-w-0 flex-col">
+                  <span className="flex min-w-0 items-baseline gap-1.5">
+                    <span className="shrink-0 text-[11px] text-[var(--text-faint)]">{t('exportCenter.saveTo')}</span>
+                    <span className="truncate text-[13px] font-medium text-[var(--text)]">{folderName(folder) || '—'}</span>
+                  </span>
+                  <span className="truncate text-[11px] text-[var(--text-faint)] group-hover:text-[var(--text-muted)]">{t('exportCenter.change')}</span>
+                </span>
+              </button>
+            )}
+            <div className="ml-auto flex min-w-0 items-center gap-4">
+              <div className="min-w-0 text-right text-[12px] leading-snug">
                 {result ? (
                   <span className={result.ok ? 'text-[var(--ok)]' : 'text-[var(--err)]'}>{result.text}</span>
                 ) : emptyReason ? (
                   <span className="text-[var(--text-faint)]">{emptyReason}</span>
                 ) : (
-                  <span className="text-[var(--text-muted)]">
+                  <>
                     {/* a project is not a length of film: its size only */}
-                    {dest === 'project'
-                      ? (estText ? `${t('exportCenter.approx')} ${estText}` : '')
-                      : t('exportCenter.summary').replace('{n}', String(fileCount)).replace('{dur}', formatFilmTime(outMs))}
-                    {dest !== 'project' && estText ? ` · ${t('exportCenter.approx')} ${estText}` : ''}
-                  </span>
+                    {dest !== 'project' ? (
+                      <span className="block text-[var(--text-muted)] tabular-nums">
+                        {t('exportCenter.summary').replace('{n}', String(fileCount)).replace('{dur}', formatFilmTime(outMs))}
+                      </span>
+                    ) : null}
+                    {estText ? <span className="block text-[11px] text-[var(--text-faint)] tabular-nums">{`${t('exportCenter.approx')} ${estText}`}</span> : null}
+                  </>
                 )}
               </div>
               <button
                 type="button"
                 onClick={() => void queue(requests)}
                 disabled={disabled}
-                className="flex h-10 shrink-0 items-center gap-2 rounded-xl bg-[var(--text)] px-4 text-[13.5px] font-medium text-[var(--bg)] transition hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-40"
+                className="flex h-10 shrink-0 items-center gap-2 rounded-xl bg-[var(--text)] px-6 text-[13.5px] font-medium text-[var(--bg)] transition hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-40"
               >
                 {working ? <Loader2 size={14} className="animate-spin" /> : null}
                 {primaryLabel}
@@ -1099,6 +1136,11 @@ export function ExportCenter(props: ExportCenterProps) {
 }
 
 /* ── small parts ────────────────────────────────────────────────────────── */
+
+/** A folder's own name, the last part of its path (the whole path is the button's tooltip). */
+function folderName(path: string): string {
+  return path.replace(/[\\/]+$/, '').split(/[\\/]/).pop() || path;
+}
 
 function Field({ label, children }: { label: string; children: React.ReactNode }) {
   return (
@@ -1141,13 +1183,37 @@ function OptionCard({ on, disabled, title, desc, onClick }: {
   );
 }
 
+/**
+ * A frame rate, from an editor's list: the film's own (or its footage's) is in it whatever it is, said beside its
+ * number ("30 fps · project").
+ */
+function FpsSelect({ label, value, rates, own, onPick }: {
+  label: string;
+  value: number;
+  rates: readonly number[];
+  own: { fps: number; note: string } | null;
+  onPick: (fps: number) => void;
+}) {
+  const all = [...new Set([...rates, ...(own ? [own.fps] : [])])].sort((a, b) => a - b);
+  const name = (f: number) => `${f} fps${own && f === own.fps ? ` · ${own.note}` : ''}`;
+  return (
+    <MenuSelect
+      size="md"
+      label={label}
+      value={String(value)}
+      groups={[{ choices: all.map((f) => ({ value: String(f), label: name(f) })) }]}
+      onPick={(v) => onPick(Number(v))}
+    />
+  );
+}
+
 function Chips<V extends string | number>({ value, options, onChange }: {
   value: V;
   options: readonly { value: V; label: string; sub?: string }[];
   onChange: (v: V) => void;
 }) {
   return (
-    <div className="flex flex-wrap gap-1.5">
+    <div className="flex flex-wrap items-start gap-1.5">
       {options.map((o) => {
         const on = o.value === value;
         return (
@@ -1277,7 +1343,7 @@ function FrameField({ value, fill, current, stage, onChange, onFill, t }: {
   return (
     <Field label={t('exportCenter.frame')}>
       <div className="flex flex-wrap gap-1.5">
-        {FILM_FRAME_IDS.map((f) => {
+        {[...FILM_FRAME_IDS, ...(FILM_FRAME_IDS.includes(resolved) ? [] : [resolved])].map((f) => {
           const on = resolved === f;
           return (
             <button
@@ -1295,6 +1361,8 @@ function FrameField({ value, fill, current, stage, onChange, onFill, t }: {
           );
         })}
       </div>
+      <CustomFrame value={resolved} onPick={(f) => onChange(f === current ? 'current' : f)}
+        className="-mx-2 max-w-[260px] rounded-lg" />
       {differs && (
         <Segmented
           value={fill}

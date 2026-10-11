@@ -23,7 +23,7 @@ import { TOOL_DIR } from './projects.mjs';
 export const PROJECT_SETTINGS_FILE = `${TOOL_DIR}/settings.json`;
 
 /** The rates a project can be set to, as editors name them (23.976 is 24000/1001, and so on). */
-export const FRAME_RATES = /** @type {const} */ ([23.976, 24, 25, 29.97, 30, 50, 59.94, 60]);
+export const FRAME_RATES = /** @type {const} */ ([23.976, 24, 25, 29.97, 30, 48, 50, 59.94, 60, 120]);
 
 /** @typedef {{ name: string, index: number, clips: string[] }} TrackName */
 /** @typedef {{ height: number, index: number, clips: string[] }} TrackHeight */

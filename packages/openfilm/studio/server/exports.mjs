@@ -5,17 +5,16 @@
  * One at a time, in the order asked, each cancellable. A video export is `openfilm render` itself and the sound is the
  * same mix, so what Studio exports is what the agent checked with `look` and `render`.
  *
- * Files go to the exports folder (~/Movies/OpenFilm/Exports on macOS, ~/Videos/OpenFilm/Exports elsewhere,
- * <OPENFILM_HOME>/exports when that is set, or OPENFILM_EXPORTS), or a folder the person chose, named after the
- * project, never over an earlier one.
+ * Files go to the exports folder (the Desktop, <OPENFILM_HOME>/exports when that is set, or OPENFILM_EXPORTS), or a
+ * folder the person chose, named after the project, never over an earlier one.
  *
  * What an export asks (POST exports, one ask or `{ jobs: [ask…], folder? }`):
  *
  *   { kind: 'video', codec?, frame?, fill?, shortEdge?, fps?, quality?, audio?, clip?, scale?, preset?, sidecar? }
  *       codec    h264 (default) | hevc | vp9 | prores422hq | prores4444 | hevc_alpha | png (a zipped PNG sequence);
  *                vp9, prores4444, hevc_alpha and png keep transparency
- *       frame    native (default) | 16:9 | 9:16 | 1:1 | 4:5 | 4:3 | 21:9: a delivery frame around the film, which is
- *                fitted with bars (fill: 'contain', default) or fills it and is cropped (fill: 'cover')
+ *       frame    native (default), or a ratio W:H from 1:4 to 4:1 (16:9, 9:16, 4:5, 2.39:1…): a delivery frame around
+ *                the film, which is fitted with bars (fill: 'contain', default) or fills it and is cropped (fill: 'cover')
  *       shortEdge the picture's short side in pixels (default: the film's own size)
  *       clip     only this clip of film.html (by id), from its start, at the stage's size × `scale` (default 1)
  *       preset   a platform's name, for the file name
@@ -67,15 +66,15 @@ import { PROJECT_PARTS, TOOL_DIR } from './projects.mjs';
 
 /**
  * The exports folder: OPENFILM_EXPORTS, else `exports` in OPENFILM_HOME when that is set (a Studio kept apart, for work
- * on OpenFilm itself, leaves nothing in the person's own folder), else ~/Movies/OpenFilm/Exports (~/Videos/… off macOS).
+ * on OpenFilm itself, leaves nothing in the person's own folder), else the Desktop, where a file just made is found.
  */
 export const exportsRoot = () => process.env.OPENFILM_EXPORTS
   || (process.env.OPENFILM_HOME ? join(process.env.OPENFILM_HOME, 'exports') : '')
-  || join(homedir(), process.platform === 'darwin' ? 'Movies' : 'Videos', 'OpenFilm', 'Exports');
+  || join(homedir(), 'Desktop');
 
 /**
  * @typedef {'h264' | 'hevc' | 'vp9' | 'prores422hq' | 'prores4444' | 'hevc_alpha' | 'png'} VideoCodec
- * @typedef {'native' | '16:9' | '9:16' | '1:1' | '4:5' | '4:3' | '21:9'} FrameId
+ * @typedef {'native' | `${number}:${number}`} FrameId
  * @typedef {'standard' | 'high' | 'master'} Quality
  * @typedef {{ frame?: FrameId, fill?: 'contain' | 'cover', burnSubtitles?: boolean }} Framing
  * @typedef {Framing & { kind: 'video', codec?: VideoCodec, shortEdge?: number, scale?: number,
@@ -142,8 +141,13 @@ export async function exportCapabilities() {
 
 /* ── delivery frames (the same arithmetic as the editor's lib/film-frame.ts) ── */
 
-const FRAME_RATIO = /** @type {Record<string, number>} */ ({ '16:9': 16 / 9, '9:16': 9 / 16, '1:1': 1, '4:5': 4 / 5, '4:3': 4 / 3, '21:9': 21 / 9 });
-const FRAMES = ['native', ...Object.keys(FRAME_RATIO)];
+/** A frame written `W:H` ("16:9", "2.39:1"), from 1:4 to 4:1: its width ÷ height, or null. @param {unknown} frame */
+export function frameRatio(frame) {
+  const m = typeof frame === 'string' ? /^(\d{1,4}(?:\.\d{1,3})?):(\d{1,4}(?:\.\d{1,3})?)$/.exec(frame) : null;
+  if (!m) return null;
+  const ratio = Number(m[1]) / Number(m[2]);
+  return Number.isFinite(ratio) && ratio >= 1 / 4 && ratio <= 4 ? ratio : null;
+}
 const MAX_DIM = 4096;
 const even = (/** @type {number} */ n) => Math.max(2, Math.round(n / 2) * 2);
 
@@ -153,8 +157,8 @@ const even = (/** @type {number} */ n) => Math.max(2, Math.round(n / 2) * 2);
  * @param {{ w: number, h: number }} stage @param {string} frame @param {'contain' | 'cover'} fill
  */
 export function frameBox(stage, frame, fill) {
-  if (frame === 'native' || !FRAME_RATIO[frame]) return { w: even(stage.w), h: even(stage.h), scale: 1 };
-  const ratio = FRAME_RATIO[frame];
+  const ratio = frame === 'native' ? null : frameRatio(frame);
+  if (ratio == null) return { w: even(stage.w), h: even(stage.h), scale: 1 };
   const box = stage.w / ratio >= stage.h ? { w: stage.w, h: stage.w / ratio } : { w: stage.h * ratio, h: stage.h };
   const w = even(box.w), h = even(box.h);
   return { w, h, scale: fill === 'cover' ? Math.max(w / stage.w, h / stage.h) : Math.min(w / stage.w, h / stage.h) };
@@ -246,7 +250,7 @@ function checked(/** @type {ExportAsk} */ ask) {
     throw new ExportError('a range is [from, to] in seconds, to after from');
   }
   if (ask.label !== undefined && (typeof ask.label !== 'string' || ask.label.length > 120)) throw new ExportError('label: text, at most 120 characters');
-  if ('frame' in ask && ask.frame !== undefined && !FRAMES.includes(ask.frame)) throw new ExportError(`frame: ${FRAMES.join(', ')}`);
+  if ('frame' in ask && ask.frame !== undefined && ask.frame !== 'native' && frameRatio(ask.frame) == null) throw new ExportError('frame: native, or a ratio W:H from 1:4 to 4:1 (16:9, 2.39:1)');
   if ('fill' in ask && ask.fill !== undefined && ask.fill !== 'contain' && ask.fill !== 'cover') throw new ExportError('fill: contain or cover');
   if ('shortEdge' in ask && !between(ask.shortEdge, 64, MAX_DIM)) throw new ExportError(`shortEdge: 64 to ${MAX_DIM} pixels`);
   if ('burnSubtitles' in ask && ask.burnSubtitles !== undefined && typeof ask.burnSubtitles !== 'boolean') throw new ExportError('burnSubtitles: true or false');

@@ -152,8 +152,8 @@ import { cutNear, transitionSpan, type CutRef, type FilmTransition, type Transit
 
 /** Track head column: kind badge + lock + hide + original sound. */
 const HEAD_W = 108;
-/** The head column's width when a track has a name: room for the name beside its badge. */
-const HEAD_NAMED_W = 168;
+/** A row at least this tall shows its track's name under the badge (a lower one says it on hover). */
+const HEAD_NAME_MIN_H = 34;
 /** The room solo's S takes in a head. */
 const HEAD_SOLO_W = 24;
 /* the head toggles' icons: at 10 px lock and eye are indistinguishable dots on Retina */
@@ -1459,9 +1459,7 @@ export const Timeline = React.memo(function Timeline({
   const [renaming, setRenaming] = React.useState<number | null>(null);
   const renamingRef = React.useRef(renaming);
   renamingRef.current = renaming;
-  /* a named track widens the heads, so its name fits beside its badge */
-  const named = renaming != null || tracks.some((tr) => tr.docIndex != null && Boolean(trackNames?.get(tr.docIndex)));
-  const headW = (named ? HEAD_NAMED_W : HEAD_W) + (solo ? HEAD_SOLO_W : 0);
+  const headW = HEAD_W + (solo ? HEAD_SOLO_W : 0);
   /* picking clips lets the gap go; so does an edit that fills or moves it */
   React.useEffect(() => { if (selected.length) setGap(null); }, [selected.length]);
   React.useEffect(() => {
@@ -2173,6 +2171,8 @@ export const Timeline = React.memo(function Timeline({
     const lit = selectedLanes.has(track.lane);
     const targeted = targetLane === track.lane;
     const renamingHere = renaming != null && renaming === track.docIndex && track.index === 1;
+    /* typing a name always has its field; a name given shows when the row has room for it */
+    const nameLine = renamingHere || (Boolean(given) && h >= HEAD_NAME_MIN_H);
     /* the track a pill hovered in the app's chat points at */
     const chatLit = chatTrack != null && track.docIndex === chatTrack;
     return (
@@ -2195,7 +2195,9 @@ export const Timeline = React.memo(function Timeline({
         style={{
           marginTop: GAP,
           height: h,
-          gridTemplateColumns: named ? `minmax(0,1fr) 24px 24px 24px${solo ? ' 24px' : ''}` : `repeat(${solo ? 5 : 4}, minmax(0, 1fr))`,
+          gridTemplateColumns: `repeat(${solo ? 5 : 4}, minmax(0, 1fr))`,
+          /* a name goes on a line of its own under the badge and the toggles: the heads keep their width */
+          ...(nameLine ? { gridTemplateRows: 'auto auto', alignContent: 'center', rowGap: 3 } : {}),
           background: laneTone(track, lit),
           /* the targeted track: an accent bar down its left edge */
           boxShadow: [chatLit ? CHAT_RING : '', targeted ? 'inset 2px 0 0 var(--tl-accent)' : ''].filter(Boolean).join(', ') || undefined,
@@ -2203,7 +2205,7 @@ export const Timeline = React.memo(function Timeline({
           cursor: canReorder ? (liftingHead ? 'grabbing' : 'grab') : undefined,
         }}
       >
-        <span className={`flex min-w-0 items-center gap-1 ${named ? 'w-full justify-self-stretch pl-0.5' : ''}`}>
+        <span className="flex min-w-0 items-center gap-1">
           {track.badge ? (
             <span
               className="flex items-center justify-center rounded-[3px] font-semibold tabular-nums"
@@ -2228,25 +2230,6 @@ export const Timeline = React.memo(function Timeline({
               <LaneIcon size={TYPE_BOX} />
             </span>
           )}
-          {renamingHere ? (
-            <input
-              autoFocus
-              defaultValue={given ?? ''}
-              aria-label={t('timeline.renameTrack')}
-              placeholder={track.badge ?? ''}
-              maxLength={40}
-              onPointerDown={(e) => e.stopPropagation()}
-              onKeyDown={(e) => {
-                e.stopPropagation();
-                if (e.key === 'Enter') { onRenameTrack?.(track.docIndex!, e.currentTarget.value); setRenaming(null); }
-                if (e.key === 'Escape') setRenaming(null);
-              }}
-              onBlur={(e) => { if (renamingRef.current === track.docIndex) { onRenameTrack?.(track.docIndex!, e.currentTarget.value); setRenaming(null); } }}
-              className="h-[18px] min-w-0 flex-1 rounded-[3px] bg-[var(--bg)] px-1 text-[11px] text-[var(--text)] outline-none ring-1 ring-[var(--tl-accent)]"
-            />
-          ) : given ? (
-            <span className="min-w-0 truncate text-[11px] font-medium" style={{ color: TL.text }} data-track-name="">{given}</span>
-          ) : null}
         </span>
         {onEditBlocks ? <>
         <TrackHeadButton
@@ -2282,10 +2265,30 @@ export const Timeline = React.memo(function Timeline({
         {solo ? (track.role === 'mg' || track.docIndex == null ? <span aria-hidden /> : (
           <SoloButton on={solo.tracks.has(track.docIndex)} onToggle={(only) => solo.onToggle(track.docIndex!, only)} />
         )) : null}
+        {/* the track's name, on its own line under the badge and the toggles */}
+        {nameLine && renamingHere ? (
+          <input
+            autoFocus
+            defaultValue={given ?? ''}
+            aria-label={t('timeline.renameTrack')}
+            placeholder={track.badge ?? ''}
+            maxLength={40}
+            onPointerDown={(e) => e.stopPropagation()}
+            onKeyDown={(e) => {
+              e.stopPropagation();
+              if (e.key === 'Enter') { onRenameTrack?.(track.docIndex!, e.currentTarget.value); setRenaming(null); }
+              if (e.key === 'Escape') setRenaming(null);
+            }}
+            onBlur={(e) => { if (renamingRef.current === track.docIndex) { onRenameTrack?.(track.docIndex!, e.currentTarget.value); setRenaming(null); } }}
+            className="col-span-full h-[16px] w-full min-w-0 justify-self-stretch rounded-[3px] bg-[var(--bg)] px-1 text-[11px] text-[var(--text)] outline-none ring-1 ring-[var(--tl-accent)]"
+          />
+        ) : nameLine && given ? (
+          <span className="col-span-full w-full min-w-0 justify-self-stretch truncate px-1 text-[10.5px] font-medium leading-[14px]" style={{ color: TL.text }} data-track-name="">{given}</span>
+        ) : null}
         {onResizeTrack && track.docIndex != null ? <TrackResizeHandle height={h} onResize={(height, done) => onResizeTrack(track, height, done)} /> : null}
       </div>
     );
-  }), [tracks, t, laneOrder, onEditBlocks, startLaneReorder, toggleTrack, selectedLanes, openHeadMenu, chatTrack, trackNames, targetLane, renaming, named, onRenameTrack, solo, onResizeTrack]);
+  }), [tracks, t, laneOrder, onEditBlocks, startLaneReorder, toggleTrack, selectedLanes, openHeadMenu, chatTrack, trackNames, targetLane, renaming, onRenameTrack, solo, onResizeTrack]);
 
   /* row backgrounds are fixed to the view and only follow vertical scroll; the clips move horizontally above them */
   const laneSkins = React.useMemo(() => tracks.map((track) => (

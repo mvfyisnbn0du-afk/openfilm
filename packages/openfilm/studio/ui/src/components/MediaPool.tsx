@@ -21,6 +21,8 @@ import {
   Folder,
   FolderOpen,
   FolderPlus,
+  LayoutGrid,
+  List,
   ListFilter,
   Pencil,
   Plus,
@@ -58,6 +60,8 @@ const FILTERS: readonly Filter[] = ['all', 'video', 'image', 'audio', 'page'];
 const SORTS: readonly SortKey[] = ['name', 'time', 'duration', 'type'];
 /** A tile dragged inside the pane, to be moved into a folder. */
 const FOLDER_DRAG = 'application/x-openfilm-media';
+/** Files dragged in from the computer, not a tile of this pane (the browser adds a dragged picture as a file). */
+const fromComputer = (dt: DataTransfer) => dt.types.includes('Files') && !dt.types.includes(FOLDER_DRAG);
 /** The open folder per project, kept across remounts (the layout re-mounts the pane). */
 const OPEN_FOLDER = new Map<string, string>();
 
@@ -68,7 +72,8 @@ const hiddenDir = (rel: string) => HIDDEN_DIRS.some((re) => re.test(rel));
 const isMedia = (f: WorkspaceResource) => f.kind === 'video' || f.kind === 'image' || f.kind === 'audio';
 const filterOf = (f: WorkspaceResource): Filter => (f.kind === 'mg' ? 'page' : f.kind as Filter);
 
-interface ViewState { sort: SortKey; filter: Filter }
+/** `layout`: tiles in a grid, or rows of a list (name, length, kind). */
+interface ViewState { sort: SortKey; filter: Filter; layout: 'grid' | 'list' }
 const viewKey = (projectId: string) => `openfilm.media.${projectId}`;
 function loadView(projectId: string): ViewState {
   try {
@@ -76,8 +81,9 @@ function loadView(projectId: string): ViewState {
     return {
       sort: SORTS.includes(raw?.sort as SortKey) ? raw!.sort as SortKey : 'name',
       filter: FILTERS.includes(raw?.filter as Filter) ? raw!.filter as Filter : 'all',
+      layout: raw?.layout === 'list' ? 'list' : 'grid',
     };
-  } catch { return { sort: 'name', filter: 'all' }; }
+  } catch { return { sort: 'name', filter: 'all', layout: 'grid' }; }
 }
 
 type Item = { type: 'folder'; rel: string; name: string; count: number; covers: WorkspaceResource[] } | { type: 'file'; file: WorkspaceResource };
@@ -99,6 +105,11 @@ export interface MediaPoolProps {
   onImport: (files: File[], folder: string, onProgress: (ratio: number) => void) => Promise<unknown>;
   /** Rename or move a file or folder (project-relative `from` → `to`); its clips follow. */
   onMove: (from: string, to: string) => Promise<MediaResult>;
+  /**
+   * What a move could not keep true, asked before it: the paths a page or script among what moves makes while it runs
+   * (the rest of its links are written again by Studio). Empty: nothing to say.
+   */
+  onMoveCheck?: (from: string, to: string) => Promise<{ file: string; unseen: string[] }[]>;
   /** Delete a file or folder (project-relative). Its clips were already taken off (`onDropClips`). */
   onDelete: (path: string) => Promise<MediaResult>;
   /** A video's sound made a file of its own beside it (it shows up in the listing like any new file). */
@@ -137,6 +148,7 @@ export function MediaPool({
   onSelectFile,
   onImport,
   onMove,
+  onMoveCheck,
   onDelete,
   onExtractAudio,
   onNewFolder,
@@ -249,13 +261,13 @@ export function MediaPool({
 
   const folderPath = (rel: string) => (rel ? `${root}/${rel}` : root);
 
-  const importFiles = async (list: File[]) => {
+  const importFiles = async (list: File[], intoRel = at) => {
     if (!list.length) return;
     setNotice(null);
     setImporting({ count: list.length, ratio: 0 });
     try {
-      /* into the open folder: the top of assets/ unless the person went into one */
-      await onImport(list, folderPath(at), (ratio) => setImporting({ count: list.length, ratio }));
+      /* into the open folder (the top of assets/ unless the person went into one), or the folder they were dropped on */
+      await onImport(list, folderPath(intoRel), (ratio) => setImporting({ count: list.length, ratio }));
     } catch (e) {
       setNotice(e instanceof Error && e.message ? e.message : t('assets.uploadFailed'));
     } finally {
@@ -263,14 +275,23 @@ export function MediaPool({
     }
   };
 
-  const moveInto = async (path: string, intoRel: string) => {
+  /* read when a move or rename settles: the file picked may have changed while it was on its way */
+  const selectedRef = React.useRef(selectedPath);
+  selectedRef.current = selectedPath;
+  /* a page (or a folder with one) whose code makes paths while it runs: those cannot be rewritten, so it is asked first */
+  const [moveAsk, setMoveAsk] = React.useState<{ path: string; intoRel: string; unseen: { file: string; unseen: string[] }[] } | null>(null);
+  const moveInto = async (path: string, intoRel: string, asked = false) => {
     const into = folderPath(intoRel);
     if (relDir(path) === into) return;
     const name = path.slice(path.lastIndexOf('/') + 1);
+    if (!asked && onMoveCheck) {
+      const unseen = await onMoveCheck(path, `${into}/${name}`).catch(() => []);
+      if (unseen.length) { setMoveAsk({ path, intoRel, unseen }); return; }
+    }
     const result = await onMove(path, `${into}/${name}`);
     if (result === 'taken') setNotice(t('media.moveTaken').replace('{name}', name).replace('{folder}', intoRel ? intoRel.split('/').pop()! : t('media.filter_all')));
     else if (result !== 'ok') setNotice(t('media.moveFailed'));
-    else if (selectedPath === path) onSelectFile(null);
+    else if (selectedRef.current === path) onSelectFile(null);
   };
 
   const remove = async (target: { path: string; folder: boolean }) => {
@@ -298,13 +319,27 @@ export function MediaPool({
     else if (selectedPath === path) onSelectFile(null);
   };
 
+  /* a folder just named stays where it was typed until the listing has it: no blink between Enter and the refresh */
+  const [pendingFolder, setPendingFolder] = React.useState<string | null>(null);
   const makeFolder = async (name: string) => {
     setCreating(false);
     const safe = safeName(name);
     if (!safe) return;
+    setPendingFolder(safe);
     const result = await onNewFolder(`${folderPath(at)}/${safe}`);
-    if (result !== 'ok') setNotice(t(result === 'taken' ? 'assets.renameTaken' : 'assets.newFolderFailed'));
+    if (result !== 'ok') {
+      setPendingFolder(null);
+      setNotice(t(result === 'taken' ? 'assets.renameTaken' : 'assets.newFolderFailed'));
+    }
   };
+  const pendingListed = pendingFolder != null && Boolean(items?.some((item) => item.type === 'folder' && item.name === pendingFolder));
+  React.useEffect(() => { if (pendingListed) setPendingFolder(null); }, [pendingListed]);
+  /* the listing never brought it (it was made elsewhere than shown): let go after a while */
+  React.useEffect(() => {
+    if (!pendingFolder) return undefined;
+    const timer = window.setTimeout(() => setPendingFolder(null), 5000);
+    return () => window.clearTimeout(timer);
+  }, [pendingFolder]);
 
   const commonEntries = (path: string): ContextMenuEntry[] => [
     ...(onReveal ? [{ id: 'reveal', label: t('projects.revealFolder'), icon: <FolderOpen size={14} />, onSelect: () => onReveal(path) }] : []),
@@ -344,6 +379,7 @@ export function MediaPool({
 
   const crumbs = at ? at.split('/') : [];
   const flat = Boolean(query.trim()) || view.filter !== 'all';
+  const rows = view.layout === 'list';
   /* results come from every folder: where a name shows more than once, each says which folder it is in */
   const repeated = React.useMemo(() => {
     const seen = new Map<string, number>();
@@ -353,17 +389,30 @@ export function MediaPool({
 
   /* a tile dropped on a folder tile or a crumb moves there. Passing from one part of the tile to another is not
      leaving it (the highlight would flicker) */
+  /* a folder takes what is dragged onto it: a file or folder of this pane (moved), or files from the computer (copied
+     in, there rather than into the folder open) */
   const dropProps = (intoRel: string) => ({
-    onDragOver: (e: React.DragEvent) => { if (e.dataTransfer.types.includes(FOLDER_DRAG)) { e.preventDefault(); e.stopPropagation(); e.dataTransfer.dropEffect = 'move'; setDropTarget(intoRel); } },
+    onDragOver: (e: React.DragEvent) => {
+      const inside = e.dataTransfer.types.includes(FOLDER_DRAG);
+      if (!inside && !fromComputer(e.dataTransfer)) return;
+      e.preventDefault(); e.stopPropagation();
+      e.dataTransfer.dropEffect = inside ? 'move' : 'copy';
+      setDropTarget(intoRel);
+    },
     onDragLeave: (e: React.DragEvent) => {
       if (e.currentTarget.contains(e.relatedTarget as Node | null)) return;
       setDropTarget((cur) => (cur === intoRel ? null : cur));
     },
     onDrop: (e: React.DragEvent) => {
       const path = e.dataTransfer.getData(FOLDER_DRAG);
-      if (!path) return;
-      e.preventDefault(); e.stopPropagation(); setDropTarget(null);
-      void moveInto(path, intoRel);
+      if (path) {
+        e.preventDefault(); e.stopPropagation(); setDropTarget(null);
+        void moveInto(path, intoRel);
+        return;
+      }
+      if (!fromComputer(e.dataTransfer) || !e.dataTransfer.files.length) return;
+      e.preventDefault(); e.stopPropagation(); setDropTarget(null); setOsDrag(false);
+      void importFiles([...e.dataTransfer.files], intoRel);
     },
   });
 
@@ -395,12 +444,14 @@ export function MediaPool({
         e.stopPropagation();
         setConfirm({ path: file.path, name: file.name, folder: false });
       }}
-      onDragEnter={(e) => { if (e.dataTransfer.types.includes('Files')) { e.preventDefault(); setOsDrag(true); } }}
-      onDragOver={(e) => { if (e.dataTransfer.types.includes('Files')) { e.preventDefault(); e.dataTransfer.dropEffect = 'copy'; } }}
-      onDragLeave={(e) => { if (!e.currentTarget.contains(e.relatedTarget as Node | null)) setOsDrag(false); }}
+      /* files from the computer: a drag of this pane's own tiles is not one, whatever the browser adds to it (a picture
+         dragged carries itself as a file) */
+      onDragEnter={(e) => { if (fromComputer(e.dataTransfer)) { e.preventDefault(); setOsDrag(true); } }}
+      onDragOver={(e) => { if (fromComputer(e.dataTransfer)) { e.preventDefault(); e.dataTransfer.dropEffect = 'copy'; } }}
+      onDragLeave={(e) => { if (!e.currentTarget.contains(e.relatedTarget as Node | null)) { setOsDrag(false); setDropTarget(null); } }}
       onDrop={(e) => {
-        if (!e.dataTransfer.files.length) return;
-        e.preventDefault(); setOsDrag(false);
+        if (!fromComputer(e.dataTransfer) || !e.dataTransfer.files.length) return;
+        e.preventDefault(); setOsDrag(false); setDropTarget(null);
         void importFiles([...e.dataTransfer.files]);
       }}
     >
@@ -419,6 +470,9 @@ export function MediaPool({
             {t('media.upload')}
           </button>
         </Tooltip>
+        <BarButton label={t(rows ? 'media.viewGrid' : 'media.viewList')} onClick={() => setView((v) => ({ ...v, layout: rows ? 'grid' : 'list' }))}>
+          {rows ? <LayoutGrid size={14} /> : <List size={14} />}
+        </BarButton>
         <BarButton label={t('media.filter')} on={view.filter !== 'all'} onClick={(e) => barMenu(e, FILTERS.map((f) => ({
           id: f, label: `${t(`media.filter_${f}`)}  ${counts[f]}`, checked: view.filter === f, onSelect: () => setView((v) => ({ ...v, filter: f })),
         })))}><ListFilter size={14} /></BarButton>
@@ -478,7 +532,8 @@ export function MediaPool({
       <div
         ref={gridRef}
         className="min-h-0 flex-1 overflow-y-auto px-2.5 pb-3 pt-1"
-        onClick={(e) => { if (e.target === e.currentTarget) { setSelectedFolder(null); onSelectFile(null); } }}
+        /* a click on empty space (around the tiles, or in the gaps between them) lets go of what is selected */
+        onClick={(e) => { if (!(e.target as Element).closest('[data-media-path], [data-media-folder], [data-media-new-folder], button')) { setSelectedFolder(null); onSelectFile(null); } }}
         onContextMenu={(e) => { if (e.target === e.currentTarget) { e.preventDefault(); openMenuAt(e, blankMenu); } }}
       >
         {items && !items.length && !creating ? (
@@ -494,12 +549,14 @@ export function MediaPool({
             </div>
           )
         ) : (
-          <div className="grid gap-x-2 gap-y-2.5" style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(104px, 1fr))' }}
+          <div className={rows ? 'flex flex-col gap-px' : 'grid gap-x-2 gap-y-2.5'} style={rows ? undefined : { gridTemplateColumns: 'repeat(auto-fill, minmax(104px, 1fr))' }}
             onContextMenu={(e) => { if (e.target === e.currentTarget) { e.preventDefault(); openMenuAt(e, blankMenu); } }}>
-            {creating ? <NewFolderTile label={t('assets.newFolder')} onDone={(name) => void makeFolder(name)} onCancel={() => setCreating(false)} /> : null}
+            {creating ? <NewFolderTile row={rows} label={t('assets.newFolder')} onDone={(name) => void makeFolder(name)} onCancel={() => setCreating(false)} /> : null}
+            {pendingFolder && !pendingListed ? <NewFolderTile row={rows} label={pendingFolder} /> : null}
             {(items ?? []).map((item) => item.type === 'folder' ? (
               <FolderTile
                 key={`d:${item.rel}`}
+                row={rows}
                 name={item.name}
                 count={item.count}
                 covers={item.covers}
@@ -518,6 +575,7 @@ export function MediaPool({
             ) : (
               <FileTile
                 key={item.file.path}
+                row={rows}
                 file={item.file}
                 sources={sources}
                 duration={formatClipDuration(item.file.durationMs ?? 0)}
@@ -537,12 +595,22 @@ export function MediaPool({
         )}
       </div>
 
-      {osDrag ? (
+      {/* over a folder, the folder shows where they go */}
+      {osDrag && dropTarget == null ? (
         <div className="pointer-events-none absolute inset-1 z-30 flex items-center justify-center rounded-lg border-2 border-dashed border-[var(--accent)] bg-[var(--surface)]/80 text-[13px] text-[var(--text)]">
           {t('media.dropHint')}
         </div>
       ) : null}
       {menu ? <ContextMenu x={menu.x} y={menu.y} flipTo={menu.flipTo} items={menu.items} onClose={() => setMenu(null)} dense={menu.dense} /> : null}
+      <ConfirmDialog
+        open={moveAsk != null}
+        title={t('media.moveAskTitle')}
+        description={moveAsk ? `${t('media.moveAskBody')}\n\n${moveAsk.unseen.flatMap((u) => u.unseen.map((line) => `${u.file}: ${line}`)).slice(0, 6).join('\n')}` : ''}
+        confirmLabel={t('media.moveAskConfirm')}
+        cancelLabel={t('confirm.cancel')}
+        onCancel={() => setMoveAsk(null)}
+        onConfirm={() => { const ask = moveAsk; setMoveAsk(null); if (ask) void moveInto(ask.path, ask.intoRel, true); }}
+      />
       <ConfirmDialog
         open={confirm != null}
         title={confirm?.folder ? t('media.deleteFolderTitle').replace('{name}', confirm.name) : t('assets.deleteConfirmTitle')}
@@ -589,6 +657,9 @@ function NameInput({ value, onDone, onCancel }: { value: string; onDone: (name: 
 }
 
 const TILE_BOX = 'relative aspect-video overflow-hidden rounded-md ring-2 transition';
+/** A row of the list view, and its small picture. */
+const ROW = 'group flex h-9 min-w-0 cursor-default select-none items-center gap-2 rounded-md px-1.5';
+const ROW_THUMB = 'relative aspect-video h-[26px] shrink-0 overflow-hidden rounded-[4px] bg-[var(--bg-hover)] ring-1 ring-[var(--border)]';
 
 /** Whether a file can be a clip (a video, a still, a sound, a page; not a document). */
 const canAdd = (file: WorkspaceResource) => file.kind === 'video' || file.kind === 'image' || file.kind === 'audio' || file.kind === 'mg';
@@ -619,12 +690,32 @@ function FolderTile(p: {
   onDragStart: (e: React.DragEvent) => void;
   onPress: () => void; onOpen: () => void; onMenu: (e: React.MouseEvent) => void;
   onRename: (name: string) => void; onCancelRename: () => void;
+  /** A row of the list view, not a tile. */
+  row?: boolean;
 }) {
   const on = p.target || p.selected;
   const cells = p.covers.length;
+  if (p.row) {
+    return (
+      <div className={`${ROW} ${on ? 'bg-[var(--bg-active)]' : 'hover:bg-[var(--bg-hover)]'} ${p.target ? 'ring-1 ring-inset ring-[var(--accent)]' : ''}`}
+        data-media-folder="" draggable={!p.renaming} onDragStart={p.onDragStart}
+        onClick={p.onPress} onDoubleClick={p.onOpen} onContextMenu={(e) => { e.preventDefault(); e.stopPropagation(); p.onMenu(e); }} {...p.drop}>
+        <span className={ROW_THUMB}>
+          <span className="pointer-events-none absolute inset-0 flex items-center justify-center">
+            {p.target ? <FolderOpen size={15} className="text-[var(--accent)]" /> : <Folder size={15} className="text-[var(--text-muted)]" />}
+          </span>
+        </span>
+        <span className="min-w-0 flex-1">
+          {p.renaming ? <NameInput value={p.name} onDone={p.onRename} onCancel={p.onCancelRename} />
+            : <span className={`block truncate text-[12.5px] font-medium ${on ? 'text-[var(--text)]' : 'text-[var(--text-dim)]'}`} style={KEEP_SPACES}>{p.name}</span>}
+        </span>
+        <span className="shrink-0 pr-1 text-[11px] tabular-nums text-[var(--text-faint)]">{p.count ? String(p.count) : ''}</span>
+      </div>
+    );
+  }
   const grid = cells >= 4 ? 'grid-cols-2 grid-rows-2' : cells === 3 ? 'grid-cols-2 grid-rows-2' : cells === 2 ? 'grid-cols-2 grid-rows-1' : 'grid-cols-1 grid-rows-1';
   return (
-    <div className="group min-w-0 cursor-default select-none" draggable={!p.renaming} onDragStart={p.onDragStart}
+    <div className="group min-w-0 cursor-default select-none" data-media-folder="" draggable={!p.renaming} onDragStart={p.onDragStart}
       onClick={p.onPress} onDoubleClick={p.onOpen} onContextMenu={(e) => { e.preventDefault(); e.stopPropagation(); p.onMenu(e); }} {...p.drop}>
       <div className="relative pt-[7px]">
         {/* the stack: two cards peeking out above the cover */}
@@ -632,7 +723,7 @@ function FolderTile(p: {
         <span aria-hidden className="absolute inset-x-[7%] top-[3px] h-3 rounded-t-md bg-[var(--fill-tsp,rgba(127,127,127,0.18))]" />
         <div className={`${TILE_BOX} bg-[var(--bg-hover)] shadow-[0_1px_0_rgba(255,255,255,0.06)_inset] ${on ? 'ring-[var(--accent)]' : 'ring-transparent group-hover:ring-[var(--border)]'} ${p.target ? 'scale-[1.03]' : ''}`}>
           {cells ? (
-            <div className={`absolute inset-0 grid gap-px bg-black/40 ${grid}`}>
+            <div className={`pointer-events-none absolute inset-0 grid gap-px bg-black/40 ${grid}`}>
               {p.covers.map((file, i) => (
                 <span key={file.path} className={`relative overflow-hidden bg-[var(--bg-hover)] ${cells === 3 && i === 0 ? 'row-span-2' : ''}`}>
                   <MediaPreview file={file} sources={p.sources} />
@@ -655,15 +746,32 @@ function FolderTile(p: {
   );
 }
 
-function NewFolderTile({ label, onDone, onCancel }: { label: string; onDone: (name: string) => void; onCancel: () => void }) {
+/** The folder being named; without `onDone`, one just named and on its way (its name, not a field). */
+function NewFolderTile({ label, onDone, onCancel, row = false }: { label: string; onDone?: (name: string) => void; onCancel?: () => void; row?: boolean }) {
+  if (row) {
+    return (
+      <div className={`${ROW} bg-[var(--bg-hover)]`} data-media-new-folder="">
+        <span className={`${ROW_THUMB} ring-[var(--accent)]`}>
+          <span className="pointer-events-none absolute inset-0 flex items-center justify-center"><Folder size={15} className="text-[var(--text-muted)]" /></span>
+        </span>
+        <span className="min-w-0 flex-1">
+          {onDone ? <NameInput value={label} onDone={onDone} onCancel={onCancel ?? (() => {})} />
+            : <span className="block truncate text-[12.5px] font-medium text-[var(--text)]" style={KEEP_SPACES}>{label}</span>}
+        </span>
+      </div>
+    );
+  }
   return (
-    <div className="min-w-0">
+    <div className="min-w-0" data-media-new-folder="">
       <div className="relative pt-[7px]">
         <span aria-hidden className="absolute inset-x-[14%] top-0 h-3 rounded-t-md bg-[var(--fill-tsp,rgba(127,127,127,0.18))] opacity-60" />
         <span aria-hidden className="absolute inset-x-[7%] top-[3px] h-3 rounded-t-md bg-[var(--fill-tsp,rgba(127,127,127,0.18))]" />
         <div className={`${TILE_BOX} bg-[var(--bg-hover)] ring-[var(--accent)]`}><FolderGlyph /></div>
       </div>
-      <div className="mt-1 min-w-0 px-0.5"><NameInput value={label} onDone={onDone} onCancel={onCancel} /></div>
+      <div className="mt-1 min-w-0 px-0.5">
+        {onDone ? <NameInput value={label} onDone={onDone} onCancel={onCancel ?? (() => {})} />
+          : <div className="truncate text-[12px] font-medium text-[var(--text)]" style={KEEP_SPACES}>{label}</div>}
+      </div>
     </div>
   );
 }
@@ -681,20 +789,41 @@ function FileTile(p: {
   /** The "+": the file put on the timeline. */
   onAdd?: () => void;
   addLabel?: string;
+  /** A row of the list view, not a tile. */
+  row?: boolean;
 }) {
+  const add = p.onAdd ? (
+    <Tooltip label={p.addLabel ?? ''} shortcut="Enter">
+      <button
+        type="button"
+        data-media-add=""
+        aria-label={p.addLabel}
+        onMouseDown={(e) => e.preventDefault()}
+        onClick={(e) => { e.stopPropagation(); p.onPress(); p.onAdd!(); }}
+        className={p.row
+          ? `flex h-6 w-6 shrink-0 items-center justify-center rounded text-[var(--text-muted)] transition hover:bg-[var(--accent)] hover:text-white ${p.selected ? 'opacity-100' : 'opacity-0 focus-visible:opacity-100 group-hover:opacity-100'}`
+          : `absolute left-1 top-1 z-10 flex h-5 w-5 items-center justify-center rounded bg-black/65 text-white transition hover:bg-[var(--accent)] ${p.selected ? 'opacity-100' : 'opacity-0 focus-visible:opacity-100 group-hover:opacity-100'}`}
+      >
+        <Plus size={13} strokeWidth={2.4} />
+      </button>
+    </Tooltip>
+  ) : null;
   return (
     <div
-      className="group min-w-0 cursor-default select-none outline-none"
+      className={p.row
+        ? `${ROW} outline-none ${p.lit ? 'ring-1 ring-inset ring-[var(--tl-accent)]' : ''} ${p.selected ? 'bg-[var(--bg-active)]' : 'hover:bg-[var(--bg-hover)]'}`
+        : 'group min-w-0 cursor-default select-none outline-none'}
       data-media-path={p.file.path}
       data-chat-lit={p.lit ? '' : undefined}
       title={p.where ? p.file.path : p.file.name}
       draggable={!p.renaming}
+      /* a drag picks nothing: picking opens the inspector, and the pane laid out again under the pointer (or hidden for
+         room) would lose the drag */
       onDragStart={(e) => {
-        p.onPress();
         setResourceDragData(e.dataTransfer, p.file);
         if (p.studioRef) e.dataTransfer.setData(STUDIO_REF_TYPE, JSON.stringify([p.studioRef()]));
-        /* web pages stay where their code is; assets can also go into a folder of this pane */
-        if (p.file.kind !== 'mg') e.dataTransfer.setData(FOLDER_DRAG, p.file.path);
+        /* any file can go into a folder of this pane: a page's links are written again as it moves (Studio) */
+        e.dataTransfer.setData(FOLDER_DRAG, p.file.path);
         e.dataTransfer.effectAllowed = 'copyMove';
       }}
       onDragEnd={() => clearResourceDrag()}
@@ -703,25 +832,26 @@ function FileTile(p: {
       onClick={(e) => { e.currentTarget.focus({ preventScroll: true }); p.onPress(); }}
       onContextMenu={(e) => { e.preventDefault(); e.stopPropagation(); p.onMenu(e); }}
     >
+      {p.row ? (
+        <>
+          <span className={`${ROW_THUMB} pointer-events-none`}>
+            {p.file.kind === 'mg' ? <PagePoster file={p.file} sources={p.sources} /> : <MediaPreview file={p.file} sources={p.sources} />}
+          </span>
+          <span className="min-w-0 flex-1">
+            {p.renaming ? <NameInput value={p.file.name} onDone={p.onRename} onCancel={p.onCancelRename} />
+              : <span className={`block truncate text-[12.5px] ${p.selected ? 'text-[var(--text)]' : 'text-[var(--text-dim)]'}`} style={KEEP_SPACES}>{p.file.name}</span>}
+            {p.where ? <span className="block truncate text-left text-[11px] text-[var(--text-faint)]" dir="rtl"><bdi>{p.where}</bdi></span> : null}
+          </span>
+          {p.duration ? <span className="shrink-0 text-[11px] tabular-nums text-[var(--text-faint)]">{p.duration}</span> : null}
+          {add}
+        </>
+      ) : <>
       {/* the same room above as a folder's stacked cards, so covers and names line up across a row */}
       <div className="pt-[7px]">
         <div className={`${TILE_BOX} bg-[var(--bg-hover)] ${p.lit ? 'ring-[var(--tl-accent)] shadow-[0_0_10px_1px_color-mix(in_srgb,var(--tl-accent)_55%,transparent)]' : p.selected ? 'ring-[var(--accent)]' : 'ring-transparent group-hover:ring-[var(--border)]'}`}>
           {p.file.kind === 'mg' ? <PagePoster file={p.file} sources={p.sources} /> : <MediaPreview file={p.file} sources={p.sources} />}
           {/* "+": on the timeline at the playhead (or the main track's end), without dragging it there */}
-          {p.onAdd ? (
-            <Tooltip label={p.addLabel ?? ''} shortcut="Enter">
-              <button
-                type="button"
-                data-media-add=""
-                aria-label={p.addLabel}
-                onMouseDown={(e) => e.preventDefault()}
-                onClick={(e) => { e.stopPropagation(); p.onPress(); p.onAdd!(); }}
-                className={`absolute left-1 top-1 z-10 flex h-5 w-5 items-center justify-center rounded bg-black/65 text-white transition hover:bg-[var(--accent)] ${p.selected ? 'opacity-100' : 'opacity-0 focus-visible:opacity-100 group-hover:opacity-100'}`}
-              >
-                <Plus size={13} strokeWidth={2.4} />
-              </button>
-            </Tooltip>
-          ) : null}
+          {add}
           {p.duration ? <span className="absolute bottom-1 right-1 z-10 rounded bg-black/65 px-1 text-[10.5px] tabular-nums leading-[16px] text-white">{p.duration}</span> : null}
         </div>
       </div>
@@ -730,6 +860,7 @@ function FileTile(p: {
           : <div className={`truncate text-[12px] ${p.selected ? 'text-[var(--text)]' : 'text-[var(--text-dim)]'}`} style={KEEP_SPACES}>{p.file.name}</div>}
         {p.where ? <div className="truncate text-left text-[11px] text-[var(--text-faint)]" dir="rtl"><bdi>{p.where}</bdi></div> : null}
       </div>
+      </>}
     </div>
   );
 }

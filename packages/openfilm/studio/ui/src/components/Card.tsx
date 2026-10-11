@@ -53,7 +53,7 @@ export function Card({
         {icon ? <span className="mt-[2px] shrink-0 text-[var(--text-muted)]">{icon}</span> : null}
         <div className="min-w-0 flex-1">
           <h3 className="text-[13px] font-medium leading-snug text-[var(--text)]">{title}</h3>
-          {body ? <div className="mt-1 text-[12.5px] leading-relaxed text-[var(--text-muted)]">{body}</div> : null}
+          {body ? <div className="mt-1 whitespace-pre-line break-words text-[12.5px] leading-relaxed text-[var(--text-muted)]">{body}</div> : null}
         </div>
       </div>
       {children}

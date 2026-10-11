@@ -15,7 +15,7 @@ import { Player } from '@/editor/player';
 import { Preview, type FilmInfo, type PreviewHandle } from '@/editor/Preview';
 import { filmShape, type MediaFacts } from '@/lib/film-shape';
 import { layoutTracks, type TimelineBlock, type TimelineTrack } from '@/lib/timeline-layout';
-import { filmClipKind, filmSrcIsPage, filmTrackBadges, parseFilmDocLoc, type FilmDoc } from '@/lib/film';
+import { filmClipKind, filmSrcIsPage, filmSrcKind, filmTrackBadges, parseFilmDocLoc, type FilmBox, type FilmDoc } from '@/lib/film';
 import { footageFps, secondFrames, setTimecodeFps, snapToFrame, stepFrames } from '@/lib/timecode';
 import { keyCommandOf, loopBack, playStart, shuttleRate } from '@/lib/timeline-keys';
 import { cutPoints, namedTrack, nextCut, trackNamesOf } from '@/lib/timeline-nav';
@@ -39,7 +39,8 @@ import { ladderStepMs, THUMB_CELL_PX, thumbAnchorTimes } from '@/lib/thumb-cache
 import { clipThumbId } from '@/lib/thumb-frame';
 import { useLoadedThumbs } from '@/lib/use-loaded-thumbs';
 import { droppedOverrides, overrideTarget, undoneFields, type DroppedEdits, type PersonEdit } from '@/lib/dropped-overrides';
-import { filmFrameBox, filmFrameOf, type FilmFrameId } from '@/lib/film-frame';
+import { filmFrameBox, type FilmFrameId } from '@/lib/film-frame';
+import { canvasFor, fitToCanvas } from '@/lib/canvas-fit';
 import { factsOfProbe, mediaListingOf, resourceKindOf, srcHitsAsset, warmProjectMedia, type MediaListing, type MediaResult, type MediaSources, type WorkspaceResource } from '@/lib/workspace-resources';
 import { BrandLoadingScreen } from './BrandLoadingScreen';
 import { BrandLogo } from './BrandLogo';
@@ -76,7 +77,7 @@ import { ProjectMenu } from './ProjectMenu';
 import { ProjectHistoryButton, ProjectHistoryControls } from './ProjectHistoryControls';
 import { useProjectHistory } from './use-project-history';
 import { ProjectsPopover } from './ProjectsLibrary';
-import { FramePicker, useDeliveryFrame } from './FramePicker';
+import { FramePicker } from './FramePicker';
 import { FilmFullscreenBar, useFullscreenKeys } from './FilmFullscreenBar';
 import { ViewerBar } from './ViewerBar';
 import { LiveTime, type PlaybackClock } from './LiveTime';
@@ -527,8 +528,8 @@ export function ProjectView({ projectId, onProject, onLeave }: {
   const timelineCommands = React.useRef<TimelineCommands | null>(null);
   /**
    * The picture has the keyboard (the last press was on it; the inspector and the picture's own bars and menus keep
-   * it): the arrow keys move what is in hand there. Anywhere else they move the playhead. Shown by a ring round the
-   * picture while something is in hand.
+   * it): the arrow keys move what is in hand there. Anywhere else they move the playhead. The frame round what is in
+   * hand is the only mark: a ring round the whole picture read as the picture being selected.
    */
   const [viewerFocus, setViewerFocus] = React.useState(false);
   React.useEffect(() => {
@@ -980,6 +981,7 @@ export function ProjectView({ projectId, onProject, onLeave }: {
       onSelectFile={pickMedia}
       onImport={onImport}
       onMove={onMove}
+      onMoveCheck={onMoveCheck}
       onDelete={onDelete}
       onExtractAudio={onExtractAudio}
       onNewFolder={onNewFolder}
@@ -1670,6 +1672,11 @@ export function ProjectView({ projectId, onProject, onLeave }: {
   const onMove = React.useCallback(async (from: string, to: string) => mediaResult(await fetch(`${projectApi}/files`, {
     method: 'PATCH', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ from, to }),
   })), [projectApi]);
+  const onMoveCheck = React.useCallback(async (from: string, to: string) => {
+    const res = await fetch(`${projectApi}/files`, { method: 'PATCH', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ from, to, check: true }) });
+    const body = await res.json().catch(() => ({})) as { unseen?: { file: string; unseen: string[] }[] };
+    return res.ok ? body.unseen ?? [] : [];
+  }, [projectApi]);
   const onDelete = React.useCallback(async (path: string) => mediaResult(await fetch(`${projectApi}/files?path=${encodeURIComponent(path)}`, { method: 'DELETE' })), [projectApi]);
   const onExtractAudio = React.useCallback(async (path: string) => mediaResult(await fetch(`${projectApi}/files/audio`, {
     method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ path }),
@@ -1684,16 +1691,42 @@ export function ProjectView({ projectId, onProject, onLeave }: {
   /* ── picture: the delivery frame, fullscreen ── */
   const stage = film.film?.stage ?? { w: 1920, h: 1080 };
   stageRef.current = stage;
-  const [deliveryFrame, setDeliveryFrame] = useDeliveryFrame(projectId);
   const empty = !film.film?.tracks.some((tr) => tr.clips.length);
-  const frame: FilmFrameId = empty ? filmFrameOf(stage) : deliveryFrame;
-  const frameBox = React.useMemo(() => filmFrameBox(stage, empty ? 'native' : frame), [stage, empty, frame]);
-  /* the stage's shape: while nothing is made it is the film's own (written to film.html), after that the frame it is
-     delivered in; the viewer's picker and the inspector's film panel both change it this way */
-  const changeCanvas = React.useCallback((next: FilmFrameId, size: { w: number; h: number }) => {
-    if (!empty) { setDeliveryFrame(next); return; }
-    void edit([{ op: 'stage', w: size.w, h: size.h }], 'history.stepEdit');
-  }, [empty, edit, setDeliveryFrame]);
+  /* the picture is the canvas, nothing around it: another shape is another canvas (a delivery frame is the export's) */
+  const frameBox = React.useMemo(() => filmFrameBox(stage, 'native'), [stage]);
+  /* the canvas (the stage in film.html), from the viewer's ratio button or the inspector, as CapCut's: another shape
+     keeps the canvas's short side (canvasFor; a typed size is that size), and every picture on it is scaled by one
+     factor into the new canvas, centered, in the same edit (one undo). Laying the film out again for the new canvas
+     is the agent's (the inspector gives the words) */
+  /* "Fit (original)": the shape of the film's first picture (the earliest on the film whose size the preview knows) */
+  const originalSize = React.useMemo(() => {
+    const sized = new Map(spans.filter((span) => span.w && span.h).map((span) => [span.id, { w: span.w!, h: span.h! }]));
+    const first = (film.film?.tracks ?? []).flatMap((track) => track.clips)
+      .filter((clip) => !clip.sound && filmSrcKind(clip.src) !== 'sound' && sized.has(clip.id))
+      .sort((a, b) => (a.at ?? 0) - (b.at ?? 0))[0];
+    return first ? sized.get(first.id) ?? null : null;
+  }, [spans, film.film]);
+  const changeCanvas = React.useCallback((next: FilmFrameId, given?: { w: number; h: number }) => {
+    const size = given ?? canvasFor(stage, next);
+    if (size.w === stage.w && size.h === stage.h) return;
+    const own = new Map(spans.map((span) => [span.id, span.w && span.h ? { w: span.w, h: span.h } : null]));
+    const reflows = new Set(spans.filter((span) => span.reflows).map((span) => span.id));
+    const clips = (film.film?.tracks ?? []).flatMap((track) => track.clips.map((clip) => ({
+      id: clip.id,
+      kind: clip.sound ? 'sound' as const : filmSrcKind(clip.src),
+      own: own.get(clip.id) ?? null,
+      box: (clip.box as FilmBox | undefined) ?? null,
+      reflows: reflows.has(clip.id),
+      size: clip.size ?? null,
+    })));
+    void edit([
+      { op: 'stage', w: size.w, h: size.h },
+      ...fitToCanvas(clips, stage, size).flatMap((fit) => [
+        { op: 'set' as const, clip: fit.id, field: 'box', value: fit.box },
+        ...(fit.size ? [{ op: 'set' as const, clip: fit.id, field: 'size', value: fit.size }] : []),
+      ]),
+    ], 'history.stepEdit');
+  }, [edit, stage, spans, film.film]);
   const stageFullRef = React.useRef<HTMLDivElement>(null);
   const [fullscreen, setFullscreen] = React.useState(false);
   React.useEffect(() => {
@@ -2179,10 +2212,6 @@ export function ProjectView({ projectId, onProject, onLeave }: {
                 ) : null}
                 <div className="relative flex min-h-0 flex-1 items-center justify-center px-3 py-2.5" style={{ containerType: 'size' }} {...pictureDropProps}
                   data-viewer-picture="" data-viewer-focus={viewerFocus ? '1' : '0'} onPointerDownCapture={() => setBarAt('stage')}>
-                  {/* the picture has the keyboard and something is in hand: the arrow keys move it (not the playhead) */}
-                  {viewerFocus && stageElement && !fullscreen ? (
-                    <div aria-hidden data-viewer-keys="" className="pointer-events-none absolute inset-1 z-[25] rounded-md ring-1 ring-inset ring-[color-mix(in_srgb,var(--accent)_70%,transparent)]" />
-                  ) : null}
                   {pictureDrop ? (
                     <div className="pointer-events-none absolute inset-2 z-30 flex items-center justify-center rounded-lg bg-[color-mix(in_srgb,var(--accent)_10%,transparent)] ring-2 ring-inset ring-[var(--accent)]">
                       <span className="rounded-md bg-[var(--surface)] px-2.5 py-1 text-[12.5px] text-[var(--text)] shadow-sm">{t('project.dropOnPicture')}</span>
@@ -2292,13 +2321,7 @@ export function ProjectView({ projectId, onProject, onLeave }: {
                   onPlayPause={toggle}
                   loop={{ on: loop, ranged: Boolean(markedRange), onToggle: () => setLoop((on) => !on) }}
                   frame={value ? (
-                    <FramePicker
-                      stage={stage}
-                      value={deliveryFrame}
-                      mode={empty ? 'canvas' : 'delivery'}
-                      onDelivery={setDeliveryFrame}
-                      onCanvas={changeCanvas}
-                    />
+                    <FramePicker stage={stage} original={originalSize} onCanvas={changeCanvas} />
                   ) : null}
                   onFullscreen={toggleFullscreen}
                 />
@@ -2342,7 +2365,6 @@ export function ProjectView({ projectId, onProject, onLeave }: {
                       stage={stage}
                       film={filmSummary}
                       onCanvas={changeCanvas}
-                      frame={{ value: deliveryFrame, onChange: setDeliveryFrame }}
                       onEditLayers={editStageOverrides}
                       locked={inspectorLocked}
                       rate={frameRate}
@@ -2451,7 +2473,7 @@ export function ProjectView({ projectId, onProject, onLeave }: {
         title={title || 'video'}
         durationMs={totalMs}
         stage={stage}
-        frame={frame}
+        frame="native"
         film={exportFilm as never}
         playheadMs={timeMs}
         mgBlocks={mgBlocks}

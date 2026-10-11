@@ -69,7 +69,7 @@ function targetTrack(/** @type {FilmValue} */ value, /** @type {number | undefin
 const dropEmptyTracks = (/** @type {FilmValue} */ value) => { value.tracks = value.tracks.filter((track) => track.clips.length); };
 
 /** Fields a person sets from Studio, by kind of clip (the rest of a clip is the agent's to write). */
-const SETTABLE = new Set(['at', 'time', 'box', 'volume', 'speed', 'overrides', 'src']);
+const SETTABLE = new Set(['at', 'time', 'box', 'size', 'volume', 'speed', 'overrides', 'src']);
 
 /** @param {FilmValue} value @param {Op[]} ops */
 export function applyOps(value, ops) {

@@ -12,6 +12,8 @@ export interface StudioVersion { version: string; latest: string | null; newer: 
 export type Project = { id: string; path: string; name: string; openedAt: number; missing: boolean; working?: boolean };
 export type Clip = { src: string; id: string; at?: number; time?: [number] | [number, number];
   box?: { x: number; y: number; w?: number; h?: number; r?: number }; volume?: number; speed?: number; overrides?: unknown[];
+  /** a page that sets no size of its own: the px it is laid out at (the stage's without it) */
+  size?: { w: number; h: number };
   /** a video's sound alone (an <audio> of its file) */
   sound?: true;
   /** its look: class names for the film's styles, and its own CSS */
@@ -62,6 +64,7 @@ async function call<T>(path: string, init: RequestInit & { json?: unknown } = {}
       body: json === undefined ? rest.body : JSON.stringify(json),
     });
     const body = await res.json().catch(() => ({}));
+    if (res.status === 401) markLocked();
     if (!res.ok) throw new ApiError(String(body.error ?? `Studio answered ${res.status}`), res.status, body);
     return body as T;
   } finally {
@@ -75,6 +78,9 @@ export const api = {
   /** this Studio's version and the latest openfilm on npm; `check`: ask npm now */
   version: (check = false) => call<StudioVersion>(`version${check ? '?check=1' : ''}`),
   projects: () => call<{ projects: Project[] }>('projects').then((r) => r.projects),
+  /** the system's folder dialog, opened by Studio (a page in a browser cannot learn a path): the folder, or null when
+      cancelled; throws (501) where this system has none */
+  pickFolder: (title: string, at?: string) => call<{ path: string | null }>('pick-folder', { method: 'POST', json: { title, ...(at ? { at } : {}) } }).then((r) => r.path),
   newProject: (name?: string) => call<{ project: Project }>('projects', { method: 'POST', json: { name } }).then((r) => r.project),
   /** open a folder (its full path) as a project: made one when it is not yet */
   openFolder: (path: string) => call<{ project: Project }>('projects', { method: 'POST', json: { path } }).then((r) => r.project),
@@ -158,6 +164,8 @@ export function listen(path: string, on: (event: FolderEvent) => void, { onBack,
       if (stopped) return;
       lost = true;
       watcher?.down();
+      /* refused, not gone: Studio is there but this browser has no key (the stream says no reason, a request does) */
+      if (watch && tries === 0) void fetch('/api/version', { cache: 'no-store' }).then((r) => { if (r.status === 401) markLocked(); }, () => {});
       /* soon at first, then every second: Studio restarting (`openfilm open` starts it afresh) is back within one
          or two, and waits a few for the pages before it */
       again = setTimeout(connect, Math.min(1000, 250 * 2 ** tries++));
@@ -171,18 +179,21 @@ export function listen(path: string, on: (event: FolderEvent) => void, { onBack,
 let studioVersion: ReturnType<typeof watchStudioVersion> | null = null;
 
 /**
- * Whether Studio answers, for the notice when it does not: 'up', 'lost' (stopped a moment ago, reconnecting) or
- * 'gone' (still not back, or this page's key is from another launch).
+ * Whether Studio answers, for the notice when it does not: 'up', 'lost' (stopped a moment ago, reconnecting), 'gone'
+ * (still not back), or 'locked': Studio answers but not this browser, which was never let in (its address was typed
+ * or pasted without the key `openfilm open` prints, or its key is another launch's). Waiting does not fix that one.
  */
-export type Connection = 'up' | 'lost' | 'gone';
+export type Connection = 'up' | 'lost' | 'gone' | 'locked';
 let connection: Connection = 'up';
 const connectionListeners = new Set<() => void>();
 export const studioConnection = {
   get: () => connection,
   subscribe(fn: () => void) { connectionListeners.add(fn); return () => { connectionListeners.delete(fn); }; },
 };
+/** Studio answered this page 401: it was never let in (see Connection). */
+export function markLocked() { setConnection('locked'); }
 function setConnection(next: Connection) {
-  if (next === connection) return;
+  if (next === connection || (connection === 'locked' && next !== 'up')) return;
   connection = next;
   for (const fn of [...connectionListeners]) fn();
 }

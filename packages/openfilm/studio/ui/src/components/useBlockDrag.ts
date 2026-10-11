@@ -25,6 +25,8 @@ import {
   flushShiftMs,
   groupLaneShift,
   moveDestFor,
+  moveEditMode,
+  rangeOverlaps,
   snapTargetsFor,
   SNAP_THRESHOLD_PX,
   trimFence,
@@ -384,7 +386,6 @@ export function useBlockDrag(opts: {
       /* a move: the clip follows the hand; where it lands, and what it does to what is there, is the plan's */
       const offsetY = ev.clientY - startY + scrolledY;
       const hit = latest.current.laneHitAtY?.(ev.clientY) ?? { lane: homeLaneIndex, band: 'body' as const };
-      const editMode: EditMode = p.magnet !== altNow ? 'insert' : 'overwrite';
       const out = applyDrag(geom, 'move', deltaMs, targets, pxPerMs, block.room, crowd);
       const grouped = crowd.length > 0 && homeLaneIndex >= 0;
       const shift = grouped
@@ -408,9 +409,16 @@ export function useBlockDrag(opts: {
        * snapping on, for one clip, overwriting.
        */
       const destLane = drop.action === 'move' ? singleLanes.find((l) => l.docIndex === drop.trackIndex) : singleLanes[homeLaneIndex];
-      const settle = !grouped && snapping && editMode === 'overwrite' && drop.action !== 'insert'
+      const flush = !grouped && snapping && drop.action !== 'insert'
         ? flushShiftMs({ startMs: out.startMs, endMs: out.endMs }, destLane?.occupied ?? [], SNAP_THRESHOLD_PX / pxPerMs)
         : null;
+      /* along its own track (alone, or with its linked clips, none changing track), onto another clip: it goes in
+         between instead of cutting it (moveEditMode) */
+      const alongOwnTrack = grouped ? shift.ok && shift.delta === 0 : drop.action === 'stay';
+      const wouldLand = { startMs: out.startMs + (flush?.shiftMs ?? 0), endMs: out.endMs + (flush?.shiftMs ?? 0) };
+      const overlaps = alongOwnTrack && rangeOverlaps(wouldLand, singleLanes[homeLaneIndex]?.occupied ?? []);
+      const editMode: EditMode = moveEditMode({ magnet: p.magnet, alt: altNow, overlaps });
+      const settle = editMode === 'overwrite' ? flush : null;
       const to = new Map<string, TrackDest>();
       if (drop.action === 'move') to.set(block.clipId!, drop.trackIndex);
       if (drop.action === 'insert') to.set(block.clipId!, { insert: drop.at });

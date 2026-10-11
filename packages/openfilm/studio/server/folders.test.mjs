@@ -79,3 +79,18 @@ test('the film\'s length is listed once Studio has learnt it, and only while fil
   writeFileSync(film, JSON.stringify({ stage: { w: 640, h: 360 }, tracks: [{ clips: [] }] }));
   assert.equal((await api('projects')).body.projects.find((p) => p.id === project.id).duration, undefined);
 });
+
+test('folders inside folders: made in their parent, and deleted with it, their projects too', async () => {
+  const { body: { folder: outer } } = await api('projects/folders', { method: 'POST', body: { name: 'Clients' } });
+  const { body: { folder: inner } } = await api('projects/folders', { method: 'POST', body: { name: 'Acme', parentId: outer.id } });
+  assert.equal(inner.parentId, outer.id);
+  assert.equal((await api('projects/folders', { method: 'POST', body: { name: 'Lost', parentId: 'nope' } })).status, 404);
+
+  const { body: { project } } = await api('projects', { method: 'POST', body: { name: 'Acme spot' } });
+  await api(`projects/${project.id}/folder`, { method: 'PUT', body: { folderId: inner.id } });
+
+  const deleted = await api(`projects/folders/${outer.id}`, { method: 'DELETE' });
+  assert.deepEqual(deleted.body.projects, [project.id]);
+  const left = (await api('projects/folders')).body.folders.map((f) => f.id);
+  assert.ok(!left.includes(outer.id) && !left.includes(inner.id));
+});

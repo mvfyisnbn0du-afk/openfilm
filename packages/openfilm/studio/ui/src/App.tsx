@@ -55,6 +55,37 @@ export function App() {
 }
 
 /**
+ * Studio answers, but not this browser: it was opened at Studio's address without the key (pasted, typed, an agent's
+ * browser given the bare address). Nothing to wait for: the page is covered and says which address lets it in.
+ */
+function LockedNotice() {
+  const t = useT();
+  const [copied, setCopied] = useState(false);
+  const COMMAND = 'openfilm open';
+  return (
+    <div role="alert" className="fixed inset-0 z-[10050] flex items-center justify-center bg-[var(--dock-shell)] p-6">
+      <div className="w-full max-w-[460px] rounded-2xl border border-[var(--border)] bg-[var(--surface)] p-6 shadow-[var(--shadow-lg)]">
+        <p className="text-[16px] font-semibold text-[var(--text)]">{t('connection.lockedTitle')}</p>
+        <p className="mt-2 text-[13px] leading-relaxed text-[var(--text-muted)]">{t('connection.lockedBody')}</p>
+        <p className="mt-3 rounded-lg bg-[var(--surface-2)] px-3 py-2 font-mono text-[12px] text-[var(--text-dim)]">{`${location.origin}/open?key=…`}</p>
+        {studioHost ? null : (
+          <div className="mt-4 flex items-center gap-2 text-[12.5px] text-[var(--text-muted)]">
+            <span>{t('connection.lockedHow')}</span>
+            <button
+              type="button"
+              onClick={() => { void navigator.clipboard?.writeText(COMMAND).then(() => setCopied(true), () => {}); }}
+              className="rounded-md bg-[var(--surface-2)] px-2 py-0.5 font-mono text-[12px] text-[var(--text)] ring-1 ring-inset ring-[var(--border)] hover:bg-[var(--bg-hover)]"
+            >
+              {copied ? t('connection.copied') : COMMAND}
+            </button>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+/**
  * Studio stopped (an update, a crash, the computer slept): a bar across the top while it is away, so nothing seems to
  * hang for no reason. Reconnecting is tried all along; once it has been away a while the page is covered (an export or
  * an edit made now would go nowhere) and the bar says how to start it again: this page reconnects by itself.
@@ -65,6 +96,7 @@ function ConnectionNotice() {
   const [copied, setCopied] = useState(false);
   useEffect(() => { if (state === 'up') setCopied(false); }, [state]);
   if (state === 'up') return null;
+  if (state === 'locked') return <LockedNotice />;
   const gone = state === 'gone';
   const COMMAND = 'openfilm open';
   return (

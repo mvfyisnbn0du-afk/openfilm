@@ -13,6 +13,7 @@ import { basename, join } from 'node:path';
 import { Readable } from 'node:stream';
 import { fileURLToPath } from 'node:url';
 import { FLAVOR, IDENTITY, PRODUCT_NAME } from './flavor.mjs';
+import { folderDialogOptions } from './folder-dialog.mjs';
 import { childEnvironment, loginShellEnvironment } from './environment.mjs';
 import { startWindowStudio } from './studio.mjs';
 import { CHAT_MIN, STUDIO_MIN, WINDOW_MIN, placeOnDisplays, readWindowState, writeWindowState } from './window-state.mjs';
@@ -125,19 +126,18 @@ async function studioApi(path, method = 'GET', body = undefined) {
   return res.json();
 }
 
-/** A folder to open as a project, picked by the person (null: cancelled). Any folder: one not yet a project becomes one. */
-async function pickProjectFolder() {
-  const { canceled, filePaths } = await dialog.showOpenDialog(win, {
-    title: 'Open Project',
-    buttonLabel: 'Open',
-    properties: ['openDirectory', 'createDirectory'],
-  });
+/**
+ * A folder picked by the person (null: cancelled): with no options, one to open as a project (any folder: one not yet
+ * a project becomes one); with Studio's own words and starting folder, any other (see folder-dialog.mjs).
+ */
+async function pickFolder(options) {
+  const { canceled, filePaths } = await dialog.showOpenDialog(win, folderDialogOptions(options));
   return canceled || !filePaths[0] ? null : filePaths[0];
 }
 
 /** File › Open Project…: the folder picked, shown in the window (Studio switches its pages to it). */
 async function openProjectFolder() {
-  const folder = await pickProjectFolder();
+  const folder = await pickFolder();
   if (!folder || !studio) return;
   try {
     await studioApi('/api/open', 'POST', { path: folder, fallback: 0 });
@@ -205,6 +205,9 @@ async function start() {
     extra: {
       OPENFILM_HOME: IDENTITY.studioHome ?? process.env.OPENFILM_HOME ?? join(app.getPath('home'), '.openfilm'),
       ...((IDENTITY.library ?? process.env.OPENFILM_LIBRARY) ? { OPENFILM_LIBRARY: IDENTITY.library ?? process.env.OPENFILM_LIBRARY } : {}),
+      /* the app names Studio's home, which would put exports inside it (Studio's rule for a home kept apart): the
+         Desktop, where `openfilm` puts them, unless this is a flavour with a home of its own */
+      ...(IDENTITY.studioHome || process.env.OPENFILM_EXPORTS ? {} : { OPENFILM_EXPORTS: app.getPath('desktop') }),
     },
   });
 
@@ -341,7 +344,7 @@ async function start() {
     } catch (error) { return { ok: false, error: error.message }; }
   });
   ipcMain.handle('desktop:reveal', (event, path) => { if (fromPage(event) && typeof path === 'string' && path) shell.showItemInFolder(path); });
-  ipcMain.handle('desktop:pick-folder', (event) => (fromPage(event) ? pickProjectFolder() : null));
+  ipcMain.handle('desktop:pick-folder', (event, options) => (fromPage(event) ? pickFolder(options) : null));
   /* a picture of part of the window (the viewer, for a reference in the chat): what the person sees, as JPEG */
   ipcMain.handle('desktop:capture', async (event, rect) => {
     if (!fromPage(event) || !rect || typeof rect !== 'object') return null;

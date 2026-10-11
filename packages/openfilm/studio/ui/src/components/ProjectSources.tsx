@@ -387,11 +387,14 @@ export function ExamplesSection({
   collapsed,
   onToggle,
   onOpen,
+  view = 'cards',
 }: {
   examples: Example[];
   collapsed: boolean;
   onToggle: () => void;
   onOpen: (example: Example) => void;
+  /** As the projects above are shown: cards, or rows. */
+  view?: 'cards' | 'list';
 }) {
   const t = useT();
   if (!examples.length) return null;
@@ -408,7 +411,11 @@ export function ExamplesSection({
         {t('projects.examples.title')}
         <span className="ml-1 text-[12px] font-normal tabular-nums text-[var(--text-faint)]">{examples.length}</span>
       </button>
-      {collapsed ? null : (
+      {collapsed ? null : view === 'list' ? (
+        <div className="mt-1 flex flex-col divide-y divide-[var(--border)]">
+          {examples.map((example) => <ExampleListRow key={example.id} example={example} onOpen={() => onOpen(example)} />)}
+        </div>
+      ) : (
         <div className="mt-3 grid grid-cols-2 gap-x-4 gap-y-6 sm:grid-cols-3 lg:grid-cols-4">
           {examples.map((example) => <ExampleCard key={example.id} example={example} onOpen={() => onOpen(example)} />)}
         </div>
@@ -417,9 +424,59 @@ export function ExamplesSection({
   );
 }
 
+/** An example's poster, faded in once loaded; a clapperboard when it has none or it does not load. */
+function ExamplePoster({ example }: { example: Example }) {
+  const [poster, setPoster] = React.useState<'loading' | 'ready' | 'failed'>(example.poster ? 'loading' : 'failed');
+  return poster === 'failed' ? (
+    <span className="absolute inset-0 flex items-center justify-center text-[var(--text-faint)]"><Clapperboard size={22} strokeWidth={1.5} /></span>
+  ) : (
+    <img
+      src={example.poster ?? undefined}
+      alt=""
+      loading="lazy"
+      draggable={false}
+      onLoad={() => setPoster('ready')}
+      onError={() => setPoster('failed')}
+      className={`absolute inset-0 h-full w-full object-cover transition-opacity duration-200 ${poster === 'ready' ? 'opacity-100' : 'opacity-0'}`}
+    />
+  );
+}
+
+/** An example in the list view: the projects' row, its description where a project's path would be. */
+function ExampleListRow({ example, onOpen }: { example: Example; onOpen: () => void }) {
+  const t = useT();
+  return (
+    <article className="group min-w-0">
+      <button
+        type="button"
+        onClick={onOpen}
+        aria-label={`${t('projects.examples.open')} · ${example.title}`}
+        className="flex w-full min-w-0 items-center gap-3 py-4 text-left sm:gap-4"
+      >
+        <span className="relative block aspect-video w-28 shrink-0 overflow-hidden rounded-md bg-[var(--surface-2)] ring-1 ring-[var(--border)] transition group-hover:brightness-[1.04] sm:w-36">
+          <ExamplePoster example={example} />
+        </span>
+        <span className="min-w-0 flex-1">
+          <span className="block truncate text-[14px] font-semibold text-[var(--text)]">{example.title}</span>
+          {example.description ? <span className="mt-1 line-clamp-2 block text-[12.5px] leading-relaxed text-[var(--text-muted)]">{example.description}</span> : null}
+          {example.duration ? (
+            <span className="mt-2 flex items-center gap-1 text-[11.5px] tabular-nums text-[var(--text-faint)]">
+              <Clock3 size={11} />
+              {formatSeconds(example.duration)}
+            </span>
+          ) : null}
+        </span>
+        <span className="flex shrink-0 items-center gap-1.5 rounded-full px-3 py-1 text-[12px] font-medium text-[var(--text-muted)] opacity-0 transition group-hover:bg-[var(--bg-hover)] group-hover:text-[var(--text)] group-hover:opacity-100 group-focus-within:opacity-100">
+          <FolderOpen size={13} />
+          {t('projects.examples.open')}
+        </span>
+      </button>
+    </article>
+  );
+}
+
 function ExampleCard({ example, onOpen }: { example: Example; onOpen: () => void }) {
   const t = useT();
-  const [poster, setPoster] = React.useState<'loading' | 'ready' | 'failed'>(example.poster ? 'loading' : 'failed');
   return (
     <article className="group min-w-0">
       <button
@@ -428,19 +485,7 @@ function ExampleCard({ example, onOpen }: { example: Example; onOpen: () => void
         aria-label={`${t('projects.examples.open')} · ${example.title}`}
         className="relative block aspect-video w-full overflow-hidden rounded-lg bg-[var(--surface-2)] ring-1 ring-[var(--border)] transition hover:brightness-[1.04]"
       >
-        {poster === 'failed' ? (
-          <span className="absolute inset-0 flex items-center justify-center text-[var(--text-faint)]"><Clapperboard size={22} strokeWidth={1.5} /></span>
-        ) : (
-          <img
-            src={example.poster ?? undefined}
-            alt=""
-            loading="lazy"
-            draggable={false}
-            onLoad={() => setPoster('ready')}
-            onError={() => setPoster('failed')}
-            className={`absolute inset-0 h-full w-full object-cover transition-opacity duration-200 ${poster === 'ready' ? 'opacity-100' : 'opacity-0'}`}
-          />
-        )}
+        <ExamplePoster example={example} />
         {example.duration ? (
           <span className="absolute bottom-2 right-2 flex items-center gap-1 rounded bg-black/40 px-1.5 py-0.5 text-[10.5px] font-medium tabular-nums text-white/85 backdrop-blur-sm">
             <Clock3 size={10} />

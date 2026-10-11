@@ -100,9 +100,13 @@ export interface StudioHost {
   /**
    * The app picks folders, and knows where a dropped one is: the Projects list gets "Open…", which asks the app for a
    * folder to open as a project (`pick`: null when the person cancelled), and opens a folder dropped on it (`pathOf`:
-   * its full path, '' when the app cannot tell).
+   * its full path, '' when the app cannot tell). The export's "Save to" asks with its own words and the folder it
+   * starts in (`title`, `button`, `at`).
    */
-  folders?: { pick: () => Promise<string | null>; pathOf: (file: File) => string };
+  folders?: {
+    pick: (options?: { title?: string; button?: string; at?: string }) => Promise<string | null>;
+    pathOf: (file: File) => string;
+  };
 }
 
 /** A question about spending, worded for the person (see `asks`). */

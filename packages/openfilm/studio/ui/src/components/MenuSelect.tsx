@@ -12,7 +12,7 @@ export type MenuChoice = { value: string; label: string };
 export type MenuGroup = { label?: string; choices: MenuChoice[] };
 
 export function MenuSelect({
-  label, value, groups, onPick, disabled = false, className = '',
+  label, value, groups, onPick, disabled = false, className = '', size = 'sm',
 }: {
   /** what it chooses, for screen readers (the field shows the choice) */
   label: string;
@@ -21,6 +21,8 @@ export function MenuSelect({
   onPick: (value: string) => void;
   disabled?: boolean;
   className?: string;
+  /** `sm`: the inspector's fields; `md`: a dialog's (the export's) */
+  size?: 'sm' | 'md';
 }) {
   const [open, setOpen] = React.useState(false);
   const [width, setWidth] = React.useState(0);
@@ -38,7 +40,14 @@ export function MenuSelect({
   }, [open]); // eslint-disable-line react-hooks/exhaustive-deps
   React.useEffect(() => {
     if (!open || active < 0) return;
-    listRef.current?.querySelector(`[data-index="${active}"]`)?.scrollIntoView({ block: 'nearest' });
+    /* the list's own scroll only: scrollIntoView would also scroll what the field is in (a dialog's body) */
+    const list = listRef.current;
+    const item = list?.querySelector<HTMLElement>(`[data-index="${active}"]`);
+    if (!list || !item) return;
+    const top = item.offsetTop;
+    const bottom = top + item.offsetHeight;
+    if (top < list.scrollTop) list.scrollTop = top;
+    else if (bottom > list.scrollTop + list.clientHeight) list.scrollTop = bottom - list.clientHeight;
   }, [open, active]);
 
   const pick = (choice: MenuChoice) => {
@@ -73,7 +82,7 @@ export function MenuSelect({
         /* the popover keeps focus where it was on a press: the keys need it here */
         onClick={(e) => e.currentTarget.focus()}
         onKeyDown={onKeyDown}
-        className={`flex h-7 min-w-0 flex-1 items-center gap-1.5 rounded-md border border-[var(--border)] bg-[var(--fill-tsp)] pl-2 pr-1.5 text-left text-[11px] text-[var(--text)] outline-none transition hover:border-[var(--text-faint)] focus-visible:border-[var(--accent)] disabled:opacity-50 ${open ? 'border-[var(--accent)]' : ''} ${className}`}
+        className={`flex min-w-0 flex-1 items-center gap-1.5 border border-[var(--border)] bg-[var(--fill-tsp)] text-left text-[var(--text)] ${size === 'md' ? 'h-9 rounded-lg pl-3 pr-2 text-[13px]' : 'h-7 rounded-md pl-2 pr-1.5 text-[11px]'} outline-none transition hover:border-[var(--text-faint)] focus-visible:border-[var(--accent)] disabled:opacity-50 ${open ? 'border-[var(--accent)]' : ''} ${className}`}
       >
         <span className="min-w-0 flex-1 truncate">{current?.label ?? value}</span>
         <ChevronDown size={12} aria-hidden className={`shrink-0 text-[var(--text-faint)] transition-transform ${open ? 'rotate-180' : ''}`} />
@@ -85,7 +94,7 @@ export function MenuSelect({
         role="listbox"
         aria-label={label}
         onKeyDown={onKeyDown}
-        className="overflow-y-auto rounded-[8px] border border-[var(--border)] bg-[var(--panel)] p-1 shadow-[var(--shadow-lg)]"
+        className="relative overflow-y-auto rounded-[8px] border border-[var(--border)] bg-[var(--panel)] p-1 shadow-[var(--shadow-lg)]"
         style={{ width: Math.max(width, 160), maxHeight: 'min(320px, var(--popover-max-h, 320px))' }}
       >
         {groups.map((group, g) => (
@@ -109,7 +118,7 @@ export function MenuSelect({
                   onMouseEnter={() => setActive(i)}
                   onMouseDown={(e) => e.preventDefault()}
                   onClick={() => pick(choice)}
-                  className={`flex h-7 w-full items-center gap-2 rounded-[5px] px-2 text-left text-[11.5px] text-[var(--text)] ${i === active ? 'bg-[var(--bg-hover)]' : ''}`}
+                  className={`flex w-full items-center gap-2 rounded-[5px] px-2 text-left text-[var(--text)] ${size === 'md' ? 'h-8 text-[13px]' : 'h-7 text-[11.5px]'} ${i === active ? 'bg-[var(--bg-hover)]' : ''}`}
                 >
                   <span className="min-w-0 flex-1 truncate">{choice.label}</span>
                   {chosen ? <Check size={12} aria-hidden className="shrink-0 text-[var(--accent)]" /> : null}

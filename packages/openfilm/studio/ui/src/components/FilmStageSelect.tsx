@@ -51,7 +51,7 @@ import { useT } from '@/i18n';
 import { cropOf, declared, pxOf, type ClipLook, type Crop } from '@/lib/clip-look';
 import { filmClipKind, filmDocLoc, filmSrcKind, parseFilmDocLoc, type FilmBox, type FilmDoc } from '@/lib/film';
 import type { OverrideGeometry } from '@/lib/film-overrides';
-import type { ClipSpan } from '@/lib/film-shape';
+import { spanShows, type ClipSpan } from '@/lib/film-shape';
 import {
   mgSize, moveTransform, rotateTransform, sameMgTransform, snapMove, type MgBox, type MgGuide, type MgTransform,
 } from '@/lib/mg-transform';
@@ -720,10 +720,21 @@ function FilmStageSelectImpl({
   }, [syncQueue]);
   React.useEffect(() => () => { if (geomRaf.current) cancelAnimationFrame(geomRaf.current); geomRaf.current = 0; }, []);
 
-  /* the playhead moved a bucket on: what is selected stays selected, only where it is changed */
+  /* the playhead moved a bucket on: what is selected stays selected, only where it is changed. A layer whose clip is
+     not on screen any more lets go: its box would stand over a picture it is not in */
   const stale = staleBucket(timeMs);
   React.useEffect(() => {
-    if (pickedRef.current) syncGeomSoon();
+    const held = pickedRef.current;
+    if (!held) return;
+    const clip = held.element?.kind !== 'clip' ? held.layer?.clip : undefined;
+    const span = clip ? spans.find((s) => s.id === clip) : undefined;
+    if (span && !spanShows(span, timeMs)) {
+      dropPick();
+      onSelectElement?.(null);
+      return;
+    }
+    syncGeomSoon();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [stale, syncGeomSoon]);
   /* film.html changed (an edit, an undo, the agent): the picture follows it a moment later */
   React.useEffect(() => {
@@ -1041,7 +1052,8 @@ function FilmStageSelectImpl({
     };
     keyHandler.current = onKey;
     /* a press elsewhere lets go: selecting is "I mean this one", and the hand moving away ends it. Not the stage, its
-       menus, the inspector (and its floating panels), the dividers, list boxes, or the timeline (it selects itself). */
+       menus, the inspector (and its floating panels), the dividers or list boxes. On the timeline only layers let go:
+       a whole clip in hand is the timeline's own selection, which it keeps or clears itself. */
     const onDown = (e: PointerEvent) => {
       const el = e.target as HTMLElement | null;
       if (
@@ -1052,8 +1064,8 @@ function FilmStageSelectImpl({
         || el?.closest('[role="separator"]')
         || el?.closest('[role="listbox"]')
         || el?.closest('[data-popover-panel]')
-        || el?.closest('[data-timeline]')
       ) return;
+      if (el?.closest('[data-timeline]') && (!pickedRef.current?.element || pickedRef.current.element.kind === 'clip')) return;
       dropPick();
       onSelectElement?.(null);
     };

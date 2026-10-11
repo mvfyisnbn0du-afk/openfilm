@@ -121,7 +121,7 @@ test('the exports folder: OPENFILM_EXPORTS, else `exports` in OPENFILM_HOME, els
     assert.equal(exportsRoot(), join(scratch, 'Mine'));
     delete process.env.OPENFILM_EXPORTS;
     delete process.env.OPENFILM_HOME;
-    assert.equal(exportsRoot(), join(homedir(), process.platform === 'darwin' ? 'Movies' : 'Videos', 'OpenFilm', 'Exports'));
+    assert.equal(exportsRoot(), join(homedir(), 'Desktop'));
   } finally {
     for (const [key, value] of [['OPENFILM_EXPORTS', env.exports], ['OPENFILM_HOME', env.home]]) {
       if (value === undefined) delete process.env[key]; else process.env[key] = value;
@@ -186,7 +186,7 @@ test('a cancelled export stops and leaves no file, and a bad ask is refused befo
   const stopped = await ended(exports, job);
   assert.equal(stopped.status, 'cancelled');
   assert.ok(!existsSync(running.out), 'the half-written file is gone');
-  for (const bad of [{ kind: 'pdf' }, { kind: 'video', range: [3, 1] }, { kind: 'video', codec: 'av1' }, { kind: 'video', frame: '2:1' },
+  for (const bad of [{ kind: 'pdf' }, { kind: 'video', range: [3, 1] }, { kind: 'video', codec: 'av1' }, { kind: 'video', frame: '9:1' }, { kind: 'video', frame: 'wide' },
     { kind: 'audio', mix: false }, { kind: 'stills', range: [0, 1] }, { kind: 'gif', width: 5000 }, { kind: 'subtitles', format: 'ass' },
     { kind: 'slides', format: 'key' }, { kind: 'slides', range: [0, 1] }, { kind: 'nle', fps: 500 }, { kind: 'nle', audio: 'mix' }, { kind: 'nle', range: [0, 1] }]) {
     assert.throws(() => exports.start(project(), bad), ExportError, JSON.stringify(bad));

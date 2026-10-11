@@ -15,7 +15,7 @@
  *
  * Pages get the host flag (the film's clock, see src/host.mjs) before any of their scripts, as `look` and `render`
  * give it, so a film draws here exactly as it renders. Everything may be read by the editor's origin (its sound mixer
- * fetches the media), and pages may be framed only by it. A media file asked for with `?film-sound` is its sound,
+ * fetches the media), which frames the pages. A media file asked for with `?film-sound` is its sound,
  * small (derived.mjs soundOf): what the mixer plays, never the whole of a video; 204 when it has none.
  */
 import { execFile } from 'node:child_process';
@@ -101,10 +101,11 @@ function servable(root, plain) {
  * @param {{ port: number, editorOrigin: () => string, secret: string, projects: () => Promise<{ id: string, path: string }[]> }} options
  */
 export async function startPages({ port, editorOrigin, secret, projects }) {
-  /* read by the editor (its mixer fetches the media), framed only by it */
+  /* read by the editor (its mixer fetches the media). Framed by it with no frame-ancestors rule: that rule is checked
+     against every frame up to the window, so Studio shown inside another app's frame (an agent's preview pane) would
+     lose its picture; a page is reached only through its project's token, which only the editor has */
   const policy = () => ({
     'access-control-allow-origin': editorOrigin(),
-    'content-security-policy': `frame-ancestors 'self' ${editorOrigin()}`,
     'x-content-type-options': 'nosniff',
   });
   /* Studio's scripts, told the editor's origin (the only one they answer) */

@@ -19,7 +19,7 @@ import { createPortal } from 'react-dom';
 import { Loader2 } from 'lucide-react';
 import { api, ApiError } from '@/api';
 import { useT } from '@/i18n';
-import { folderApi, type ProjectFolder } from '@/lib/project-folders';
+import { folderApi, folderCounts, folderTrail, type ProjectFolder } from '@/lib/project-folders';
 import { studioHost } from '@/lib/host';
 import { SourceError, examplesCollapsed, setExamplesCollapsed, sourcesApi, type Example } from '@/lib/project-sources';
 import { ConfirmDialog } from './ConfirmDialog';
@@ -100,9 +100,9 @@ function useProjectLibrary(open: boolean) {
     return new Set(ids.filter((id) => !gone.has(id)));
   }
 
-  async function createFolder(name: string): Promise<ProjectFolder | null> {
+  async function createFolder(name: string, parentId: string | null = null): Promise<ProjectFolder | null> {
     try {
-      const folder = await folderApi.create(name);
+      const folder = await folderApi.create(name, parentId);
       setFolders((list) => [...list, folder]);
       return folder;
     } catch {
@@ -128,7 +128,9 @@ function useProjectLibrary(open: boolean) {
    * deleted as one is (its folder to the Trash). A project that fails stays, at the top level. Returns the ids deleted.
    */
   async function deleteFolder(folder: ProjectFolder): Promise<Set<string>> {
-    setFolders((list) => list.filter((f) => f.id !== folder.id));
+    /* the folders inside it go with it */
+    const gone = new Set([folder.id, ...folders.filter((f) => folderTrail(folders, f.id).some((up) => up.id === folder.id)).map((f) => f.id)]);
+    setFolders((list) => list.filter((f) => !gone.has(f.id)));
     let inside: string[];
     try {
       inside = await folderApi.remove(folder.id);
@@ -137,7 +139,7 @@ function useProjectLibrary(open: boolean) {
       reloadFolders();
       return new Set();
     }
-    setProjects((list) => list.map((p) => (p.folderId === folder.id ? { ...p, folderId: undefined } : p)));
+    setProjects((list) => list.map((p) => (p.folderId && gone.has(p.folderId) ? { ...p, folderId: undefined } : p)));
     return deleteProjects(inside);
   }
 
@@ -320,7 +322,8 @@ export function ProjectsPopover({
   const deleteDesc = !pendingDelete ? ''
     : onlyMissing ? t('projects.removeDesc')
       : `${t(pendingDelete.length > 1 ? 'confirm.deleteManyDesc' : 'confirm.deleteDesc')}${pendingMissing ? ` ${t('projects.removeAlso')}` : ''}`;
-  const folderHeld = pendingFolder ? lib.projects.filter((p) => p.folderId === pendingFolder.id).length : 0;
+  /* what deleting it takes: its projects and those of the folders inside it */
+  const folderHeld = pendingFolder ? (folderCounts(lib.projects, lib.folders)[pendingFolder.id] ?? 0) : 0;
 
   return createPortal(
     <>

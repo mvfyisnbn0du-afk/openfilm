@@ -48,10 +48,17 @@ test('the API needs the key; /open sets it as a cookie and goes where it was ask
   const res = await api(`/open?key=${studio.key}&to=/projects/x`, { key: null });
   assert.equal(res.status, 302);
   assert.equal(res.headers.get('location'), '/projects/x');
-  const cookie = res.headers.get('set-cookie').split(';')[0];
-  assert.equal((await api('/api/projects', { key: null, headers: { cookie } })).status, 200);
+  const [cookie, framed] = res.headers.getSetCookie();
+  assert.match(cookie, /SameSite=Strict/);
+  /* its twin for a page inside another site's frame (an agent's preview): kept for that frame alone */
+  assert.match(framed, /SameSite=None/);
+  assert.match(framed, /Partitioned/);
+  assert.equal((await api('/api/projects', { key: null, headers: { cookie: cookie.split(';')[0] } })).status, 200);
+  assert.equal((await api('/api/projects', { key: null, headers: { cookie: framed.split(';')[0] } })).status, 200);
+  const wrongTwin = framed.split(';')[0].replace(/=.*/, '=nope');
+  assert.equal((await api('/api/projects', { key: null, headers: { cookie: wrongTwin } })).status, 401);
   /* a write with the cookie from any other origin is refused (a page elsewhere cannot drive Studio) */
-  const write = await api('/api/projects', { method: 'POST', key: null, body: { name: 'x' }, headers: { cookie, origin: 'http://evil.test' } });
+  const write = await api('/api/projects', { method: 'POST', key: null, body: { name: 'x' }, headers: { cookie: framed.split(';')[0], origin: 'http://evil.test' } });
   assert.equal(write.status, 403);
 });
 
@@ -184,7 +191,9 @@ test('the film origin serves a project\'s files, with ranges, never .film/, and 
   const html = await page.text();
   assert.ok(html.indexOf('window.filmHost') < html.indexOf('window.mine'), 'the clock comes before the page\'s own script');
   assert.equal(page.headers.get('access-control-allow-origin'), studio.origin);
-  assert.match(page.headers.get('content-security-policy'), /frame-ancestors/);
+  /* no frame-ancestors: it is checked against every frame up to the window, and Studio inside an agent's preview pane
+     would lose its picture */
+  assert.equal(page.headers.get('content-security-policy'), null);
 
   const tail = await fetch(`${folder}tone.wav`, { headers: { range: 'bytes=-3' } });
   assert.equal(tail.status, 206);

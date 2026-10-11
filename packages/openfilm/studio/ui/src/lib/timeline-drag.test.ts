@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { applyDrag, dragLifted, editsForMoves, groupLaneShift, moveDestFor, snapTargetsFor, trimFence, type DropLane } from './timeline-drag.ts';
+import { applyDrag, dragLifted, editsForMoves, groupLaneShift, moveDestFor, moveEditMode, snapTargetsFor, trimFence, type DropLane } from './timeline-drag.ts';
 
 /* Clips on one track do not overlap (SPEC): every gesture that writes a time keeps it that way. */
 
@@ -179,4 +179,14 @@ test('a press becomes a drag past the threshold: a click on a cut (a few px of j
   assert.equal(dragLifted('move', 4, 4), false);
   assert.equal(dragLifted('trim-end', 1, 0), true, 'an edge follows at once');
   assert.equal(dragLifted('slip', 4, 0), false);
+});
+
+/* a clip let go onto a neighbor on its own track goes in between (as an editor's main track does), never cuts it */
+test('a move onto another clip of its track inserts; into free room it stays put; ⌥ the other way', () => {
+  assert.equal(moveEditMode({ magnet: false, alt: false, overlaps: true }), 'insert');
+  assert.equal(moveEditMode({ magnet: false, alt: false, overlaps: false }), 'overwrite');
+  assert.equal(moveEditMode({ magnet: false, alt: true, overlaps: true }), 'overwrite');
+  assert.equal(moveEditMode({ magnet: false, alt: true, overlaps: false }), 'insert');
+  assert.equal(moveEditMode({ magnet: true, alt: false, overlaps: false }), 'insert');
+  assert.equal(moveEditMode({ magnet: true, alt: true, overlaps: true }), 'overwrite');
 });

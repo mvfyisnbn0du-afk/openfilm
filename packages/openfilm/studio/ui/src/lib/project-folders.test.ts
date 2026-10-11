@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { folderCounts, folderPosters, visibleProjects, type ListedProject } from './project-folders.ts';
+import { folderCounts, folderPosters, folderTrail, parentOf, visibleProjects, type ListedProject } from './project-folders.ts';
 
 const folders = [{ id: 'f', name: 'Ads', createdAt: 1 }];
 const projects: ListedProject[] = [
@@ -38,4 +38,21 @@ test('folder cards: how many each holds, and its newest covers, four at most', (
   assert.deepEqual(folderPosters(projects).f, [{ id: 'b', poster: 'b.jpg' }, { id: 'c', poster: 'c.jpg' }]);
   /* a project without a poster still has its cell (its own face), not a gap or a blank */
   assert.deepEqual(folderPosters(projects).deleted, [{ id: 'd' }]);
+});
+
+test('folders in folders: the trail to one, and a folder counts what its folders hold', () => {
+  const tree = [
+    { id: 'clients', name: 'Clients', createdAt: 1 },
+    { id: 'acme', name: 'Acme', createdAt: 2, parentId: 'clients' },
+    { id: 'lost', name: 'Lost', createdAt: 3, parentId: 'gone' },
+  ];
+  assert.deepEqual(folderTrail(tree, 'acme').map((f) => f.id), ['clients', 'acme']);
+  assert.deepEqual(folderTrail(tree, null), []);
+  assert.equal(parentOf(tree[2]!, tree), null);
+  const inside = [
+    { id: 'a', name: 'A', openedAt: 1, folderId: 'acme' },
+    { id: 'b', name: 'B', openedAt: 2, folderId: 'clients', poster: 'b.jpg' },
+  ];
+  assert.deepEqual(folderCounts(inside, tree), { acme: 1, clients: 2 });
+  assert.deepEqual(folderPosters(inside, tree).clients?.map((c) => c.id), ['b', 'a']);
 });

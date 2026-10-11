@@ -81,6 +81,27 @@ test('a page without a size is the stage\'s, laid out for it; one with a size is
   }
 });
 
+test('a page without a size of its own is laid out at its clip\'s size, scaled into its box as a video is', { timeout: 60_000 }, async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'of-sized-'));
+  writeFileSync(join(dir, 'wide.html'), `<!doctype html><body style="margin:0"><script>window.film={duration:2,frame(){}}</script></body>`);
+  /* a 16:9 page on a 3:4 stage: laid out at 320 × 180 and scaled to the stage's width, not laid out again at 240 × 320 */
+  writeFileSync(join(dir, 'film.html'), filmHtml({ stage: { w: 240, h: 320 }, tracks: [
+    { clips: [{ src: 'wide.html', id: 'wide', size: { w: 320, h: 180 }, box: { x: 0, y: 92, w: 240, h: 135 } }] },
+  ] }));
+  const s = await open(dir);
+  try {
+    await s.film.seek(1);
+    const seen = await s.film.page.evaluate(() => [...document.querySelectorAll('iframe')].map((el) => {
+      const r = el.getBoundingClientRect();
+      return [el.contentWindow.innerWidth, el.contentWindow.innerHeight, r.left, r.top, r.width, r.height];
+    }));
+    assert.deepEqual(seen, [[320, 180, 0, 92, 240, 135]]);
+    assert.deepEqual(await s.film.page.evaluate(() => window.__filmSpans().map((c) => [c.w, c.h, c.reflows])), [[320, 180, true]]);
+  } finally {
+    await s.close();
+  }
+});
+
 test('a page without a size, opened on its own, is 1920 × 1080', { timeout: 60_000 }, async () => {
   const dir = mkdtempSync(join(tmpdir(), 'of-alone-'));
   writeFileSync(join(dir, 'index.html'), `<!doctype html><body style="margin:0"><script>window.film={duration:2,frame(){}}</script></body>`);

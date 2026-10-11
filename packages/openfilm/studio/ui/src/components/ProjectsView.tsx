@@ -32,7 +32,7 @@ import { ExamplesSection } from './ProjectSources';
 import { useLanguage, useT, type Language } from '@/i18n';
 import { limitTitleWidth, TITLE_MAX_WIDTH } from '@/lib/title';
 import type { Project } from '@/api';
-import { folderCounts, folderPosters, visibleProjects, type LibrarySort, type ProjectFolder } from '@/lib/project-folders';
+import { folderCounts, folderPosters, folderTrail, parentOf, visibleProjects, type LibrarySort, type ProjectFolder } from '@/lib/project-folders';
 import { ContextMenu } from './ContextMenu';
 import { ProjectMenu } from './ProjectMenu';
 import { Tooltip } from './Tooltip';
@@ -89,7 +89,8 @@ export function ProjectsView({
   /** The list's folders. */
   folders: ProjectFolder[];
   /** Make a folder; resolves to it (null: it could not be made). */
-  onCreateFolder: (name: string) => Promise<ProjectFolder | null>;
+  /** A new folder, in `parentId` (null: the top level). */
+  onCreateFolder: (name: string, parentId?: string | null) => Promise<ProjectFolder | null>;
   /** A new name for a folder. Never empty. */
   onRenameFolder: (folderId: string, name: string) => void;
   /** Ask to delete a folder and the projects in it (the popover confirms first). */
@@ -122,13 +123,16 @@ export function ProjectsView({
     [projects, query, folderId, sort, folders, t],
   );
   /* folder cards only at the top level and not while searching: inside a folder is its content, a search its results */
-  const showFolders = folderId === null && !query.trim();
+  /* the folders here: the top level's, or those inside the folder open (a search shows projects only) */
+  const showFolders = !query.trim();
+  const levelFolders = React.useMemo(() => folders.filter((f) => parentOf(f, folders) === folderId), [folders, folderId]);
   const currentFolder = folders.find((f) => f.id === folderId) ?? null;
-  const counts = React.useMemo(() => folderCounts(projects), [projects]);
-  const posters = React.useMemo(() => folderPosters(projects), [projects]);
+  const trail = React.useMemo(() => folderTrail(folders, folderId), [folders, folderId]);
+  const counts = React.useMemo(() => folderCounts(projects, folders), [projects, folders]);
+  const posters = React.useMemo(() => folderPosters(projects, folders), [projects, folders]);
 
   async function newFolder() {
-    const created = await onCreateFolder(t('projects.untitledFolder'));
+    const created = await onCreateFolder(t('projects.untitledFolder'), folderId);
     if (created) setRenamingFolderId(created.id);
   }
 
@@ -243,7 +247,20 @@ export function ProjectsView({
       {/* the header stays out of the scroll area: inside it, the list view's scrollbar would narrow the header */}
       <header className="flex shrink-0 flex-col gap-3 px-6 pb-4 pt-5">
         <div className="flex items-center gap-2">
-          <h2 className="mr-auto text-[17px] font-semibold tracking-[-0.01em] text-[var(--text)]">{t('nav.projects')}</h2>
+          {/* inside a folder the title is the way back: "Projects / test", on the same line, so what is in the folder
+              starts where the projects do */}
+          {currentFolder ? (
+            <FolderCrumb
+              folder={currentFolder}
+              above={trail.slice(0, -1)}
+              count={counts[currentFolder.id] ?? 0}
+              onGo={setFolderId}
+              onRename={(name) => onRenameFolder(currentFolder.id, name)}
+              onDelete={() => onDeleteFolder(currentFolder)}
+            />
+          ) : (
+            <h2 className="mr-auto text-[17px] font-semibold tracking-[-0.01em] text-[var(--text)]">{t('nav.projects')}</h2>
+          )}
           {projects.length > 0 ? (
             <>
               <label className="relative w-[240px] shrink-0">
@@ -262,18 +279,17 @@ export function ProjectsView({
                 <ViewButton active={view === 'cards'} label={t('library.viewCards')} onClick={() => setView('cards')} icon={<LayoutGrid size={14} />} />
                 <ViewButton active={view === 'list'} label={t('library.viewList')} onClick={() => setView('list')} icon={<List size={14} />} />
               </div>
-              {folderId === null ? (
-                <Tooltip label={t('projects.newFolder')} side="bottom">
-                  <button
-                    type="button"
-                    aria-label={t('projects.newFolder')}
-                    onClick={() => void newFolder()}
-                    className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-[var(--text-muted)] transition hover:bg-[var(--bg-hover)] hover:text-[var(--text)]"
-                  >
-                    <FolderPlus size={15} strokeWidth={1.9} />
-                  </button>
-                </Tooltip>
-              ) : null}
+              {/* at the top level or inside a folder: a folder can hold folders */}
+              <Tooltip label={t('projects.newFolder')} side="bottom">
+                <button
+                  type="button"
+                  aria-label={t('projects.newFolder')}
+                  onClick={() => void newFolder()}
+                  className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-[var(--text-muted)] transition hover:bg-[var(--bg-hover)] hover:text-[var(--text)]"
+                >
+                  <FolderPlus size={15} strokeWidth={1.9} />
+                </button>
+              </Tooltip>
             </>
           ) : null}
           {onClose ? (
@@ -287,39 +303,30 @@ export function ProjectsView({
             </button>
           ) : null}
         </div>
-        {currentFolder ? (
-          <FolderCrumb
-            folder={currentFolder}
-            count={counts[currentFolder.id] ?? 0}
-            onBack={() => setFolderId(null)}
-            onRename={(name) => onRenameFolder(currentFolder.id, name)}
-            onDelete={() => onDeleteFolder(currentFolder)}
-          />
-        ) : null}
       </header>
 
       {/* the one scroll area; the scrollbar gutter is reserved so cards keep their width either way */}
       <div className="flex min-h-0 flex-1 flex-col overflow-y-auto [scrollbar-gutter:stable]">
         <div className="w-full flex-1 px-6 pb-6">
-          {visible.length === 0 && !showNew && !(showFolders && folders.length > 0) ? (
+          {visible.length === 0 && !showNew && !(showFolders && levelFolders.length > 0) ? (
             <div className="flex min-h-[42vh] items-center justify-center text-[14px] text-[var(--text-muted)]">
               {folderId && !query.trim() ? t('projects.folderEmpty') : t('library.noMatches')}
             </div>
           ) : view === 'cards' ? (
             <div className="grid grid-cols-2 gap-x-4 gap-y-6 sm:grid-cols-3 lg:grid-cols-4">
               {showNew ? <NewProjectCard creating={creating} onNewProject={onNewProject} onOpenFolder={onOpenFolder} onGetFromGitHub={onGetFromGitHub} /> : null}
-              {showFolders ? folders.map((folder) => <FolderCard key={`folder:${folder.id}`} {...folderProps(folder)} />) : null}
+              {showFolders ? levelFolders.map((folder) => <FolderCard key={`folder:${folder.id}`} {...folderProps(folder)} />) : null}
               {visible.map((project) => <ProjectCard key={project.id} {...itemProps(project)} />)}
             </div>
           ) : (
             <div className="flex flex-col divide-y divide-[var(--border)]">
               {showNew ? <NewProjectListRow creating={creating} onNewProject={onNewProject} onOpenFolder={onOpenFolder} onGetFromGitHub={onGetFromGitHub} /> : null}
-              {showFolders ? folders.map((folder) => <FolderListRow key={`folder:${folder.id}`} {...folderProps(folder)} />) : null}
+              {showFolders ? levelFolders.map((folder) => <FolderListRow key={`folder:${folder.id}`} {...folderProps(folder)} />) : null}
               {visible.map((project) => <ProjectListRow key={project.id} {...itemProps(project)} />)}
             </div>
           )}
           {showNew && onOpenExample ? (
-            <ExamplesSection examples={examples} collapsed={examplesCollapsed} onToggle={() => onToggleExamples?.()} onOpen={onOpenExample} />
+            <ExamplesSection examples={examples} collapsed={examplesCollapsed} onToggle={() => onToggleExamples?.()} onOpen={onOpenExample} view={view} />
           ) : null}
         </div>
 
@@ -871,6 +878,30 @@ interface FolderItemProps {
 }
 
 /**
+ * A folder's face: the covers of its newest projects (as many cells as covers: one fills the face, three put the first
+ * beside the other two, so no cell is blank), or the folder picture when it holds none. The card's, and the list row's
+ * thumbnail (`small`: tighter margins).
+ */
+function FolderFace({ posters, small = false }: { posters: FolderItemProps['posters']; small?: boolean }) {
+  if (!posters.length) {
+    return (
+      <div className="absolute inset-0 flex items-center justify-center">
+        <FolderGlyph className="w-[34%] transition-transform duration-200 group-hover:-translate-y-0.5" />
+      </div>
+    );
+  }
+  return (
+    <div className={`absolute grid ${small ? 'inset-1.5 gap-1' : 'inset-3 gap-1.5'} ${posters.length === 1 ? 'grid-cols-1' : posters.length === 2 ? 'grid-cols-2' : 'grid-cols-2 grid-rows-2'}`}>
+      {posters.slice(0, 4).map((cover, i) => (
+        <div key={cover.id} className={`relative overflow-hidden ${small ? 'rounded-[3px]' : 'rounded-[5px]'} bg-[var(--surface-3)] ${posters.length === 3 && i === 0 ? 'row-span-2' : ''}`}>
+          <MiniPoster id={cover.id} url={cover.poster} />
+        </div>
+      ))}
+    </div>
+  );
+}
+
+/**
  * A folder card: the project card's frame (a 16:9 face and a name under it), its face the covers of its newest
  * projects, so what it holds shows at a glance; an empty one shows the folder picture. Double-click the name to rename.
  */
@@ -895,20 +926,7 @@ function FolderCard({
         aria-label={folder.name}
         className="relative block aspect-video w-full overflow-hidden rounded-lg bg-[var(--surface-2)] text-left ring-1 ring-[var(--border)] transition duration-200 hover:bg-[var(--surface-3)] hover:ring-[var(--border-strong)]"
       >
-        {posters.length > 0 ? (
-          /* as many cells as covers (one fills the face, three put the first beside the other two): no blank cells */
-          <div className={`absolute inset-3 grid gap-1.5 ${posters.length === 1 ? 'grid-cols-1' : posters.length === 2 ? 'grid-cols-2' : 'grid-cols-2 grid-rows-2'}`}>
-            {posters.slice(0, 4).map((cover, i) => (
-              <div key={cover.id} className={`relative overflow-hidden rounded-[5px] bg-[var(--surface-3)] ${posters.length === 3 && i === 0 ? 'row-span-2' : ''}`}>
-                <MiniPoster id={cover.id} url={cover.poster} />
-              </div>
-            ))}
-          </div>
-        ) : (
-          <div className="absolute inset-0 flex items-center justify-center">
-            <FolderGlyph className="w-[34%] transition-transform duration-200 group-hover:-translate-y-0.5" />
-          </div>
-        )}
+        <FolderFace posters={posters} />
         {/* the count: dark glass over covers; on the plain face a dark patch is too heavy, so the face's own style */}
         <span
           className={`absolute bottom-2 right-2 rounded-full px-1.5 py-0.5 text-[10.5px] font-medium tabular-nums ${
@@ -982,6 +1000,7 @@ function MiniPoster({ id, url }: { id: string; url?: string }) {
 function FolderListRow({
   folder,
   count,
+  posters,
   renaming,
   onOpen,
   onStartRename,
@@ -996,12 +1015,10 @@ function FolderListRow({
       <button
         type="button"
         onClick={onOpen}
-        className="relative block aspect-video w-28 shrink-0 overflow-hidden rounded-md bg-[var(--surface-2)] ring-1 ring-[var(--border)] transition hover:bg-[var(--surface-3)] sm:w-36"
+        className="group relative block aspect-video w-28 shrink-0 overflow-hidden rounded-md bg-[var(--surface-2)] ring-1 ring-[var(--border)] transition hover:bg-[var(--surface-3)] sm:w-36"
         aria-label={folder.name}
       >
-        <span className="absolute inset-0 flex items-center justify-center">
-          <FolderGlyph className="w-[34%]" />
-        </span>
+        <FolderFace posters={posters} small />
       </button>
       <div className="min-w-0 flex-1">
         {renaming ? (
@@ -1073,34 +1090,45 @@ function FolderMenu({ onRename, onDelete }: { onRename: () => void; onDelete: ()
   );
 }
 
-/** Inside a folder: "← All / folder name  count  …". Double-click the name to rename. */
+/**
+ * Inside a folder, in the title's place: "← Projects / Clients / Acme  count  …", each folder above it a way back to
+ * it, the arrow one level up. Double-click the name to rename.
+ */
 function FolderCrumb({
   folder,
+  above,
   count,
-  onBack,
+  onGo,
   onRename,
   onDelete,
 }: {
   folder: ProjectFolder;
+  /** the folders it is in, the outermost first */
+  above: ProjectFolder[];
   count: number;
-  onBack: () => void;
+  /** go to a folder of the trail (null: all projects) */
+  onGo: (folderId: string | null) => void;
   onRename: (name: string) => void;
   onDelete: () => void;
 }) {
   const t = useT();
   const [renaming, setRenaming] = React.useState(false);
+  const step = 'inline-flex h-8 min-w-0 items-center rounded-lg px-1.5 text-[var(--text-muted)] transition hover:bg-[var(--bg-hover)] hover:text-[var(--text)]';
   return (
-    <div className="mt-5 flex items-center gap-2">
-      <button
-        type="button"
-        onClick={onBack}
-        className="inline-flex h-8 items-center gap-1.5 rounded-lg px-2 text-[13px] text-[var(--text-muted)] transition hover:bg-[var(--bg-hover)] hover:text-[var(--text)]"
-      >
-        <ArrowLeft size={14} />
-        {t('projects.folderAll')}
+    <h2 className="mr-auto flex min-w-0 items-center gap-1 text-[17px] font-semibold tracking-[-0.01em]">
+      <button type="button" onClick={() => onGo(above.length ? above[above.length - 1]!.id : null)} aria-label={t('projects.folderUp')}
+        className="-ml-1.5 inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-[var(--text-muted)] transition hover:bg-[var(--bg-hover)] hover:text-[var(--text)]">
+        <ArrowLeft size={15} />
       </button>
-      <span className="text-[var(--text-faint)]">/</span>
-      <Folder size={15} strokeWidth={1.9} className="text-[var(--text-faint)]" />
+      <button type="button" onClick={() => onGo(null)} className={`${step} shrink-0`}>{t('nav.projects')}</button>
+      {above.map((up) => (
+        <React.Fragment key={up.id}>
+          <span className="shrink-0 font-normal text-[var(--text-faint)]">/</span>
+          <button type="button" onClick={() => onGo(up.id)} className={`${step} max-w-[160px]`}><span className="truncate">{up.name}</span></button>
+        </React.Fragment>
+      ))}
+      <span className="shrink-0 font-normal text-[var(--text-faint)]">/</span>
+      <Folder size={16} strokeWidth={1.9} className="shrink-0 text-[var(--text-faint)]" />
       {renaming ? (
         <InlineNameInput
           initial={folder.name}
@@ -1109,21 +1137,21 @@ function FolderCrumb({
             if (name && name !== folder.name) onRename(name);
           }}
           onCancel={() => setRenaming(false)}
-          className="h-8 w-[240px] rounded-lg border border-[var(--text)] bg-[var(--surface)] px-2.5 text-[14px] font-semibold text-[var(--text)] outline-none"
+          className="h-8 w-[220px] rounded-lg border border-[var(--text)] bg-[var(--surface)] px-2.5 text-[15px] font-semibold text-[var(--text)] outline-none"
         />
       ) : (
         <button
           type="button"
           onDoubleClick={() => setRenaming(true)}
-          className="truncate text-[14px] font-semibold text-[var(--text)]"
+          className="min-w-0 truncate text-[var(--text)]"
           title={t('projects.renameFolder')}
         >
           {folder.name}
         </button>
       )}
-      <span className="text-[12.5px] tabular-nums text-[var(--text-faint)]">{count}</span>
+      <span className="shrink-0 text-[12.5px] font-normal tabular-nums text-[var(--text-faint)]">{count}</span>
       <FolderMenu onRename={() => setRenaming(true)} onDelete={onDelete} />
-    </div>
+    </h2>
   );
 }
 
@@ -1198,6 +1226,18 @@ function FolderPicker({
 }) {
   const t = useT();
   const [creating, setCreating] = React.useState(false);
+  const tree = React.useMemo(() => {
+    const out: { folder: ProjectFolder; depth: number }[] = [];
+    const walk = (parent: string | null, depth: number) => {
+      for (const f of folders) {
+        if (parentOf(f, folders) !== parent || out.some((o) => o.folder.id === f.id)) continue;
+        out.push({ folder: f, depth });
+        walk(f.id, depth + 1);
+      }
+    };
+    walk(null, 0);
+    return out;
+  }, [folders]);
   React.useEffect(() => {
     /* this Escape closes the picker, not the popover under it */
     const onKey = (event: KeyboardEvent) => {
@@ -1251,8 +1291,9 @@ function FolderPicker({
             <span className="min-w-0 flex-1 truncate text-[13.5px] text-[var(--text)]">{t('projects.noFolder')}</span>
             {current === null ? <Check size={15} className="shrink-0 text-[var(--text)]" /> : null}
           </button>
-          {folders.map((folder) => (
-            <button key={folder.id} type="button" onClick={() => onPick(folder.id)} className={row(current === folder.id)}>
+          {/* as a tree: each folder under the one it is in, a step in */}
+          {tree.map(({ folder, depth }) => (
+            <button key={folder.id} type="button" onClick={() => onPick(folder.id)} className={row(current === folder.id)} style={{ paddingLeft: 10 + depth * 18 }}>
               <span className={`${tile} bg-[var(--surface-3)] text-[var(--text-dim)]`}>
                 <Folder size={16} strokeWidth={1.7} />
               </span>

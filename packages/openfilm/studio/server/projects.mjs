@@ -62,7 +62,8 @@ export const libraryRoot = () => process.env.OPENFILM_LIBRARY
 
 /**
  * @typedef {{ id: string, path: string, openedAt: number, folderId?: string }} Recent
- * @typedef {{ id: string, name: string, createdAt: number }} ProjectFolder   a folder of the Projects list (not on disk)
+ * @typedef {{ id: string, name: string, createdAt: number, parentId?: string }} ProjectFolder   a folder of the Projects
+ *   list (not on disk); `parentId` the folder it is in (none: the top level)
  * @typedef {{ recent: Recent[], folders: ProjectFolder[] }} StudioState
  */
 
@@ -216,10 +217,12 @@ export async function listFolders() {
   return (await readState()).folders;
 }
 
-/** A new folder in the list. */
-export async function createFolder(/** @type {unknown} */ name) {
+/** A new folder in the list: at the top level, or in the folder `parentId`. */
+export async function createFolder(/** @type {unknown} */ name, /** @type {unknown} */ parentId = null) {
   const state = await readState();
-  const folder = { id: newId(), name: listFolderName(name), createdAt: Date.now() };
+  const parent = typeof parentId === 'string' && parentId ? parentId : null;
+  if (parent && !state.folders.some((f) => f.id === parent)) throw new ProjectError('no such folder', 404);
+  const folder = { id: newId(), name: listFolderName(name), createdAt: Date.now(), ...(parent ? { parentId: parent } : {}) };
   state.folders.push(folder);
   await writeState(state);
   return folder;
@@ -235,15 +238,26 @@ export async function renameFolder(/** @type {string} */ id, /** @type {unknown}
   return folder;
 }
 
+/** A folder and every folder inside it, at any depth: their ids. @param {ProjectFolder[]} folders @param {string} id */
+export function folderTree(folders, id) {
+  const ids = new Set([id]);
+  for (let grew = true; grew;) {
+    grew = false;
+    for (const f of folders) if (f.parentId && ids.has(f.parentId) && !ids.has(f.id)) { ids.add(f.id); grew = true; }
+  }
+  return ids;
+}
+
 /**
- * Take a folder off the list; its projects go back to the top level. Returns the ids of the projects that were in it
- * (deleting a folder deletes them too: the caller deletes each, see deleteProject).
+ * Take a folder off the list, with the folders inside it; their projects go back to the top level. Returns the ids of
+ * the projects that were in them (deleting a folder deletes them too: the caller deletes each, see deleteProject).
  */
 export async function deleteFolder(/** @type {string} */ id) {
   const state = await readState();
   if (!state.folders.some((f) => f.id === id)) throw new ProjectError('no such folder', 404);
-  state.folders = state.folders.filter((f) => f.id !== id);
-  const inside = state.recent.filter((r) => r.folderId === id);
+  const gone = folderTree(state.folders, id);
+  state.folders = state.folders.filter((f) => !gone.has(f.id));
+  const inside = state.recent.filter((r) => r.folderId && gone.has(r.folderId));
   for (const r of inside) delete r.folderId;
   await writeState(state);
   return inside.map((r) => r.id);

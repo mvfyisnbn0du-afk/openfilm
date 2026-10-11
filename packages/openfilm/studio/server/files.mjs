@@ -9,7 +9,7 @@
 import { execFile } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { createReadStream, createWriteStream, existsSync, lstatSync, realpathSync, statSync } from 'node:fs';
-import { copyFile, mkdir, readdir, rename, rm, stat, writeFile } from 'node:fs/promises';
+import { copyFile, mkdir, readFile, readdir, rename, rm, stat, writeFile } from 'node:fs/promises';
 import { basename, dirname, extname, isAbsolute, join, normalize, relative, sep } from 'node:path';
 import { Transform } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
@@ -17,6 +17,7 @@ import { FILM_FILE, clipKind } from '../../src/film-doc.mjs';
 import { readProjectFilm, writeProjectFilm } from './film.mjs';
 import { TOOL_DIR } from './projects.mjs';
 import { moveToTrash } from './trash.mjs';
+import { linkKind, rewriteLinks } from './page-links.mjs';
 import { ffmpeg } from '../../src/shared.mjs';
 
 export const ASSETS = 'assets';
@@ -242,9 +243,76 @@ export async function makeFolder(/** @type {string} */ root, /** @type {string} 
   return rel;
 }
 
+/* ── links between the project's own files, kept when one moves (page-links.mjs) ── */
+
+/** The project's pages, stylesheets and scripts (its own: no dot folder, no node_modules), as paths from the root. */
+async function linkedFiles(/** @type {string} */ root) {
+  /** @type {string[]} */
+  const out = [];
+  const walk = async (/** @type {string} */ dir) => {
+    for (const entry of await readdir(join(root, dir), { withFileTypes: true }).catch(() => [])) {
+      if (entry.name.startsWith('.') || entry.name === 'node_modules') continue;
+      const rel = dir ? `${dir}/${entry.name}` : entry.name;
+      if (entry.isDirectory()) { if (out.length < 5000) await walk(rel); } else if (entry.isFile() && linkKind(entry.name)) out.push(rel);
+    }
+  };
+  await walk('');
+  return out;
+}
+
+/** Where a file that was at `path` is after `from` moved to `to` (a file, or a folder and what is in it). */
+const movedTo = (/** @type {string} */ from, /** @type {string} */ to) => (/** @type {string} */ path) => (
+  path === from ? to : path.startsWith(`${from}/`) ? to + path.slice(from.length) : path
+);
+
+/**
+ * What moving `from` to `to` cannot keep true: the paths its pages and scripts make while they run (page-links.mjs),
+ * by file. Nothing moves.
+ * @param {string} root @param {string} from @param {string} to
+ */
+export async function moveCheck(root, from, to) {
+  const src = posix(from);
+  const where = movedTo(src, posix(to));
+  /** @type {{ file: string, unseen: string[] }[]} */
+  const out = [];
+  for (const file of await linkedFiles(root)) {
+    if (file !== src && !file.startsWith(`${src}/`)) continue;
+    const kind = linkKind(file);
+    if (!kind) continue;
+    const text = await readFile(inside(root, file), 'utf8').catch(() => '');
+    const { unseen } = rewriteLinks(text, kind, posix(dirname(file)), posix(dirname(where(file))), where);
+    if (unseen.length) out.push({ file, unseen });
+  }
+  return out;
+}
+
+/**
+ * After `from` moved to `to`: every page, stylesheet and script of the project written again so its links reach the
+ * same files (those that moved, and what they link to). Returns how many files changed.
+ * @param {string} root @param {string} from @param {string} to
+ */
+async function relinkAfterMove(root, from, to) {
+  const where = movedTo(from, to);
+  const back = (/** @type {string} */ path) => (path === to ? from : path.startsWith(`${to}/`) ? from + path.slice(to.length) : path);
+  let changed = 0;
+  for (const file of await linkedFiles(root)) {
+    const kind = linkKind(file);
+    if (!kind) continue;
+    const was = back(file);
+    const abs = inside(root, file);
+    const text = await readFile(abs, 'utf8').catch(() => null);
+    if (text == null) continue;
+    const next = rewriteLinks(text, kind, posix(dirname(was)), posix(dirname(file)), where);
+    if (next.changed) { await writeFile(abs, next.text); changed++; }
+  }
+  return changed;
+}
+
 /**
  * Rename or move a file or a folder, never over another, and point film.html's clips at the new place in the same
- * step: a renamed picture stays on the timeline. The new name is cleaned (cleanName).
+ * step: a renamed picture stays on the timeline. Pages, stylesheets and scripts that link to what moved, or that moved
+ * themselves, are written again so their links still reach their files (relinkAfterMove). The new name is cleaned
+ * (cleanName).
  * @param {string} root @param {string} from @param {string} asked
  */
 export async function moveFile(root, from, asked) {
@@ -264,7 +332,8 @@ export async function moveFile(root, from, asked) {
   await mkdir(dirname(dst), { recursive: true });
   await rename(src, dst);
   const moved = await repoint(root, posix(relative(root, src)), posix(relative(root, dst)));
-  return { path: posix(relative(root, dst)), clips: moved };
+  const pages = await relinkAfterMove(root, posix(relative(root, src)), posix(relative(root, dst)));
+  return { path: posix(relative(root, dst)), clips: moved, pages };
 }
 
 /** Whether two paths are one file on disk: a name changed only in case, on a disk that ignores case, is not "taken". */

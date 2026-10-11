@@ -6,7 +6,7 @@ import { tmpdir } from 'node:os';
 import { dirname, join, relative } from 'node:path';
 import {
   CaptionError, SUBTITLE_STYLE_FILE, captionRoutes, captionText, filmCaptions, readSubtitleStyle, spokenLines,
-  translateFilmSubtitles, writeSubtitleStyle,
+  transcriptOutlasts, translateFilmSubtitles, writeSubtitleStyle,
 } from './captions.mjs';
 import { FILM_SUBTITLE_DEFAULT, filmSubtitleShown, filmSubtitleSrt, filmSubtitleVtt } from './film-subtitle.mjs';
 import { HttpError, json } from './http.mjs';
@@ -360,4 +360,18 @@ test('a translation follows the original\'s subtitles; one that cannot be cut sp
   } finally {
     close();
   }
+});
+
+/* the file was made again shorter (sped up in place) while its transcript stayed: the lines would drift later and the
+   last ones fall off its end; it is listed to be made again, and still shown until then */
+test('a transcript that runs past the end of its file is listed to be made again', async () => {
+  assert.equal(transcriptOutlasts([{ endMs: 2500 }], 3), false);
+  assert.equal(transcriptOutlasts([{ endMs: 2500 }], undefined), false);
+  assert.equal(transcriptOutlasts([{ endMs: 2500 }], 1.2), true);
+  const root = project([{ clips: [{ id: 'v', src: 'assets/vo.mp3' }] }], { 'assets/vo.mp3': 'x', 'assets/vo.vtt': VTT });
+  const kept = await filmCaptions(root, { duration: async () => 3 });
+  assert.deepEqual(kept.untranscribed, []);
+  const shorter = await filmCaptions(root, { duration: async () => 1.2 });
+  assert.deepEqual(shorter.untranscribed, ['assets/vo.mp3']);
+  assert.ok(shorter.cues.length > 0, 'still shown until it is made again');
 });

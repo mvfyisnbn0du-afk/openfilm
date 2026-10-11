@@ -1,60 +1,63 @@
 /**
- * The aspect ratio button beside the picture. What it changes depends on how far the film has got.
- *
- * Canvas mode (`mode='canvas'`, nothing made yet): it changes the stage itself. No coordinate can break yet, and a
- * person picking 9:16 now means "this film is vertical" — so the film's stage really changes (`onCanvas`), and the
- * agent lays out vertically from then on.
- *
- * Delivery mode (`mode='delivery'`, the film has content): it changes the frame around the film. The film is fitted
- * in with black bars; film.html is untouched (see lib/film-frame). The choice is kept per project
- * (`useDeliveryFrame`).
+ * The aspect ratio button beside the picture: the film's canvas (its stage in film.html). Picking a shape changes the
+ * canvas itself (`onCanvas`), as an image editor's canvas size: it grows around the film, which stays as it is,
+ * centered, until the agent lays it out again. A delivery frame (bars or a crop around the film) is the export's.
  *
  * Each item draws its shape rather than only a ratio: a row of small boxes tells landscape from portrait at a glance.
  */
 import * as React from 'react';
 import { Check, Proportions } from 'lucide-react';
 import { useT } from '@/i18n';
-import {
-  FILM_FRAME_IDS,
-  filmFrameOf,
-  filmFrameRatio,
-  filmFrameStage,
-  readFilmFrame,
-  writeFilmFrame,
-  type FilmFrameId,
-} from '@/lib/film-frame';
+import { customFilmFrame, filmFrameRatio, type FilmFrameId } from '@/lib/film-frame';
 import { Tooltip } from './Tooltip';
 
-/** Which layer the button changes: the film's canvas, or the delivery frame around it. */
-export type FramePickerMode = 'canvas' | 'delivery';
+/**
+ * The shapes a canvas is offered in, as CapCut lists them: landscape, then portrait (`hint`: a word after the ratio,
+ * from viewer.ratioHint).
+ */
+export const CANVAS_RATIOS: { group: 'wide' | 'tall'; id: FilmFrameId; hint?: string }[] = [
+  { group: 'wide', id: '16:9', hint: 'wide' },
+  { group: 'wide', id: '4:3' },
+  { group: 'wide', id: '2.35:1' },
+  { group: 'wide', id: '2:1' },
+  { group: 'wide', id: '1.85:1' },
+  { group: 'tall', id: '9:16', hint: 'tall' },
+  { group: 'tall', id: '3:4' },
+  { group: 'tall', id: '9:19.5', hint: 'phone' },
+  { group: 'tall', id: '1:1' },
+  { group: 'tall', id: '1:2' },
+];
+
+/** A ratio's name in the menu: "9:16 (TikTok)", "5.8″ phone". */
+export function canvasRatioLabel(t: (key: string) => string, item: { id: FilmFrameId; hint?: string }): string {
+  if (item.hint === 'phone') return t('viewer.ratioPhone');
+  return item.hint ? `${item.id} ${t(`viewer.ratioHint.${item.hint}`)}` : item.id;
+}
+
+/** Whether the stage has this ratio (to a hundredth). */
+const shaped = (stage: { w: number; h: number }, ratio: number) => Math.abs(stage.w / Math.max(1, stage.h) - ratio) < 0.01;
 
 export function FramePicker({
-  stage, value, mode, busy, onDelivery, onCanvas,
+  stage, original, busy, onCanvas,
 }: {
   stage: { w: number; h: number };
-  /** The delivery frame now. Ignored in canvas mode, where the current one is the canvas's own shape. */
-  value: FilmFrameId;
-  mode: FramePickerMode;
+  /** The first picture's own size: "Fit (original)" takes its shape. None: nothing to fit to yet. */
+  original?: { w: number; h: number } | null;
   /** The canvas change is being written: no second one meanwhile (two requests would race for one file). */
   busy?: boolean;
-  /** Delivery mode: a frame was picked (persist it with `useDeliveryFrame`). */
-  onDelivery: (next: FilmFrameId) => void;
-  /**
-   * Canvas mode: change the film's stage to this ratio; `size` is the stage it should become (1080p family, see
-   * filmFrameStage). If the film has gained content meanwhile, fall back to the delivery frame instead.
-   */
-  onCanvas: (next: FilmFrameId, size: { w: number; h: number }) => void;
+  /** Change the film's canvas to this shape (the editor works out its size and fits the film into it). */
+  onCanvas: (next: FilmFrameId) => void;
 }): React.ReactElement {
   const t = useT();
   const [open, setOpen] = React.useState(false);
+  const [custom, setCustom] = React.useState(false);
   const box = React.useRef<HTMLDivElement | null>(null);
-  const canvas = mode === 'canvas';
-  /* the canvas has no "native" to pick: the canvas is native. The tick goes on the item shaped like it. */
-  const items = canvas ? FILM_FRAME_IDS.filter((id) => id !== 'native') : FILM_FRAME_IDS;
-  const current = canvas ? filmFrameOf(stage) : value;
+  const fit = original ? customFilmFrame(original.w, original.h) : null;
+  const preset = CANVAS_RATIOS.find((r) => shaped(stage, filmFrameRatio(r.id, stage)));
+  const isFit = Boolean(original && shaped(stage, original.w / original.h));
 
   React.useEffect(() => {
-    if (!open) return undefined;
+    if (!open) { setCustom(false); return undefined; }
     const away = (e: MouseEvent): void => {
       if (!box.current?.contains(e.target as Node)) setOpen(false);
     };
@@ -62,14 +65,20 @@ export function FramePicker({
     return () => window.removeEventListener('mousedown', away);
   }, [open]);
 
-  const pick = (id: FilmFrameId) => {
-    if (canvas) onCanvas(id, filmFrameStage(stage, id));
-    else onDelivery(id);
-  };
+  const pick = (id: FilmFrameId) => { setOpen(false); onCanvas(id); };
+  const row = 'flex w-full items-center gap-2.5 rounded-[5px] px-2 py-1.5 text-left text-[12px] text-[var(--text)] transition hover:bg-[var(--bg-hover)] disabled:pointer-events-none disabled:opacity-40';
+  const tick = (on: boolean) => <span className="flex w-3.5 shrink-0 justify-center">{on ? <Check size={13} className="text-[var(--accent)]" /> : null}</span>;
+  const item = (r: (typeof CANVAS_RATIOS)[number]) => (
+    <button key={r.id} type="button" disabled={busy} onClick={() => pick(r.id)} onMouseDown={(e) => e.preventDefault()} className={row}>
+      {tick(!isFit && preset?.id === r.id)}
+      <span className="flex-1">{canvasRatioLabel(t, r)}</span>
+      <ShapeChip ratio={filmFrameRatio(r.id, stage)} />
+    </button>
+  );
 
   return (
     <div ref={box} className="relative flex items-center">
-      <Tooltip label={t(canvas ? 'viewer.canvas' : 'viewer.frame')}>
+      <Tooltip label={t('viewer.canvas')}>
         <button
           type="button"
           onClick={() => setOpen((v) => !v)}
@@ -78,42 +87,66 @@ export function FramePicker({
           className={`flex h-[22px] items-center gap-1 rounded-md px-1.5 text-[var(--text-dim)] transition hover:bg-[var(--bg-hover)] hover:text-[var(--text)] ${
             busy ? 'opacity-50' : ''
           }`}
-          aria-label={t(canvas ? 'viewer.canvas' : 'viewer.frame')}
+          aria-label={t('viewer.canvas')}
           aria-expanded={open}
         >
           <Proportions size={14} />
-          {/* the ratio is printed on the button: "this film is vertical now" must be visible without opening it */}
-          {current !== 'native' ? (
-            <span className="text-[12px] leading-none tabular-nums">{current}</span>
-          ) : null}
+          {/* the ratio is printed on the button: "this film is vertical" must be visible without opening it */}
+          <span className="text-[12px] leading-none tabular-nums">{preset ? preset.id : `${stage.w}×${stage.h}`}</span>
         </button>
       </Tooltip>
       {open ? (
-        <div
-          className="absolute bottom-[28px] right-0 z-50 w-[164px] rounded-[8px] border border-[var(--border)] bg-[var(--surface)] p-1 shadow-[var(--shadow-lg)]"
-        >
-          {/* picking does not close the menu: a ratio is judged by looking at the result, often two or three in a row */}
-          {items.map((id) => (
-            <button
-              key={id}
-              type="button"
-              disabled={busy}
-              onClick={() => pick(id)}
-              onMouseDown={(e) => e.preventDefault()}
-              className="flex w-full items-center gap-2.5 rounded-[5px] px-2 py-1.5 text-left text-[12px] text-[var(--text)] transition hover:bg-[var(--bg-hover)] disabled:pointer-events-none disabled:opacity-40"
-            >
-              <ShapeChip ratio={filmFrameRatio(id, stage)} />
-              <span className="flex-1">{id === 'native' ? t('viewer.frameNative') : id}</span>
-              {current === id ? <Check size={13} className="shrink-0 text-[var(--accent)]" /> : null}
-            </button>
-          ))}
-          {canvas ? (
-            <p className="px-2 pb-1 pt-1.5 text-[10.5px] leading-snug text-[var(--text-faint)]">
-              {t('viewer.canvasNote')}
-            </p>
-          ) : null}
+        <div className="absolute bottom-[28px] right-0 z-50 max-h-[min(520px,75vh)] w-[220px] overflow-y-auto rounded-[8px] border border-[var(--border)] bg-[var(--surface)] p-1 shadow-[var(--shadow-lg)]">
+          <button type="button" disabled={busy || !fit} onClick={() => fit && pick(fit)} onMouseDown={(e) => e.preventDefault()} className={row}>
+            {tick(isFit)}
+            <span className="flex-1">{t('viewer.ratioOriginal')}</span>
+          </button>
+          <button type="button" disabled={busy} onClick={() => setCustom((v) => !v)} onMouseDown={(e) => e.preventDefault()} className={row}>
+            {tick(!isFit && !preset)}
+            <span className="flex-1">{t('viewer.frameCustom')}</span>
+            {!preset ? <span className="text-[11px] tabular-nums text-[var(--text-faint)]">{`${stage.w}×${stage.h}`}</span> : null}
+          </button>
+          {custom ? <CustomFrame value={preset?.id ?? 'native'} disabled={busy} onPick={pick} /> : null}
+          <div className="mx-1 my-1 h-px bg-[var(--border)]" />
+          {CANVAS_RATIOS.filter((r) => r.group === 'wide').map(item)}
+          <div className="mx-1 my-1 h-px bg-[var(--border)]" />
+          {CANVAS_RATIOS.filter((r) => r.group === 'tall').map(item)}
         </div>
       ) : null}
+    </div>
+  );
+}
+
+/**
+ * A ratio of the person's own, typed as width and height ("2.39" by "1", "5" by "4"), from 1:4 to 4:1: Enter or the
+ * check puts it in use. Starts from the frame in use.
+ */
+export function CustomFrame({ value, disabled, onPick, className = '' }: {
+  value: FilmFrameId;
+  disabled?: boolean;
+  onPick: (id: FilmFrameId) => void;
+  className?: string;
+}) {
+  const t = useT();
+  const [w0, h0] = value === 'native' ? ['16', '9'] : value.split(':');
+  const [w, setW] = React.useState(w0 ?? '16');
+  const [h, setH] = React.useState(h0 ?? '9');
+  const id = customFilmFrame(Number(w), Number(h));
+  const apply = () => { if (id) onPick(id); };
+  const field = 'h-6 w-12 rounded-[5px] border border-[var(--border)] bg-[var(--bg)] px-1.5 text-center text-[12px] tabular-nums text-[var(--text)] outline-none focus:border-[var(--accent)]';
+  return (
+    <div className={`flex items-center gap-1.5 px-2 py-1 ${className}`}>
+      <span className="mr-auto text-[11.5px] text-[var(--text-muted)]">{t('viewer.frameCustom')}</span>
+      <input aria-label={t('viewer.frameCustomW')} inputMode="decimal" value={w} disabled={disabled}
+        onChange={(e) => setW(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') apply(); }} className={field} />
+      <span className="text-[12px] text-[var(--text-faint)]">:</span>
+      <input aria-label={t('viewer.frameCustomH')} inputMode="decimal" value={h} disabled={disabled}
+        onChange={(e) => setH(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') apply(); }} className={field} />
+      <button type="button" disabled={disabled || !id} onClick={apply} aria-label={t('viewer.frameCustomApply')}
+        title={id ? undefined : t('viewer.frameCustomRange')}
+        className="flex h-6 w-6 items-center justify-center rounded-[5px] text-[var(--text-muted)] transition hover:bg-[var(--bg-hover)] hover:text-[var(--text)] disabled:opacity-30">
+        <Check size={13} />
+      </button>
     </div>
   );
 }
@@ -125,20 +158,9 @@ function ShapeChip({ ratio }: { ratio: number }) {
   return (
     <span className="flex h-4 w-4 shrink-0 items-center justify-center">
       <span
-        className="rounded-[2px] border border-current opacity-70"
+        className="rounded-[2px] border-[1.5px] border-current opacity-60"
         style={{ width: Math.max(4, w), height: Math.max(4, h) }}
       />
     </span>
   );
-}
-
-/** The project's delivery frame, kept in localStorage `openfilm.frame.<projectId>`. */
-export function useDeliveryFrame(projectId: string): [FilmFrameId, (next: FilmFrameId) => void] {
-  const [frame, setFrame] = React.useState<FilmFrameId>(() => readFilmFrame(projectId));
-  React.useEffect(() => { setFrame(readFilmFrame(projectId)); }, [projectId]);
-  const set = React.useCallback((next: FilmFrameId) => {
-    setFrame(next);
-    writeFilmFrame(projectId, next);
-  }, [projectId]);
-  return [frame, set];
 }

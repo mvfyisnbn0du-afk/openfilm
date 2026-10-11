@@ -11,7 +11,7 @@
  * so an agent opened in that folder uses it without being told.
  */
 import { spawn } from 'node:child_process';
-import { chmodSync, existsSync, mkdirSync, readFileSync, watch, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, mkdirSync, readFileSync, rmSync, watch, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -27,6 +27,22 @@ const env = {
   /* Studio itself, without the supervisor `openfilm open` gives it: this script starts it again when its code changes */
   OPENFILM_STUDIO_WORKER: '1',
 };
+
+/* one `pnpm dev` per checkout: two would share .dev/home and fight over the port, the loser taking another one and
+   writing it into run.json, so the agent's `openfilm` (and its browser) would point at a Studio that moves on every
+   restart and is refused in between */
+mkdirSync(DEV, { recursive: true });
+const LOCK = join(DEV, 'dev.pid');
+const holder = (() => { try { return Number(readFileSync(LOCK, 'utf8').trim()) || null; } catch { return null; } })();
+const alive = (/** @type {number} */ pid) => { try { process.kill(pid, 0); return true; } catch { return false; } };
+if (holder && holder !== process.pid && alive(holder)) {
+  console.error(`pnpm dev is already running for this checkout (pid ${holder}). Use that one, or stop it first: kill ${holder}`);
+  process.exit(1);
+}
+writeFileSync(LOCK, `${process.pid}\n`);
+process.on('exit', () => {
+  try { if (Number(readFileSync(LOCK, 'utf8').trim()) === process.pid) rmSync(LOCK); } catch { /* gone already */ }
+});
 
 /* this checkout's `openfilm` on this Studio, for your agent: the same environment, and it names itself in the manual */
 const BIN = join(DEV, 'bin');

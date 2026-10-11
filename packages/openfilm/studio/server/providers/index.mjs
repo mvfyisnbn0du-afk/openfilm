@@ -86,6 +86,27 @@ export async function chooseProvider(verb, { via, settings } = {}) {
   return named(chosen, kind, saved, false);
 }
 
+/**
+ * What each kind of media is made with, as Settings → Models shows it: the person's choice while its provider has a
+ * key, else none. A choice whose key went away (an environment's key not set where Studio runs now) is kept in the
+ * settings, and comes back with the key, but is not shown as if it could make anything.
+ * @param {ProviderSettings} settings
+ */
+export function shownChoices(settings) {
+  const live = (/** @type {string} */ verb) => {
+    const provider = OWN.find((p) => p.id === settings.use[verb]);
+    return provider && providerKey(provider, settings) ? provider : null;
+  };
+  return {
+    use: Object.fromEntries(USE_VERBS.map((v) => [v, live(v)?.id ?? null])),
+    /* the model each kind of media is made with, whoever makes it */
+    model: Object.fromEntries(USE_VERBS.map((v) => {
+      const provider = live(v);
+      return [v, (provider && modelFor(settings, provider, v)) ?? null];
+    })),
+  };
+}
+
 /** What Settings → Providers and Models show. Never a key: where it comes from and its last four characters. */
 async function state() {
   const settings = await readSettings();
@@ -96,12 +117,7 @@ async function state() {
       const inEnv = envKey(p);
       return { id: p.id, name: p.name, verbs: p.verbs, models: p.models ?? {}, keysUrl: p.keysUrl, env: key?.env ?? inEnv?.env ?? p.env, envKey: Boolean(inEnv), source: key?.source ?? null, last4: key ? key.key.slice(-4) : null };
     }),
-    use: Object.fromEntries(USE_VERBS.map((v) => [v, settings.use[v] ?? null])),
-    /* the model each kind of media is made with, whoever makes it */
-    model: Object.fromEntries(USE_VERBS.map((v) => {
-      const provider = OWN.find((p) => p.id === settings.use[v]);
-      return [v, (provider && modelFor(settings, provider, v)) ?? null];
-    })),
+    ...shownChoices(settings),
   };
 }
 

@@ -32,6 +32,8 @@ export interface ContextMenuItem {
   disabled?: boolean;
   /** Why it cannot be clicked. A grayed-out item must give a reason, otherwise users just keep clicking it. */
   hint?: string;
+  /** A line under the label, in smaller type: what happens, or where to undo it (Hide row: where it comes back). */
+  note?: string;
   /** Shortcut, drawn on the right. */
   shortcut?: string;
   /** Currently selected (the check mark in a sort list). `false` still reserves the space, to line up with checked items. */
@@ -346,7 +348,14 @@ export function ContextMenu({
                   {entry.icon}
                 </span>
               ) : null}
-              <span className="min-w-0 flex-1 truncate">{entry.label}</span>
+              {entry.note ? (
+                <span className="flex min-w-0 max-w-[260px] flex-1 flex-col">
+                  <span className="truncate">{entry.label}</span>
+                  <span className="mt-0.5 whitespace-normal text-[11.5px] leading-snug text-[var(--text-faint)]">{entry.note}</span>
+                </span>
+              ) : (
+                <span className="min-w-0 flex-1 truncate">{entry.label}</span>
+              )}
               {entry.shortcut ? (
                 <span className="shrink-0 text-[11px] text-[var(--text-faint)]">{entry.shortcut}</span>
               ) : null}

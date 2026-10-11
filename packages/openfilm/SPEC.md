@@ -58,6 +58,9 @@ where, and CSS that says how each looks. A page draws a shot.
   - `speed` on videos and sounds: the playback rate, 0.25 to 4, sound keeping its pitch. The clip lasts
     `(out − in) / speed` on the film.
   - `volume` on videos and sounds: linear gain, 1 the file's own level; `muted` is 0.
+  - `size` on pages: `size="1920x1080"`, the CSS pixels a page without its own `width` and `height` (§2) is laid
+    out at; without it, the stage's. An editor writes it when the stage changes shape, so such a page is scaled into
+    its box like a video rather than laid out again in the new shape.
   - Where a picture sits is its own style's `left`, `top`, `width` and `height` in stage pixels, and `rotate` in
     degrees, clockwise about its center. Nothing else places a clip: the host does, on the element, so no other CSS
     moves it (`position`, `transform`, `margin` and the like in a clip's style are an error). `width` and `height`
@@ -136,7 +139,7 @@ window.film = {
 | `frame(t)` | function | Draw the complete picture for time `t ≥ 0` (below `duration` when there is one). If it returns a Promise, the picture is complete when it resolves. |
 | `duration` | number | Optional. The page's own length in seconds. Without it a page has no end, like a still: its clip's media fragment (`title.html#t=0,4`) says how long it plays, and a range is given to check or render it alone. |
 | `ready` | Promise \| () => Promise | Optional. Resolves when fonts, images, models and data are loaded. The host calls `frame` only after it settles. For web fonts, load each face used (`document.fonts.load('700 64px Fraunces')`), not only `document.fonts.ready`. |
-| `width`, `height` | number | Optional. The page's size in CSS pixels, for a page that is part of the picture (a chart in a corner). Without them the page is the size of the stage, or 1920 × 1080 opened on its own. The host sizes the viewport to it; higher resolutions use device pixel ratio. |
+| `width`, `height` | number | Optional. The page's size in CSS pixels, for a page that is part of the picture (a chart in a corner). Without them the page is its clip's `size` (§1), else the size of the stage, or 1920 × 1080 opened on its own. The host sizes the viewport to it; higher resolutions use device pixel ratio. |
 
 The frame rate is not the page's: a film is timed in seconds, and the rate is chosen when it is rendered.
 

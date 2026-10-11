@@ -7,7 +7,7 @@
  * marks go), and `,` inserts it at the film's playhead, `.` overwrites there (lib/media-place).
  */
 import React from 'react';
-import { ArrowDownToLine, BetweenHorizontalStart } from 'lucide-react';
+import { Expand } from 'lucide-react';
 import { useT } from '@/i18n';
 import { STILL_DROP_MS } from '@/lib/asset-timeline';
 import type { SourceRange } from '@/lib/media-place';
@@ -118,11 +118,10 @@ function Scrubber({ time, duration, onSeek, label, marks }: { time: number; dura
 }
 
 /** The source's own transport: its scrub line, then the bar the film's viewer has (time, play, and its name). */
-function SourceBar({ time, duration, playing, onToggle, onSeek, name, disabled, marks, onPlace }: {
-  time: number; duration: number; playing: boolean; onToggle: () => void; onSeek: (sec: number) => void; name: string; disabled?: boolean;
+function SourceBar({ time, duration, playing, onToggle, onSeek, disabled, marks, onFullscreen }: {
+  time: number; duration: number; playing: boolean; onToggle: () => void; onSeek: (sec: number) => void; disabled?: boolean;
   marks?: Marks;
-  /** Put the part marked on the film (the `,` and `.` keys' buttons). */
-  onPlace?: (mode: 'insert' | 'overwrite') => void;
+  onFullscreen: () => void;
 }) {
   const t = useT();
   const marked = marks && (marks.in != null || marks.out != null)
@@ -136,27 +135,18 @@ function SourceBar({ time, duration, playing, onToggle, onSeek, name, disabled, 
         totalMs={disabled ? 0 : duration * 1000}
         playing={playing}
         onPlayPause={onToggle}
-        frame={(
-          <span className="flex min-w-0 items-center gap-1">
-            <span className="min-w-0 truncate text-[12px] text-[var(--text-dim)]">{name}</span>
-            {marked ? <span data-source-range="" className="shrink-0 text-[11px] tabular-nums text-[var(--accent)]">{marked}</span> : null}
-            {onPlace ? <>
-              <Tooltip label={t('media.insertSource')} shortcut=",">
-                <button type="button" aria-label={t('media.insertSource')} onMouseDown={(e) => e.preventDefault()} onClick={() => onPlace('insert')} className={PANE_BTN}>
-                  <BetweenHorizontalStart size={PANE_ICON} />
-                </button>
-              </Tooltip>
-              <Tooltip label={t('media.overwriteSource')} shortcut=".">
-                <button type="button" aria-label={t('media.overwriteSource')} onMouseDown={(e) => e.preventDefault()} onClick={() => onPlace('overwrite')} className={PANE_BTN}>
-                  <ArrowDownToLine size={PANE_ICON} />
-                </button>
-              </Tooltip>
-            </> : null}
-          </span>
-        )}
+        onFullscreen={onFullscreen}
+        /* the part marked with I and O, while there is one (`,` and `.` put it on the film) */
+        frame={marked ? <span data-source-range="" className="shrink-0 text-[11px] tabular-nums text-[var(--accent)]">{marked}</span> : undefined}
       />
     </div>
   );
+}
+
+/** The preview full screen, or back (the same button). */
+function toggleFullscreen(el: HTMLElement | null) {
+  if (document.fullscreenElement) void document.exitFullscreen().catch(() => {});
+  else void el?.requestFullscreen?.().catch(() => {});
 }
 
 export interface SourcePreviewProps {
@@ -168,12 +158,17 @@ export interface SourcePreviewProps {
 }
 
 export function SourcePreview(props: SourcePreviewProps) {
-  /* a web page is previewed on its own: its own timeline from 0, driven here through Studio's bridge */
-  return props.file.kind === 'mg' ? <PagePreview {...props} /> : <MediaPreviewPane {...props} />;
+  /* a web page is previewed on its own: its own timeline from 0, driven here through Studio's bridge. Each file is a
+     preview of its own (keyed by its path): another one picked starts at 0, paused, with nothing of the last one's
+     clock (a frame of its playback could land after a reset and carry its time over) */
+  return props.file.kind === 'mg'
+    ? <PagePreview key={props.file.path} {...props} />
+    : <MediaPreviewPane key={props.file.path} {...props} />;
 }
 
 function MediaPreviewPane({ file, sources, onClose, onPlace }: SourcePreviewProps) {
   const t = useT();
+  const rootRef = React.useRef<HTMLDivElement>(null);
   const mediaRef = React.useRef<HTMLVideoElement & HTMLAudioElement>(null);
   const [playing, setPlaying] = React.useState(false);
   const [time, setTime] = React.useState(0);
@@ -185,7 +180,6 @@ function MediaPreviewPane({ file, sources, onClose, onPlace }: SourcePreviewProp
   React.useEffect(() => { setPlaying(false); setTime(0); setFailed(false); setDuration((file.durationMs ?? 0) / 1000); }, [file.path, file.durationMs]);
   /* a still has no part to mark: `,` and `.` put it whole */
   const marks = useSourceKeys(file.path, timed ? time : 0, timed ? duration : 0, onPlace);
-  const place = onPlace ? (mode: 'insert' | 'overwrite') => onPlace(mode, timed ? rangeOf(marks, duration) : null) : undefined;
 
   const toggle = React.useCallback(() => {
     const media = mediaRef.current;
@@ -225,7 +219,7 @@ function MediaPreviewPane({ file, sources, onClose, onPlace }: SourcePreviewProp
   };
 
   return (
-    <div className="absolute inset-0 z-20 flex flex-col bg-[var(--dock-pane)]">
+    <div ref={rootRef} className="absolute inset-0 z-20 flex flex-col bg-[var(--dock-pane)]">
       <div className="relative flex min-h-0 flex-1 items-center justify-center px-3 py-2.5" onClick={timed ? toggle : undefined}>
         {failed ? (
           <p className="text-[12.5px] text-[var(--text-muted)]">{t('media.cannotPreview')}</p>
@@ -237,6 +231,8 @@ function MediaPreviewPane({ file, sources, onClose, onPlace }: SourcePreviewProp
             /* a poster that fails to load covers the first frame in black: only when there is one */
             poster={sources.poster?.(file)}
             playsInline
+            /* picked to be seen: it plays from the start at once (the click that picked it lets the sound play) */
+            autoPlay
             preload="auto"
             className="h-full w-full object-contain"
             {...mediaEvents}
@@ -247,7 +243,7 @@ function MediaPreviewPane({ file, sources, onClose, onPlace }: SourcePreviewProp
           <div className="relative h-[42%] w-full max-w-[920px] overflow-hidden rounded-md">
             <MediaPreview file={file} sources={sources} />
             {duration > 0 ? <span className="pointer-events-none absolute inset-y-0 w-px bg-white/90" style={{ left: `${(time / duration) * 100}%` }} /> : null}
-            <audio key={file.path} ref={mediaRef} src={src} preload="auto" {...mediaEvents} />
+            <audio key={file.path} ref={mediaRef} src={src} preload="auto" autoPlay {...mediaEvents} />
           </div>
         ) : (
           <p className="text-[12.5px] text-[var(--text-muted)]">{t('media.cannotPreview')}</p>
@@ -260,21 +256,17 @@ function MediaPreviewPane({ file, sources, onClose, onPlace }: SourcePreviewProp
           playing={playing}
           onToggle={toggle}
           onSeek={(v) => { const m = mediaRef.current; if (m) m.currentTime = v; setTime(v); }}
-          name={file.name}
           marks={marks}
-          {...(place ? { onPlace: place } : {})}
+          onFullscreen={() => toggleFullscreen(rootRef.current)}
         />
       ) : (
         <div className="flex h-8 shrink-0 items-center gap-2 px-3 text-[12px] text-[var(--text-muted)]">
           <span className="min-w-0 flex-1 truncate">{file.w && file.h ? `${file.w} × ${file.h}` : ''}</span>
-          <span className="min-w-0 max-w-[30%] truncate text-[var(--text-dim)]">{file.name}</span>
-          {place ? (
-            <Tooltip label={t('media.insertSource')} shortcut=",">
-              <button type="button" aria-label={t('media.insertSource')} onMouseDown={(e) => e.preventDefault()} onClick={() => place('insert')} className={PANE_BTN}>
-                <BetweenHorizontalStart size={PANE_ICON} />
-              </button>
-            </Tooltip>
-          ) : null}
+          <Tooltip label={t('viewer.fullscreen')}>
+            <button type="button" aria-label={t('viewer.fullscreen')} onMouseDown={(e) => e.preventDefault()} onClick={() => toggleFullscreen(rootRef.current)} className={PANE_BTN}>
+              <Expand size={PANE_ICON} />
+            </button>
+          </Tooltip>
         </div>
       )}
     </div>
@@ -287,6 +279,7 @@ function MediaPreviewPane({ file, sources, onClose, onPlace }: SourcePreviewProp
  */
 function PagePreview({ file, sources, onClose, onPlace }: SourcePreviewProps) {
   const t = useT();
+  const rootRef = React.useRef<HTMLDivElement>(null);
   const frameRef = React.useRef<HTMLIFrameElement>(null);
   const boxRef = React.useRef<HTMLDivElement>(null);
   const clockRef = React.useRef({ base: 0, at: 0 });
@@ -300,8 +293,6 @@ function PagePreview({ file, sources, onClose, onPlace }: SourcePreviewProps) {
   const [playing, setPlaying] = React.useState(false);
   const [time, setTime] = React.useState(0);
   const [scale, setScale] = React.useState(1);
-
-  React.useEffect(() => { setSize(null); setFailed(false); setPlaying(false); setTime(0); }, [file.path]);
 
   const draw = React.useCallback((at: number) => {
     if (!origin) return;
@@ -337,7 +328,6 @@ function PagePreview({ file, sources, onClose, onPlace }: SourcePreviewProps) {
   /* a page without a duration has no part to mark: it goes with the length a drop gives it */
   const timedPage = Boolean(size?.duration);
   const marks = useSourceKeys(file.path, timedPage ? time : 0, timedPage ? duration : 0, onPlace);
-  const place = onPlace ? (mode: 'insert' | 'overwrite') => onPlace(mode, timedPage ? rangeOf(marks, duration) : null) : undefined;
   const play = React.useCallback(() => {
     if (!size) return;
     const from = time >= duration - 0.05 ? 0 : time;
@@ -345,6 +335,13 @@ function PagePreview({ file, sources, onClose, onPlace }: SourcePreviewProps) {
     setPlaying(true);
   }, [time, duration, size]);
   const pause = React.useCallback(() => setPlaying(false), []);
+  /* picked to be seen: it plays from the start once the page is ready (once: a pause stays a pause) */
+  const started = React.useRef(false);
+  React.useEffect(() => {
+    if (!size || started.current) return;
+    started.current = true;
+    play();
+  }, [size, play]);
   const toggle = React.useCallback(() => (playing ? pause() : play()), [playing, play, pause]);
 
   React.useEffect(() => {
@@ -374,7 +371,7 @@ function PagePreview({ file, sources, onClose, onPlace }: SourcePreviewProps) {
   }, [onClose, toggle]);
 
   return (
-    <div className="absolute inset-0 z-20 flex flex-col bg-[var(--dock-pane)]">
+    <div ref={rootRef} className="absolute inset-0 z-20 flex flex-col bg-[var(--dock-pane)]">
       <div ref={boxRef} className="relative flex min-h-0 flex-1 items-center justify-center overflow-hidden px-3 py-2.5" onClick={toggle}>
         {/* nothing to play it on (no surface for this page) is the same as a page that failed */}
         {failed || !surface ? <p className="text-[12.5px] text-[var(--text-muted)]">{t('media.cannotPreview')}</p> : (
@@ -396,10 +393,9 @@ function PagePreview({ file, sources, onClose, onPlace }: SourcePreviewProps) {
         playing={playing}
         onToggle={toggle}
         onSeek={(v) => { setPlaying(false); setTime(v); draw(v); }}
-        name={file.name}
         disabled={!size}
         marks={marks}
-        {...(place ? { onPlace: place } : {})}
+        onFullscreen={() => toggleFullscreen(rootRef.current)}
       />
     </div>
   );
