@@ -4,6 +4,8 @@
 
 ### Patch Changes
 
+- [#18](https://github.com/openfilm/openfilm/pull/18) [`10709ae`](https://github.com/openfilm/openfilm/commit/10709aeec857335c23fad514f9a0233c0fedaf14) Thanks [@PazChen](https://github.com/PazChen)! - Desktop: a new version, once downloaded, is offered in the top bar beside the projects button (Restart to update) instead of in the chat, where a closed chat hid it. A restart that has to wait (an agent working, an export running) says why beside it.
+
 - [#5](https://github.com/openfilm/openfilm/pull/5) [`e4679d2`](https://github.com/openfilm/openfilm/commit/e4679d2d822552bae51ffdd7255ce089bd7c22c4) Thanks [@PazChen](https://github.com/PazChen)! - Desktop: your own key can name several models (Settings → Agents, separated by commas), each checked for reading pictures; the chat's menu switches between them. The menu no longer stays on "Loading" for an agent with nothing to choose.
 
 - [#5](https://github.com/openfilm/openfilm/pull/5) [`e4679d2`](https://github.com/openfilm/openfilm/commit/e4679d2d822552bae51ffdd7255ce089bd7c22c4) Thanks [@PazChen](https://github.com/PazChen)! - Desktop: the installer comes with ffmpeg and the headless browser Studio draws pages in, so the first start downloads nothing (on a slow or blocked connection it used to fail there). A build without them downloads ffmpeg as before, now stopped and tried again when the download stalls.

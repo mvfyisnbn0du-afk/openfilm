@@ -4,6 +4,8 @@
 
 ### Patch Changes
 
+- [#18](https://github.com/openfilm/openfilm/pull/18) [`10709ae`](https://github.com/openfilm/openfilm/commit/10709aeec857335c23fad514f9a0233c0fedaf14) Thanks [@PazChen](https://github.com/PazChen)! - Desktop: a new version, once downloaded, is offered in the top bar beside the projects button (Restart to update) instead of in the chat, where a closed chat hid it. A restart that has to wait (an agent working, an export running) says why beside it.
+
 - [#8](https://github.com/openfilm/openfilm/pull/8) [`6a1d9b8`](https://github.com/openfilm/openfilm/commit/6a1d9b8363b967f985df6d11b2714d158b4ce245) Thanks [@lubobill1990](https://github.com/lubobill1990)! - Studio: Azure Speech (Azure AI Speech) can be connected under Settings → Providers for voice-over with its neural voices. The key carries the resource's region (`<region>:<key>`, or `AZURE_SPEECH_KEY` with `AZURE_SPEECH_REGION`), and one without a region is refused where it is pasted; Azure times no words, so subtitles spread the text over the line, as with OpenAI's voices.
 
 - [#5](https://github.com/openfilm/openfilm/pull/5) [`e4679d2`](https://github.com/openfilm/openfilm/commit/e4679d2d822552bae51ffdd7255ce089bd7c22c4) Thanks [@PazChen](https://github.com/PazChen)! - Desktop: your own key can name several models (Settings → Agents, separated by commas), each checked for reading pictures; the chat's menu switches between them. The menu no longer stays on "Loading" for an agent with nothing to choose.
