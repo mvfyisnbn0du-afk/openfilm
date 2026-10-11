@@ -13,6 +13,7 @@ import { Download, KeyRound, Loader2 } from 'lucide-react';
 import { useT } from '@/i18n';
 import { studioHost, type HostAgent, type HostAgentId, type HostByokFormat } from '@/lib/host';
 import { ProviderMark } from './ProviderMark';
+import { agentMark } from '@/lib/provider-marks';
 import { SettingsSelect } from './SettingsSelect';
 import { SettingsButton, SettingsField, SettingsGroup, SettingsInset, SettingsItem, SettingsLinkButton, SettingsPage, SettingsStatus, SettingsSwitch, settingsError } from './ui';
 
@@ -35,10 +36,8 @@ function useHostAgents(): HostAgent[] | null {
 /** The person's own agents (the app's AGENTS), in the roster's order. */
 const OWN: readonly HostAgentId[] = ['codex', 'claude', 'gemini', 'copilot', 'cursor', 'opencode', 'codebuddy', 'qwen', 'kimi'];
 /** whose maker's mark is its company's */
-const MARK_OF: Partial<Record<HostAgentId, string>> = { codex: 'openai', gemini: 'google' };
-
 function AgentMark({ id }: { id: HostAgentId }) {
-  return id === 'byok' ? <KeyRound size={16} /> : <ProviderMark id={MARK_OF[id] ?? id} size={17} />;
+  return id === 'byok' ? <KeyRound size={16} /> : <ProviderMark id={agentMark(id)} size={17} />;
 }
 
 export function AgentsSection() {
