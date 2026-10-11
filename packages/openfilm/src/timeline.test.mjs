@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
-import { mkdtempSync, writeFileSync } from 'node:fs';
+import { cpSync, mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { FilmPage, launch, serve } from './host.mjs';
@@ -344,6 +344,12 @@ test('look\'s check and a render of a film of many video clips: the same t draws
   const dir = footage('of-lazy-look-');
   writeFileSync(join(dir, 'film.html'), filmHtml(manyCuts()));
   const r = await look([dir], { count: 8 });
+  /* a check that failed keeps what it drew for CI to upload: the two pictures of the t that differed */
+  if (r.ok === false && process.env.OPENFILM_TEST_ARTIFACTS) {
+    const kept = join(process.env.OPENFILM_TEST_ARTIFACTS, 'many-video-clips');
+    cpSync(join(dir, '.film/cache/look'), kept, { recursive: true });
+    writeFileSync(join(kept, 'look.txt'), `${r.lines.join('\n')}\n`);
+  }
   assert.notEqual(r.ok, false, r.lines.join('\n'));
   assert.match(r.lines.join('\n'), /same t, same picture/);
   const { out } = await render([dir], { fps: 10, workers: 2, onProgress: () => {} });
