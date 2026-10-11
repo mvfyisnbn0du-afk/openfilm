@@ -2457,7 +2457,7 @@ export function ProjectView({ projectId, onProject, onLeave }: {
         onQueued={(jobs) => exportTrayRef.current?.push(jobs)}
         projectFps={projectFps}
       />
-      <ExportTray ref={exportTrayRef} projectId={projectId} onError={toast.showError} />
+      <ExportTray ref={exportTrayRef} projectId={projectId} onError={toast.showError} inset={hostPanel?.open ? hostPanel.width : 0} />
       <SpendAsks projectId={projectId} />
       <Toast toast={toast.current} />
     </div>
