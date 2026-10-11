@@ -2,8 +2,7 @@ name: desktop
 # The official desktop app (CONTRIBUTING.md, Releases): push the tag v<version> (the version every package has), or run
 # it by hand for an existing tag. Each target is built (the Macs signed and notarized), and a draft GitHub release gets
 # the installers and the update feeds. Publishing that release makes it the latest: the website's download links and
-# the apps' update checks go to the latest release's files (openfilm.dev/download/… serves them from the mirror
-# mirror.yml fills when it is published, else redirects to GitHub).
+# the apps' update checks go to the latest release's files (openfilm.dev/download/… redirects there).
 #
 # The secrets are in the `desktop-release` environment (Settings → Environments; deployments limited to v* tags):
 #   OPENFILM_SIGN_IDENTITY         the Developer ID Application identity, "Name (TEAMID)"
