@@ -120,6 +120,7 @@ Every pull request that changes what a package's users get carries a **changeset
 packages it changes (`openfilm`, `@openfilm/desktop`, `@openfilm/shared`) and how much (`patch` for a fix, `minor`
 for something new; `major` only by agreement), and write a line for the changelog, as a user would read it. Commit the
 file it writes in `.changeset/`. A change to tests, docs or CI alone needs none (`pnpm changeset --empty` says so).
+Each line in the changelog links its pull request and thanks its author.
 
 All the packages share one version. When changesets reach `main`, the release workflow opens a "Version packages"
 pull request that bumps it and writes the changelogs; merging it publishes `openfilm` to npm (with provenance, from CI
