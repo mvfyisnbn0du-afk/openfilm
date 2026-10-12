@@ -511,6 +511,7 @@ export const ko: Words = {
     stepSubtitleRemoved: '자막 삭제',
     stepSubtitleText: '자막 편집',
     stepSubtitleAdded: '자막 추가',
+    stepMarker: '마커 변경',
     stepNormalized: "라우드니스를 {clip} LUFS로 정규화",
     stepFroze: "{clip}의 프레임 고정",
     stepReplaced: "{clip} 바꿈",

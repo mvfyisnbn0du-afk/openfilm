@@ -511,6 +511,7 @@ export const es: Words = {
     stepSubtitleRemoved: 'Subtítulo eliminado',
     stepSubtitleText: 'Subtítulo editado',
     stepSubtitleAdded: 'Subtítulo añadido',
+    stepMarker: 'Marcadores cambiados',
     stepNormalized: "Sonoridad normalizada a {clip} LUFS",
     stepFroze: "Fotograma de {clip} congelado",
     stepReplaced: "{clip} reemplazado",

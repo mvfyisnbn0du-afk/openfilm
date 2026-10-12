@@ -512,6 +512,7 @@ export const en = {
     stepSubtitleRemoved: 'Deleted a subtitle',
     stepSubtitleText: 'Edited a subtitle',
     stepSubtitleAdded: 'Added a subtitle',
+    stepMarker: 'Changed the markers',
     stepNormalized: "Normalized loudness to {clip} LUFS",
     stepFroze: "Froze a frame of {clip}",
     stepReplaced: "Replaced {clip}",

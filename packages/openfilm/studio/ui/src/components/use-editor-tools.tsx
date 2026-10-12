@@ -24,6 +24,7 @@ import type { MediaListing } from '@/lib/workspace-resources';
 import { followOf, readTimelinePrefs } from '@/lib/timeline-prefs';
 import { sizeOf, trackHeightsOf, withTrackHeight, TRACK_SIZES, type TrackSize } from '@/lib/track-heights';
 import type { Player } from '@/editor/player';
+import type { OutsideStep } from '@/editor/use-film';
 import type { ContextMenuEntry } from './ContextMenu';
 import { ClipMarkers, MarkersButton, RulerMarkers, type MarkerActions } from './TimelineMarkers';
 
@@ -38,7 +39,7 @@ const sounding = (b: TimelineBlock) => Boolean(b.clipId && b.loc && b.src) && (
 ) && b.volume !== 0;
 
 export function useEditorTools({
-  projectId, tracks, film, settings, patchSettings, player, timeRef, seek, edit, editModel, selectedClipIds, listing, toast,
+  projectId, tracks, film, settings, patchSettings, player, timeRef, seek, edit, record, editModel, selectedClipIds, listing, toast,
 }: {
   projectId: string;
   tracks: readonly TimelineTrack[];
@@ -50,6 +51,8 @@ export function useEditorTools({
   timeRef: React.MutableRefObject<number>;
   seek: (ms: number) => void;
   edit: (ops: Op[], label: string) => Promise<string | null>;
+  /** Keeps an edit of another file (the markers) as a step of the film's history, so ⌘Z undoes it in turn. */
+  record: (label: string, outside: OutsideStep) => void;
   editModel: () => EditModel;
   selectedClipIds: readonly string[];
   /** the project's media and pages, with their lengths as probed */
@@ -67,7 +70,8 @@ export function useEditorTools({
   const filmRef = React.useRef(film);
   filmRef.current = film;
 
-  /* ── markers: read once per project, written whole on each change (one at a time, in order) ── */
+  /* ── markers: read once per project, written whole on each change (one at a time, in order), each change a step
+     of the history (⌘Z puts the list back as it was) ── */
   const [markers, setMarkers] = React.useState<Marker[]>([]);
   const markersRef = React.useRef(markers);
   markersRef.current = markers;
@@ -78,11 +82,18 @@ export function useEditorTools({
     void api.markers(projectId).then((raw) => { if (live) setMarkers(parseMarkers(raw)); }, () => {});
     return () => { live = false; };
   }, [projectId]);
-  const saveMarkers = React.useCallback((next: Marker[]) => {
+  const writeMarkers = React.useCallback((next: Marker[]): Promise<string | null> => {
     setMarkers(next);
     markersRef.current = next;
-    writes.current = writes.current.then(() => api.putMarkers(projectId, next)).catch((e: Error) => toast.showError(e.message));
-  }, [projectId, toast]);
+    const done = writes.current.then(() => api.putMarkers(projectId, next)).then(() => null, (e: Error) => e.message);
+    writes.current = done;
+    return done;
+  }, [projectId]);
+  const saveMarkers = React.useCallback((next: Marker[]) => {
+    const was = markersRef.current;
+    void writeMarkers(next).then((err) => { if (err) toast.showError(err); });
+    record('history.stepMarker', { undo: () => writeMarkers(was), redo: () => writeMarkers(next) });
+  }, [writeMarkers, record, toast]);
   const placed = React.useMemo(() => placeMarkers(markers, tracks), [markers, tracks]);
   const [naming, setNaming] = React.useState<string | null>(null);
   const onNamed = React.useCallback(() => setNaming(null), []);

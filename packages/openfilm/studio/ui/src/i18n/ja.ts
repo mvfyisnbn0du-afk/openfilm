@@ -511,6 +511,7 @@ export const ja: Words = {
     stepSubtitleRemoved: '字幕を削除',
     stepSubtitleText: '字幕を編集',
     stepSubtitleAdded: '字幕を追加',
+    stepMarker: 'マーカーを変更しました',
     stepNormalized: "ラウドネスを {clip} LUFS にノーマライズ",
     stepFroze: "{clip} のフレームをフリーズ",
     stepReplaced: "{clip} を置き換え",

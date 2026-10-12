@@ -971,8 +971,8 @@ export function ProjectView({ projectId, onProject, onLeave }: {
   }, [removeBlocks]);
   /* markers, solo, track heights, loudness, freeze frame, replace (use-editor-tools) */
   const tools = useEditorTools({
-    projectId, tracks: timelineTracks, film: film.film, settings, patchSettings, player, timeRef, seek, edit: editOps, editModel,
-    selectedClipIds: selectedKeys, listing, toast,
+    projectId, tracks: timelineTracks, film: film.film, settings, patchSettings, player, timeRef, seek, edit: editOps, record: film.record,
+    editModel, selectedClipIds: selectedKeys, listing, toast,
   });
 
   /* how many of the person's edits an outside write undid: edits inside pages it left out, and clip edits it changed */

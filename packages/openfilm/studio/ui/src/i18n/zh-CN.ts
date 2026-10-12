@@ -512,6 +512,7 @@ export const zhCN: Words = {
     stepSubtitleRemoved: '删除字幕',
     stepSubtitleText: '修改字幕',
     stepSubtitleAdded: '添加字幕',
+    stepMarker: '修改了标记',
     stepNormalized: "响度标准化到 {clip} LUFS",
     stepFroze: "定格了 {clip} 的一帧",
     stepReplaced: "替换了 {clip}",
