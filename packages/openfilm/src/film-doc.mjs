@@ -32,15 +32,19 @@ export function isStill(src) {
 }
 
 /**
- * What a sound is for: `sfx`, `music` and `voice` by their folders (where openfilm get saves them:
- * assets/audio/sfx/, music/, vo/); elsewhere a name that says music (bed, music, song, loop…) or an effect (sfx, hit,
- * whoosh…) decides; anything else (a video's own sound among them) is a voice.
+ * What a sound is for: `sfx`, `music` and `voice` by a folder it is in (where openfilm get saves them:
+ * assets/audio/sfx/, music/, vo/; an agent's own assets/sfx/ alike), the nearest one deciding; elsewhere a name that
+ * says music (bed, music, song, loop…) or an effect (sfx, hit, whoosh…) decides; anything else (a video's own sound
+ * among them) is a voice.
  */
 export function soundRole(src) {
   const path = String(src).toLowerCase();
-  if (path.startsWith('assets/audio/sfx/')) return 'sfx';
-  if (path.startsWith('assets/audio/music/')) return 'music';
-  if (path.startsWith('assets/audio/vo/')) return 'voice';
+  const folders = path.split('/').slice(0, -1).reverse();
+  for (const folder of folders) {
+    if (/^(sfx|fx|effects?|sound-?effects?)$/.test(folder)) return 'sfx';
+    if (/^(music|bgm)$/.test(folder)) return 'music';
+    if (/^(vo|voices?|voice-?over|narration)$/.test(folder)) return 'voice';
+  }
   const name = path.split('/').pop() ?? '';
   if (/(^|[^a-z])(bed|music|song|soundtrack|score|theme|loop|ambient|ambience|beat)([^a-z]|$)/.test(name)) return 'music';
   if (/(^|[^a-z])(sfx|fx|hit|whoosh|swoosh|riser|impact|ding|chime)([^a-z]|$)/.test(name)) return 'sfx';

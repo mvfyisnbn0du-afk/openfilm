@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { clipFade, clipKind, clipSpan, fadeGain, filmHtml, kindOf, parseFilm, pictureRect, readFilm, readFilmFile, sourceAt } from './film-doc.mjs';
+import { clipFade, clipKind, clipSpan, fadeGain, filmHtml, kindOf, parseFilm, pictureRect, readFilm, readFilmFile, soundRole, sourceAt } from './film-doc.mjs';
 
 const film = (clip) => ({ stage: { w: 1920, h: 1080 }, tracks: [{ clips: [clip] }] });
 const problems = (value) => readFilm(value).problems.join('\n');
@@ -292,4 +292,16 @@ test('a page\'s size is the px it is laid out at: read from size="WxH", written 
   assert.match(said(page([['<video src="a.mp4" size="1920x1080"></video>']])), /a file has its own size/);
   assert.match(problems(film({ src: 't.html', id: 't', time: [0, 3], size: { w: 0, h: 1080 } })), /size is the px/);
   assert.match(problems(film({ src: 't.html', id: 't', time: [0, 3], size: { w: 9000, h: 1080 } })), /up to 8192/);
+});
+
+test('soundRole: the nearest folder named for a role decides, then the name, else a voice', () => {
+  assert.equal(soundRole('assets/audio/sfx/pop.wav'), 'sfx');
+  assert.equal(soundRole('assets/sfx/pop.wav'), 'sfx');
+  assert.equal(soundRole('assets/music/bed.mp3'), 'music');
+  assert.equal(soundRole('assets/vo/vo1.wav'), 'voice');
+  assert.equal(soundRole('assets/sfx/vo/line.wav'), 'voice');
+  assert.equal(soundRole('assets/audio/whoosh.wav'), 'sfx');
+  assert.equal(soundRole('assets/audio/bed.mp3'), 'music');
+  assert.equal(soundRole('assets/audio/pop.wav'), 'voice');
+  assert.equal(soundRole('assets/effective/line.wav'), 'voice');
 });
