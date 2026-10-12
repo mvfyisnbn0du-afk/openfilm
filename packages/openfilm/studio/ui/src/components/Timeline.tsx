@@ -45,7 +45,6 @@ import {
   Link2,
   Link2Off,
   Mic,
-  Rows3,
   SeparatorVertical,
   BetweenHorizontalStart,
   ArrowLeftToLine,
@@ -687,8 +686,6 @@ export interface TimelineCommands {
   /** The switches (see lib/timeline-prefs). */
   toggleMagnet: () => void;
   toggleSnap: () => void;
-  toggleSync: () => void;
-  toggleLinked: () => void;
   /**
    * ⌘B: split the selected clips at the playhead; with nothing selected, the clip under it on the targeted track (the
    * one last pressed), else on the topmost track seen. The clips linked to them go too.
@@ -987,9 +984,9 @@ export const Timeline = React.memo(function Timeline({
   const mainDoc = React.useMemo(() => mainTrackOf(model), [model]);
   const modelRef = React.useRef(model);
   modelRef.current = model;
-  /** Block ids → the same clips with every clip linked to them, unless the Linked switch is off (or `alone`). */
+  /** Block ids → the same clips with every clip linked to them, unless `alone` (⌥). */
   const withLinked = React.useCallback((ids: readonly string[], alone = false): string[] => {
-    if (alone || !prefsRef.current.linked) return [...ids];
+    if (alone) return [...ids];
     const blocks = tracks.flatMap((tr) => tr.blocks);
     const clipIds = blocks.filter((b) => ids.includes(b.id) && b.clipId).map((b) => b.clipId!);
     if (!clipIds.length) return [...ids];
@@ -3045,7 +3042,7 @@ export const Timeline = React.memo(function Timeline({
     const onMain = tracks.filter((tr) => tr.docIndex != null && tr.docIndex === mainIndex).flatMap((tr) => tr.blocks);
     const main = (given ?? all.filter((b) => selectedRef.current.includes(b.id))).find(inside) ?? onMain.find(inside) ?? all.find(inside);
     if (!main?.clipId) return;
-    const ids = prefsRef.current.linked ? [main.clipId, ...linkedIds(modelRef.current, [main.clipId]).filter((id) => id !== main.clipId)] : [main.clipId];
+    const ids = [main.clipId, ...linkedIds(modelRef.current, [main.clipId]).filter((id) => id !== main.clipId)];
     const plan = planRippleTrimTo(modelRef.current, ids, edge, atMs, followOf(prefsRef.current));
     void runPlan(plan, `history.stepRippleTrimmed|${main.clipId}`).then((done) => { if (done && edge === 'start') onSeek(main.startMs); });
   }, [tracks, runPlan, onSeek]);
@@ -3073,8 +3070,6 @@ export const Timeline = React.memo(function Timeline({
       unlink: () => unlinkBlocks(picked()),
       toggleMagnet: () => togglePref('magnet'),
       toggleSnap: () => togglePref('snap'),
-      toggleSync: () => togglePref('sync'),
-      toggleLinked: () => togglePref('linked'),
       split: () => {
         const atMs = timeMsRef.current;
         const found = splitTargets(tracks, selectedRef.current, atMs, targetLaneRef.current);
@@ -3567,8 +3562,7 @@ export const Timeline = React.memo(function Timeline({
           ) : null}
         </div>
 
-        {/* the switches (lib/timeline-prefs): the main-track magnet (insert, ripple there; off: overwrite), linkage (the
-            main track carries what rides on it), sync lock (ripples move every unlocked track), linked clips, snapping */}
+        {/* the switches (lib/timeline-prefs), in CapCut's order: the main-track magnet, snapping, linkage */}
         {onEditOps ? <>
           <span data-timeline-magnet={prefs.magnet ? '1' : '0'}>
             <ToolButton onClick={() => togglePref('magnet')} active={prefs.magnet} label={t('timeline.magnet')}
@@ -3576,28 +3570,16 @@ export const Timeline = React.memo(function Timeline({
               <Magnet size={15} />
             </ToolButton>
           </span>
-          <span data-timeline-linkage={prefs.linkage ? '1' : '0'}>
-            <ToolButton onClick={() => togglePref('linkage')} active={prefs.linkage} label={t('timeline.linkage')}
-              hint={prefs.linkage ? t('timeline.linkageOn') : t('timeline.linkageOff')}>
-              <Paperclip size={15} />
-            </ToolButton>
-          </span>
-          <span data-timeline-sync={prefs.sync ? '1' : '0'}>
-            <ToolButton onClick={() => togglePref('sync')} active={prefs.sync} label={t('timeline.sync')}
-              hint={prefs.sync ? t('timeline.syncOn') : t('timeline.syncOff')}>
-              <Rows3 size={15} />
-            </ToolButton>
-          </span>
-          <span data-timeline-linked={prefs.linked ? '1' : '0'}>
-            <ToolButton onClick={() => togglePref('linked')} active={prefs.linked} label={t('timeline.linked')}
-              hint={prefs.linked ? t('timeline.linkedOn') : t('timeline.linkedOff')}>
-              {prefs.linked ? <Link2 size={15} /> : <Link2Off size={15} />}
-            </ToolButton>
-          </span>
           <span data-timeline-snap={snap ? '1' : '0'}>
             <ToolButton onClick={() => togglePref('snap')} active={snap} label={t('timeline.snap')}
               hint={snap ? t('timeline.snapOn') : t('timeline.snapOff')}>
               <SeparatorVertical size={15} />
+            </ToolButton>
+          </span>
+          <span data-timeline-linkage={prefs.linkage ? '1' : '0'}>
+            <ToolButton onClick={() => togglePref('linkage')} active={prefs.linkage} label={t('timeline.linkage')}
+              hint={prefs.linkage ? t('timeline.linkageOn') : t('timeline.linkageOff')}>
+              <Paperclip size={15} />
             </ToolButton>
           </span>
         </> : null}

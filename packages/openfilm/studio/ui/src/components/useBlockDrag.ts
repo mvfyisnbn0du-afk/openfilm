@@ -270,8 +270,8 @@ export function useBlockDrag(opts: {
     const locked = new Set(lanes.filter((lane) => lane.locked).flatMap((lane) => lane.blocks.map((b) => b.id)));
     const blockOfClip = new Map(allBlocks.flatMap((b) => (b.clipId ? [[b.clipId, b] as const] : [])));
     const writable = (b: TimelineBlock | undefined): b is TimelineBlock => Boolean(b?.loc && b.clipId && b.anchor?.move && !locked.has(b.id));
-    /* the clips linked to this one, unless ⌥ or the switch says alone */
-    const partnersOf = (b: TimelineBlock): TimelineBlock[] => (prefs.linked && !alone && b.clipId
+    /* the clips linked to this one, unless ⌥ says alone */
+    const partnersOf = (b: TimelineBlock): TimelineBlock[] => (!alone && b.clipId
       ? linkedIds(model, [b.clipId]).filter((id) => id !== b.clipId).map((id) => blockOfClip.get(id)).filter(writable)
       : []);
     /* a move takes the rest of the selection (and the clips linked to it, when the selection did not already) */
@@ -359,7 +359,7 @@ export function useBlockDrag(opts: {
         } else {
           const out = applyDrag(geom, 'trim-end', deltaMs, targets, pxPerMs);
           const want = out.endMs - geom.endMs;
-          plan = planEdges(m, rollMoves(m, block.clipId!, other!.clipId!, p.linked && !alone), want);
+          plan = planEdges(m, rollMoves(m, block.clipId!, other!.clipId!, !alone), want);
           if (plan.deltaMs === want) snappedTo = out.snappedTo;
           tip = { kind: 'roll', deltaMs: plan.deltaMs, atMs: geom.endMs + plan.deltaMs, lane: homeLaneIndex };
         }

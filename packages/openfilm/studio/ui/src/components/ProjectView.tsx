@@ -733,7 +733,7 @@ export function ProjectView({ projectId, onProject, onLeave }: {
     /* the magnet acts on the main track: there a transition's overlap closes up what follows */
     const cutClip = ask.kind === 'add' ? ask.cut.a : filmTransitions.find((x) => x.key === ask.key)?.a;
     const cutTrack = model.find((tr) => tr.clips.some((c) => c.id === cutClip))?.index;
-    const opts = { ripple: magnetOn(model, cutTrack, prefs.magnet), ...followOf(prefs), linked: prefs.linked, whiteSrc: WHITE_SRC };
+    const opts = { ripple: magnetOn(model, cutTrack, prefs.magnet), ...followOf(prefs), linked: true, whiteSrc: WHITE_SRC };
     let plan: TransitionPlan;
     let label: string;
     if (ask.kind === 'add') {
@@ -764,7 +764,7 @@ export function ProjectView({ projectId, onProject, onLeave }: {
     /* the magnet acts on the main track alone */
     const magnet = magnetOn(model, model.find((tr) => tr.clips.some((c) => c.id === block?.clipId))?.index, prefs.magnet);
     if (!block?.clipId || (one!.prop !== 'speed' && one!.prop !== 'at' && !(one!.prop === 'end' && magnet))) return editBlocks(edits, true);
-    const ids = prefs.linked ? [block.clipId, ...linkedIds(model, [block.clipId]).filter((id) => id !== block.clipId)] : [block.clipId];
+    const ids = [block.clipId, ...linkedIds(model, [block.clipId]).filter((id) => id !== block.clipId)];
     if (one!.prop === 'at') {
       /* a start typed in: the clip (and those linked to it) moves as a drag would, in the timeline's mode: with the
          magnet it goes in at the insert point there and pushes what follows on; without it, it lands there and covers
@@ -1374,9 +1374,9 @@ export function ProjectView({ projectId, onProject, onLeave }: {
   const duplicateRef = React.useRef<(blocks: readonly TimelineBlock[]) => Promise<string | null>>(async () => null);
   /* the whole clip's actions in the picture's menu: the timeline's own */
   const blockAt = (clipLoc: string) => blocksRef.current.find((b) => b.loc === clipLoc) ?? null;
-  /* a clip with the clips linked to it (when the timeline's Linked switch is on), as the timeline acts on them */
+  /* a clip with the clips linked to it, as the timeline acts on them */
   const withLinkedBlocks = (b: TimelineBlock): TimelineBlock[] => {
-    if (!b.clipId || !readTimelinePrefs().linked) return [b];
+    if (!b.clipId) return [b];
     const ids = new Set(linkedIds(editModel(), [b.clipId]));
     return blocksRef.current.filter((x) => x === b || (x.clipId != null && ids.has(x.clipId)));
   };
@@ -2641,6 +2641,7 @@ export function ProjectView({ projectId, onProject, onLeave }: {
         {...(exportClipId ? { focusClipId: exportClipId } : {})}
         onQueued={(jobs) => exportTrayRef.current?.push(jobs)}
         projectFps={projectFps}
+        missingFiles={[...mediaTrouble].flatMap(([src, why]) => (why === 'missing' ? [src] : []))}
       />
       <ExportTray ref={exportTrayRef} projectId={projectId} onError={toast.showError} inset={hostPanel?.open ? hostPanel.width : 0} />
       <SpendAsks projectId={projectId} />
