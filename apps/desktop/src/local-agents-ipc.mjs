@@ -6,7 +6,10 @@
  *   desktop:local-agents:sign-in     { agent } → Terminal runs its own sign-in, which opens its own page
  *   desktop:local-agents:probe       { agent } → { ok, info }: a session opened and closed, only for its options
  *                                    (model, reasoning effort), so the menu shows them before the first message
- *   desktop:local-agents:start       { agent, cwd } → { ok, key, info } | { ok: false, error, code? }
+ *   desktop:local-agents:start       { agent, cwd, resume? } → { ok, key, info } | { ok: false, error, code? }
+ *                                    resume: the agent's own id of a conversation it had (info.sessionId of an earlier
+ *                                    start), taken up where it stopped: the session still open here (a reloaded
+ *                                    page), else the agent's own resume; a new one when it cannot
  *   desktop:local-agents:prompt      { key, text, meta?, images? } → { ok, stopReason } | { ok: false, error }
  *                                    images: [{ data (base64), mimeType }], the pictures of the message's references,
  *                                    sent after the text to an agent that takes pictures (the text names their files
@@ -25,7 +28,8 @@
  *
  * A session belongs to the page that opened it: when the page goes, its sessions close, no orphan processes. A
  * reload in the middle of a turn loses nothing: the running turn (the page's meta and every event since) is kept
- * here until the reloaded page takes it.
+ * here until the reloaded page takes it, and the reloaded page takes the session up again by its id. One left idle
+ * for IDLE_MS closes (its process goes); the conversation is resumed from the agent's own record on its next turn.
  *
  * Every turn is also written down as it happens, in the project's `.film/logs/<turn>.jsonl` (chat-store.mjs):
  * the prompt and the session it ran in, every event above, each answer the page gave, how it ended.
@@ -36,6 +40,9 @@ import { AgentSession, HARNESS_AGENTS, isAgentId, isChatAgent, listAgents, openA
 import { openLog } from './chat-store.mjs';
 
 const TURN_LOG_MAX = 5000;
+/** a session nobody has spoken in for this long closes; how often that is looked at */
+const IDLE_MS = 20 * 60_000;
+const IDLE_CHECK_MS = 60_000;
 /** the pictures one message may carry, and how big each (base64 of a JPEG at most 1280 px wide) */
 const PROMPT_IMAGES_MAX = 8;
 const PROMPT_IMAGE_MAX_CHARS = 8 * 1024 * 1024;
@@ -125,15 +132,23 @@ export function registerLocalAgentIpc(ipcMain, { trusted, binDir = null, fallbac
   handle('desktop:local-agents:start', async (event, opts) => {
     const agent = opts?.agent;
     const cwd = opts?.cwd;
+    const resume = typeof opts?.resume === 'string' && opts.resume ? opts.resume : null;
     if (!isChatAgent(agent)) return { ok: false, error: `Unknown agent: ${String(agent)}` };
     if (typeof cwd !== 'string' || !cwd) return { ok: false, error: 'Missing project folder.' };
+    /* the conversation still open here (the page was reloaded): taken up as it is, no second process */
+    const open = resume ? [...sessions].find(([, e]) => e.agent === agent && e.cwd === cwd && e.info?.sessionId === resume && e.sender === event.sender) : null;
+    if (open) {
+      open[1].lastUsed = Date.now();
+      return { ok: true, key: open[0], info: { ...open[1].info, resumed: true, authMethods: [], mcp: false } };
+    }
     const key = randomUUID();
     const pending = new Map();
-    const entry = { sender: event.sender, pending, session: null, agent, cwd, turn: null };
+    const entry = { sender: event.sender, pending, session: null, agent, cwd, turn: null, lastUsed: Date.now() };
     try {
       entry.session = new AgentSession({
         agent,
         cwd,
+        resume,
         binDir,
         fallbackDir,
         env,
@@ -190,6 +205,7 @@ export function registerLocalAgentIpc(ipcMain, { trusted, binDir = null, fallbac
       entry.running -= 1;
       onWorking(working());
     }
+    entry.lastUsed = Date.now();
     if (turn) {
       /* a turn that failed: what the agent's process last wrote to stderr says why */
       turn.file.write('done', result.ok ? result : { ...result, stderr: String(entry.session?.stderr ?? '').slice(-8000) });
@@ -253,6 +269,15 @@ export function registerLocalAgentIpc(ipcMain, { trusted, binDir = null, fallbac
     close(opts?.key);
     return { ok: true };
   });
+
+  /* idle sessions close: a conversation not spoken in for a while costs no process; its next turn resumes it */
+  const idle = setInterval(() => {
+    const now = Date.now();
+    for (const [key, entry] of [...sessions]) {
+      if (!(entry.running > 0) && !entry.turn && entry.pending.size === 0 && now - (entry.lastUsed ?? 0) > IDLE_MS) close(key);
+    }
+  }, IDLE_CHECK_MS);
+  idle.unref?.();
 
   return {
     isBusy: () => activePrompts > 0,

@@ -4,14 +4,15 @@
  * Runs the user's own Codex / Claude Code in the chat panel (see apps/desktop/src/local-agents-ipc.mjs).
  *
  * These turns never touch the server: no progress stream, nothing stored there. The shell starts the
- * agent's ACP adapter on this machine and hands it our MCP tools; what it says and does arrives event by
- * event on `desktop:local-agents:event`. Here those events are projected onto the three the chat panel
- * knows (agent-text / agent-act / agent-act-done) and fed to the same `reduceTranscript`, so the panel
- * has one rendering path whoever is thinking.
+ * agent's ACP adapter on this machine; what it says and does arrives event by event on
+ * `desktop:local-agents:event`. Here those events are projected onto the three the chat panel knows
+ * (agent-text / agent-act / agent-act-done) and fed to the same `reduceTranscript`, so the panel has one
+ * rendering path whoever is thinking.
  *
- * One project + one agent = one ACP session, reused across turns: it remembers the last turn, as when
- * chatting on in its own interface. The session restarts only when the window closes (shell side) or
- * the agent changes.
+ * One conversation of the chat + one agent = one session of the agent's own, reused across turns: it
+ * remembers the conversation, as when chatting on in its own interface. Its id is kept with the
+ * conversation, so after a restart, a reload or an idle session closed, the next turn takes it up where
+ * it stopped (the agent's own resume), and a new conversation is a new session.
  */
 import React from 'react';
 import {
@@ -504,7 +505,7 @@ export class LocalAgentTurn {
   private synthetic = new Set<string>();
 }
 
-/** The ACP session of one project + one agent (`key` is the shell's). Reused across turns. */
+/** The ACP session of one conversation + one agent (`key` is the shell's). Reused across turns. */
 interface LiveSession {
   key: string;
   agent: LocalAgentId;
@@ -615,17 +616,14 @@ export function useLocalAgentTurn(turnId: string | null): { turn: LocalAgentTurn
   return turn ? { turn, state } : null;
 }
 
-/** The session's options (model, reasoning effort…) as last reported; null before any session. */
-export function localAgentSessionInfo(projectId: string, agent: LocalAgentId): LocalAgentSessionInfo | null {
-  return sessions.get(`${projectId}:${agent}`)?.info ?? null;
-}
-
 /**
- * Runs a turn. The first time it opens a session (starts the adapter, handshakes, hands over MCP); after
- * that the same project reuses it.
+ * Runs a turn. The first time in a conversation it opens a session (starts the adapter, handshakes), going
+ * on with the agent's own one when `resume` names it; after that the same conversation reuses it.
  */
 export async function runLocalAgentTurn({
   projectId,
+  conversation,
+  resume = null,
   agent,
   cwd,
   text,
@@ -636,6 +634,10 @@ export async function runLocalAgentTurn({
   images,
 }: {
   projectId: string;
+  /** the chat's conversation: each has its own session of the agent's */
+  conversation: string;
+  /** the agent's own id of this conversation, from a turn before (ProjectSessionItem.agentSessions) */
+  resume?: string | null;
   agent: LocalAgentId;
   cwd: string;
   text: string;
@@ -654,34 +656,37 @@ export async function runLocalAgentTurn({
   turns.set(turn.turnId, turn);
   current = turn;
 
-  const sessionKey = `${projectId}:${agent}`;
+  const sessionKey = `${projectId}:${conversation}:${agent}`;
   let session = sessions.get(sessionKey);
-  let first = false;
   if (!session || session.cwd !== cwd) {
-    const started = await bridge.start(agent, cwd);
+    const started = await bridge.start(agent, cwd, resume);
     if (!started.ok) {
       throw Object.assign(new Error(started.error), { code: started.code, install: started.install });
     }
     session = { key: started.key, agent, cwd, info: started.info };
     sessions.set(sessionKey, session);
-    first = true;
     onSessionInfo?.(started.info);
   }
   turnByKey.set(session.key, turn);
 
-  /* Picked options: set only when they differ from the session's current value, saving a round trip */
-  for (const [configId, value] of Object.entries(options)) {
-    const option = session.info.configOptions?.find((o) => o.id === configId);
-    if (!option || option.currentValue === value) continue;
-    const r = await bridge.setOption(session.key, configId, value);
+  /* Picked options: set only when they differ from the session's current value, saving a round trip. The model
+     first (it decides which efforts there are), then the rest at once */
+  const live = session;
+  const setOption = async ([configId, value]: [string, unknown]) => {
+    const option = live.info.configOptions?.find((o) => o.id === configId);
+    if (!option || option.currentValue === value) return;
+    const r = await bridge.setOption(live.key, configId, value);
     if (r.ok) option.currentValue = value;
-  }
+  };
+  const picked = Object.entries(options);
+  const isModel = ([configId]: [string, unknown]) => live.info.configOptions?.find((o) => o.id === configId)?.category === 'model';
+  for (const entry of picked.filter(isModel)) await setOption(entry);
+  await Promise.all(picked.filter((entry) => !isModel(entry)).map(setOption));
 
   /* where it is and how to work (the project, the `openfilm` manual, Studio already open) it was told when the
-     session started (apps/desktop src/agents.mjs INSTRUCTIONS); the first message only adds the language */
-  const prompt = first ? `Reply in the language of the request below.\n\n${text}` : text;
+     session started (apps/desktop src/agents.mjs INSTRUCTIONS): the message goes as the person wrote it */
   try {
-    const r = await bridge.prompt(session.key, prompt, meta, images?.length ? images : undefined);
+    const r = await bridge.prompt(session.key, text, meta, images?.length ? images : undefined);
     /* The answer to the prompt can overtake its last updates (the closing words of its reply): stop
        listening only once they have stopped coming, or the saved reply ends mid-sentence. */
     await drain(turn);
@@ -728,7 +733,7 @@ export async function recoverLocalAgentTurns(projectId: string): Promise<Recover
     const turn = new LocalAgentTurn(meta.turnId, r.agent, meta.turnNo ?? 0);
     turns.set(meta.turnId, turn);
     for (const event of r.events) dispatch(turn, event);
-    const sessionKey = `${projectId}:${r.agent}`;
+    const sessionKey = `${projectId}:${meta.sessionId}:${r.agent}`;
     if (!sessions.has(sessionKey)) sessions.set(sessionKey, { key: r.key, agent: r.agent, cwd: r.cwd, info: { sessionId: '', agentInfo: null, authMethods: [], mcp: true, models: null, modes: null, configOptions: null } });
     let finished: RecoveredLocalTurn['finished'];
     if (r.done) {

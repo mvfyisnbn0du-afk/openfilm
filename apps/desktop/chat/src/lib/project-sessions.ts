@@ -9,6 +9,8 @@ export interface ProjectSessionItem {
   updatedAt: string;
   /** How many turns the session has. 0: just opened, nothing said yet. */
   turns: number;
+  /** Each agent's own id of this conversation (by agent): its next turn goes on with it, after a restart too. */
+  agentSessions?: Record<string, string>;
 }
 
 export type SessionRecencyKey = 'today' | 'yesterday' | 'week' | 'earlier';

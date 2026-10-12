@@ -80,3 +80,37 @@ export async function referencePictures(refs: StudioRef[], { project, turnId }: 
   }
   return { pictures, images };
 }
+
+/** an attached picture is sent as it is up to this size and this many pixels on its long side; larger, made smaller */
+const ATTACHED_MAX_BYTES = 4 * 1024 * 1024;
+const ATTACHED_MAX_SIDE = 2048;
+const AS_IS = new Set(['image/jpeg', 'image/png', 'image/webp']);
+
+/**
+ * A picture attached to a message, as its agent is sent it beside the text (as a picture pasted in its own chat is):
+ * itself when it is a JPEG, PNG or WebP small enough, else a JPEG at most ATTACHED_MAX_SIDE on its long side. Null
+ * when it cannot be read as a picture.
+ */
+export async function attachedPicture(file: Blob): Promise<PromptImage | null> {
+  try {
+    const bitmap = await createImageBitmap(file);
+    try {
+      const long = Math.max(bitmap.width, bitmap.height);
+      if (AS_IS.has(file.type) && file.size <= ATTACHED_MAX_BYTES && long <= ATTACHED_MAX_SIDE) {
+        return { data: base64(await file.arrayBuffer()), mimeType: file.type };
+      }
+      const scale = Math.min(1, ATTACHED_MAX_SIDE / long);
+      const canvas = new OffscreenCanvas(Math.max(1, Math.round(bitmap.width * scale)), Math.max(1, Math.round(bitmap.height * scale)));
+      const context = canvas.getContext('2d');
+      if (!context) return null;
+      context.fillStyle = '#fff';
+      context.fillRect(0, 0, canvas.width, canvas.height);
+      context.drawImage(bitmap, 0, 0, canvas.width, canvas.height);
+      return { data: base64(await (await canvas.convertToBlob({ type: 'image/jpeg', quality: 0.85 })).arrayBuffer()), mimeType: 'image/jpeg' };
+    } finally {
+      bitmap.close();
+    }
+  } catch {
+    return null;
+  }
+}

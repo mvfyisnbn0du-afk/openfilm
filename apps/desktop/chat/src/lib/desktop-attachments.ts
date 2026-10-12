@@ -3,12 +3,16 @@
  * video's frame) and names above the sentence. On the desktop each goes into the project at once, through Studio's own
  * import (assets/upload/): the agent works in the project folder, so that is where it can read them, and Studio's
  * media shows them too. The message says where they are (attachedText), the bubble shows their names and thumbnails.
+ * A picture is also sent to the agent beside the text (`picture`), as one pasted in its own chat is, to an agent that
+ * takes pictures.
  */
 import React from 'react';
 import type { TurnAttachment } from '@openfilm/shared';
 import { isImageAttachment, isVideoAttachment, makeAttachmentThumb, readFileDataUrl, videoFrameDataUrl } from '@/lib/composer-attachments';
 import { attachmentKind } from '@/lib/project-resources';
 import { app } from '../app-bridge';
+import type { PromptImage } from '@/lib/desktop-bridge';
+import { attachedPicture } from '@/lib/ref-pictures';
 
 export interface DesktopAttachment {
   id: string;
@@ -23,6 +27,8 @@ export interface DesktopAttachment {
   state: 'importing' | 'ready' | 'failed';
   /** where it landed in the project */
   path?: string;
+  /** a picture, as its agent is sent it beside the text */
+  picture?: PromptImage;
   error?: string;
 }
 
@@ -66,6 +72,7 @@ export function useDesktopAttachments() {
     for (const { item, file } of items) {
       if (item.kind === 'image') {
         void readFileDataUrl(file).then(makeAttachmentThumb).then((thumb) => { if (thumb) patch(item.id, { thumb }); }).catch(() => {});
+        void attachedPicture(file).then((picture) => { if (picture) patch(item.id, { picture }); });
       } else if (isVideoAttachment(file)) {
         /* a video shows a frame of itself, as a picture does: its name alone says little of what was sent */
         void videoFrameDataUrl(file).then(makeAttachmentThumb).then((thumb) => { if (thumb) patch(item.id, { thumb }); }).catch(() => {});
@@ -113,6 +120,11 @@ export function attachedText(files: readonly DesktopAttachment[]): string {
   const placed = files.filter((f) => f.path);
   if (!placed.length) return '';
   return `\n\nAttached files (in this project folder):\n${placed.map((f) => `- ${f.path} (${attachmentKind({ name: f.name, mediaType: f.mediaType })}, ${formatFileSize(f.size)})`).join('\n')}`;
+}
+
+/** The pictures among them, as their agent is sent them. */
+export function attachedPictures(files: readonly DesktopAttachment[]): PromptImage[] {
+  return files.flatMap((f) => (f.picture ? [f.picture] : []));
 }
 
 /** What the message keeps of them, to show in its bubble. */

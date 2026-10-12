@@ -40,7 +40,10 @@ export interface LocalAgentState {
 }
 
 export interface LocalAgentSessionInfo {
+  /** the agent's own id of the conversation: what `start` takes back as `resume` */
   sessionId: string;
+  /** taken up where it stopped (the agent's own record, or the session still open), not a new one */
+  resumed?: boolean;
   agentInfo: { name: string; title?: string; version?: string } | null;
   authMethods: Array<{ id: string; name: string; description?: string }>;
   /** Whether our MCP tools were handed over (not when the agent does not take HTTP). */
@@ -182,7 +185,8 @@ export interface DesktopBridge {
     signIn(agent: LocalAgentId): Promise<{ ok: true } | { ok: false; error: string }>;
     /** Opens a session and closes it at once, only for its options. Sends no message, so costs nothing. */
     probe(agent: LocalAgentId): Promise<{ ok: true; info: LocalAgentSessionInfo } | { ok: false; error: string; code?: string }>;
-    start(agent: LocalAgentId, cwd: string): Promise<
+    /** `resume`: the agent's own id of a conversation it had (an earlier start's info.sessionId), to go on with */
+    start(agent: LocalAgentId, cwd: string, resume?: string | null): Promise<
       | { ok: true; key: string; info: LocalAgentSessionInfo }
       | { ok: false; error: string; code?: string; install?: string }
     >;

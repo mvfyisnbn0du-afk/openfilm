@@ -20,7 +20,7 @@ import { StickToBottomContext, useStickToBottom, useTailSpacer } from '@/compone
 import { PromptEditor, PromptPill, PromptPillHoverContext, PromptPillRevealContext, fileReferenceId, fileReferencePath, promptReferenceToken, resolvePromptReferences, splitPromptReferenceText, type MentionProvider, type PromptEditorHandle, type PromptEditorState, type PromptPillHover, type PromptReference } from '@/components/prompt-editor';
 import { filesFromTransfer, transferHasFiles } from '@/lib/composer-attachments';
 import { attachmentIcon } from '@/lib/project-resources';
-import { attachedText, attachmentBlocker, formatFileSize, turnAttachments, useDesktopAttachments } from '@/lib/desktop-attachments';
+import { attachedPictures, attachedText, attachmentBlocker, formatFileSize, turnAttachments, useDesktopAttachments } from '@/lib/desktop-attachments';
 import { deriveProjectTurns } from '@/lib/project-versions';
 import { makePlaceholder, mergeAssetLists } from '@/lib/asset-lists';
 import {
@@ -440,8 +440,12 @@ function ChatPane({ project, banners, selection, assetsOpen }: { project: Projec
         setTurns((list) => list.map((item) => (item.id === id ? { ...item, fileChanges } : item)));
       });
     };
+    /* the agent's own session of this conversation, gone on with (after a restart too); a new one is kept for next time */
+    const resume = sessions.find((s) => s.id === sessionId)?.agentSessions?.[agent] ?? null;
     void Promise.all([prepared, filesBefore]).then(([{ text, images }]) => runLocalAgentTurn({
       projectId: projectKey,
+      conversation: sessionId,
+      resume,
       agent,
       cwd: project.path,
       text,
@@ -449,7 +453,12 @@ function ChatPane({ project, banners, selection, assetsOpen }: { project: Projec
       turn,
       options: prefs,
       meta,
-      onSessionInfo: (info) => useLocalAgents.getState().noteOptions(agent, info.configOptions),
+      onSessionInfo: (info) => {
+        useLocalAgents.getState().noteOptions(agent, info.configOptions);
+        if (info.sessionId && info.sessionId !== resume) {
+          touchSession(sessionId, (s) => ({ agentSessions: { ...s.agentSessions, [agent]: info.sessionId } }));
+        }
+      },
     })).then(
       ({ stopReason }) => settle(stopReason === 'cancelled' ? { status: 'cancelled', cancelReason: 'user' } : { status: 'ready' }),
       (error: unknown) => {
@@ -493,7 +502,7 @@ function ChatPane({ project, banners, selection, assetsOpen }: { project: Projec
     const stage = selection?.stage ?? null;
     /* each reference's picture is kept in the project for the agent (the block names it), and sent to one that takes pictures */
     const prepared = referencePictures(refs, { project: project.path, turnId: id })
-      .then(({ pictures, images }) => ({ text: said + studioReferencesText(refs, { stage, pictures }), images }));
+      .then(({ pictures, images }) => ({ text: said + studioReferencesText(refs, { stage, pictures }), images: [...attachedPictures(files), ...images] }));
     startTurn(id, instruction, prepared, promptDisplay ?? null, turnAttachments(files));
   }
 
