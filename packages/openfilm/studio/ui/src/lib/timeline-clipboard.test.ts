@@ -157,6 +157,24 @@ test('a paste in overwrite mode cuts what is under it; a locked track refuses it
   assert.equal(pasteEdit(copied, locked, editModelOf(locked), 3000, 'doc-0', { mode: 'overwrite', sync: true }), null);
 });
 
+test('with the magnet, as CapCut: a paste on the main track inserts; off it a copy never covers a clip', () => {
+  const film: Film = { tracks: [{ clips: [filmClip('t1', 0, 2)] }, { clips: [filmClip('a', 0, 2), filmClip('b', 2, 2)] }] };
+  const tracks = [
+    track(0, [blockOf('t1', 0, 0, 0, 2000)], { role: 'mg' }),
+    track(1, [blockOf('a', 1, 0, 0, 2000), blockOf('b', 1, 1, 2000, 4000)], { role: 'video' }),
+  ];
+  const model = editModelOf(tracks);
+  /* the title pasted at 1 s over itself: a new title track opens above for the copy */
+  const title = pasteEdit(clipboardItemsOf([tracks[0]!.blocks[0]!], tracks), tracks, model, 1000, 'doc-0', { magnet: true, sync: false, linkage: true })!;
+  assert.deepEqual(spans(applyOps(structuredClone(film) as never, title as never) as unknown as Film), [[['t1-2', 1, null]], [['t1', 0, null]], [['a', 0, null], ['b', 2, null]]]);
+  /* at 3 s its own track is free: it goes there */
+  const free = pasteEdit(clipboardItemsOf([tracks[0]!.blocks[0]!], tracks), tracks, model, 3000, 'doc-0', { magnet: true, sync: false, linkage: true })!;
+  assert.deepEqual(spans(applyOps(structuredClone(film) as never, free as never) as unknown as Film)[0], [['t1', 0, null], ['t1-2', 3, null]]);
+  /* a shot pasted at 2 s on the main track goes in between and pushes b on; the title over a stays */
+  const shot = pasteEdit(clipboardItemsOf([tracks[1]!.blocks[0]!], tracks), tracks, model, 2000, 'doc-1', { magnet: true, sync: false, linkage: true })!;
+  assert.deepEqual(spans(applyOps(structuredClone(film) as never, shot as never) as unknown as Film), [[['t1', 0, null]], [['a', 0, null], ['a-2', 2, null], ['b', 4, null]]]);
+});
+
 test('copies of linked clips pasted together are linked to each other, not to the originals', () => {
   const tracks = [track(0, [blockOf('v', 0, 0, 0, 2000)]), track(1, [blockOf('s', 1, 0, 0, 2000), blockOf('t', 1, 1, 3000, 4000)])];
   const model = editModelOf(tracks, new Map([['v', 'v'], ['s', 'v'], ['t', 'x']]));

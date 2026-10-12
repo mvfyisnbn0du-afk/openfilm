@@ -1165,7 +1165,7 @@ export const en = {
     snapOn: 'On: snaps to edges, the playhead, and words',
     snapOff: 'Off: drops exactly where you let go',
     magnet: 'Main track magnet',
-    magnetOn: 'On: the main track (the lowest picture track) stays closed up. A clip put down there inserts, delete closes the gap, trims ripple. Other tracks: a clip put down overwrites, delete leaves a gap. Hold Alt while dropping for the other way',
+    magnetOn: 'On: the main track (the lowest picture track) stays closed up. A clip put down there inserts, delete closes the gap, trims ripple. Other tracks never cover a clip: one put where another is goes to a free track, and delete leaves a gap. Hold Alt while dropping for the other way',
     magnetOff: 'Off: the main track is like the others. A clip put down overwrites what is under it. Hold Alt while dropping to insert',
     linkage: 'Linkage',
     linkageOn: 'On: when clips on the main track move, the titles, B-roll and sound that start over them move along. A long clip under several shots (a music bed) stays',

@@ -1164,7 +1164,7 @@ export const es: Words = {
     snapOn: 'Activado: se ajusta a bordes, al cabezal de reproducción y a palabras',
     snapOff: 'Desactivado: se coloca justo donde lo sueltas',
     magnet: 'Imán de la pista principal',
-    magnetOn: 'Activado: la pista principal (la pista de imagen más baja) queda siempre sin huecos. Un clip soltado ahí se inserta, eliminar cierra el hueco, recortar desplaza. En las demás pistas un clip soltado sobrescribe y eliminar deja un hueco. Mantén Alt al soltar para lo contrario',
+    magnetOn: 'Activado: la pista principal (la pista de imagen más baja) queda siempre sin huecos. Un clip soltado ahí se inserta, eliminar cierra el hueco, recortar desplaza. En las demás pistas ningún clip tapa a otro: uno soltado donde ya hay otro pasa a una pista libre, y eliminar deja un hueco. Mantén Alt al soltar para lo contrario',
     magnetOff: 'Desactivado: la pista principal es como las demás. Un clip soltado sobrescribe lo que hay debajo. Mantén Alt al soltar para insertar',
     linkage: 'Vinculación',
     linkageOn: 'Activada: cuando se mueven clips de la pista principal, los títulos, el B-roll y el sonido que empiezan sobre ellos se mueven con ellos. Un clip largo bajo varias tomas (una música de fondo) se queda',

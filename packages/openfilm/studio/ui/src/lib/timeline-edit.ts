@@ -64,7 +64,7 @@ export type EditModel = readonly EditTrack[];
 export interface Follow { sync: boolean; linkage?: boolean }
 
 /** The main track: the lowest picture track (V1), film.html's last track that is not a sound track. */
-export function mainTrackOf(model: EditModel): number | null {
+export function mainTrackOf(model: readonly Pick<EditTrack, 'index' | 'role'>[]): number | null {
   const pictures = model.filter((t) => t.index >= 0 && t.role !== 'audio');
   return pictures.length ? Math.max(...pictures.map((t) => t.index)) : null;
 }
@@ -444,31 +444,23 @@ const overlap = (a: { startMs: number; endMs: number }, b: { startMs: number; en
 );
 
 /**
- * Clips linkage carried into another clip on their track go to another track: the one that moved goes, the one that
- * stayed stays. Where: the nearest unlocked track of their kind with room (above for a picture, below for a sound),
- * not the main track; else a new track opened beside theirs.
+ * Clips carried (linkage) or put (the magnet, off the main track) into another clip on their track go to another
+ * track: the one that moved goes, the one that stayed stays. Where: the nearest unlocked track of their kind with room
+ * (above for a picture, below for a sound), not the main track; else a new track opened beside theirs.
  */
 function settle(d: Draft): void {
   const main = mainTrackOf(d.tracks);
-  const moved = (c: EditClip): boolean => {
+  const moved = (c: EditClip, on: EditTrack): boolean => {
     const was = d.before.get(c.id);
-    return !was || Math.abs(was.clip.startMs - c.startMs) >= 0.5;
+    return !was || was.track !== on.index || Math.abs(was.clip.startMs - c.startMs) >= 0.5;
   };
-  const sound = (t: EditTrack) => t.role === 'audio';
   const relocate = (from: EditTrack, c: EditClip): void => {
-    const free = d.tracks
-      .filter((t) => t !== from && t.index >= 0 && t.index !== main && !t.locked && sound(t) === sound(from))
-      .filter((t) => !t.clips.some((x) => overlap(x, c)))
-      .sort((a, b) => {
-        const away = Math.abs(a.index - from.index) - Math.abs(b.index - from.index);
-        /* at the same distance: a picture goes up, a sound down */
-        return away || (sound(from) ? b.index - a.index : a.index - b.index);
-      })[0];
+    const free = nearestFree(d.tracks, from, c);
     if (free) {
       free.clips.push(c);
       return;
     }
-    const insert = sound(from) ? from.index + 1 : from.index;
+    const insert = newTrackBeside(from);
     d.opened.set(c.id, insert);
     let opened = d.tracks.find((t) => t.index === -1 - insert);
     if (!opened) {
@@ -486,7 +478,7 @@ function settle(d: Draft): void {
         kept.push(c);
         continue;
       }
-      const go = moved(c) || hits.some((h) => !moved(h)) ? [c] : hits;
+      const go = moved(c, t) || hits.some((h) => !moved(h, t)) ? [c] : hits;
       for (const x of go) {
         t.clips.splice(t.clips.indexOf(x), 1);
         if (kept.includes(x)) kept.splice(kept.indexOf(x), 1);
@@ -495,6 +487,44 @@ function settle(d: Draft): void {
       if (!go.includes(c)) kept.push(c);
     }
   }
+}
+
+/**
+ * The nearest unlocked track of the same kind as `from` (sound or picture) with `span` free, not the main track and
+ * not `from`: above for a picture, below for a sound at the same distance. Undefined when none has room.
+ */
+type Lane = Pick<EditTrack, 'index' | 'role' | 'locked'> & { clips: readonly { startMs: number; endMs: number }[] };
+function nearestFree<T extends Lane>(tracks: readonly T[], from: Lane, span: { startMs: number; endMs: number }): T | undefined {
+  const main = mainTrackOf(tracks);
+  const sound = (t: Lane) => t.role === 'audio';
+  return tracks
+    .filter((t) => t !== from && t.index >= 0 && t.index !== main && !t.locked && sound(t) === sound(from))
+    .filter((t) => !t.clips.some((x) => overlap(x, span)))
+    .sort((a, b) => {
+      const away = Math.abs(a.index - from.index) - Math.abs(b.index - from.index);
+      return away || (sound(from) ? b.index - a.index : a.index - b.index);
+    })[0];
+}
+
+/** Where a track opened for a clip that found no room goes: above a picture track, below a sound track. */
+const newTrackBeside = (from: Lane): number => (from.role === 'audio' ? from.index + 1 : from.index);
+
+/**
+ * Where a clip put on a track off the main track goes with the magnet, as CapCut's: covering nothing. That track
+ * when the time is free there, else the nearest free track of its kind (nearestFree), else a new track beside it.
+ * `taken`: what has been put already in the same edit (on existing tracks).
+ */
+export function freeTrackFor(
+  model: EditModel,
+  track: number,
+  span: { startMs: number; endMs: number },
+  taken: readonly { track: number; startMs: number; endMs: number }[] = [],
+): TrackDest {
+  const tracks: Lane[] = model.map((t) => ({ ...t, clips: [...t.clips, ...taken.filter((x) => x.track === t.index)] }));
+  const own = tracks.find((t) => t.index === track);
+  if (!own) return track;
+  if (!own.clips.some((c) => overlap(c, span))) return track;
+  return nearestFree(tracks, own, span)?.index ?? { insert: newTrackBeside(own) };
 }
 
 function planOf(d: Draft): EditPlan {
@@ -722,7 +752,9 @@ export interface MoveSpec {
   linkage?: boolean;
   /**
    * The main-track magnet. Given, the time clips leave on the main track closes up when it is on (wherever they land),
-   * and the time they leave on other tracks stays open; not given, an insert closes the time they leave everywhere.
+   * and the time they leave on other tracks stays open; an overwrite off the main track covers nothing then: a clip
+   * landing on another goes to a free track (settle), as CapCut's. Not given, an insert closes the time they leave
+   * everywhere and an overwrite covers what is there.
    */
   magnet?: boolean;
 }
@@ -818,7 +850,9 @@ export function planMove(model: EditModel, spec: MoveSpec): (EditPlan & { landMs
       continue;
     }
     const track = trackAt(d, dest)!;
-    if (spec.mode === 'overwrite') {
+    if (spec.mode === 'overwrite' && spec.magnet && dest !== mainIndex) {
+      d.settle = true;
+    } else if (spec.mode === 'overwrite') {
       clearLinked(d, [dest], c.startMs, c.endMs, hand);
       clearRange(d, track, c.startMs, c.endMs, hand);
     }

@@ -411,8 +411,9 @@ function LandingMark({ landing, pxPerMs }: { landing: DropLanding; pxPerMs: numb
 type AssetHint = AssetDropPreview & {
   /** Set only when snapped to another clip's edge: draws the snap guide. */
   snapGuideMs: number | null;
-  /** Onto a track: insert (pushing what follows on) or overwrite (cutting what is there). */
-  editMode: EditMode;
+  /** Onto a track: insert (pushing what follows on) or overwrite (cutting what is there); none: onto free time, or a
+      new track when it is taken. */
+  editMode: EditMode | undefined;
   /** Where the clips the drop pushes or cuts are drawn meanwhile, by block id; null: it goes. */
   ghosts: ReadonlyMap<string, { startMs: number; endMs: number } | null>;
 };
@@ -1852,10 +1853,16 @@ export const Timeline = React.memo(function Timeline({
     return snapped.target ? snapped : { ms: snapToFrame(raw), target: null };
   }, [allBlocks, pxPerMs, snap, snapPointsMs]);
 
-  /** How a drop from the media pane goes in: an insert on the main track with the magnet, else an overwrite (⌥: the other way). */
-  const dropModeAt = React.useCallback((hit: { lane: number; band: DropBand }, alt: boolean): EditMode => {
+  /**
+   * How a drop from the media pane goes in. On the main track with the magnet: an insert (⌥: an overwrite). Elsewhere
+   * with the magnet, as CapCut's: no edit, so it never covers a clip — a taken spot opens a new track (⌥: an
+   * overwrite). Without the magnet: an overwrite (⌥: an insert).
+   */
+  const dropModeAt = React.useCallback((hit: { lane: number; band: DropBand }, alt: boolean): EditMode | undefined => {
     const doc = hit.band === 'body' ? tracks[hit.lane]?.docIndex : undefined;
-    return magnetOn(modelRef.current, doc, prefsRef.current.magnet) !== alt ? 'insert' : 'overwrite';
+    const { magnet } = prefsRef.current;
+    if (magnet && !magnetOn(modelRef.current, doc, magnet)) return alt ? 'overwrite' : undefined;
+    return magnetOn(modelRef.current, doc, magnet) !== alt ? 'insert' : 'overwrite';
   }, [tracks]);
 
   /**
@@ -1873,7 +1880,7 @@ export const Timeline = React.memo(function Timeline({
     const docIndex = preview.lane != null ? tracks[preview.laneIndex]?.docIndex : undefined;
     const ghosts = new Map<string, { startMs: number; endMs: number } | null>();
     let startMs = preview.startMs;
-    if (docIndex != null && !preview.error && onEditOps) {
+    if (docIndex != null && !preview.error && onEditOps && editMode) {
       if (editMode === 'insert') startMs = insertPointOn(modelRef.current, docIndex, pointerMs, startMs);
       const plan = planRoom(modelRef.current, [{ track: docIndex, startMs, endMs: startMs + preview.endMs - preview.startMs }], { mode: editMode, ...followOf(prefsRef.current) });
       for (const [clipId, at] of plan.placed) {
@@ -3093,10 +3100,8 @@ export const Timeline = React.memo(function Timeline({
       nudge: (frames) => {
         const ids = picked().flatMap((b) => (b.clipId ? [b.clipId] : []));
         if (!ids.length) return;
-        /* on the main track with the magnet: into free time only, as nothing is overwritten there */
-        const m = modelRef.current;
-        const onMain = m.some((t) => magnetOn(m, t.index, prefsRef.current.magnet) && t.clips.some((c) => ids.includes(c.id)));
-        const plan = planNudge(m, ids, frames, { mode: onMain ? 'insert' : 'overwrite', ...followOf(prefsRef.current) });
+        /* with the magnet nothing is overwritten (on the main track or off it): into free time only */
+        const plan = planNudge(modelRef.current, ids, frames, { mode: prefsRef.current.magnet ? 'insert' : 'overwrite', ...followOf(prefsRef.current) });
         if (plan) void runPlan(plan, 'history.stepMove');
       },
       zoomFit: () => {

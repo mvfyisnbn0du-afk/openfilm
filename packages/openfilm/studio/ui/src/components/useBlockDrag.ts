@@ -419,9 +419,13 @@ export function useBlockDrag(opts: {
       const alongOwnTrack = grouped ? shift.ok && shift.delta === 0 : drop.action === 'stay';
       const wouldLand = { startMs: out.startMs + (flush?.shiftMs ?? 0), endMs: out.endMs + (flush?.shiftMs ?? 0) };
       const overlaps = alongOwnTrack && rangeOverlaps(wouldLand, singleLanes[homeLaneIndex]?.occupied ?? []);
-      /* the track it lands on: the magnet inserts on the main track only */
+      /* the track it lands on: the magnet inserts on the main track; elsewhere with the magnet it covers nothing (a clip
+         landing on another goes to a free track, see planMove), ⌥ inserting there */
       const landsOn = drop.action === 'move' ? drop.trackIndex : drop.action === 'insert' ? null : homeLane?.docIndex;
-      const editMode: EditMode = moveEditMode({ magnet: magnetOn(m, landsOn, p.magnet), alt: altNow, overlaps });
+      const onMain = magnetOn(m, landsOn, p.magnet);
+      const editMode: EditMode = p.magnet && !onMain
+        ? (altNow ? 'insert' : 'overwrite')
+        : moveEditMode({ magnet: onMain, alt: altNow, overlaps });
       const settle = editMode === 'overwrite' ? flush : null;
       const to = new Map<string, TrackDest>();
       if (drop.action === 'move') to.set(block.clipId!, drop.trackIndex);

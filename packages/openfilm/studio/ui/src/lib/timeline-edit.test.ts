@@ -277,6 +277,22 @@ test('with the magnet a clip taken off the main track closes it up, wherever it 
   assert.deepEqual(after(t, moved), [[['t2', 2, 3], ['t1', 3, 4]], [['a', 0, 4]]]);
 });
 
+test('with the magnet a clip let go on another off the main track covers nothing: it goes to a free track', () => {
+  /* two title tracks; t3 dragged onto t1's time on the lower one goes up to the free one */
+  const m = model({ role: 'mg', clips: [['t2', 4, 5]] }, { role: 'mg', clips: [['t1', 0, 2], ['t3', 3, 4]] }, { role: 'video', clips: [['a', 0, 6]] });
+  const plan = planMove(m, { ids: ['t3'], deltaMs: -2000, pointerMs: 1500, mode: 'overwrite', magnet: true, ...LINK })!;
+  assert.deepEqual(after(m, plan), [[['t3', 1, 2], ['t2', 4, 5]], [['t1', 0, 2]], [['a', 0, 6]]]);
+  /* no room anywhere: a new track above */
+  const full = model({ role: 'mg', clips: [['t1', 0, 2], ['t3', 3, 4]] }, { role: 'video', clips: [['a', 0, 6]] });
+  const opened = planMove(full, { ids: ['t3'], deltaMs: -2000, pointerMs: 1500, mode: 'overwrite', magnet: true, ...LINK })!;
+  assert.deepEqual(after(full, opened), [[['t3', 1, 2]], [['t1', 0, 2]], [['a', 0, 6]]]);
+  /* moved onto another track at the same time, onto a clip there: it is the one that goes, not the one there */
+  const across = model({ role: 'mg', clips: [['x', 1, 3]] }, { role: 'mg', clips: [['y', 0.5, 1.5]] }, { role: 'video', clips: [['a', 0, 6]] });
+  const moved = planMove(across, { ids: ['y'], deltaMs: 0, pointerMs: 1000, to: new Map([['y', 0]]), mode: 'overwrite', magnet: true, ...LINK })!;
+  assert.deepEqual(after(across, moved).flat().find(([id]) => id === 'x'), ['x', 1, 3]);
+  assert.deepEqual(after(across, moved)[0], [['x', 1, 3]]);
+});
+
 test('with linkage closing a gap on the main track always closes it whole', () => {
   const m = film([['t', 3, 4]], [['a', 0, 2], ['b', 3, 5]], [['bed', 0, 9]]);
   const gap = gapAt(m, 1, 2500)!;
