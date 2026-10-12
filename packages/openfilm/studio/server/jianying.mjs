@@ -20,6 +20,9 @@
  *     plays twice. Other sounds are audio clips, their fades 剪映's own fades.
  *   · A hidden track's clips come hidden, a muted track's sounds muted, one click from back on.
  *   · Subtitles are text clips on a track of their own, white with a dark edge, low in the picture.
+ *   · Each file is in the draft's media library (draft_meta_info.json `draft_materials`, group 0, what the app lists
+ *     under its media panel), and each material names its entry there (`local_material_id`): without it the app
+ *     lists none of them and finds a video by nothing but its path.
  */
 import { randomUUID } from 'node:crypto';
 import { join } from 'node:path';
@@ -94,6 +97,23 @@ export function jianyingDraft(timeline, opts) {
   const materials = Object.fromEntries(MATERIAL_KINDS.map((k) => [k, []]));
   /** @type {Map<string, string>} one material a file, however many clips use it */
   const materialOf = new Map();
+  /** @type {Record<string, unknown>[]} the media library: one entry a file */
+  const library = [];
+  /** @type {Map<string, string>} a file's entry in the library, by its path */
+  const entryOf = new Map();
+  const register = (/** @type {NleFile} */ file, /** @type {'video' | 'photo' | 'music'} */ kind, /** @type {string} */ name) => {
+    const known = entryOf.get(file.path);
+    if (known) return known;
+    const id = randomUUID().toUpperCase();
+    library.push({
+      ai_group_type: '', create_time: -1, duration: kind === 'photo' ? 5_000_000 : us(file.durationFrames), enter_from: 0,
+      extra_info: name, file_Path: file.path, height: file.video?.h ?? 0, id, import_time: -1, import_time_ms: -1, item_source: 1,
+      material_color_tag: '', md5: '', metetype: kind, roughcut_time_range: { duration: -1, start: -1 },
+      sub_time_range: { duration: -1, start: -1 }, type: 0, width: file.video?.w ?? 0,
+    });
+    entryOf.set(file.path, id);
+    return id;
+  };
 
   const material = (/** @type {NleFile} */ file, /** @type {'video' | 'audio'} */ media) => {
     const key = `${media}:${file.id}`;
@@ -108,12 +128,14 @@ export function jianyingDraft(timeline, opts) {
         crop: { upper_left_x: 0, upper_left_y: 0, upper_right_x: 1, upper_right_y: 0, lower_left_x: 0, lower_left_y: 1, lower_right_x: 1, lower_right_y: 1 },
         crop_ratio: 'free', crop_scale: 1, duration: still ? PHOTO_US : us(file.durationFrames),
         height: file.video?.h ?? timeline.height, width: file.video?.w ?? timeline.width,
-        id, local_material_id: '', material_id: id, material_name: name, media_path: '', path: file.path, type: still ? 'photo' : 'video',
+        id, local_material_id: register(file, still ? 'photo' : 'video', name), material_id: id, material_name: name, media_path: '',
+        path: file.path, type: still ? 'photo' : 'video',
       });
     } else {
       materials.audios.push({
         app_id: 0, category_id: '', category_name: 'local', check_flag: 3, copyright_limit_type: 'none',
-        duration: us(file.durationFrames), effect_id: '', formula_id: '', id, local_material_id: id, music_id: id, name, path: file.path,
+        duration: us(file.durationFrames), effect_id: '', formula_id: '', id, local_material_id: register(file, 'music', name), music_id: id,
+        name, path: file.path,
         source_platform: 0, type: 'extract_music', wave_points: [],
       });
     }
@@ -258,7 +280,7 @@ export function jianyingDraft(timeline, opts) {
     draft_enterprise_info: { draft_enterprise_extra: '', draft_enterprise_id: '', draft_enterprise_name: '', enterprise_material: [] },
     draft_fold_path: opts.folder, draft_id: draftId, draft_is_ai_packaging_used: false, draft_is_ai_shorts: false,
     draft_is_ai_translate: false, draft_is_article_video_draft: false, draft_is_from_deeplink: 'false', draft_is_invisible: false,
-    draft_materials: [0, 1, 2, 3, 6, 7, 8].map((type) => ({ type, value: [] })), draft_materials_copied_info: [],
+    draft_materials: [0, 1, 2, 3, 6, 7, 8].map((type) => ({ type, value: type === 0 ? library : [] })), draft_materials_copied_info: [],
     draft_name: opts.name, draft_new_version: '', draft_removable_storage_device: '', draft_root_path: opts.root,
     draft_segment_extra_info: [], draft_type: '', tm_draft_cloud_completed: '', tm_draft_cloud_modified: 0,
     tm_draft_create: now * 1000, tm_draft_modified: now * 1000, tm_draft_removed: 0, tm_duration: duration,

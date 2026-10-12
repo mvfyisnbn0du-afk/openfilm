@@ -105,3 +105,21 @@ test('a draft says which app wrote it: 剪映 or CapCut', () => {
   assert.equal(cc.platform.app_source, 'cc');
   assert.deepEqual(cc.last_modified_platform, cc.platform);
 });
+
+test('each file is in the draft\'s media library, once, and each material names its entry', () => {
+  const { info, meta } = jianyingDraft(plan(), { name: 'Film', folder: '/d/Film', root: '/d' });
+  const library = meta.draft_materials.find((g) => g.type === 0).value;
+  const files = [...info.materials.videos, ...info.materials.audios];
+  assert.equal(library.length, new Set(files.map((m) => m.path)).size, 'one entry a file');
+  for (const m of files) {
+    const entry = library.find((e) => e.id === m.local_material_id);
+    assert.ok(entry, `${m.path} is in the library`);
+    assert.equal(entry.file_Path, m.path);
+  }
+  const kinds = Object.fromEntries(library.map((e) => [e.file_Path.split('/').pop(), e.metetype]));
+  assert.equal(kinds['bed fade.wav'], 'music', 'the bed, its fade its own part');
+  assert.equal(kinds['b.png'], 'photo');
+  assert.equal(Object.values(kinds).filter((k) => k === 'video').length, 2, 'the page rendered and the footage');
+  const shot = library.find((e) => e.file_Path.endsWith('a.mp4'));
+  assert.deepEqual([shot.width, shot.height, shot.duration], [960, 540, 10_000_000]);
+});
