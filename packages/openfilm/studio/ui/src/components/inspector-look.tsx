@@ -17,7 +17,7 @@ import type { useT } from '@/i18n';
 import {
   ADJUST_KEYS, BLEND_MODES, FADE_DEFAULT, INNER_SHADOW_DEFAULT, PLACED_STROKE_DEFAULT, SHADOW_DEFAULT, adjustOf, backdropBlurCss,
   backdropBlurOf, cropCss, cropForRatio, cropOf, cropRatio, filterParts, framingCss, framingOf, innerShadowCss, innerShadowOf,
-  ownedDeclaration, placedStrokeCss, placedStrokeOf, pxOf, shadowOf, strokeOf, withAdjust, withShadow, type AdjustKey, type Crop, type Fade,
+  ownedDeclaration, placedStrokeCss, placedStrokeOf, pxOf, radiusCorners, shadowOf, strokeOf, withAdjust, withShadow, type AdjustKey, type Crop, type Fade,
   type FadeSide, type InnerShadow, type PlacedStroke, type Shadow, type StrokePosition, type StrokeStyle,
 } from '@/lib/clip-look';
 import {
@@ -246,7 +246,9 @@ export function CropSection({
             { value: 'cover', label: t('inspector.fitCover') },
             { value: 'fill', label: t('inspector.fitFill') },
           ]}
-          onChange={(v) => look.commit(() => ({ 'object-fit': v === 'contain' ? null : v }))}
+          /* said outright: "none of mine" on a picture in a page brings back the page's own, which for an <img> is
+             stretched (CSS's fill) */
+          onChange={(v) => look.commit(() => ({ 'object-fit': v }))}
         />
       ) : null}
       {cropUnreadable === false ? (
@@ -511,7 +513,8 @@ type Corner = (typeof CORNERS)[number];
  * box's own corners away, so it carries the same roundness (one for all: a crop's shape rounds its corners alike).
  */
 function RadiusField({ look, t }: { look: Look; t: T }) {
-  const cornerOf = (read: LookRead, c: Corner) => pxOf(read(`border-${c}-radius`)) ?? pxOf(read('border-radius')) ?? 0;
+  /* the shorthand, as written or as the page draws it */
+  const cornerOf = (read: LookRead, c: Corner) => radiusCorners(read('border-radius'))[CORNERS.indexOf(c)]!;
   const corners = look.common((read) => CORNERS.map((c) => cornerOf(read, c)).join(' '));
   const uneven = corners !== MIXED && new Set(corners.split(' ')).size > 1;
   const [each, setEach] = React.useState(uneven);
@@ -521,16 +524,12 @@ function RadiusField({ look, t }: { look: Look; t: T }) {
   const allEdit = (apply: FieldApply): LookEdit => (read) => {
     const r = Math.max(0, round(apply(cornerOf(read, 'top-left'))));
     const crop = cropped(read);
-    return {
-      'border-radius': r > 0 ? `${r}px` : null,
-      ...Object.fromEntries(CORNERS.map((c) => [`border-${c}-radius`, null])),
-      ...(crop ? { 'clip-path': cropCss(crop, r) } : {}),
-    };
+    return { 'border-radius': r > 0 ? `${r}px` : null, ...(crop ? { 'clip-path': cropCss(crop, r) } : {}) };
   };
   const cornerEdit = (corner: Corner, apply: FieldApply): LookEdit => (read) => {
     const now = CORNERS.map((c) => cornerOf(read, c));
     now[CORNERS.indexOf(corner)] = Math.max(0, round(apply(now[CORNERS.indexOf(corner)]!)));
-    return { 'border-radius': now.every((v) => v === 0) ? null : now.map((v) => `${v}px`).join(' '), ...Object.fromEntries(CORNERS.map((c) => [`border-${c}-radius`, null])) };
+    return { 'border-radius': now.every((v) => v === 0) ? null : now.map((v) => `${v}px`).join(' ') };
   };
   const bind = (edit: (apply: FieldApply) => LookEdit) => ({
     onPreview: (_: number, apply: FieldApply) => look.preview(edit(apply)),
@@ -652,7 +651,8 @@ export function FillSection({ look, t, fills, add }: {
             />
           </div>
           {f.removable ? (
-            <SectionAction label={t('inspector.fillRemove')} onClick={() => look.commit(() => ({ [f.prop]: null }))}><Minus size={12} /></SectionAction>
+            /* see-through, not "none of mine": that would bring back the page's own fill */
+            <SectionAction label={t('inspector.fillRemove')} onClick={() => look.commit(() => ({ [f.prop]: 'transparent' }))}><Minus size={12} /></SectionAction>
           ) : null}
         </div>
       ))}
@@ -708,7 +708,11 @@ export function StrokeSection({ look, t }: { look: Look; t: T }) {
             <SelectField
               label={t('inspector.strokePosition')}
               value={look.common((read) => placedStrokeOf(read)?.position ?? 'inside')}
-              options={(['inside', 'center', 'outside'] as const).map((p) => ({ value: p, label: t(`inspector.strokePositions.${p}`) }))}
+              /* a mask or a crop cuts away all that is past the edge: only inside is drawn whole there (a stroke placed
+                 otherwise before shows where it is, to be moved inside) */
+              options={(['inside', 'center', 'outside'] as const)
+                .filter((p) => cut === false || p === 'inside' || p === position)
+                .map((p) => ({ value: p, label: t(`inspector.strokePositions.${p}`) }))}
               onCommit={(v) => look.commit(edit({ position: v as StrokePosition }))}
             />
             <NumField

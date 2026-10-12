@@ -1053,7 +1053,8 @@ function LayerPanel({
           ...(kind === 'text' ? [{ prop: svgText ? 'fill' : 'color', label: svgText ? t('inspector.fill') : t('inspector.color') }] : []),
           ...(textFilled ? [{ prop: bgProp, label: t('inspector.background'), removable: true }] : []),
           ...(kind === 'box' && style.backgroundColor != null ? [{ prop: bgProp, label: t('inspector.fill'), removable: true }] : []),
-          ...(kind === 'shape' && declaredKeys.has('fill') ? [{ prop: 'fill', label: t('inspector.fill') }] : []),
+          /* a shape's fill, as its CSS or its own fill="" attribute paints it */
+          ...(kind === 'shape' && (style.fill != null || declaredKeys.has('fill')) ? [{ prop: 'fill', label: t('inspector.fill') }] : []),
         ]}
         add={kind === 'box' && style.backgroundColor == null ? { prop: bgProp, label: t('inspector.fill'), value: '#ffffff' } : null}
       />
@@ -1492,6 +1493,12 @@ function TimingSection({ t, block, onMain, commit }: { t: T; block: TimelineBloc
     step: 1 / fps,
     ...(timecode ? { format: (s: number) => formatTimecode(s * 1000) } : { unit: 's' }),
   };
+  /* the clip keeps its length, so the in point goes as far as the source left after the clip: further, its end would
+     pass the end of the file. A clip that plays all of its file has nowhere to slip. */
+  const inMax = trimFrom == null ? 0 : block.room?.tailMs != null
+    ? round3(trimFrom + (block.room.tailMs / 1000) * k)
+    : round3(Math.max(0, trimFrom + durSec * k - 0.01));
+  const wholeFile = trimFrom != null && trimFrom <= 0 && inMax <= 0;
   const slipTo = (n: number) => {
     /* the in point slips the source, it does not change the length: the clip stays where and as long as it is */
     const span = durSec * k;
@@ -1565,11 +1572,8 @@ function TimingSection({ t, block, onMain, commit }: { t: T; block: TimelineBloc
             prefix={<Scissors size={11} />}
             value={round3(trimFrom)}
             min={0}
-            /* the clip keeps its length, so the in point goes as far as the source left after the clip: further, its
-               end would pass the end of the file */
-            max={block.room?.tailMs != null
-              ? round3(trimFrom + (block.room.tailMs / 1000) * k)
-              : round3(Math.max(0, trimFrom + durSec * k - 0.01))}
+            max={inMax}
+            disabled={wholeFile}
             {...time}
             onCommit={slipTo}
           />
@@ -1591,6 +1595,11 @@ function TimingSection({ t, block, onMain, commit }: { t: T; block: TimelineBloc
             />
           ) : <span />}
         </Row>
+      ) : null}
+      {wholeFile ? (
+        <p data-in-point-limit="" className="px-0.5 text-[10.5px] leading-snug text-[var(--text-faint)]">
+          {t('inspector.inPointWhole')}
+        </p>
       ) : null}
       {/* why it cannot get slower: the next clip; the magnet would push it along instead */}
       {trimFrom != null && canSpeed && !magnet && minSpeed > FILM_SPEED_MIN ? (

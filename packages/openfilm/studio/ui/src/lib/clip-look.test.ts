@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
   adjustOf, cropCss, cropForRatio, cropOf, cropRatio, declared, fadeCss, fadeOf, framingCss, framingOf, ownedDeclaration, shadowOf,
-  backdropBlurCss, backdropBlurOf, innerShadowCss, innerShadowOf, placedStrokeCss, placedStrokeOf, strokeCss, strokeOf, withAdjust, withDeclarations, withShadow,
+  backdropBlurCss, backdropBlurOf, innerShadowCss, innerShadowOf, placedStrokeCss, placedStrokeOf, radiusCorners, strokeCss, strokeOf, withAdjust, withDeclarations, withShadow,
 } from './clip-look.ts';
 
 test('a clip\'s own CSS: each control writes its properties, the rest stays as it was', () => {
@@ -120,4 +120,13 @@ test('an inner shadow is one inset box-shadow; a background blur is backdrop-fil
   assert.equal(backdropBlurOf('blur(8px) saturate(2)'), null);
   assert.equal(backdropBlurCss(0), null);
   assert.equal(backdropBlurCss(12.34), 'blur(12.3px)');
+});
+
+test('corners from the border-radius shorthand: one to four lengths, filled in as CSS does', () => {
+  assert.deepEqual(radiusCorners(undefined), [0, 0, 0, 0]);
+  assert.deepEqual(radiusCorners('20px'), [20, 20, 20, 20]);
+  assert.deepEqual(radiusCorners('4px 20px'), [4, 20, 4, 20]);
+  assert.deepEqual(radiusCorners('4px 20px 8px'), [4, 20, 8, 20]);
+  assert.deepEqual(radiusCorners('4px 20px 20px 20px'), [4, 20, 20, 20]);
+  assert.deepEqual(radiusCorners('10px 5px / 2px'), [10, 5, 10, 5]);
 });

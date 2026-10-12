@@ -43,6 +43,16 @@ export function pxOf(v: string | number | undefined): number | undefined {
   return m ? Number(m[1]) : undefined;
 }
 
+/**
+ * The four corners of a `border-radius` shorthand in px (top left, top right, bottom right, bottom left): 1 to 4
+ * lengths, the missing ones filled in as CSS does; the vertical radii after `/` are not read.
+ */
+export function radiusCorners(v: string | undefined): [number, number, number, number] {
+  const parts = (v ?? '0').split('/')[0]!.trim().split(/\s+/).map((w) => pxOf(w) ?? 0);
+  const [tl = 0, tr = tl, br = tl, bl = tr] = parts;
+  return [tl, tr, br, bl];
+}
+
 /* ───────────── crop: clip-path inset ───────────── */
 
 /** A crop: how much of each edge is cut away, in % of the box (top, right, bottom, left). */

@@ -167,7 +167,12 @@
   const paints = (cs) => !transparent(cs.backgroundColor)
     || (cs.backgroundImage && cs.backgroundImage !== 'none')
     || (Number.parseFloat(cs.borderTopWidth) > 0 && !transparent(cs.borderTopColor))
-    || (cs.boxShadow && cs.boxShadow !== 'none');
+    || (cs.boxShadow && cs.boxShadow !== 'none')
+    || (Number.parseFloat(cs.outlineWidth) > 0 && cs.outlineStyle !== 'none' && !transparent(cs.outlineColor))
+    || (cs.backdropFilter && cs.backdropFilter !== 'none');
+  /** Whether the person changed how it looks in Studio (an override's style is written with priority): theirs to
+      select again, though it paints nothing now (its fill taken off) */
+  const restyled = (el) => [...el.style].some((p) => el.style.getPropertyPriority(p) === 'important');
 
   /** text, image, shape or box; null for an empty shell (a click there goes to what is under it). */
   const kindOf = (el) => {
@@ -175,7 +180,7 @@
     const byTag = tagKind(el.localName.toLowerCase());
     if (byTag) return byTag;
     if (el.namespaceURI !== SVG_NS && textOf(el)) return 'text';
-    return paints(css(el)) ? 'box' : null;
+    return paints(css(el)) || restyled(el) ? 'box' : null;
   };
 
   const angleDeg = (raw) => {
@@ -394,13 +399,11 @@
   /* styles the inspector shows per kind (computed: a page states none as source keys) */
   const TEXT_STYLE_KEYS = ['fontFamily', 'fontWeight', 'fontStyle', 'fontSize', 'lineHeight', 'letterSpacing', 'textAlign', 'color', 'opacity'];
   const SVG_TEXT_STYLE_KEYS = ['fontFamily', 'fontWeight', 'fontStyle', 'fontSize', 'letterSpacing', 'fill', 'opacity'];
-  /* a box's corners one by one (Figma's independent corners) */
-  const CORNER_KEYS = ['borderTopLeftRadius', 'borderTopRightRadius', 'borderBottomRightRadius', 'borderBottomLeftRadius'];
   const KIND_STYLE_KEYS = {
     text: [...TEXT_STYLE_KEYS, 'textTransform', 'textDecorationLine'],
-    image: ['opacity', 'borderRadius', ...CORNER_KEYS, 'objectFit', 'objectPosition', 'clipPath'],
-    shape: ['opacity'],
-    box: ['backgroundColor', 'borderRadius', ...CORNER_KEYS, 'opacity', 'clipPath', 'boxShadow'],
+    image: ['opacity', 'borderRadius', 'objectFit', 'objectPosition', 'clipPath'],
+    shape: ['opacity', 'fill'],
+    box: ['backgroundColor', 'borderRadius', 'opacity', 'clipPath', 'boxShadow'],
   };
   /* the look every kind shows (blend, adjustments and shadow, stroke, faded edges, what is behind blurred): as the
      page draws it, its CSS's or its own */
@@ -461,13 +464,16 @@
     const cs = css(el);
     let keys = [...(kind === 'text' && isSvgText(el) ? SVG_TEXT_STYLE_KEYS : KIND_STYLE_KEYS[kind]), ...LOOK_STYLE_KEYS];
     /* a line with its own fill (a badge, a tag) is a box too */
-    if (kind === 'text' && paints(cs)) keys.push('backgroundColor', 'borderRadius', ...CORNER_KEYS, 'boxShadow');
+    if (kind === 'text' && paints(cs)) keys.push('backgroundColor', 'borderRadius', 'boxShadow');
     keys = [...new Set(keys)];
     for (const key of keys) {
       if (key === 'backgroundColor' && transparent(cs.backgroundColor)) continue;
       if (key === 'objectFit') { const fit = own(el, 'object-fit') || cs.objectFit; if (fit) style[key] = fit; continue; }
       if (key === 'borderRadius') {
         const mine = own(el, 'border-radius');
+        /* four corners not alike: all four, as the shorthand writes them (top left, top right, bottom right, left) */
+        const corners = [cs.borderTopLeftRadius, cs.borderTopRightRadius, cs.borderBottomRightRadius, cs.borderBottomLeftRadius];
+        if (!mine && new Set(corners).size > 1 && corners.every((c) => pxNumber(c) != null)) { style[key] = corners.join(' '); continue; }
         const n = pxNumber(mine || cs.borderTopLeftRadius);
         if (n != null) style[key] = n; else if (mine) style[key] = mine;
         continue;

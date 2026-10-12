@@ -869,6 +869,7 @@ export const zhCN: Words = {
     at: '开始',
     duration: '时长',
     inPoint: '入点',
+    inPointWhole: '片段已经播放整个文件。先缩短它，才能移动入点。',
     speed: '速度',
     speedLimit: '慢于 {n}× 会碰到后一个片段。在主轨上，打开时间线的主轨磁吸就会把后面的片段往后推。',
     speedTooSlow: '慢于 {n}× 会碰到同一轨上的后一个片段。',
