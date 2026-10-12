@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { expandWindowsVars, parseRegQuery, windowsFreshPath } from './environment.mjs';
+import { environmentCache, expandWindowsVars, parseRegQuery, windowsFreshPath } from './environment.mjs';
 
 const PROFILE = ['C:', 'Users', 'someone'].join('\\');
 
@@ -36,4 +36,36 @@ test("the PATH a program started now gets: the system's, the person's (with thei
     'C:\\Users\\someone\\AppData\\Local\\Microsoft\\WindowsApps', 'C:\\Users\\someone\\AppData\\Local\\nvm', 'C:\\nvm4w\\nodejs', 'C:\\Users\\someone\\AppData\\Roaming\\npm',
     'C:\\Old\\stale',
   ].join(';'));
+});
+
+test('the environment is read again once it is old, sooner when asked; a failed read keeps the last good one', async () => {
+  let clock = 0;
+  const reads = [];
+  let next = { PATH: '/a' };
+  const cache = environmentCache(async () => { reads.push(clock); return next; }, { forMs: 60_000, fallback: () => ({ PATH: '/fallback' }), now: () => clock });
+  assert.deepEqual(await cache(), { PATH: '/a' });
+  next = { PATH: '/a:/b' };
+  clock = 30_000;
+  assert.deepEqual(await cache(), { PATH: '/a' }, 'still fresh');
+  assert.deepEqual(await cache({ maxAgeMs: 10_000 }), { PATH: '/a:/b' }, 'the agents\' list wants it newer');
+  clock = 100_000;
+  assert.deepEqual(await cache({ maxAgeMs: 120_000 }), { PATH: '/a:/b' }, 'a caller cannot make it older than its own limit');
+  assert.equal(reads.length, 3);
+  next = null;
+  clock = 200_000;
+  assert.deepEqual(await cache(), { PATH: '/a:/b' }, 'the shell failed: the last one read');
+  const empty = environmentCache(async () => null, { forMs: 1000, fallback: () => ({ PATH: '/fallback' }), now: () => 0 });
+  assert.deepEqual(await empty(), { PATH: '/fallback' });
+});
+
+test('reads going on at once are one read', async () => {
+  let count = 0;
+  let clock = 0;
+  const cache = environmentCache(() => new Promise((done) => { count++; setTimeout(() => done({ PATH: '/x' }), 5); }), { forMs: 1000, fallback: () => ({}), now: () => clock });
+  const first = cache();
+  clock = 5000;
+  const second = cache({ maxAgeMs: 0 });
+  assert.equal(first, second);
+  await Promise.all([first, second]);
+  assert.equal(count, 1);
 });

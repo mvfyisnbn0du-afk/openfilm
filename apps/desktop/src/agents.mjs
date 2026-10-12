@@ -226,7 +226,7 @@ async function inWsl(names) {
 export async function diagnoseAgent(id, { appVersion = '' } = {}) {
   const spec = AGENTS[id];
   if (!spec) return null;
-  const shell = await loginShellEnvironment();
+  const shell = await loginShellEnvironment({ maxAgeMs: 0 });
   const slow = await windowsSlowSearch({ fresh: true });
   const pathDirs = shell.PATH.split(PATH_SEP);
   const found = resolveAgentCli(id, { pathDirs });
@@ -348,7 +348,8 @@ export async function openAgentSignIn(id) {
  * here but has not downloaded Claude Code yet (opening its Code tab does).
  */
 export async function listAgents() {
-  const pathDirs = (await loginShellEnvironment()).PATH.split(PATH_SEP);
+  /* looked at as the person comes back from installing one: a PATH from a few seconds ago at most */
+  const pathDirs = (await loginShellEnvironment({ maxAgeMs: 10_000 })).PATH.split(PATH_SEP);
   /* one not found the quick way: the slower search (Windows), then all of them again; waited for a few seconds at
      most, what it finds later is there on the next look */
   if (windows && Object.keys(AGENTS).some((id) => !resolveAgentCli(id, { pathDirs }))) {

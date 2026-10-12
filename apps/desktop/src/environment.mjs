@@ -6,9 +6,11 @@
  * ANTHROPIC_BASE_URL and the like, which an agent started here would wrongly inherit. Opened from the Dock, it has
  * only PATH=/usr/bin:/bin:/usr/sbin:/sbin, where neither Homebrew's ffmpeg nor the person's `claude` can be found.
  * Both get the same answer: the OS identity variables, plus the PATH (and proxies, and where the agents keep their
- * sign-in) of the person's login shell. On Windows there is no login shell: a program started from the Start menu
- * has the person's own PATH already, so that is kept (with the Windows system variables a program needs). Reads no
- * Electron module, so `node --test` can use it.
+ * sign-in) of the person's login shell. On Windows there is no login shell, and the PATH a program inherits from
+ * Explorer can be old (what an installer added since the person signed in is missing): the PATH is read where Windows
+ * keeps it now, the registry (with the Windows system variables a program needs). Either is read again while the app
+ * runs, so an agent installed meanwhile is found without restarting it. Reads no Electron module, so `node --test`
+ * can use it.
  */
 import { spawn } from 'node:child_process';
 import { homedir, userInfo } from 'node:os';
@@ -158,37 +160,62 @@ function regQuery(key, timeoutMs) {
 let pathSource = null;
 export const lastPathSource = () => pathSource;
 
-/** Windows asked again after this long: a program installed meanwhile is found without restarting the app. */
-const WINDOWS_ENV_FOR_MS = 5000;
-let windowsCache = null;
-
-function windowsEnvironment(source, timeoutMs) {
-  if (windowsCache && Date.now() - windowsCache.at < WINDOWS_ENV_FOR_MS) return windowsCache.value;
-  const value = (async () => {
-    const [machine, user] = await Promise.all([regQuery(REG_MACHINE, timeoutMs), regQuery(REG_USER, timeoutMs)]);
-    pathSource = machine || user ? 'registry' : 'process';
-    /* the person's own variables (proxies, CODEX_HOME) as they are now, over the system's */
-    return shellSubset({ ...machine, ...user, PATH: windowsFreshPath({ machine: machine ?? {}, user: user ?? {}, source }) }, homedir());
-  })().catch(() => { pathSource = 'process'; return { PATH: mergePath(pathOf(source), homedir()) }; });
-  windowsCache = { at: Date.now(), value };
-  return value;
+/**
+ * An environment read again once it is older than `forMs` (or than a caller's `maxAgeMs`, when that is less), so a
+ * program installed while the app runs is found without restarting it. A read already going is shared; one that
+ * fails (null) keeps the last good one, or `fallback()` when there is none.
+ * @param {() => Promise<Record<string, string> | null>} read
+ * @param {{ forMs: number, fallback: () => Record<string, string>, now?: () => number }} o
+ */
+export function environmentCache(read, { forMs, fallback, now = Date.now }) {
+  let at = -Infinity;
+  let value = null;
+  let reading = false;
+  return ({ maxAgeMs = forMs } = {}) => {
+    if (value && (reading || now() - at <= Math.min(maxAgeMs, forMs))) return value;
+    const last = value;
+    at = now();
+    reading = true;
+    value = Promise.resolve().then(read).catch(() => null)
+      .then(async (env) => env ?? (last ? await last : fallback()))
+      .finally(() => { reading = false; });
+    return value;
+  };
 }
 
-let loginShellCache = null;
+/** The registry's environment (Windows): null when neither part of it could be read. */
+async function readRegistry(source, timeoutMs) {
+  const [machine, user] = await Promise.all([regQuery(REG_MACHINE, timeoutMs), regQuery(REG_USER, timeoutMs)]);
+  if (!machine && !user) return null;
+  pathSource = 'registry';
+  /* the person's own variables (proxies, CODEX_HOME) as they are now, over the system's */
+  return shellSubset({ ...machine, ...user, PATH: windowsFreshPath({ machine: machine ?? {}, user: user ?? {}, source }) }, homedir());
+}
+
+/** The login shell's subset: null when it gave no PATH (it failed, or took too long). */
+async function readLoginShell(source, timeoutMs) {
+  const base = osEnvironment(source);
+  const parsed = parseEnvDump(base.SHELL ? await captureLoginShell(base.SHELL, { ...base, PATH: BASE_PATH }, timeoutMs) : null);
+  if (!parsed.PATH) return null;
+  pathSource = 'login shell';
+  return shellSubset(parsed, base.HOME);
+}
+
+let shellCache = null;
 /**
- * The login shell's subset (`shellSubset`), asked once per process (on Windows, the registry's, asked again every few
- * seconds). Never rejects: on failure, the fallback PATH.
+ * The login shell's subset (`shellSubset`); on Windows, the registry's. Read again after a minute (Windows: a few
+ * seconds), or sooner for a caller that asks (`maxAgeMs`: the agents' list, which is looked at again as the person
+ * comes back from installing one). Never rejects: on failure, the last one read, else the fallback PATH.
  */
-export function loginShellEnvironment({ source = process.env, timeoutMs = 5000 } = {}) {
-  if (windows) return windowsEnvironment(source, timeoutMs);
-  loginShellCache ??= (async () => {
-    const base = osEnvironment(source);
-    const dump = base.SHELL ? await captureLoginShell(base.SHELL, { ...base, PATH: BASE_PATH }, timeoutMs) : null;
-    const parsed = parseEnvDump(dump);
-    pathSource = parsed.PATH ? 'login shell' : 'fallback';
-    return shellSubset(parsed, base.HOME);
-  })().catch(() => { pathSource = 'fallback'; return { PATH: mergePath('', homedir()) }; });
-  return loginShellCache;
+export function loginShellEnvironment({ source = process.env, timeoutMs = 5000, maxAgeMs } = {}) {
+  shellCache ??= environmentCache(() => (windows ? readRegistry(source, timeoutMs) : readLoginShell(source, timeoutMs)), {
+    forMs: windows ? 5000 : 60_000,
+    fallback: () => {
+      pathSource = windows ? 'process' : 'fallback';
+      return { PATH: mergePath(windows ? pathOf(source) : '', homedir()) };
+    },
+  });
+  return shellCache(maxAgeMs === undefined ? {} : { maxAgeMs });
 }
 
 /** What scripts/start.mjs passes on to Electron besides the OS identity: this app's own switches. */
