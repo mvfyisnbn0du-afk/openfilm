@@ -12,6 +12,7 @@ import {
   magnetOn,
   mainTrackOf,
   planCloseGap,
+  planCloseMainGaps,
   planEdges,
   planLink,
   planMove,
@@ -312,6 +313,14 @@ test('with linkage closing a gap on the main track always closes it whole', () =
   /* a gap on a title track closes on that track alone */
   const g2 = gapAt(m, 0, 1000)!;
   assert.deepEqual(after(m, planCloseGap(m, 0, g2, LINK)), [[['t', 0, 1]], [['a', 0, 2], ['b', 3, 5]], [['bed', 0, 9]]]);
+});
+
+test('turning the magnet on closes up the main track, before its first clip too, carrying what rides on it', () => {
+  const m = film([['t', 6, 7]], [['a', 1, 3], ['b', 5, 8]], [['bed', 0, 9]]);
+  const plan = planCloseMainGaps(m, LINK);
+  assert.deepEqual(after(m, plan), [[['t', 3, 4]], [['a', 0, 2], ['b', 2, 5]], [['bed', 0, 9]]]);
+  assert.deepEqual(planCloseMainGaps(film([], [['a', 0, 2], ['b', 2, 4]]), LINK).ops, [], 'closed up already');
+  assert.deepEqual(planCloseMainGaps(model({ role: 'video', locked: true, clips: [['a', 1, 2]] }), LINK).ops, [], 'locked');
 });
 
 test('with linkage a slower main-track clip pushes what comes after on every track', () => {

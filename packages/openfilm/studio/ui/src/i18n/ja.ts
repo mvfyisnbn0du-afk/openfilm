@@ -498,6 +498,7 @@ export const ja: Words = {
     stepSlid: '{clip} をスライド',
     stepRippleTrimmed: '{clip} をリップルトリム',
     stepGapClosed: '隙間を詰めました',
+    stepMainClosed: 'メイントラックを詰めました',
     stepLinked: '{clip} をリンク',
     stepUnlinked: '{clip} のリンクを解除',
     stepSpeed: '{clip} の速度を変更',

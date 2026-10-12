@@ -499,6 +499,7 @@ export const zhCN: Words = {
     stepSlid: '滑动了 {clip}',
     stepRippleTrimmed: '波纹裁剪了 {clip}',
     stepGapClosed: '合拢了间隙',
+    stepMainClosed: '合拢了主轨',
     stepLinked: '关联了 {clip}',
     stepUnlinked: '取消关联 {clip}',
     stepSpeed: '改了 {clip} 的速度',

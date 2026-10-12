@@ -94,6 +94,7 @@ import {
   magnetOn,
   mainTrackOf,
   planCloseGap,
+  planCloseMainGaps,
   planLink,
   planRemove,
   planRippleTrimTo,
@@ -188,8 +189,6 @@ const INFO_H = 15;
  * the preview — the expensive part. The line itself follows every frame from local state.
  */
 const SCRUB_TELL_MS = 40;
-/** How far (px) a press on the ruler moves before it is a scrub (it pauses) and not a click (playing goes on). */
-const SCRUB_CLICK_PX = 3;
 /**
  * The audio band at the bottom of a video clip: its own sound draws its waveform here; a video without sound keeps
  * the band empty but still takes its height, so the preview bands of neighboring videos line up. A page or a still
@@ -967,7 +966,13 @@ export const Timeline = React.memo(function Timeline({
   const snap = prefs.snap;
   const prefsRef = React.useRef(prefs);
   prefsRef.current = prefs;
-  const togglePref = React.useCallback((pref: keyof typeof prefs) => writeTimelinePref(pref, !prefsRef.current[pref]), []);
+  /** What turning the magnet on does to the film: the main track closes up (set once runPlan exists, below). */
+  const onMagnetOn = React.useRef<() => void>(() => {});
+  const togglePref = React.useCallback((pref: keyof typeof prefs) => {
+    const on = !prefsRef.current[pref];
+    writeTimelinePref(pref, on);
+    if (pref === 'magnet' && on) onMagnetOn.current();
+  }, []);
   const [assetHint, setAssetHint] = React.useState<AssetHint | null>(null);
   const [dropBusy, setDropBusy] = React.useState(false);
   /* what went wrong (a drop, an edit), or what an edit could not do: said in the toolbar until dismissed */
@@ -976,6 +981,8 @@ export const Timeline = React.memo(function Timeline({
   const [notice, setNotice] = React.useState<string | null>(null);
   /* the tracks as an edit sees them (lib/timeline-edit): every gesture plans on it */
   const model = React.useMemo(() => editModelOf(tracks, links), [tracks, links]);
+  /** The main track's film.html index: the magnet acts there. */
+  const mainDoc = React.useMemo(() => mainTrackOf(model), [model]);
   const modelRef = React.useRef(model);
   modelRef.current = model;
   /** Block ids → the same clips with every clip linked to them, unless the Linked switch is off (or `alone`). */
@@ -1336,8 +1343,7 @@ export const Timeline = React.memo(function Timeline({
 
   /* A scrub follows the pointer from pointerdown to pointerup even outside the timeline (listeners on window). Each
      frame previews, release commits: hundreds of seeks would make the sound tear. With snapping on, the line snaps to
-     clip edges and markers, as CapCut's. A click without dragging only seeks: playing goes on from there, as in CapCut
-     and Premiere; a drag pauses. */
+     clip edges and markers, as CapCut's. A click without dragging takes the same path, and pauses, as CapCut does. */
   const startScrub = React.useCallback((e: React.PointerEvent, fromRuler = false) => {
     if (e.button !== 0 || !playable) return;
     e.preventDefault();
@@ -1346,10 +1352,9 @@ export const Timeline = React.memo(function Timeline({
       const raw = msAtClientX(clientX);
       return targets.length ? snapMs(raw, targets, pxPerMs).ms : raw;
     };
-    const fromX = e.clientX;
-    let moved = false;
     let at = timeAt(e.clientX);
     setScrubMs(at);
+    onScrubPreview(at);
     lastTold.current = performance.now();
     setScrubbing(true);
     /* the scrub cursor holds for the whole drag (an !important class), or clips under the line take it */
@@ -1362,10 +1367,9 @@ export const Timeline = React.memo(function Timeline({
       at = timeAt(atX);
       /* the line every frame (cheap: the rows are memoized without the time) */
       setScrubMs(at);
-      /* the editor and the picture every SCRUB_TELL_MS (the expensive part); the first one pauses */
+      /* the editor and the picture every SCRUB_TELL_MS (the expensive part) */
       const now = performance.now();
-      if (!moved || now - lastTold.current >= SCRUB_TELL_MS) {
-        moved = true;
+      if (now - lastTold.current >= SCRUB_TELL_MS) {
         lastTold.current = now;
         onScrubPreview(at);
       }
@@ -1374,8 +1378,6 @@ export const Timeline = React.memo(function Timeline({
     const edge = edgeAutoScroll(scrollRef, () => { if (!raf) raf = requestAnimationFrame(flush); });
     const move = (ev: PointerEvent) => {
       atX = ev.clientX;
-      /* a hand that has not moved yet is still a click */
-      if (!moved && Math.abs(ev.clientX - fromX) < SCRUB_CLICK_PX) return;
       if (!raf) raf = requestAnimationFrame(flush);
       edge.at(ev.clientX);
     };
@@ -1392,15 +1394,14 @@ export const Timeline = React.memo(function Timeline({
       document.body.classList.remove('tl-scrubbing');
       setScrubbing(false);
       setScrubMs(null);
-      if (moved) onScrubCommit(at);
-      else onSeek(at);
+      onScrubCommit(at);
       warmPlayheadAt(ev.clientX, ev.clientY, at);
       /* a point picked on the ruler: the selection bar is about the moment there */
       if (fromRuler) setBarFocus('point');
     };
     window.addEventListener('pointermove', move, { passive: true });
     window.addEventListener('pointerup', up);
-  }, [msAtClientX, onScrubCommit, onScrubPreview, onSeek, playable, warmPlayheadAt, snap, allBlocks, snapPointsMs, pxPerMs]);
+  }, [msAtClientX, onScrubCommit, onScrubPreview, playable, warmPlayheadAt, snap, allBlocks, snapPointsMs, pxPerMs]);
 
   /** The range being pulled on the ruler, before it is the editor's (drawn from here, not re-rendering the editor). */
   const [rangeDraft, setRangeDraft] = React.useState<FilmRange | null>(null);
@@ -1452,13 +1453,14 @@ export const Timeline = React.memo(function Timeline({
    * reaches is in the way) says so: the clips stay in sync, and the person learns why a gap is left. `note`: what
    * else the edit has to say once it is made.
    */
-  const runPlan = React.useCallback(async (plan: EditPlan | null, label: string, note?: string): Promise<void> => {
-    if (!onEditOps || !plan?.ops.length) return;
+  const runPlan = React.useCallback(async (plan: EditPlan | null, label: string, note?: string): Promise<boolean> => {
+    if (!onEditOps || !plan?.ops.length) return false;
     const err = await onEditOps(plan.ops, label);
     if (err) setDropError(err);
     /* not an error: the edit was made, and this says why a gap was left (a warning's look, not an error's) */
     else if (plan.shortMs > 0) setNotice(t('timeline.rippleShort').replace('{s}', (plan.shortMs / 1000).toFixed(2)));
     else if (note) setNotice(note);
+    return !err;
   }, [onEditOps, t]);
 
   /** A gap picked on a track (a click between two clips, or before the first): drawn, and ⌫ closes it. */
@@ -1487,6 +1489,10 @@ export const Timeline = React.memo(function Timeline({
       return now && Math.abs(now.startMs - g.startMs) < TOUCH_MS && Math.abs(now.endMs - g.endMs) < TOUCH_MS ? g : null;
     });
   }, [model]);
+  /* the magnet turned on closes up the main track, as CapCut's: its gaps go, in one step */
+  onMagnetOn.current = () => {
+    void runPlan(planCloseMainGaps(modelRef.current, followOf(prefsRef.current)), 'history.stepMainClosed');
+  };
   /**
    * Close a gap: what is after it moves back (with sync lock, on every unlocked track; on its own track alone when a
    * synced track has no room, and a notice says so).
@@ -1593,13 +1599,12 @@ export const Timeline = React.memo(function Timeline({
       const exactMs = Math.max(0, (e.clientX - (scrollRef.current?.getBoundingClientRect().left ?? 0) + (scrollRef.current?.scrollLeft ?? 0)) / pxPerMs);
       const found = docIndex != null && onEditOps && !tracks[fromLane]?.locked ? gapAt(modelRef.current, docIndex, exactMs) : null;
       setGap(found ? { track: docIndex!, ...found } : null);
-      /* a seek: playing goes on from there */
-      onSeek(fromMs);
+      onScrubCommit(fromMs);
       warmPlayheadAt(ev.clientX, ev.clientY, fromMs);
     };
     window.addEventListener('pointermove', move);
     window.addEventListener('pointerup', up);
-  }, [playable, msAtClientX, laneAtY, contentY, tracks, selectOne, onSeek, warmPlayheadAt, setSelected, withLinked, onEditOps, pxPerMs]);
+  }, [playable, msAtClientX, laneAtY, contentY, tracks, selectOne, onScrubCommit, warmPlayheadAt, setSelected, withLinked, onEditOps, pxPerMs]);
 
   /**
    * A press within ±4 px of the playhead line in the empty track space grabs the playhead. Not over a clip: a clip a
@@ -2811,7 +2816,10 @@ export const Timeline = React.memo(function Timeline({
           })}
         {/* the cuts between clips that touch: dragged, a roll (one gets longer, the other shorter); not while a move
             is in hand, and not on a locked track */}
-        {!track.locked && mode === 'select' && !(drag.preview?.mode === 'move' && !drag.preview.landed) ? cutsOf(track.blocks).map(([a, b]) => {
+        {/* a cut's roll handle: not on the main track with the magnet, where a cut's edges trim and what follows closes
+            up, as CapCut's (it has no roll) */}
+        {!track.locked && mode === 'select' && !(drag.preview?.mode === 'move' && !drag.preview.landed)
+          && !(prefs.magnet && track.docIndex != null && track.docIndex === mainDoc) ? cutsOf(track.blocks).map(([a, b]) => {
           const pa = placedOf(a.id);
           const pb = placedOf(b.id);
           if (pa?.gone || pb?.gone || !drag.can(a).resize || !drag.can(b).resize) return null;
@@ -2909,6 +2917,7 @@ export const Timeline = React.memo(function Timeline({
     openBlockMenu, openLaneMenu, onEditBlocks, collapseIfClick, selectOne, setSelected, clipElements, thumbWindow, view.width,
     chatClip, chatDraft, placedOf, pickForTrim, gap, withLinked, runSplit, trackOverlay,
     fadeOfBlock, fadeDrag, startFade, transitions, transitionDrag, pickedTransition, onPickTransition, onTransition, startTransitionResize,
+    prefs.magnet, mainDoc,
   ]);
 
   const tickMarks = React.useMemo(() => ticks.map(({ ms, label }) => {
@@ -3020,7 +3029,8 @@ export const Timeline = React.memo(function Timeline({
    * Ripple trim to the playhead (Q / W): `start` takes the head of the clip off up to the playhead, `end` its tail
    * from it, and what follows closes up (with sync lock on every unlocked track; with linkage, on the main track, the
    * other tracks along). On the clips given, else the selected ones the playhead is inside, else the main track's
-   * under it, else the topmost under it; the clips linked to them go along.
+   * under it, else the topmost under it; the clips linked to them go along. After Q the playhead goes to the clip's
+   * start, where what was under it now is, as CapCut's.
    */
   const rippleTrimToPlayhead = React.useCallback((edge: 'start' | 'end', given?: readonly TimelineBlock[]) => {
     const atMs = timeMsRef.current;
@@ -3033,8 +3043,8 @@ export const Timeline = React.memo(function Timeline({
     if (!main?.clipId) return;
     const ids = prefsRef.current.linked ? [main.clipId, ...linkedIds(modelRef.current, [main.clipId]).filter((id) => id !== main.clipId)] : [main.clipId];
     const plan = planRippleTrimTo(modelRef.current, ids, edge, atMs, followOf(prefsRef.current));
-    void runPlan(plan, `history.stepRippleTrimmed|${main.clipId}`);
-  }, [tracks, runPlan]);
+    void runPlan(plan, `history.stepRippleTrimmed|${main.clipId}`).then((done) => { if (done && edge === 'start') onSeek(main.startMs); });
+  }, [tracks, runPlan, onSeek]);
 
   /** Link clips (one `data-link`), or unlink them. */
   const linkBlocks = React.useCallback((blocks: readonly TimelineBlock[]) => {

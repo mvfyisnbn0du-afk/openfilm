@@ -559,6 +559,8 @@ export function ProjectView({ projectId, onProject, onLeave }: {
 
   /* selection, by clip id: a block's own id is its place, and that changes when it moves */
   const [selectedKeys, setSelectedKeys] = React.useState<readonly string[]>([]);
+  const selectedKeysRef = React.useRef(selectedKeys);
+  selectedKeysRef.current = selectedKeys;
   const selectedBlocks = React.useMemo(() => {
     const keys = new Set(selectedKeys);
     return blocksRef.current.filter((b) => keys.has(b.clipId ?? b.id));
@@ -817,14 +819,29 @@ export function ProjectView({ projectId, onProject, onLeave }: {
       taken.add(made);
       rightLinks.set(link, made);
     }
+    /* a selected clip's selection goes to its right half, as CapCut's: named here so it can be selected once written */
+    const selected = new Set(selectedKeysRef.current);
+    const used = new Set(clips.map((c) => c.id));
+    const rightIds = new Map<string, string>();
+    for (const { block } of halves) {
+      if (!selected.has(block.clipId!)) continue;
+      let id = `${block.clipId}-b`;
+      for (let n = 2; used.has(id); n++) id = `${block.clipId}-b-${n}`;
+      used.add(id);
+      rightIds.set(block.clipId!, id);
+    }
     const ops: Op[] = halves.map(({ block, split, link }) => ({
       op: 'split',
       clip: block.clipId!,
       left: split.left,
       /* a half left alone with a link (its linked clip not under the cut) keeps none: it would pull the other along */
       right: { ...split.right, link: link ? rightLinks.get(link) ?? null : null },
+      ...(rightIds.has(block.clipId!) ? { rightId: rightIds.get(block.clipId!)! } : {}),
     }));
-    return edit(ops, clipStep('history.stepSplit', halves.slice(0, 2).map((h) => h.block.clipId!)));
+    return edit(ops, clipStep('history.stepSplit', halves.slice(0, 2).map((h) => h.block.clipId!))).then((err) => {
+      if (!err && rightIds.size) setSelectedKeys((keys) => keys.map((k) => rightIds.get(k) ?? k));
+      return err;
+    });
   }, [edit, editModel, t]);
   /**
    * A video's sound taken apart from its picture, as an editor unlinks them: the same file's sound alone, at the same

@@ -666,6 +666,26 @@ export function planCloseGap(
   return { ...planOf(alone), alone: true };
 }
 
+/**
+ * The main track closed up, as CapCut does when its magnet is turned on: every gap on it, before its first clip too,
+ * closes, carrying what follows as a ripple does (sync lock, linkage). Nothing on a locked main track.
+ */
+export function planCloseMainGaps(model: EditModel, opts: Follow): EditPlan {
+  const main = mainTrackOf(model);
+  const track = model.find((t) => t.index === main);
+  if (main == null || !track || track.locked) return emptyPlan();
+  const spans: { startMs: number; endMs: number }[] = [];
+  let end = 0;
+  for (const c of [...track.clips].sort((a, b) => a.startMs - b.startMs)) {
+    if (c.startMs - end > TOUCH_MS) spans.push({ startMs: end, endMs: c.startMs });
+    end = Math.max(end, c.endMs);
+  }
+  if (!spans.length) return emptyPlan();
+  const d = draftOf(model);
+  closeSpans(d, new Map([[main, spans]]), opts);
+  return planOf(d);
+}
+
 /* ── delete ── */
 
 /**

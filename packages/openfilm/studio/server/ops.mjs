@@ -16,7 +16,7 @@ import { FILM_FILE, clipFade, clipIdFor, clipKind, clipSpeed, kindOf } from '../
  *   | { op: 'insert', clip?: Partial<Clip> & { src: string }, from?: string, at?: number, after?: string, track?: number | { insert: number }, newTrack?: number, link?: string | null }
  *   | { op: 'remove', clip: string }
  *   | { op: 'split', clip: string, at: number, time: [number, number], restTime: [number, number], restId?: string }
- *   | { op: 'split', clip: string, left: Record<string, PropValue>, right: Record<string, PropValue> }
+ *   | { op: 'split', clip: string, left: Record<string, PropValue>, right: Record<string, PropValue>, rightId?: string }
  *   | { op: 'props', edits: PropEdit[] }
  *   | { op: 'stage', w: number, h: number }
  *   | { op: 'fields', clip: string, fields: Record<string, unknown> }
@@ -147,7 +147,10 @@ export function applyOps(value, ops) {
           const { t, c, clip } = find(value, op.clip);
           const left = /** @type {Clip} */ (structuredClone(clip));
           const right = /** @type {Clip} */ (structuredClone(clip));
-          right.id = mintClipId(usedIds(value), clip.id);
+          /* the right half's id: the one asked for (so the editor can select it) when it is free, else `<id>-b` */
+          const asked = typeof op.rightId === 'string' && /^[A-Za-z][\w-]*$/.test(op.rightId) && !usedIds(value).includes(op.rightId)
+            ? op.rightId : null;
+          right.id = asked ?? mintClipId(usedIds(value), clip.id);
           /* a fade belongs to the end it is at: the left half keeps the fade in, the right one the fade out */
           splitFades(left, right);
           for (const [prop, v] of Object.entries(op.left ?? {})) setField(left, prop, snapTime(prop, v));

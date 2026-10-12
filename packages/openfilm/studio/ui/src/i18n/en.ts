@@ -499,6 +499,7 @@ export const en = {
     stepSlid: 'Slid {clip}',
     stepRippleTrimmed: 'Ripple trimmed {clip}',
     stepGapClosed: 'Closed a gap',
+    stepMainClosed: 'Closed up the main track',
     stepLinked: 'Linked {clip}',
     stepUnlinked: 'Unlinked {clip}',
     stepSpeed: 'Changed the speed of {clip}',

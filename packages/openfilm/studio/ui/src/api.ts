@@ -32,7 +32,7 @@ export type Op =
   | { op: 'insert'; clip?: Partial<Clip> & { src: string }; from?: string; at?: number; after?: string; track?: number | { insert: number }; newTrack?: number; link?: string | null }
   | { op: 'remove'; clip: string }
   | { op: 'split'; clip: string; at: number; time: [number, number]; restTime: [number, number] }
-  | { op: 'split'; clip: string; left: Record<string, PropValue>; right: Record<string, PropValue> }
+  | { op: 'split'; clip: string; left: Record<string, PropValue>; right: Record<string, PropValue>; rightId?: string }
   | { op: 'track'; track: number; field: 'locked' | 'hidden' | 'muted'; value: boolean }
   | { op: 'reorder'; from: number; to: number }
   | { op: 'props'; edits: PropEdit[] }

@@ -498,6 +498,7 @@ export const es: Words = {
     stepSlid: '{clip} deslizado entre sus vecinos',
     stepRippleTrimmed: 'Recorte con desplazamiento de {clip}',
     stepGapClosed: 'Hueco cerrado',
+    stepMainClosed: 'Pista principal cerrada',
     stepLinked: '{clip} vinculado',
     stepUnlinked: '{clip} desvinculado',
     stepSpeed: 'Velocidad de {clip} cambiada',

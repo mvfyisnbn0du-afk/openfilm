@@ -47,6 +47,11 @@ test('split into halves the timeline worked out: deep copies, the right one name
   assert.deepEqual([l.id, l.time, r.id, r.at, r.time], ['b', [0, 2], 'b-b', 7, [2]]);
   l.box.x = 9;
   assert.deepEqual(r.box, { x: 1, y: 2 }, 'the halves share nothing');
+  /* the right half takes the id asked for when it is free and well formed */
+  const named = applyOps(film(), [{ op: 'split', clip: 'b', left: { end: 2 }, right: { at: 7, start: 2 }, rightId: 'b-right' }]);
+  assert.equal(named.tracks[0].clips[2].id, 'b-right');
+  const taken = applyOps(film(), [{ op: 'split', clip: 'b', left: { end: 2 }, right: { at: 7, start: 2 }, rightId: 'b' }]);
+  assert.equal(taken.tracks[0].clips[2].id, 'b-b');
 });
 
 test('insert: a copy of a clip, after a clip, on a new track, or on the last track of its kind', () => {

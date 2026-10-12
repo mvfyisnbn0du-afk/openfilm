@@ -498,6 +498,7 @@ export const ko: Words = {
     stepSlid: '{clip} 슬라이드',
     stepRippleTrimmed: '{clip} 리플 트림',
     stepGapClosed: '간격 메움',
+    stepMainClosed: '메인 트랙을 메움',
     stepLinked: '{clip} 연결',
     stepUnlinked: '{clip} 연결 해제',
     stepSpeed: '{clip} 속도 변경',
