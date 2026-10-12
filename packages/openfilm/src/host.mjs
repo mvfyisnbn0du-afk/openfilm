@@ -200,14 +200,30 @@ export function injectFirst(html, tag) {
  * A visible window needs the full Chromium (`headed`). A host may pick another build, add arguments and its own
  * environment.
  */
-export async function launch({ headed = false, channel = headed ? 'chromium' : null, args: extra = [], env } = {}) {
+export async function launch({ headed = false, channel = headed ? 'chromium' : (process.env.OPENFILM_BROWSER_CHANNEL || null), args: extra = [], env } = {}) {
   /* CanvasDrawElement: HTML-in-Canvas (drawElementImage, texElementImage2D), so a page can draw its own DOM into 2D or WebGL */
-  const args = ['--ignore-gpu-blocklist', '--enable-gpu-rasterization', '--autoplay-policy=no-user-gesture-required', '--hide-scrollbars', '--enable-blink-features=CanvasDrawElement', ...extra];
+  /* A host that runs `render` or `look` cannot reach the browsers they open themselves, so two variables do:
+     OPENFILM_BROWSER_CHANNEL names Playwright's channel (`chrome`: the installed Google Chrome, which decodes H.264
+     where Chromium's own build on Linux does not); OPENFILM_BROWSER_ARGS adds arguments to every launch, separated by
+     spaces, or a JSON array when one holds a space (a sandboxed host keeps pages off the network with
+     `--host-resolver-rules=MAP * ~NOTFOUND, EXCLUDE 127.0.0.1`; a container running as root needs `--no-sandbox`). */
+  const fromEnv = browserArgs(process.env.OPENFILM_BROWSER_ARGS);
+  const args = ['--ignore-gpu-blocklist', '--enable-gpu-rasterization', '--autoplay-policy=no-user-gesture-required', '--hide-scrollbars', '--enable-blink-features=CanvasDrawElement', ...fromEnv, ...extra];
   if (process.platform === 'darwin') args.push('--use-angle=metal');
   const browser = await chromium.launch({ ...(channel ? { channel } : {}), headless: !headed, args, ...(env ? { env } : {}) });
   LIVE.add(browser);
   browser.on('disconnected', () => LIVE.delete(browser));
   return browser;
+}
+
+/** The arguments OPENFILM_BROWSER_ARGS names: a JSON array of strings, else words separated by spaces. */
+export function browserArgs(value) {
+  const text = String(value ?? '').trim();
+  if (!text) return [];
+  if (text.startsWith('[')) {
+    try { const list = JSON.parse(text); if (Array.isArray(list)) return list.map(String); } catch { /* not JSON: words */ }
+  }
+  return text.split(/\s+/);
 }
 
 /** Every browser launch() opened and that is still open. */

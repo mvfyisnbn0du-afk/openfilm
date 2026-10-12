@@ -6,6 +6,8 @@ export declare function injectFirst(html: string, tag: string): string;
 export declare function serve(root: string, opts?: { port?: number }): Promise<{ url: string; close(): Promise<void> }>;
 export interface LaunchOptions { headed?: boolean; channel?: string | null; args?: string[]; env?: Record<string, string | undefined> }
 export declare function launch(opts?: LaunchOptions): Promise<Browser>;
+/** The arguments OPENFILM_BROWSER_ARGS names: a JSON array of strings, else words separated by spaces. */
+export declare function browserArgs(value: string | undefined): string[];
 /** Close every browser launch() opened that is still open: what waits on one fails at once instead of never answering. */
 export declare function closeBrowsers(): Promise<void>;
 /** With `offline`: the origins still open to a page, and optionally who answers them (a cache). */
