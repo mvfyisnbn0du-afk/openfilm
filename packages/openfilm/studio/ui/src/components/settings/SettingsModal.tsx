@@ -429,7 +429,8 @@ function DeveloperSection() {
         <SettingsItem
           title={t('settings.developer.logs')}
           description={t('settings.developer.logsHint')}
-          control={<SettingsSwitch checked={on === true} disabled={on === null} label={t('settings.developer.logs')} onChange={(next) => { setOn(next); void developer.set(next); }} />}
+          /* drawn once the app has said whether it is on: drawn off first, it slid on each time the page opened */
+          control={on === null ? null : <SettingsSwitch checked={on} label={t('settings.developer.logs')} onChange={(next) => { setOn(next); void developer.set(next); }} />}
         />
       </SettingsGroup>
       {newestVersion() ? (

@@ -59,7 +59,8 @@ export function WhatsNew() {
 
   React.useEffect(() => {
     if (!shown) return undefined;
-    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') { e.stopPropagation(); close(); } };
+    /* Escape closes this alone: Settings, under it, leaves a key already handled */
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); close(); } };
     window.addEventListener('keydown', onKey, true);
     return () => window.removeEventListener('keydown', onKey, true);
   }, [shown, close]);
@@ -72,7 +73,8 @@ export function WhatsNew() {
   };
 
   return createPortal(
-    <div className="fixed inset-0 z-[10040] flex items-center justify-center bg-black/45 p-4 backdrop-blur-[2px]" onClick={close}>
+    /* over Settings (z 10050), where About and Developer open it */
+    <div className="fixed inset-0 z-[10100] flex items-center justify-center bg-black/45 p-4 backdrop-blur-[2px]" onClick={close}>
       <div
         role="dialog"
         aria-modal="true"
