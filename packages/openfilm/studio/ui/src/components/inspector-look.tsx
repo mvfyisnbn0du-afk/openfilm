@@ -322,7 +322,7 @@ export function CropSection({
 /* ───────────────────────────── mask ───────────────────────────── */
 
 /** The shape buttons' glyphs: a line, a band, then lucide's. */
-function MaskGlyph({ shape }: { shape: MaskShape | 'none' }) {
+export function MaskGlyph({ shape }: { shape: MaskShape | 'none' }) {
   if (shape === 'linear' || shape === 'mirror') {
     return (
       <svg width={ICON} height={ICON} viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.3" aria-hidden>
@@ -347,7 +347,7 @@ function MaskGlyph({ shape }: { shape: MaskShape | 'none' }) {
  * the stage previews a drag and writes once, at the release; it is turned on with a new shape.
  */
 export function MaskSection({
-  look, t, box, target, onEditMask,
+  look, t, box, target, onEditMask, ask, onAsked,
 }: {
   look: Look;
   t: T;
@@ -356,6 +356,9 @@ export function MaskSection({
   /** Whose mask, for the stage's handles. */
   target?: MaskSession['target'] | null;
   onEditMask?: (session: MaskSession | null) => void;
+  /** A shape picked on the picture (the selection bar's Mask): put on, with its handles, once. */
+  ask?: { shape: MaskShape | 'none'; n: number } | null;
+  onAsked?: () => void;
 }) {
   const mbox = box && box.w > 0 && box.h > 0 ? box : null;
   const mask = look.common((read) => maskOf(read('mask-image'), read('mask-composite'), mbox));
@@ -376,6 +379,12 @@ export function MaskSection({
     });
     if (canEdit) setEditing(true);
   };
+
+  React.useEffect(() => {
+    if (!ask) return;
+    pick(ask.shape);
+    onAsked?.();
+  }, [ask?.n]); // eslint-disable-line react-hooks/exhaustive-deps
 
   /* the stage's handles: the mask as written, written back through this look (one change at the release) */
   const lookRef = React.useRef(look);

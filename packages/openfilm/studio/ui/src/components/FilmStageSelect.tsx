@@ -68,6 +68,8 @@ import {
 } from '@/lib/stage-gesture';
 import { measureGaps, type MeasureLine } from '@/lib/stage-measure';
 import type { MaskSession } from '@/lib/stage-mask';
+import { MASK_SHAPES, maskOf, type MaskShape } from '@/lib/clip-mask';
+import { MaskGlyph } from '@/components/inspector-look';
 import { layerTarget } from '@/lib/stage-layers';
 import { regionBox, regionClipIds, regionTexts } from '@/lib/studio-refs';
 import type { StageBox } from '@/lib/host';
@@ -387,8 +389,8 @@ interface FilmStageSelectProps {
   selectionBar?: boolean;
   /** The bar's first button, "Add to chat": what is in hand. Without it the bar has no such button. */
   onRefer?: (picks: StagePick[]) => void;
-  /** The bar's Mask: the inspector's Mask section, for the clip in hand. */
-  onStartMask?: () => void;
+  /** The bar's Mask, a menu of shapes: the one picked is put on the clip in hand, its handles on the picture. */
+  onStartMask?: (shape: MaskShape | 'none', clipLoc: string) => void;
   /** A layer pointed at from elsewhere (a row of the Layers panel), outlined as the one under the pointer is. */
   pointLayer?: { clipId: string; loc: string } | null;
   /**
@@ -2340,7 +2342,27 @@ function FilmStageSelectImpl({
     if (barKind === 'layer') for (const id of ['edit-text', 'front', 'back', 'hide', 'reset']) fromMenu(id);
     if (barKind === 'clip') {
       if (heldEl?.clipKind === 'video' && onEditClip) tools.push({ id: 'crop', label: t('selectionBar.crop'), icon: <CropIcon size={14} />, shortcut: 'C', onSelect: () => { startCrop(); } });
-      if (onStartMask) tools.push({ id: 'mask', label: t('selectionBar.mask'), icon: <SquareDashed size={14} />, onSelect: onStartMask });
+      if (onStartMask && heldEl?.clipLoc) {
+        const clipLoc = heldEl.clipLoc;
+        tools.push({
+          id: 'mask', label: t('selectionBar.mask'), icon: <SquareDashed size={14} />,
+          onSelect: (button) => {
+            const r = button.getBoundingClientRect();
+            const at = parseFilmDocLoc(clipLoc);
+            const style = at ? docRef.current.tracks[at.track]?.clips[at.clip]?.style ?? '' : '';
+            const box = heldEl?.mgBox ?? null;
+            const now = maskOf(declared(style, 'mask-image'), declared(style, 'mask-composite'), box);
+            const shapeNow = now === undefined ? 'none' : now?.shape ?? null;
+            openMenuAt({ x: r.left, y: r.bottom + 4 }, (['none', ...MASK_SHAPES] as const).map((shape) => ({
+              id: `mask-${shape}`,
+              label: t(`inspector.maskShapes.${shape}`),
+              icon: <MaskGlyph shape={shape} />,
+              checked: shape === shapeNow,
+              onSelect: () => onStartMask(shape, clipLoc),
+            })));
+          },
+        });
+      }
       fromMenu('reset');
     }
     if (barKind === 'layers') {

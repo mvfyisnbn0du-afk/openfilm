@@ -56,6 +56,7 @@ import {
   isNeutral, kebabOf, makeLook, rawDeclarations, type Look, type LookRead, type LookSet,
 } from './inspector-look';
 import type { MaskSession } from '@/lib/stage-mask';
+import type { MaskShape } from '@/lib/clip-mask';
 import type { FadeMs } from '@/lib/clip-fade';
 import type { FoundKind } from '@/lib/transitions';
 
@@ -156,6 +157,8 @@ export const FilmInspector = React.memo(function FilmInspector({
   stage,
   onStartCrop,
   onEditMask,
+  maskAsk,
+  onMaskAsked,
   film,
   onCanvas,
   onCanvasPreview,
@@ -214,6 +217,9 @@ export const FilmInspector = React.memo(function FilmInspector({
   onStartCrop?: () => void;
   /** The Mask section's "Edit on picture": the mask's handles over the thing in hand (null: none). */
   onEditMask?: (session: MaskSession | null) => void;
+  /** A mask shape picked on the picture for clip `clipLoc`: its Mask section puts it on, then says so. */
+  maskAsk?: { shape: MaskShape | 'none'; clipLoc: string; n: number } | null;
+  onMaskAsked?: () => void;
   /** The film when nothing is selected. */
   film?: FilmSummary | null;
   /** The canvas: a shape (the editor grows it around the film), or a size typed. */
@@ -298,6 +304,8 @@ export const FilmInspector = React.memo(function FilmInspector({
             {...(onPreviewLook ? { onPreviewLook } : {})}
             {...(onStartCrop ? { onStartCrop } : {})}
             {...(onEditMask ? { onEditMask } : {})}
+            {...(maskAsk && maskAsk.clipLoc === clip.loc ? { maskAsk } : {})}
+            {...(onMaskAsked ? { onMaskAsked } : {})}
             badges={film?.badges}
             stage={stageSize}
             {...(fades ? { fades } : {})}
@@ -1326,7 +1334,7 @@ function clipsLook(
  * can only be looked at.
  */
 function ClipPanel({
-  block, onMain, geometry, stage, badges, onEdit, onPreviewClip, pageChangesOf, clipLookOf, onPreviewLook, onStartCrop, onEditMask, fades,
+  block, onMain, geometry, stage, badges, onEdit, onPreviewClip, pageChangesOf, clipLookOf, onPreviewLook, onStartCrop, onEditMask, maskAsk, onMaskAsked, fades,
 }: {
   fades?: ReadonlyMap<string, FadeMs>;
   block: TimelineBlock;
@@ -1343,6 +1351,8 @@ function ClipPanel({
   onPreviewLook?: (clipLoc: string, css: string | null) => void;
   onStartCrop?: () => void;
   onEditMask?: (session: MaskSession | null) => void;
+  maskAsk?: { shape: MaskShape | 'none'; n: number } | null;
+  onMaskAsked?: () => void;
 }) {
   const t = useT();
   const [refusal, setRefusal] = React.useState<string | null>(null);
@@ -1419,6 +1429,8 @@ function ClipPanel({
                 box={geo ? { w: geo.w, h: geo.h } : null}
                 target={{ kind: 'clip', clipLoc: target!.loc }}
                 {...(onEditMask ? { onEditMask } : {})}
+                {...(maskAsk ? { ask: maskAsk } : {})}
+                {...(onMaskAsked ? { onAsked: onMaskAsked } : {})}
               />
               <AppearanceSection look={look} t={t} radius />
               <StrokeSection look={look} t={t} />

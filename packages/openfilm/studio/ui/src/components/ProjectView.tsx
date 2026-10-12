@@ -93,6 +93,7 @@ import { stageMenu, stageRecoveryMenu, type StageArrangeResult, type StageMenuCo
 import type { StageEditFailure, StageTextEdit } from './FilmInspector';
 import { layerTarget, pageClipOf, recoverLayer } from '@/lib/stage-layers';
 import type { MaskSession } from '@/lib/stage-mask';
+import type { MaskShape } from '@/lib/clip-mask';
 import { nextOverrides, overrideOf, type OverrideGeometry } from '@/lib/film-overrides';
 import { compactScale, type MgTransform, type NodeOverride, type OverridePivot, type StageElement, type StageElementStyle, type StageGeometry } from '@/lib/stage-types';
 import { isTypingTarget } from './typing-target';
@@ -1464,7 +1465,11 @@ export function ProjectView({ projectId, onProject, onLeave }: {
     for (const p of picks) { const ref = refOfStagePick(p); if (ref) refer(ref); }
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
   /* the bar's Mask: the inspector open on its Mask section (the shapes are picked there) */
-  const openMaskSection = React.useCallback(() => {
+  /* the picture's Mask menu: the shape goes to the clip's Mask section (put on, its handles shown), opened */
+  const [maskAsk, setMaskAsk] = React.useState<{ shape: MaskShape | 'none'; clipLoc: string; n: number } | null>(null);
+  const maskAsked = React.useCallback(() => setMaskAsk(null), []);
+  const openMaskSection = React.useCallback((shape: MaskShape | 'none', clipLoc: string) => {
+    setMaskAsk({ shape, clipLoc, n: Date.now() });
     openSection('mask');
     setInspectorContent('selection');
     setInspectorOpen(true);
@@ -2499,6 +2504,8 @@ export function ProjectView({ projectId, onProject, onLeave }: {
                       onPreviewLook={previewLook}
                       onStartCrop={startStageCrop}
                       onEditMask={editStageMask}
+                      maskAsk={maskAsk}
+                      onMaskAsked={maskAsked}
                       stage={stage}
                       film={filmSummary}
                       onCanvas={changeCanvas}
