@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { folderPickerCommand } from './folder-picker.mjs';
+import { filePickerCommand, folderPickerCommand } from './folder-picker.mjs';
 
 test('macOS: the words and the folder are arguments of the script, never inside it', () => {
   const c = folderPickerCommand('darwin', { title: 'Save "here" end tell', at: '/Volumes/Films' });
@@ -25,4 +25,16 @@ test('Linux: zenity, else kdialog, else none', () => {
   assert.equal(folderPickerCommand('linux', { title: 'T', at: '/srv/films' }, (n) => n === 'zenity').cmd, 'zenity');
   assert.equal(folderPickerCommand('linux', { title: 'T' }, (n) => n === 'kdialog').cmd, 'kdialog');
   assert.equal(folderPickerCommand('linux', { title: 'T' }, () => false), null);
+});
+
+test('files: several at once, a path a line; the words are arguments, never inside the script', () => {
+  const mac = filePickerCommand('darwin', { title: 'Link "media" end tell', at: '/Volumes/NAS' });
+  assert.deepEqual(mac.args.slice(-2), ['Link "media" end tell', '/Volumes/NAS']);
+  assert.ok(mac.args.some((a) => a.includes('multiple selections allowed')));
+  assert.ok(mac.args.filter((a, i) => mac.args[i - 1] === '-e').every((line) => !line.includes('media')));
+  const win = filePickerCommand('win32', { title: "it's mine" });
+  assert.equal(win.env.OPENFILM_PICK_TITLE, "it's mine");
+  assert.match(win.args.at(-1), /Multiselect = \$true/);
+  assert.ok(filePickerCommand('linux', { title: 'T' }, (n) => n === 'zenity').args.includes('--multiple'));
+  assert.equal(filePickerCommand('linux', { title: 'T' }, () => false), null);
 });

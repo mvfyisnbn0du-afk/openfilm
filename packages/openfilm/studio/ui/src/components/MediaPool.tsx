@@ -21,7 +21,12 @@ import {
   Clapperboard,
   Copy,
   Folder,
+  ExternalLink,
   FolderInput,
+  FolderSymlink,
+  HardDriveDownload,
+  Link2,
+  Unlink,
   FolderOpen,
   FolderPlus,
   LayoutGrid,
@@ -53,6 +58,7 @@ import {
   type MediaSources,
   type WorkspaceResource,
   type WorkspaceResourceKind,
+  type MediaLink,
 } from '@/lib/workspace-resources';
 import { ConfirmDialog } from './ConfirmDialog';
 import { ContextMenu, type ContextMenuEntry } from './ContextMenu';
@@ -132,8 +138,21 @@ export interface MediaPoolProps {
   onNewFolder: (path: string) => Promise<MediaResult>;
   /** Before deleting files, take their clips off the timeline. A string is the reason it could not. */
   onDropClips?: (paths: readonly string[]) => Promise<string | null>;
-  /** Show a file or folder in Finder (project-relative). Missing: the menu has no Reveal in Finder. */
-  onReveal?: (path: string) => void;
+  /**
+   * Show a file or folder in Finder (project-relative; `original`: where a linked one is kept). Missing: the menu has
+   * no Reveal in Finder.
+   */
+  onReveal?: (path: string, original?: boolean) => void;
+  /**
+   * Media kept on this computer, picked in the system's dialog: files, or a folder (`'no-dialog'` where there is
+   * none), then copied into `folder` (cloned where the disk can) or linked where it is kept, a NAS or another disk
+   * (`onBring`, resolving where each landed). Without them, Upload sends files picked in the browser.
+   */
+  onPick?: (title: string, folder: boolean) => Promise<string[] | 'no-dialog'>;
+  onBring?: (paths: string[], folder: string, mode: 'copy' | 'link') => Promise<string[]>;
+  /** A link pointed at where its media is now (the person picks it), or copied into the project in its place. */
+  onRelink?: (path: string, folder: boolean) => Promise<MediaResult>;
+  onCollect?: (path: string) => Promise<MediaResult>;
   /** Where the pool is a drawer the person opened (a host app's panel, see lib/host.ts): its close button, last in the bar. */
   onClose?: () => void;
   /**
@@ -168,6 +187,10 @@ export function MediaPool({
   onNewFolder,
   onDropClips,
   onReveal,
+  onPick,
+  onBring,
+  onRelink,
+  onCollect,
   onClose,
   fileRef,
   onRefer,
@@ -314,6 +337,32 @@ export function MediaPool({
       dropUploads((u) => batch.some((b) => b.id === u.id) && !u.landed);
     }
   };
+  /**
+   * Media on this computer, picked in the system's dialog, copied in or linked where it is kept (a NAS): a card each
+   * while it comes. Where there is no dialog, an import is the browser's pick.
+   */
+  const bringFrom = async (mode: 'copy' | 'link', folder: boolean, intoRel = at) => {
+    if (!onPick || !onBring) { inputRef.current?.click(); return; }
+    setNotice(null);
+    const paths = await onPick(t(mode === 'copy' ? 'media.pickImport' : folder ? 'media.pickLinkFolder' : 'media.pickLink'), folder);
+    if (paths === 'no-dialog') { if (mode === 'copy' && !folder) inputRef.current?.click(); else setNotice(t('media.noDialog')); return; }
+    const batch: Upload[] = paths.map((path) => {
+      const name = path.split(/[\\/]/).filter(Boolean).pop() ?? path;
+      return { id: `upload-${++uploadSeq}`, name, into: intoRel, kind: folder ? 'other' : resourceKindOf(name), ratio: -1 };
+    });
+    setUploads((all) => [...all, ...batch]);
+    for (const [i, path] of paths.entries()) {
+      const id = batch[i]!.id;
+      try {
+        // eslint-disable-next-line no-await-in-loop
+        const [landed] = await onBring([path], folderPath(intoRel), mode);
+        setUploads((all) => all.map((u) => (u.id === id ? { ...u, ratio: 1, ...(landed ? { landed } : {}) } : u)));
+      } catch (e) {
+        setNotice(e instanceof Error && e.message ? e.message : t('assets.uploadFailed'));
+        dropUploads((u) => u.id === id);
+      }
+    }
+  };
   /** Take cards away (a picture's preview let go with them). */
   const dropUploads = React.useCallback((gone: (u: Upload) => boolean) => {
     setUploads((all) => {
@@ -325,7 +374,7 @@ export function MediaPool({
   /* a card gives way to the file once the listing has it (or a while after it landed, if it never shows here) */
   React.useEffect(() => {
     if (!media) return;
-    const have = new Set(media.files.map((f) => f.path));
+    const have = new Set([...media.files.map((f) => f.path), ...media.dirs.map((d) => `${media.dir}/${d}`)]);
     dropUploads((u) => Boolean(u.landed && have.has(u.landed)));
   }, [media, dropUploads]);
   const landedCount = uploads.filter((u) => u.landed).length;
@@ -340,7 +389,7 @@ export function MediaPool({
   /** Files on their way into a folder or one inside it: their progress together, for its cover. */
   const progressInto = (rel: string) => {
     const going = uploads.filter((u) => u.into === rel || u.into.startsWith(`${rel}/`));
-    return going.length ? going.reduce((sum, u) => sum + u.ratio, 0) / going.length : undefined;
+    return going.length ? going.reduce((sum, u) => sum + Math.max(0, u.ratio), 0) / going.length : undefined;
   };
 
   /* read when a move or rename settles: the file picked may have changed while it was on its way */
@@ -437,6 +486,30 @@ export function MediaPool({
     ...(onReveal ? [{ id: 'reveal', label: t('projects.revealFolder'), icon: <FolderOpen size={14} />, onSelect: () => onReveal(path) }] : []),
     { id: 'copy', label: t('media.copyPath'), icon: <Copy size={14} />, onSelect: () => { void navigator.clipboard?.writeText(path).catch(() => {}); } },
   ];
+  /** Where a file or folder is linked from (a NAS), if it is a link. */
+  const linkOf = (key: string): MediaLink | undefined => {
+    const item = itemByKey.get(key);
+    return item?.type === 'file' ? item.file.link : item ? media?.linkedDirs?.[item.rel] : undefined;
+  };
+  /** Copy what links lead to into the project in their place, one after another. */
+  const collectAll = async (keys: readonly string[]) => {
+    if (!onCollect) return;
+    for (const key of keys) {
+      // eslint-disable-next-line no-await-in-loop
+      if (await onCollect(key) !== 'ok') { setNotice(t('media.collectFailed')); return; }
+    }
+  };
+  /* a link's own: where it is kept, pointed at where that is now, or copied into the project */
+  const linkEntries = (key: string, folder: boolean): ContextMenuEntry[] => {
+    const link = linkOf(key);
+    if (!link) return [];
+    return [
+      ...(onReveal && !link.missing ? [{ id: 'reveal-original', label: t('media.revealOriginal'), icon: <ExternalLink size={14} />, onSelect: () => onReveal(key, true) }] : []),
+      ...(onRelink ? [{ id: 'relink', label: t('media.relink'), icon: <Link2 size={14} />, onSelect: () => { void onRelink(key, folder).then((r) => { if (r !== 'ok') setNotice(t('media.relinkFailed')); }); } }] : []),
+      ...(onCollect && !link.missing ? [{ id: 'collect', label: t('media.collect'), note: t('media.collectNote'), icon: <HardDriveDownload size={14} />, onSelect: () => { void collectAll([key]); } }] : []),
+      { id: 'link-sep', separator: true } as const,
+    ];
+  };
   /** Move to: the top or any folder, the one they are all in checked (they are there already). */
   const moveEntry = (keys: readonly string[]): ContextMenuEntry => {
     const heres = new Set(keys.map(hereOf));
@@ -460,6 +533,7 @@ export function MediaPool({
     ] : []),
     ...commonEntries(file.path),
     { id: 'sep', separator: true } as const,
+    ...linkEntries(file.path, false),
     /* web pages are the film's code, written by the person's agent (and named in each other's code): not renamed
        here; any file can be deleted, to the Trash, its clips with it */
     ...(file.kind === 'video' && onExtractAudio ? [{
@@ -473,19 +547,34 @@ export function MediaPool({
   const folderMenu = (rel: string, name: string): ContextMenuEntry[] => [
     ...commonEntries(`${root}/${rel}`),
     { id: 'sep', separator: true },
+    ...linkEntries(`${root}/${rel}`, true),
     { id: 'rename', label: t('assets.rename'), icon: <Pencil size={14} />, onSelect: () => setRenaming(`${root}/${rel}`) },
     moveEntry([`${root}/${rel}`]),
     { id: 'delete', label: t('assets.delete'), icon: <Trash2 size={14} />, danger: true, onSelect: () => setConfirm({ targets: [{ path: `${root}/${rel}`, folder: true }], name }) },
   ];
   /** Several picked: what can be done to all of them at once. */
   const manyMenu = (keys: readonly string[]): ContextMenuEntry[] => [
+    ...(onCollect && keys.some((key) => linkOf(key) && !linkOf(key)!.missing) ? [{
+      id: 'collect', label: t('media.collect'), note: t('media.collectNote'), icon: <HardDriveDownload size={14} />,
+      onSelect: () => { void collectAll(keys.filter((key) => linkOf(key) && !linkOf(key)!.missing)); },
+    }] : []),
     moveEntry(keys),
     { id: 'sep', separator: true },
     { id: 'delete', label: t('media.deleteMany').replace('{n}', String(keys.length)), icon: <Trash2 size={14} />, danger: true, onSelect: () => askDelete(keys) },
   ];
+  /* what Upload offers: a copy in the project, or a link to where the media is kept (a NAS, another disk) */
+  const importMenu: ContextMenuEntry[] = [
+    { id: 'import', label: t('media.importFiles'), note: t('media.importFilesNote'), icon: <Upload size={14} />, onSelect: () => { void bringFrom('copy', false); } },
+    { id: 'link', label: t('media.linkFiles'), note: t('media.linkFilesNote'), icon: <Link2 size={14} />, onSelect: () => { void bringFrom('link', false); } },
+    { id: 'link-folder', label: t('media.linkFolder'), icon: <FolderSymlink size={14} />, onSelect: () => { void bringFrom('link', true); } },
+  ];
   const blankMenu: ContextMenuEntry[] = [
     { id: 'new-folder', label: t('assets.newFolder'), icon: <FolderPlus size={14} />, onSelect: () => setCreating(true) },
-    { id: 'import', label: t('media.import'), icon: <Plus size={14} />, onSelect: () => inputRef.current?.click() },
+    { id: 'import', label: t('media.import'), icon: <Plus size={14} />, onSelect: () => (onPick && onBring ? void bringFrom('copy', false) : inputRef.current?.click()) },
+    ...(onPick && onBring ? [
+      { id: 'link', label: t('media.linkFiles'), icon: <Link2 size={14} />, onSelect: () => { void bringFrom('link', false); } },
+      { id: 'link-folder', label: t('media.linkFolder'), icon: <FolderSymlink size={14} />, onSelect: () => { void bringFrom('link', true); } },
+    ] : []),
   ];
   /** The bar button a menu hangs from: a press on it is not outside the menu, and a click on it closes the menu. */
   const menuFrom = React.useRef<HTMLElement | null>(null);
@@ -733,7 +822,8 @@ export function MediaPool({
         )}
         {/* bringing media in is what this pane is for: the one labeled button, right after the search */}
         <Tooltip label={t('media.import')} side="bottom">
-          <button type="button" aria-label={t('media.import')} onClick={() => inputRef.current?.click()}
+          <button type="button" aria-label={t('media.import')} aria-haspopup={onPick && onBring ? 'menu' : undefined}
+            onClick={(e) => (onPick && onBring ? barMenu(e, importMenu) : inputRef.current?.click())}
             className={`flex h-7 shrink-0 items-center justify-center gap-1.5 rounded-md bg-[var(--bg-active)] text-[12.5px] font-medium text-[var(--text)] transition hover:bg-[var(--border-strong)] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--border-strong)] ${bar.uploadWord ? 'px-2.5' : 'w-7'}`}>
             <Upload size={13} strokeWidth={2.2} />
             {bar.uploadWord ? uploadWord : null}
@@ -813,7 +903,7 @@ export function MediaPool({
               <Clapperboard size={22} className="text-[var(--text-faint)]" />
               <div className="text-[13px] font-medium text-[var(--text)]">{t(at ? 'media.emptyFolder' : 'media.emptyTitle')}</div>
               {at ? null : <p className="max-w-[30ch] text-[12px] leading-relaxed text-[var(--text-muted)]">{t('media.emptyBody')}</p>}
-              <button type="button" onClick={() => inputRef.current?.click()}
+              <button type="button" onClick={() => (onPick && onBring ? void bringFrom('copy', false) : inputRef.current?.click())}
                 className="mt-1 inline-flex h-7 items-center gap-1.5 rounded-md border border-[var(--border)] px-2.5 text-[12.5px] text-[var(--text-dim)] transition hover:bg-[var(--bg-hover)]">
                 <Plus size={13} />{t('media.import')}
               </button>
@@ -841,6 +931,7 @@ export function MediaPool({
                 name={item.name}
                 count={item.count}
                 covers={item.covers}
+                linked={Boolean(media?.linkedDirs?.[item.rel])}
                 progress={progressInto(item.rel)}
                 sources={sources}
                 pickKey={`${root}/${item.rel}`}
@@ -865,6 +956,7 @@ export function MediaPool({
                 where={repeated.has(item.file.name) ? item.file.path.slice(0, Math.max(0, item.file.path.lastIndexOf('/'))) || item.file.path : undefined}
                 selected={chosen.includes(item.file.path)}
                 lit={litPath === item.file.path}
+                {...(item.file.link ? { linkLabel: item.file.link.missing ? t('media.linkMissing') : t('media.linkedFrom').replace('{path}', item.file.link.to) } : {})}
                 renaming={renaming === item.file.path}
                 {...(fileRef ? { studioRef: () => fileRef(item.file) } : {})}
                 moving={() => dragKeys(item.file.path)}
@@ -984,6 +1076,8 @@ function FolderTile(p: {
   name: string; count: number; covers: readonly WorkspaceResource[]; sources: MediaSources;
   /** Files on their way into it: their progress together, a bar along its cover. */
   progress?: number | undefined;
+  /** A link to a folder kept elsewhere (a NAS). */
+  linked?: boolean;
   /** Its key in what is picked (its path). */
   pickKey: string;
   selected: boolean; target: boolean; renaming: boolean;
@@ -1003,7 +1097,7 @@ function FolderTile(p: {
         onClick={p.onPress} onDoubleClick={p.onOpen} onContextMenu={(e) => { e.preventDefault(); e.stopPropagation(); p.onMenu(e); }} {...p.drop}>
         <span className={ROW_THUMB}>
           <span className="pointer-events-none absolute inset-0 flex items-center justify-center">
-            {p.target ? <FolderOpen size={15} className="text-[var(--accent)]" /> : <Folder size={15} className="text-[var(--text-muted)]" />}
+            {p.target ? <FolderOpen size={15} className="text-[var(--accent)]" /> : p.linked ? <FolderSymlink size={15} className="text-[var(--text-muted)]" /> : <Folder size={15} className="text-[var(--text-muted)]" />}
           </span>
           {p.progress != null ? <UploadBar ratio={p.progress} /> : null}
         </span>
@@ -1039,7 +1133,7 @@ function FolderTile(p: {
           <span className="pointer-events-none absolute inset-x-0 bottom-0 h-1/2 bg-gradient-to-t from-black/55 to-transparent" />
           {p.progress != null ? <UploadBar ratio={p.progress} /> : null}
           <span className="pointer-events-none absolute bottom-1 left-1.5 flex items-center gap-1 text-[10.5px] font-medium text-white/90">
-            {p.target ? <FolderOpen size={11} /> : <Folder size={11} />}
+            {p.target ? <FolderOpen size={11} /> : p.linked ? <FolderSymlink size={11} /> : <Folder size={11} />}
             <span className="tabular-nums">{p.count ? String(p.count) : ''}</span>
           </span>
         </div>
@@ -1094,6 +1188,8 @@ function FileTile(p: {
   /** What a drag of it moves into a folder: it, or every one picked with it. */
   moving: () => readonly string[];
   onPress: (e?: React.MouseEvent) => void; onMenu: (e: React.MouseEvent) => void; onRename: (name: string) => void; onCancelRename: () => void;
+  /** A link to media kept elsewhere: what to say of it (where it is kept, or that it cannot be reached). */
+  linkLabel?: string;
   /** What kind of file it is, short (`PNG`, `Page`): the list view's Type. */
   typeText: string;
   /** A row of the list view, not a tile. */
@@ -1129,9 +1225,14 @@ function FileTile(p: {
           <span className={`${ROW_THUMB} pointer-events-none`}>
             {p.file.kind === 'mg' ? <PagePoster file={p.file} sources={p.sources} /> : <MediaPreview file={p.file} sources={p.sources} />}
           </span>
-          <span className="min-w-0 flex-1">
+          <span className="flex min-w-0 flex-1 flex-col">
             {p.renaming ? <NameInput value={p.file.name} onDone={p.onRename} onCancel={p.onCancelRename} />
-              : <span className={`block truncate text-[12.5px] ${p.selected ? 'text-[var(--text)]' : 'text-[var(--text-dim)]'}`} style={KEEP_SPACES}>{p.file.name}</span>}
+              : (
+                <span className="flex min-w-0 items-center gap-1" title={p.linkLabel}>
+                  {p.file.link ? (p.file.link.missing ? <Unlink size={12} className="shrink-0 text-[var(--danger,#e5484d)]" /> : <Link2 size={12} className="shrink-0 text-[var(--text-faint)]" />) : null}
+                  <span className={`block truncate text-[12.5px] ${p.file.link?.missing ? 'text-[var(--text-faint)]' : p.selected ? 'text-[var(--text)]' : 'text-[var(--text-dim)]'}`} style={KEEP_SPACES}>{p.file.name}</span>
+                </span>
+              )}
             {p.where ? <span className="block truncate text-left text-[11px] text-[var(--text-faint)]" dir="rtl"><bdi>{p.where}</bdi></span> : null}
           </span>
           <span className={COL_TYPE}>{p.typeText}</span>
@@ -1144,6 +1245,14 @@ function FileTile(p: {
       <div className="pt-[7px]">
         <div className={`${TILE_BOX} bg-[var(--bg-hover)] ${p.lit ? 'ring-[var(--tl-accent)] shadow-[0_0_10px_1px_color-mix(in_srgb,var(--tl-accent)_55%,transparent)]' : p.selected ? 'ring-[var(--accent)]' : 'ring-transparent group-hover:ring-[var(--border)]'}`}>
           {p.file.kind === 'mg' ? <PagePoster file={p.file} sources={p.sources} /> : <MediaPreview file={p.file} sources={p.sources} />}
+          {/* a link to media kept elsewhere: marked; one that cannot be reached (a NAS that is off) says so over it */}
+          {p.file.link?.missing ? (
+            <span className="absolute inset-0 z-10 flex flex-col items-center justify-center gap-1 bg-black/65 text-[10.5px] text-white/85" title={p.linkLabel}>
+              <Unlink size={16} />{p.linkLabel}
+            </span>
+          ) : p.file.link ? (
+            <span className="absolute bottom-1 left-1 z-10 flex h-4 w-4 items-center justify-center rounded bg-black/65 text-white" title={p.linkLabel}><Link2 size={10} /></span>
+          ) : null}
           {p.duration ? <span className="absolute bottom-1 right-1 z-10 rounded bg-black/65 px-1 text-[10.5px] tabular-nums leading-[16px] text-white">{p.duration}</span> : null}
         </div>
       </div>
@@ -1159,16 +1268,17 @@ function FileTile(p: {
 
 /** How much of a file is in: a bar along the bottom of its card. */
 function UploadBar({ ratio }: { ratio: number }) {
+  /* below 0: how much is in is not known (a copy made on this computer): the bar pulses */
   return (
     <span className="pointer-events-none absolute inset-x-0 bottom-0 z-10 h-1 bg-black/35">
-      <span className="block h-full bg-[var(--accent)] transition-[width] duration-200" style={{ width: `${Math.round(ratio * 100)}%` }} />
+      <span className={`block h-full bg-[var(--accent)] transition-[width] duration-200 ${ratio < 0 ? 'animate-pulse' : ''}`} style={{ width: `${ratio < 0 ? 100 : Math.round(ratio * 100)}%` }} />
     </span>
   );
 }
 
 /** A file on its way in, where it will be: a picture shows itself, anything else its icon; its progress inside. */
 function UploadTile({ upload, row }: { upload: Upload; row: boolean }) {
-  const pct = `${Math.round(upload.ratio * 100)}%`;
+  const pct = upload.ratio < 0 ? '' : `${Math.round(upload.ratio * 100)}%`;
   const Icon = KIND_ICON[upload.kind];
   const picture = upload.preview
     ? <img src={upload.preview} alt="" className="absolute inset-0 h-full w-full object-contain opacity-45" />

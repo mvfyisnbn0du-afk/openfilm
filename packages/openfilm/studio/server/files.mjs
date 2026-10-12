@@ -1,19 +1,22 @@
 // @ts-check
 /**
- * A project's media and pages, as the media pane shows them and changes them. Everything is a real file in the folder:
- * imports are streamed to disk whatever their size, and nothing is replaced by a pointer.
+ * A project's media and pages, as the media pane shows them and changes them. Imports are streamed to disk whatever
+ * their size; files picked on this computer are copied (cloned, where the disk can: no time, no room) or linked, a
+ * link in assets/ to where they are kept (a NAS, another disk: src/media-links.mjs).
  *
  * Paths in and out are relative to the project folder, with forward slashes. Nothing outside the folder, and nothing
- * in Studio's own `.film/`, can be read or written through here, by its name or through a link in the folder.
+ * in Studio's own `.film/`, can be written through here, by its name or through a link in the folder; outside it, only
+ * what the person linked can be read.
  */
 import { execFile } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { createReadStream, createWriteStream, existsSync, lstatSync, realpathSync, statSync } from 'node:fs';
-import { copyFile, mkdir, readFile, readdir, rename, rm, stat, writeFile } from 'node:fs/promises';
+import { constants, createReadStream, createWriteStream, existsSync, lstatSync, realpathSync, statSync } from 'node:fs';
+import { copyFile, cp, lstat, mkdir, readFile, readdir, readlink, rename, rm, stat, symlink, unlink, writeFile } from 'node:fs/promises';
 import { basename, dirname, extname, isAbsolute, join, normalize, relative, sep } from 'node:path';
 import { Transform } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
 import { FILM_FILE, clipKind } from '../../src/film-doc.mjs';
+import { addLinkedPlaces, readableLink } from '../../src/media-links.mjs';
 import { readProjectFilm, writeProjectFilm } from './film.mjs';
 import { TOOL_DIR } from './projects.mjs';
 import { moveToTrash } from './trash.mjs';
@@ -35,10 +38,11 @@ export class FileError extends Error {
 
 /**
  * The absolute path of a project-relative one, refused when it leaves the folder or reaches into `.film/`: as written,
- * and as it is on disk (a folder in a downloaded project can be a link to anywhere).
- * @param {string} root @param {string} rel
+ * and as it is on disk (a folder in a downloaded project can be a link to anywhere). `read`: a link in assets/ to a
+ * place the person linked is followed too (it is read, never written).
+ * @param {string} root @param {string} rel @param {{ read?: boolean }} [how]
  */
-export function inside(root, rel) {
+export function inside(root, rel, how = {}) {
   if (typeof rel !== 'string' || !rel || rel.includes('\0')) throw new FileError('which file?');
   const clean = normalize(rel.split('/').join(sep));
   const abs = join(root, clean);
@@ -46,15 +50,33 @@ export function inside(root, rel) {
   const parts = back.split(sep);
   /* on Windows a `:` in a name is a stream of it (`.film::$INDEX_ALLOCATION` is the folder itself) */
   const streams = process.platform === 'win32' && parts.some((p) => p.includes(':'));
-  if (!back || parts[0] === '..' || isToolDir(parts[0]) || streams || /^[a-zA-Z]:/.test(clean) || clean.startsWith(sep) || !onDiskInside(root, abs)) {
+  if (!back || parts[0] === '..' || isToolDir(parts[0]) || streams || /^[a-zA-Z]:/.test(clean) || clean.startsWith(sep)
+    || !(onDiskInside(root, abs) || (how.read === true && readableLink(root, abs)))) {
     throw new FileError(`${rel} is not a path inside the project`);
   }
   return abs;
 }
 
-/** {@link inside}, or null where it would refuse: for paths a film names (a clip's src), not a person. */
+/** {@link inside} to read: a linked file is followed to where it is kept. */
+export const readable = (/** @type {string} */ root, /** @type {string} */ rel) => inside(root, rel, { read: true });
+
+/** {@link readable}, or null where it would refuse: for paths a film names (a clip's src), not a person. */
 export function inProject(/** @type {string} */ root, /** @type {string} */ rel) {
-  try { return inside(root, rel); } catch { return null; }
+  try { return readable(root, rel); } catch { return null; }
+}
+
+/**
+ * {@link inside} for an entry itself, to move or remove it: a link in assets/ is the link, wherever it leads, or if
+ * it leads nowhere (a NAS that is off); its folder must be in the project.
+ * @param {string} root @param {string} rel
+ */
+function entryInside(root, rel) {
+  const cut = typeof rel === 'string' ? rel.lastIndexOf('/') : -1;
+  if (cut > 0 && rel.startsWith(`${ASSETS}/`)) {
+    const abs = join(inside(root, rel.slice(0, cut)), rel.slice(cut + 1));
+    if (lstatSync(abs, { throwIfNoEntry: false })?.isSymbolicLink() && !rel.slice(cut + 1).startsWith('.')) return abs;
+  }
+  return inside(root, rel);
 }
 
 /**
@@ -150,6 +172,8 @@ export async function listFiles(root) {
   const folders = [];
   /** @type {{ path: string, size: number, mtime: number }[]} */
   const pages = [];
+  /** @type {Record<string, { to: string, missing?: true }>} */
+  const links = {};
 
   async function walk(/** @type {string} */ dir, /** @type {number} */ depth, /** @type {boolean} */ media) {
     let entries;
@@ -159,6 +183,17 @@ export async function listFiles(root) {
       if (entry.name.startsWith('.')) continue;
       const abs = join(dir, entry.name);
       const rel = posix(relative(root, abs));
+      /* a link the person made to media kept elsewhere: followed to a place they linked; one that leads nowhere (a
+         NAS that is off), or out of the project to a place they never linked (a project from elsewhere), is missing */
+      if (media && entry.isSymbolicLink()) {
+        const to = await readlink(abs).catch(() => '');
+        const info = readableLink(root, abs) ? await stat(abs).catch(() => null) : null;
+        links[rel] = { to: isAbsolute(to) ? to : join(dir, to), ...(info ? {} : { missing: true }) };
+        if (info?.isDirectory()) { folders.push(rel); if (depth < 8) await walk(abs, depth + 1, true); continue; }
+        const at = info ?? await lstat(abs).catch(() => null);
+        if (at) files.push({ path: rel, kind: kindOf(entry.name), size: info ? info.size : 0, mtime: Math.round(at.mtimeMs) });
+        continue;
+      }
       if (entry.isDirectory()) {
         if (media) { folders.push(rel); if (depth < 8) await walk(abs, depth + 1, true); }
         else if (!SKIP.has(entry.name) && depth < 3) await walk(abs, depth + 1, false);
@@ -175,7 +210,7 @@ export async function listFiles(root) {
   await walk(join(root, ASSETS), 0, true);
   await walk(root, 0, false);
   const sort = (/** @type {{ path: string }} */ a, /** @type {{ path: string }} */ b) => a.path.localeCompare(b.path, undefined, { numeric: true });
-  return { files: files.sort(sort), folders: folders.sort(), made: made.sort(), pages: pages.sort(sort) };
+  return { files: files.sort(sort), folders: folders.sort(), made: made.sort(), pages: pages.sort(sort), links };
 }
 
 /** The file that marks a folder a person made: it keeps an empty folder in the listing and in history. */
@@ -316,15 +351,16 @@ async function relinkAfterMove(root, from, to) {
  * @param {string} root @param {string} from @param {string} asked
  */
 export async function moveFile(root, from, asked) {
-  const src = inside(root, from);
+  const src = entryInside(root, from);
   askedInside(root, asked);
   const to = cleanLast(asked);
   const dst = inside(root, to);
-  if (!existsSync(src)) throw new FileError(`${from} is not there`, 404);
+  const link = lstatSync(src, { throwIfNoEntry: false })?.isSymbolicLink() === true;
+  if (!link && !existsSync(src)) throw new FileError(`${from} is not there`, 404);
   /* a file's ending says what it is: a picture renamed .mp3 would be taken for a sound (and fail as one). Another
      ending of the same kind (.jpeg → .jpg) is fine */
   const fromName = posix(from).split('/').pop() ?? '', toName = to.split('/').pop() ?? '';
-  if ((await stat(src)).isFile() && kindOf(fromName) !== kindOf(toName)) {
+  if ((link || (await stat(src)).isFile()) && kindOf(fromName) !== kindOf(toName)) {
     throw new FileError(`${fromName} can't be renamed ${toName}: the ending says what a file is (a picture, a video, a sound or a page), and this one would change it. Keep an ending of the same kind`);
   }
   if (existsSync(dst) && !sameEntry(src, dst)) throw new FileError(`${to} is already there`, 409);
@@ -402,9 +438,112 @@ export async function freezeFrame(root, rel, ms) {
   return posix(relative(root, out));
 }
 
-/** Move a file or folder to the system's trash (see trash.mjs). */
+/**
+ * Move a file or folder to the system's trash (see trash.mjs). A link is only taken away: what it leads to stays where
+ * it is kept, untouched.
+ */
 export async function trashFile(/** @type {string} */ root, /** @type {string} */ rel) {
-  const abs = inside(root, rel);
+  const abs = entryInside(root, rel);
+  if (lstatSync(abs, { throwIfNoEntry: false })?.isSymbolicLink()) { await unlink(abs); return; }
   if (!existsSync(abs)) throw new FileError(`${rel} is not there`, 404);
   await moveToTrash(abs);
+}
+
+/* ── media kept elsewhere: copied in (cloned where the disk can) or linked (src/media-links.mjs) ── */
+
+/** The first free name for `name` in `dir`: `name.ext`, then `name 2.ext`… (importFile's rule). */
+function freeIn(/** @type {string} */ dir, /** @type {string} */ name) {
+  const ext = extname(name);
+  for (let n = 1; ; n++) {
+    const candidate = n === 1 ? name : `${name.slice(0, name.length - ext.length)} ${n}${ext}`;
+    if (!lstatSync(join(dir, candidate), { throwIfNoEntry: false })) return candidate;
+  }
+}
+
+/**
+ * Bring files or folders from this computer into the project folder `into` (`assets` or under it): `copy` copies each
+ * (a clone where the disk can make one: at once, and no more room taken until either is changed), `link` puts a link
+ * to it there and remembers the place as one the person linked. A link to the same place already there is that one.
+ * Returns where each landed.
+ * @param {string} root @param {string} into @param {string[]} paths @param {'copy' | 'link'} mode
+ */
+export async function bringIn(root, into, paths, mode) {
+  if (into !== ASSETS && !into.startsWith(`${ASSETS}/`)) throw new FileError('media goes in assets/');
+  const dir = inside(root, into);
+  await mkdir(dir, { recursive: true });
+  /** @type {string[]} */
+  const landed = [];
+  for (const path of paths) {
+    if (typeof path !== 'string' || !isAbsolute(path)) throw new FileError('a full path, please');
+    const from = realpathSync.native(path);
+    const info = await stat(from);
+    const name = cleanName(basename(from));
+    if (!name || name.startsWith('.')) throw new FileError(`${basename(from)} can't be named here`);
+    if (mode === 'link') {
+      /* the person picked it: theirs to read, whichever link leads there */
+      addLinkedPlaces([from]);
+      const same = (await readdir(dir)).find((n) => {
+        const at = join(dir, n);
+        return lstatSync(at).isSymbolicLink() && (() => { try { return realpathSync.native(at) === from; } catch { return false; } })();
+      });
+      if (same) { landed.push(posix(relative(root, join(dir, same)))); continue; }
+      const at = join(dir, freeIn(dir, name));
+      await symlink(from, at, info.isDirectory() ? 'dir' : 'file');
+      landed.push(posix(relative(root, at)));
+      continue;
+    }
+    const at = join(dir, freeIn(dir, name));
+    /* under a hidden name until it is all there: the pane never shows half a file */
+    const part = join(dir, `.${basename(at)}.${process.pid}.importing`);
+    try {
+      if (info.isDirectory()) await cp(from, part, { recursive: true, mode: constants.COPYFILE_FICLONE, filter: (src) => !basename(src).startsWith('.') });
+      else await copyFile(from, part, constants.COPYFILE_FICLONE);
+      await rename(part, at);
+    } catch (e) {
+      await rm(part, { recursive: true, force: true });
+      throw e;
+    }
+    landed.push(posix(relative(root, at)));
+  }
+  return landed;
+}
+
+/**
+ * Point a link at another place (a NAS that moved, a file renamed there): the person's pick, remembered as linked.
+ * @param {string} root @param {string} rel @param {string} to
+ */
+export async function relink(root, rel, to) {
+  const abs = entryInside(root, rel);
+  if (!lstatSync(abs, { throwIfNoEntry: false })?.isSymbolicLink()) throw new FileError(`${rel} is not a link`);
+  if (typeof to !== 'string' || !isAbsolute(to)) throw new FileError('a full path, please');
+  const from = realpathSync.native(to);
+  const info = await stat(from);
+  addLinkedPlaces([from]);
+  const part = `${abs}.${process.pid}.linking`;
+  await symlink(from, part, info.isDirectory() ? 'dir' : 'file');
+  await rename(part, abs);
+  return rel;
+}
+
+/**
+ * Copy what a link leads to into the project in its place (an editor's "collect files"): the film then has its own
+ * copy, to share or to keep when the NAS is gone. Cloned where the disk can. The original stays where it is.
+ * @param {string} root @param {string} rel
+ */
+export async function collect(root, rel) {
+  const abs = entryInside(root, rel);
+  if (!lstatSync(abs, { throwIfNoEntry: false })?.isSymbolicLink()) return rel;
+  const from = readable(root, rel);
+  const info = await stat(from);
+  const part = join(dirname(abs), `.${basename(abs)}.${process.pid}.collecting`);
+  try {
+    if (info.isDirectory()) await cp(from, part, { recursive: true, mode: constants.COPYFILE_FICLONE, filter: (src) => !basename(src).startsWith('.') });
+    else await copyFile(from, part, constants.COPYFILE_FICLONE);
+    await unlink(abs);
+    await rename(part, abs);
+  } catch (e) {
+    await rm(part, { recursive: true, force: true });
+    throw e;
+  }
+  return rel;
 }

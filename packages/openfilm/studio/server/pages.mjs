@@ -25,6 +25,7 @@ import { mkdir, rename } from 'node:fs/promises';
 import { createServer } from 'node:http';
 import { basename, dirname, isAbsolute, join, normalize, relative, sep } from 'node:path';
 import { HOST_FLAG, folderFiles } from '../../src/host.mjs';
+import { readableLink } from '../../src/media-links.mjs';
 import { soundOf } from './derived.mjs';
 
 const BRIDGE = readFileSync(new URL('./bridge.js', import.meta.url), 'utf8');
@@ -44,7 +45,10 @@ async function playableCopy(root, rel) {
   const file = normalize(join(root, rel));
   if (!file.startsWith(root + sep)) return null;
   let info;
-  try { info = statSync(file); if (!realpathSync(file).startsWith(realpathSync(root) + sep)) return null; } catch { return null; }
+  try {
+    info = statSync(file);
+    if (!realpathSync(file).startsWith(realpathSync(root) + sep) && !readableLink(root, file)) return null;
+  } catch { return null; }
   const name = `${createHash('sha1').update(`${rel}\0${info.size}\0${info.mtimeMs}`).digest('hex').slice(0, 20)}.wav`;
   const out = join(root, PLAYABLE_DIR, name);
   try { statSync(out); return name; } catch { /* not made yet */ }
@@ -80,8 +84,8 @@ export function ownHost(req, port) {
 /**
  * Whether the decoded path `plain` of a project folder may be served: no part of it hidden (`.film`, `.git`, `.env`,
  * `..`) or with a `:` (on Windows `name::$DATA` is the file `name`, and `.film:` the folder), and the file it names,
- * when there is one, really in the folder (not through a link out of it) and not hidden by its real name either (on
- * Windows `ENV~1` is the short name of `.env`).
+ * when there is one, really in the folder (not through a link out of it, but for media the person linked:
+ * src/media-links.mjs) and not hidden by its real name either (on Windows `ENV~1` is the short name of `.env`).
  * @param {string} root @param {string} plain
  */
 function servable(root, plain) {
@@ -92,7 +96,8 @@ function servable(root, plain) {
   let home;
   try { home = realpathSync.native(root); } catch { return false; }
   const back = relative(home, real);
-  return !back || (!isAbsolute(back) && !back.split(sep).some((part) => part.startsWith('.')));
+  if (isAbsolute(back) || back.split(sep)[0] === '..') return readableLink(root, join(root, ...parts));
+  return !back || !back.split(sep).some((part) => part.startsWith('.'));
 }
 
 /**

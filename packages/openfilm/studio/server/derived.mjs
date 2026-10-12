@@ -12,7 +12,7 @@ import { createHash } from 'node:crypto';
 import { existsSync } from 'node:fs';
 import { mkdir, readFile, rename, rm, stat } from 'node:fs/promises';
 import { join } from 'node:path';
-import { inside } from './files.mjs';
+import { readable } from './files.mjs';
 import { TOOL_DIR } from './projects.mjs';
 import { writeAtomic } from './atomic.mjs';
 
@@ -51,7 +51,7 @@ async function tool(/** @type {'ffmpeg' | 'ffprobe'} */ name, /** @type {string[
 
 /** The file, and the cache key that changes when it does. */
 async function source(/** @type {string} */ root, /** @type {string} */ rel) {
-  const abs = inside(root, rel);
+  const abs = readable(root, rel);
   const info = await stat(abs).catch(() => null);
   if (!info?.isFile()) throw new MediaError(`${rel} is not there`, 404);
   const key = createHash('sha1').update(`${rel}\0${info.size}\0${Math.round(info.mtimeMs)}`).digest('hex').slice(0, 20);

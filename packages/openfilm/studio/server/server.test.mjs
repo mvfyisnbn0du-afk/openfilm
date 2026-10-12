@@ -1,6 +1,6 @@
 import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, symlinkSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, rmSync, statSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { execFileSync } from 'node:child_process';
@@ -193,6 +193,26 @@ test('rename renames the folder; delete moves it to the Trash and off the list',
   assert.equal((await api(`/api/projects/${project.id}`)).status, 404);
   assert.ok(!existsSync(renamed.project.path), 'the folder went to the Trash');
   assert.ok(readdirSync(process.env.OPENFILM_TRASH_DIR).some((n) => n.startsWith('Final')));
+});
+
+test('media linked in the media pane is served to the film; a link a project brings from elsewhere is not', { skip: process.platform === 'win32' && 'links need Developer Mode on Windows' }, async () => {
+  const { project } = await (await api('/api/projects', { method: 'POST', body: { path: join(scratch, 'Linked') } })).json();
+  const nas = mkdtempSync(join(tmpdir(), 'of-nas-'));
+  writeFileSync(join(nas, 'take.wav'), 'footage');
+  writeFileSync(join(nas, 'secret.wav'), 'theirs');
+  mkdirSync(join(project.path, 'assets'), { recursive: true });
+  symlinkSync(join(nas, 'secret.wav'), join(project.path, 'assets', 'secret.wav'));
+  const res = await api(`/api/projects/${project.id}/files/bring`, { method: 'POST', body: { into: 'assets', mode: 'link', paths: [join(nas, 'take.wav')] } });
+  assert.deepEqual((await res.json()).landed, ['assets/take.wav']);
+  const { folder } = await (await api(`/api/projects/${project.id}`)).json();
+  assert.equal(await (await fetch(`${folder}assets/take.wav`)).text(), 'footage');
+  assert.equal((await fetch(`${folder}assets/secret.wav`)).status, 404);
+  const listed = await (await api(`/api/projects/${project.id}/files`)).json();
+  assert.deepEqual(listed.links['assets/take.wav'], { to: join(realpathSync(nas), 'take.wav') });
+  assert.equal(listed.links['assets/secret.wav'].missing, true);
+  /* copied in its place: the project's own file */
+  await api(`/api/projects/${project.id}/files/collect`, { method: 'POST', body: { path: 'assets/take.wav' } });
+  assert.deepEqual((await (await api(`/api/projects/${project.id}/files`)).json()).links['assets/take.wav'], undefined);
 });
 
 test('the film origin serves a project\'s files, with ranges, never .film/, and pages get the film clock', async () => {

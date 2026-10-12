@@ -35,7 +35,12 @@ export interface WorkspaceResource {
   h?: number;
   /** Source frame rate: shown, because 25 and 30 fps footage mixed in one film repeats frames after export. */
   fps?: number;
+  /** A link to media kept elsewhere (a NAS, another disk): where it leads, and whether it can be reached now. */
+  link?: MediaLink;
 }
+
+/** Where a linked file or folder is kept (`to`, a full path); `missing`: it cannot be reached (a NAS that is off). */
+export interface MediaLink { to: string; missing?: boolean }
 
 export interface MediaListing {
   /** The media root's own name (`assets`), so folder paths relative to it can be made project paths. */
@@ -51,6 +56,8 @@ export interface MediaListing {
   made?: readonly string[];
   /** The film's pages, as `kind: 'mg'` resources. */
   pages: readonly WorkspaceResource[];
+  /** Folders that are links to media kept elsewhere (relative to the media root). */
+  linkedDirs?: Readonly<Record<string, MediaLink>>;
 }
 
 /** Where the pane's pictures, sounds and pages come from. Addresses should carry the file's version (its mtime). */
@@ -88,6 +95,8 @@ export interface FilesListing {
   files: readonly { path: string; kind: string; size: number; mtime: number }[];
   folders: readonly string[];
   pages: readonly { path: string; size: number; mtime: number }[];
+  /** Links to media kept elsewhere, by project path (files and folders). */
+  links?: Readonly<Record<string, MediaLink>>;
 }
 
 const MEDIA_KINDS: readonly string[] = ['video', 'image', 'audio'];
@@ -137,8 +146,10 @@ export function mediaListingOf(
       kind: (f.kind === 'page' ? 'mg' : MEDIA_KINDS.includes(f.kind) ? f.kind : 'other') as WorkspaceResourceKind,
       mtimeMs: f.mtime,
       ...facts?.(f.path),
+      ...(raw.links?.[f.path] ? { link: raw.links[f.path]! } : {}),
     })),
     dirs: raw.folders.filter((d) => d.startsWith(`${root}/`)).map(rel),
+    linkedDirs: Object.fromEntries(Object.entries(raw.links ?? {}).filter(([path]) => raw.folders.includes(path)).map(([path, link]) => [rel(path), link])),
     ...(made ? { made: made.filter((d) => d.startsWith(`${root}/`)).map(rel) } : {}),
     pages: raw.pages.map((p) => ({
       path: p.path,

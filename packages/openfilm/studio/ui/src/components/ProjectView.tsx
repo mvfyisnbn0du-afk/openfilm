@@ -994,6 +994,10 @@ export function ProjectView({ projectId, onProject, onLeave }: {
       onNewFolder={onNewFolder}
       onDropClips={dropClipsForAssets}
       onReveal={reveal}
+      onPick={onPick}
+      onBring={onBring}
+      onRelink={onRelink}
+      onCollect={onCollect}
       onClose={onClose}
       {...(studioHost?.refer ? { fileRef: refOfFile, onRefer: studioHost.refer } : {})}
       reveal={revealMedia}
@@ -1548,6 +1552,34 @@ export function ProjectView({ projectId, onProject, onLeave }: {
   /* ── media pane actions ── */
   const projectApi = `/api/projects/${encodeURIComponent(projectId)}`;
   const mediaResult = async (res: Response): Promise<MediaResult> => (res.ok ? 'ok' : res.status === 409 ? 'taken' : 'failed');
+  /* media kept on this computer (files.mjs bringIn): picked in the system's dialog (the app's own for a folder, when
+     it has one; 'no-dialog' where there is none), copied in (cloned where the disk can) or linked where it is kept (a
+     NAS). A link pointed elsewhere, or copied into the project in its place */
+  const postJson = React.useCallback(async (path: string, body: unknown) => {
+    const res = await fetch(path, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) });
+    const answer = await res.json().catch(() => ({})) as Record<string, unknown>;
+    return { ok: res.ok, status: res.status, answer };
+  }, []);
+  const onPick = React.useCallback(async (title: string, folder: boolean): Promise<string[] | 'no-dialog'> => {
+    if (folder && studioHost?.folders?.pick) { const path = await studioHost.folders.pick({ title }); return path ? [path] : []; }
+    const { ok, status, answer } = await postJson(folder ? '/api/pick-folder' : '/api/pick-files', { title });
+    if (status === 501) return 'no-dialog';
+    if (!ok) return [];
+    return folder ? (typeof answer.path === 'string' ? [answer.path] : []) : Array.isArray(answer.paths) ? answer.paths.map(String) : [];
+  }, [postJson]);
+  const onBring = React.useCallback(async (paths: string[], into: string, mode: 'copy' | 'link'): Promise<string[]> => {
+    const { ok, answer } = await postJson(`${projectApi}/files/bring`, { paths, into, mode });
+    if (!ok) throw new Error(String(answer.error ?? t('assets.uploadFailed')));
+    return Array.isArray(answer.landed) ? answer.landed.map(String) : [];
+  }, [projectApi, postJson, t]);
+  const onRelink = React.useCallback(async (path: string, folder: boolean): Promise<MediaResult> => {
+    const to = (await onPick(t('media.pickRelink'), folder));
+    if (to === 'no-dialog' || !to.length) return 'ok';
+    return (await postJson(`${projectApi}/files/relink`, { path, to: to[0] })).ok ? 'ok' : 'failed';
+  }, [projectApi, postJson, onPick, t]);
+  const onCollect = React.useCallback(async (path: string): Promise<MediaResult> => (
+    (await postJson(`${projectApi}/files/collect`, { path })).ok ? 'ok' : 'failed'
+  ), [projectApi, postJson]);
   /*
    * resolves with where each file landed (a taken name gets a number); one that is no readable media is said at once.
    * Each file's progress is its bytes sent (XMLHttpRequest: fetch cannot tell how much of a body has gone), then 1 and
@@ -1555,6 +1587,19 @@ export function ProjectView({ projectId, onProject, onLeave }: {
    */
   const onImport = React.useCallback(async (files: File[], into: string, onProgress: ImportProgress): Promise<string[]> => {
     const landed: string[] = [];
+    /* in the app a dropped file's path is known: copied on this computer (cloned where the disk can: at once, and no
+       more room taken), not sent through the page */
+    const paths = files.map((file) => studioHost?.folders?.pathOf(file) ?? '');
+    if (paths.length && paths.every(Boolean)) {
+      for (const [i, path] of paths.entries()) {
+        onProgress(i, -1);
+        // eslint-disable-next-line no-await-in-loop
+        const [at] = await onBring([path], into, 'copy');
+        if (at) landed.push(at);
+        onProgress(i, 1, at);
+      }
+      return landed;
+    }
     for (const [i, file] of files.entries()) {
       // eslint-disable-next-line no-await-in-loop
       const { ok, body } = await new Promise<{ ok: boolean; body: { path?: string; error?: string; unreadable?: string } }>((done) => {
@@ -1575,7 +1620,7 @@ export function ProjectView({ projectId, onProject, onLeave }: {
       onProgress(i, 1, body.path);
     }
     return landed;
-  }, [projectApi, t, toast]);
+  }, [projectApi, t, toast, onBring]);
 
   /* ── files dropped from the computer: imported into assets/ (the media pane's own import), then put on the film ── */
   /** A file just imported, as the media pane would hand it to a drop: its kind from its name, its length and size probed. */
@@ -1705,8 +1750,8 @@ export function ProjectView({ projectId, onProject, onLeave }: {
   const onNewFolder = React.useCallback(async (path: string) => mediaResult(await fetch(`${projectApi}/folders`, {
     method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ path }),
   })), [projectApi]);
-  const reveal = React.useCallback((path: string) => {
-    void fetch(`${projectApi}/reveal`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ path }) });
+  const reveal = React.useCallback((path: string, original?: boolean) => {
+    void fetch(`${projectApi}/reveal`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ path, ...(original ? { original } : {}) }) });
   }, [projectApi]);
 
   /* ── picture: the delivery frame, fullscreen ── */

@@ -4,7 +4,8 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, symlinkS
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { Readable } from 'node:stream';
-import { FileError, cleanName, extractAudio, freezeFrame, importFile, inProject, inside, listFiles, makeFolder, moveCheck, moveFile, trashFile } from './files.mjs';
+import { FileError, bringIn, cleanName, collect, extractAudio, freezeFrame, importFile, inProject, inside, listFiles, makeFolder, moveCheck, moveFile, readable, relink, trashFile } from './files.mjs';
+import { lstatSync, rmSync } from 'node:fs';
 import { execFileSync } from 'node:child_process';
 import { filmHtml, readFilmFile } from '../../src/film-doc.mjs';
 
@@ -13,6 +14,8 @@ beforeEach(() => {
   root = mkdtempSync(join(tmpdir(), 'of-files-'));
   trash = mkdtempSync(join(tmpdir(), 'of-trash-'));
   process.env.OPENFILM_TRASH_DIR = trash;
+  /* the places the person linked are kept in Studio's home: one of each test's own */
+  process.env.OPENFILM_HOME = mkdtempSync(join(tmpdir(), 'of-home-'));
 });
 const put = (rel, text = 'x') => { mkdirSync(join(root, rel, '..'), { recursive: true }); writeFileSync(join(root, rel), text); };
 
@@ -210,4 +213,89 @@ test('a freeze frame is the video\'s frame at that moment, full size, a PNG besi
   assert.equal(await freezeFrame(root, 'assets/shot.mp4', 1240), 'assets/shot-frame-1_24s-2.png');
   await assert.rejects(freezeFrame(root, 'assets/none.mp4', 0), FileError);
   await assert.rejects(freezeFrame(root, '../x.mp4', 0), FileError);
+});
+
+test('media linked from elsewhere (a NAS): read through the link, listed, never written there', links, async () => {
+  const nas = mkdtempSync(join(tmpdir(), 'of-nas-'));
+  writeFileSync(join(nas, 'take 1.mp4'), 'footage');
+  mkdirSync(join(nas, 'b-roll'));
+  writeFileSync(join(nas, 'b-roll', 'sky.png'), 'sky');
+  mkdirSync(join(root, 'assets'));
+  assert.deepEqual(await bringIn(root, 'assets', [join(nas, 'take 1.mp4'), join(nas, 'b-roll')], 'link'), ['assets/take 1.mp4', 'assets/b-roll']);
+  assert.ok(lstatSync(join(root, 'assets', 'take 1.mp4')).isSymbolicLink());
+  /* the same place linked again is the link there */
+  assert.deepEqual(await bringIn(root, 'assets', [join(nas, 'take 1.mp4')], 'link'), ['assets/take 1.mp4']);
+  /* read: followed; a film's clip finds it */
+  assert.equal(readable(root, 'assets/take 1.mp4'), join(root, 'assets', 'take 1.mp4'));
+  assert.ok(inProject(root, 'assets/b-roll/sky.png'));
+  /* written: never */
+  assert.throws(() => inside(root, 'assets/b-roll/new.png'), FileError);
+  await assert.rejects(importFile(root, 'assets/b-roll/x.png', Readable.from([Buffer.from('x')])), FileError);
+  await assert.rejects(moveFile(root, 'assets/take 1.mp4', 'assets/b-roll/take 1.mp4'), FileError);
+  /* listed: the linked folder and what is in it, each link with where it leads */
+  const listed = await listFiles(root);
+  assert.deepEqual(listed.files.map((f) => f.path), ['assets/b-roll/sky.png', 'assets/take 1.mp4']);
+  assert.ok(listed.folders.includes('assets/b-roll'));
+  assert.deepEqual(Object.keys(listed.links).sort(), ['assets/b-roll', 'assets/take 1.mp4']);
+  assert.equal(listed.links['assets/take 1.mp4'].missing, undefined);
+  /* moved in the project: the link moves; deleted: only the link goes, the footage stays where it is kept */
+  mkdirSync(join(root, 'assets', 'cuts'));
+  assert.equal((await moveFile(root, 'assets/take 1.mp4', 'assets/cuts/take 1.mp4')).path, 'assets/cuts/take 1.mp4');
+  await trashFile(root, 'assets/cuts/take 1.mp4');
+  assert.ok(!existsSync(join(root, 'assets', 'cuts', 'take 1.mp4')));
+  assert.equal(readFileSync(join(nas, 'take 1.mp4'), 'utf8'), 'footage');
+  assert.deepEqual(readdirSync(trash), [], 'nothing of the NAS in the trash');
+  rmSync(nas, { recursive: true, force: true });
+});
+
+test('a link that leads nowhere (the NAS is off) is listed as missing, relinked, and collected into the project', links, async () => {
+  const nas = mkdtempSync(join(tmpdir(), 'of-nas-'));
+  writeFileSync(join(nas, 'a.png'), 'one');
+  mkdirSync(join(root, 'assets'));
+  await bringIn(root, 'assets', [join(nas, 'a.png')], 'link');
+  rmSync(join(nas, 'a.png'));
+  const off = await listFiles(root);
+  assert.deepEqual(off.files.map((f) => f.path), ['assets/a.png']);
+  assert.equal(off.links['assets/a.png'].missing, true);
+  assert.equal(inProject(root, 'assets/a.png'), null);
+  /* pointed at where it is now, then copied in: the project's own file, the original untouched */
+  const moved = mkdtempSync(join(tmpdir(), 'of-nas2-'));
+  writeFileSync(join(moved, 'a.png'), 'two');
+  await relink(root, 'assets/a.png', join(moved, 'a.png'));
+  assert.equal(readFileSync(join(root, 'assets', 'a.png'), 'utf8'), 'two');
+  await collect(root, 'assets/a.png');
+  assert.ok(!lstatSync(join(root, 'assets', 'a.png')).isSymbolicLink());
+  assert.equal(readFileSync(join(root, 'assets', 'a.png'), 'utf8'), 'two');
+  assert.equal(readFileSync(join(moved, 'a.png'), 'utf8'), 'two');
+  assert.deepEqual((await listFiles(root)).links, {});
+});
+
+test('a link a project brings from elsewhere is not followed, even to a file that is there; one the person makes is', links, async () => {
+  const away = mkdtempSync(join(tmpdir(), 'of-away-'));
+  writeFileSync(join(away, 'secret.png'), 'theirs');
+  mkdirSync(join(root, 'assets'));
+  symlinkSync(join(away, 'secret.png'), join(root, 'assets', 'pic.png'));
+  assert.equal(inProject(root, 'assets/pic.png'), null);
+  assert.equal((await listFiles(root)).links['assets/pic.png'].missing, true);
+  /* outside assets/ no link is followed, linked or not */
+  await bringIn(root, 'assets', [join(away, 'secret.png')], 'link');
+  symlinkSync(join(away, 'secret.png'), join(root, 'page.png'));
+  assert.equal(inProject(root, 'page.png'), null);
+  assert.ok(inProject(root, 'assets/pic.png'), 'the place is linked now');
+});
+
+test('files copied in from this computer: a copy each under a free name, the originals left as they are', async () => {
+  const disk = mkdtempSync(join(tmpdir(), 'of-disk-'));
+  writeFileSync(join(disk, 'a.png'), 'pic');
+  mkdirSync(join(disk, 'set'));
+  writeFileSync(join(disk, 'set', 'b.wav'), 'snd');
+  writeFileSync(join(disk, 'set', '.DS_Store'), '');
+  put('assets/a.png', 'other');
+  assert.deepEqual(await bringIn(root, 'assets', [join(disk, 'a.png'), join(disk, 'set')], 'copy'), ['assets/a 2.png', 'assets/set']);
+  assert.equal(readFileSync(join(root, 'assets', 'a 2.png'), 'utf8'), 'pic');
+  assert.deepEqual(readdirSync(join(root, 'assets', 'set')), ['b.wav']);
+  assert.ok(!lstatSync(join(root, 'assets', 'set')).isSymbolicLink());
+  assert.equal(readFileSync(join(disk, 'a.png'), 'utf8'), 'pic');
+  await assert.rejects(bringIn(root, 'scenes', [join(disk, 'a.png')], 'copy'), FileError);
+  await assert.rejects(bringIn(root, 'assets', ['a.png'], 'copy'), FileError);
 });

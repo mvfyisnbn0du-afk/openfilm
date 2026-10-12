@@ -13,7 +13,7 @@
  * whose name is pointed at this machine (DNS rebinding) gets nothing, not even /api/health.
  */
 import { randomBytes, timingSafeEqual } from 'node:crypto';
-import { existsSync, mkdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, realpathSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { basename, extname, isAbsolute, join, normalize, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createServer } from 'node:http';
@@ -21,7 +21,7 @@ import { mkdir, readFile } from 'node:fs/promises';
 import { createHash } from 'node:crypto';
 import { spawn } from 'node:child_process';
 import { EditError, editProjectFilm, readProjectFilm } from './film.mjs';
-import { FileError, extractAudio, freezeFrame, importFile, inside, listFiles, makeFolder, moveCheck, moveFile, trashFile } from './files.mjs';
+import { FileError, bringIn, collect, extractAudio, freezeFrame, importFile, inside, listFiles, makeFolder, moveCheck, moveFile, readable, relink, trashFile } from './files.mjs';
 import { ExportError, createExports, exportCapabilities, exportsRoot, projectSizes } from './exports.mjs';
 import { MediaError, frame, loudness, poster, probe, waveform } from './derived.mjs';
 import { HistoryError, checkout, commitChanges, deleteBranch, discardChanges, historyFiles, log, mergeBranch, renameBranch, restoreCommit, status as historyStatus } from './history.mjs';
@@ -35,7 +35,7 @@ import {
 import { FetchError, createFetches } from './fetch-repo.mjs';
 import { BrowseError, browseFolder, browsePlaces } from './browse.mjs';
 import { listExamples } from './examples.mjs';
-import { pickFolder } from './folder-picker.mjs';
+import { pickFiles, pickFolder } from './folder-picker.mjs';
 import { npmOpenfilm, olderThanThis } from '../client.mjs';
 import { writeAtomic } from './atomic.mjs';
 import { createWatchers } from './watch.mjs';
@@ -262,6 +262,16 @@ export async function startStudio({ port = 4747, key, openBrowser = systemBrowse
         throw new HttpError(501, /** @type {Error} */ (e).message);
       }
     }
+    /* the system's file dialog (folder-picker.mjs pickFiles), several at once: { paths } (none: cancelled); 501 when
+       this system has none */
+    if (parts[0] === 'pick-files' && parts.length === 1 && req.method === 'POST') {
+      const { title } = /** @type {{ title?: unknown }} */ (await readJson(req).catch(() => ({})) ?? {});
+      try {
+        return json(res, 200, { paths: await pickFiles({ title: typeof title === 'string' && title.trim() ? title.trim().slice(0, 120) : 'Choose files', at: null }) });
+      } catch (e) {
+        throw new HttpError(501, /** @type {Error} */ (e).message);
+      }
+    }
     /* the web editor's folder browser (browse.mjs): `path`'s folders, only under the home folder, and where to start */
     if (parts[0] === 'browse' && parts.length === 1 && req.method === 'GET') {
       const listing = await browseFolder(url.searchParams.get('path'));
@@ -457,6 +467,29 @@ export async function startStudio({ port = 4747, key, openBrowser = systemBrowse
       const { path: from } = /** @type {{ path?: string }} */ (await readJson(req));
       return json(res, 200, { path: await extractAudio(project.path, String(from ?? '')) });
     }
+    /* files or folders of this computer copied in (cloned where the disk can) or linked (files.mjs bringIn): the paths
+       given (the desktop app knows a dropped file's), else the person's pick in the system's dialog. { landed } */
+    if (rest === 'files/bring' && req.method === 'POST') {
+      const { into, mode, paths, folder, title } = /** @type {{ into?: unknown, mode?: unknown, paths?: unknown, folder?: unknown, title?: unknown }} */ (await readJson(req));
+      const how = mode === 'link' ? 'link' : 'copy';
+      const ask = { title: typeof title === 'string' && title.trim() ? title.trim().slice(0, 120) : 'Choose', at: null };
+      const picked = Array.isArray(paths) ? paths.map(String)
+        : await (folder === true ? pickFolder(ask).then((p) => (p ? [p] : [])) : pickFiles(ask)).catch((e) => { throw new HttpError(501, String(e?.message ?? e)); });
+      return json(res, 200, { landed: await bringIn(project.path, String(into ?? 'assets'), picked, how) });
+    }
+    /* a link pointed somewhere else (files.mjs relink): the path given, else the person's pick. { path } (null: cancelled) */
+    if (rest === 'files/relink' && req.method === 'POST') {
+      const { path: rel, to, folder, title } = /** @type {{ path?: unknown, to?: unknown, folder?: unknown, title?: unknown }} */ (await readJson(req));
+      const ask = { title: typeof title === 'string' && title.trim() ? title.trim().slice(0, 120) : 'Choose', at: null };
+      const where = typeof to === 'string' ? to
+        : await (folder === true ? pickFolder(ask) : pickFiles(ask).then((p) => p[0] ?? null)).catch((e) => { throw new HttpError(501, String(e?.message ?? e)); });
+      return json(res, 200, { path: where ? await relink(project.path, String(rel ?? ''), where) : null });
+    }
+    /* what a link leads to copied into the project in its place (files.mjs collect) */
+    if (rest === 'files/collect' && req.method === 'POST') {
+      const { path: rel } = /** @type {{ path?: unknown }} */ (await readJson(req));
+      return json(res, 200, { path: await collect(project.path, String(rel ?? '')) });
+    }
     /* a video's frame made a still beside it (files.mjs freezeFrame): the timeline's freeze frame */
     if (rest === 'files/still' && req.method === 'POST') {
       const { path: from, ms } = /** @type {{ path?: string, ms?: number }} */ (await readJson(req));
@@ -572,9 +605,9 @@ export async function startStudio({ port = 4747, key, openBrowser = systemBrowse
     }
     /* a file or folder of the project, shown where it is on the person's computer */
     if (rest === 'reveal' && req.method === 'POST') {
-      const { path: rel } = /** @type {{ path?: string }} */ (await readJson(req));
-      /* no path: the project's own folder */
-      const abs = rel ? inside(project.path, String(rel)) : project.path;
+      const { path: rel, original } = /** @type {{ path?: string, original?: boolean }} */ (await readJson(req));
+      /* no path: the project's own folder; `original`: where a linked file is kept */
+      const abs = !rel ? project.path : original === true ? realpathSync(readable(project.path, String(rel))) : readable(project.path, String(rel));
       if (!existsSync(abs)) throw new HttpError(404, 'that is not there any more');
       reveal(abs);
       return json(res, 200, {});

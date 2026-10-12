@@ -54,3 +54,14 @@ test('a page put in a folder of the media pane is a page still, named as pages a
   });
   assert.deepEqual(listing.files.map((f) => [f.name, f.kind, f.dir]), [['02-cards', 'mg', 'test'], ['brief.pdf', 'other', 'test']]);
 });
+
+test('links to media kept elsewhere ride on their files and folders', () => {
+  const listing = mediaListingOf({
+    files: [{ path: 'assets/nas/take.mp4', kind: 'video', size: 9, mtime: 1 }, { path: 'assets/off.png', kind: 'image', size: 0, mtime: 1 }],
+    folders: ['assets/nas'],
+    pages: [],
+    links: { 'assets/nas': { to: '/Volumes/NAS/shoot' }, 'assets/off.png': { to: '/Volumes/NAS/off.png', missing: true } },
+  });
+  assert.deepEqual(listing.linkedDirs, { nas: { to: '/Volumes/NAS/shoot' } });
+  assert.deepEqual(listing.files.map((f) => f.link ?? null), [null, { to: '/Volumes/NAS/off.png', missing: true }]);
+});
