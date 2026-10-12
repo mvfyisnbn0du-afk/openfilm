@@ -59,6 +59,7 @@ import {
   type WorkspaceResource,
   type WorkspaceResourceKind,
   type MediaLink,
+  type MediaProxy,
 } from '@/lib/workspace-resources';
 import { ConfirmDialog } from './ConfirmDialog';
 import { ContextMenu, type ContextMenuEntry } from './ContextMenu';
@@ -486,6 +487,9 @@ export function MediaPool({
     ...(onReveal ? [{ id: 'reveal', label: t('projects.revealFolder'), icon: <FolderOpen size={14} />, onSelect: () => onReveal(path) }] : []),
     { id: 'copy', label: t('media.copyPath'), icon: <Copy size={14} />, onSelect: () => { void navigator.clipboard?.writeText(path).catch(() => {}); } },
   ];
+  /** What to say of a proxy. */
+  const proxyText = (proxy: MediaProxy) => (proxy.state === 'making' ? t('media.proxyMaking').replace('{p}', String(Math.round((proxy.ratio ?? 0) * 100)))
+    : proxy.state === 'waiting' ? t('media.proxyWaiting') : proxy.state === 'failed' ? t('media.proxyFailed') : t('media.proxyReady'));
   /** Where a file or folder is linked from (a NAS), if it is a link. */
   const linkOf = (key: string): MediaLink | undefined => {
     const item = itemByKey.get(key);
@@ -957,6 +961,7 @@ export function MediaPool({
                 selected={chosen.includes(item.file.path)}
                 lit={litPath === item.file.path}
                 {...(item.file.link ? { linkLabel: item.file.link.missing ? t('media.linkMissing') : t('media.linkedFrom').replace('{path}', item.file.link.to) } : {})}
+                {...(item.file.proxy ? { proxyLabel: proxyText(item.file.proxy), proxyMark: t('media.proxy') } : {})}
                 renaming={renaming === item.file.path}
                 {...(fileRef ? { studioRef: () => fileRef(item.file) } : {})}
                 moving={() => dragKeys(item.file.path)}
@@ -1190,6 +1195,9 @@ function FileTile(p: {
   onPress: (e?: React.MouseEvent) => void; onMenu: (e: React.MouseEvent) => void; onRename: (name: string) => void; onCancelRename: () => void;
   /** A link to media kept elsewhere: what to say of it (where it is kept, or that it cannot be reached). */
   linkLabel?: string;
+  /** Heavy footage's proxy: what to say of it (being made, ready…), and its mark once ready. */
+  proxyLabel?: string;
+  proxyMark?: string;
   /** What kind of file it is, short (`PNG`, `Page`): the list view's Type. */
   typeText: string;
   /** A row of the list view, not a tile. */
@@ -1224,6 +1232,7 @@ function FileTile(p: {
         <>
           <span className={`${ROW_THUMB} pointer-events-none`}>
             {p.file.kind === 'mg' ? <PagePoster file={p.file} sources={p.sources} /> : <MediaPreview file={p.file} sources={p.sources} />}
+            {p.file.proxy && p.file.proxy.state !== 'ready' && p.file.proxy.state !== 'failed' ? <UploadBar ratio={p.file.proxy.state === 'making' ? p.file.proxy.ratio ?? 0 : -1} /> : null}
           </span>
           <span className="flex min-w-0 flex-1 flex-col">
             {p.renaming ? <NameInput value={p.file.name} onDone={p.onRename} onCancel={p.onCancelRename} />
@@ -1252,6 +1261,12 @@ function FileTile(p: {
             </span>
           ) : p.file.link ? (
             <span className="absolute bottom-1 left-1 z-10 flex h-4 w-4 items-center justify-center rounded bg-black/65 text-white" title={p.linkLabel}><Link2 size={10} /></span>
+          ) : null}
+          {/* heavy footage's proxy: its making along the bottom, then a mark */}
+          {p.file.proxy?.state === 'ready' ? (
+            <span className="absolute right-1 top-1 z-10 rounded bg-black/65 px-1 text-[9.5px] font-semibold uppercase leading-[15px] tracking-wide text-white/90" title={p.proxyLabel}>{p.proxyMark}</span>
+          ) : p.file.proxy && p.file.proxy.state !== 'failed' ? (
+            <span className="absolute inset-x-0 bottom-0 z-10 h-1" title={p.proxyLabel}><UploadBar ratio={p.file.proxy.state === 'making' ? p.file.proxy.ratio ?? 0 : -1} /></span>
           ) : null}
           {p.duration ? <span className="absolute bottom-1 right-1 z-10 rounded bg-black/65 px-1 text-[10.5px] tabular-nums leading-[16px] text-white">{p.duration}</span> : null}
         </div>

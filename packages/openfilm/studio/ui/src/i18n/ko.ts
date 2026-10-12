@@ -675,6 +675,7 @@ export const ko: Words = {
     propFps: '프레임 레이트',
     propModified: '수정한 날짜',
     propLinked: "보관 위치",
+    propProxy: "프록시",
     kindAudio: '오디오',
     uploadFailed: '가져오기에 실패했습니다. 다시 시도하세요',
     unreadable: '“{name}”을(를) 가져왔지만 이미지, 비디오 또는 사운드로 읽을 수 없습니다({why}). 파일을 확인하거나 다른 사본을 가져오세요.',
@@ -744,6 +745,11 @@ export const ko: Words = {
     collectFailed: "프로젝트로 복사할 수 없습니다",
     linkMissing: "찾을 수 없음",
     linkedFrom: "{path}에서 연결됨",
+    proxy: "프록시",
+    proxyMaking: "프록시 만드는 중… {p}%",
+    proxyWaiting: "프록시 대기 중",
+    proxyFailed: "프록시를 만들 수 없어 원본으로 재생합니다",
+    proxyReady: "준비됨: 뷰어에서 재생합니다",
   },
   assetsPane: {
     show: '에셋 표시',
@@ -1323,6 +1329,13 @@ export const ko: Words = {
       languageSystem: '시스템 설정 따르기',
       themeHint: '라이트, 다크 또는 시스템 설정을 따릅니다.',
       languageHint: 'OpenFilm 화면에 표시되는 언어.',
+    },
+    playback: {
+      group: "재생",
+      proxies: "무거운 영상에 프록시 사용",
+      proxiesHint: "1080p를 넘거나 디코딩이 무거운(ProRes, HEVC, 10비트) 영상은 백그라운드에서 만든 가벼운 사본으로 재생합니다. 내보내기에는 항상 원본을 씁니다.",
+      proxySize: "프록시 크기",
+      proxySizeHint: "작을수록 더 부드럽게 재생되고, 클수록 뷰어에서 더 선명합니다.",
     },
     about: {
       group: '정보',

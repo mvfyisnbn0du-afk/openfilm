@@ -26,6 +26,9 @@ import { createServer } from 'node:http';
 import { basename, dirname, isAbsolute, join, normalize, relative, sep } from 'node:path';
 import { HOST_FLAG, folderFiles } from '../../src/host.mjs';
 import { readableLink } from '../../src/media-links.mjs';
+import { clipKind } from '../../src/film-doc.mjs';
+import { readPrefs } from './prefs.mjs';
+import { readyProxy } from './proxies.mjs';
 import { soundOf } from './derived.mjs';
 
 const BRIDGE = readFileSync(new URL('./bridge.js', import.meta.url), 'utf8');
@@ -121,6 +124,12 @@ export async function startPages({ port, editorOrigin, secret, projects }) {
     inject: `<script>${HOST_FLAG}</script>${scripts(BRIDGE)}`,
     timelineInject: `<script>${HOST_FLAG}</script>${scripts(BRIDGE, STAGE)}`,
     headers: policy(),
+    /* heavy footage is played from its proxy once it is made, while proxies are on (proxies.mjs): the preview only */
+    swap: (file) => {
+      if (clipKind(file) !== 'video') return null;
+      const { proxies } = readPrefs();
+      return proxies.on ? readyProxy(root, relative(root, file).split(sep).join('/'), proxies.height) : null;
+    },
   });
 
   /** a project's playable copies (UNPLAYABLE), served as its files are */

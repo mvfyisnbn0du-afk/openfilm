@@ -37,7 +37,11 @@ export interface WorkspaceResource {
   fps?: number;
   /** A link to media kept elsewhere (a NAS, another disk): where it leads, and whether it can be reached now. */
   link?: MediaLink;
+  /** Heavy footage's proxy for the preview (studio/server/proxies.mjs): waiting, being made (`ratio`), ready, failed. */
+  proxy?: MediaProxy;
 }
+
+export interface MediaProxy { state: 'waiting' | 'making' | 'ready' | 'failed'; ratio?: number }
 
 /** Where a linked file or folder is kept (`to`, a full path); `missing`: it cannot be reached (a NAS that is off). */
 export interface MediaLink { to: string; missing?: boolean }
@@ -84,6 +88,7 @@ export type MediaResult = 'ok' | 'taken' | 'failed';
 export interface MediaFacts {
   durationMs?: number;
   endless?: boolean;
+  proxy?: MediaProxy;
   reflows?: boolean;
   w?: number;
   h?: number;

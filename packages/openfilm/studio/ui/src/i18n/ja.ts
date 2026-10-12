@@ -675,6 +675,7 @@ export const ja: Words = {
     propFps: 'フレームレート',
     propModified: '変更日',
     propLinked: "保存場所",
+    propProxy: "プロキシ",
     kindAudio: 'オーディオ',
     uploadFailed: '読み込みに失敗しました。もう一度お試しください',
     unreadable: '「{name}」は読み込まれましたが、画像・ビデオ・サウンドとして読み取れません（{why}）。ファイルを確認するか、別のコピーを読み込んでください。',
@@ -744,6 +745,11 @@ export const ja: Words = {
     collectFailed: "プロジェクトにコピーできませんでした",
     linkMissing: "見つかりません",
     linkedFrom: "{path} からリンク",
+    proxy: "プロキシ",
+    proxyMaking: "プロキシを作成中… {p}%",
+    proxyWaiting: "プロキシの作成待ち",
+    proxyFailed: "プロキシを作れませんでした。元の素材で再生します",
+    proxyReady: "準備完了：ビューアで再生中",
   },
   assetsPane: {
     show: '素材を表示',
@@ -1324,6 +1330,13 @@ export const ja: Words = {
       languageSystem: 'システムに合わせる',
       themeHint: 'ライト、ダーク、またはシステムに合わせる。',
       languageHint: 'OpenFilm の表示言語。',
+    },
+    playback: {
+      group: "再生",
+      proxies: "重い素材にプロキシを使う",
+      proxiesHint: "1080p を超える素材や、デコードが重い素材（ProRes、HEVC、10 ビット）は、バックグラウンドで作る軽いコピーで再生します。書き出しには常に元の素材を使います。",
+      proxySize: "プロキシのサイズ",
+      proxySizeHint: "小さいほど滑らかに再生でき、大きいほどビューアで鮮明に見えます。",
     },
     about: {
       group: 'このアプリについて',

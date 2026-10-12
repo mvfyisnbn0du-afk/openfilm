@@ -24,6 +24,7 @@ test('probe: length, picture size, frame rate and sound of a video; a sound has 
   assert.equal(video.fps, 25);
   assert.ok(Math.abs(video.duration - 2) < 0.1);
   assert.equal(video.audio, true);
+  assert.deepEqual([video.codec, video.pixfmt], ['h264', 'yuv420p']);
   const sound = await probe(root, 'assets/tone.wav');
   assert.equal(sound.width, undefined);
   assert.ok(Math.abs(sound.duration - 2) < 0.05);

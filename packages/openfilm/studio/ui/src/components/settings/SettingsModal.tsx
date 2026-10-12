@@ -11,7 +11,7 @@ import { LANGUAGES, phrasesUnder, useLanguage, useLanguageChoice, useT, type Lan
 import { shortcutHint } from '@/lib/shortcut-hint';
 import { SHORTCUTS, type ShortcutKey } from '@/lib/timeline-keys';
 import { studioHost } from '@/lib/host';
-import { api, type StudioVersion } from '@/api';
+import { api, type StudioPrefs, type StudioVersion } from '@/api';
 import { AgentsSection } from './AgentsSection';
 import { ModelsSection } from './ModelsSection';
 import { ProvidersSection } from './ProvidersSection';
@@ -38,8 +38,8 @@ const SECTION_ICON: Record<SettingsSection, React.ReactNode> = {
 };
 
 /** what a search through each section reads: its name and every phrase it shows */
-const SECTION_WORDS: Record<SettingsSection, string> = {
-  general: 'settings.appearance',
+const SECTION_WORDS: Record<SettingsSection, string | string[]> = {
+  general: ['settings.appearance', 'settings.playback'],
   agents: 'settings.agents',
   providers: 'settings.providers',
   models: 'settings.models',
@@ -72,7 +72,7 @@ export function SettingsModal({ open, onClose, section: opening }: SettingsModal
 
   /* the sections a search finds: by their names and by every phrase on them */
   const words = React.useMemo(() => Object.fromEntries((Object.keys(SECTION_WORDS) as SettingsSection[]).map((id) => [
-    id, [t(`settings.sections.${id}`), ...phrasesUnder(SECTION_WORDS[id], language)].join('\n').toLowerCase(),
+    id, [t(`settings.sections.${id}`), ...[SECTION_WORDS[id]].flat().flatMap((under) => phrasesUnder(under, language))].join('\n').toLowerCase(),
   ])) as Record<SettingsSection, string>, [t, language]);
   const needle = query.trim().toLowerCase();
   const nav = NAV.map((group) => ({ ...group, sections: group.sections.filter((id) => !needle || words[id].includes(needle)) }))
@@ -222,8 +222,47 @@ function GeneralSection() {
           )}
         />
       </SettingsGroup>
+      <PlaybackGroup />
       <AboutGroup />
     </SettingsPage>
+  );
+}
+
+/**
+ * How the preview plays heavy footage (studio/server/proxies.mjs): from a lighter copy made in the background, as
+ * CapCut's proxies, and how tall that copy is. Exports always read the originals.
+ */
+function PlaybackGroup() {
+  const t = useT();
+  const [prefs, setPrefs] = React.useState<StudioPrefs | null>(null);
+  React.useEffect(() => { void api.prefs().then(setPrefs).catch(() => {}); }, []);
+  if (!prefs) return null;
+  const change = (proxies: Partial<StudioPrefs['proxies']>) => {
+    setPrefs({ proxies: { ...prefs.proxies, ...proxies } });
+    void api.setPrefs({ proxies }).then(setPrefs).catch(() => {});
+  };
+  return (
+    <SettingsGroup title={t('settings.playback.group')}>
+      <SettingsItem
+        title={t('settings.playback.proxies')}
+        description={t('settings.playback.proxiesHint')}
+        control={<SettingsSwitch checked={prefs.proxies.on} onChange={(on) => change({ on })} label={t('settings.playback.proxies')} />}
+      />
+      {prefs.proxies.on ? (
+        <SettingsItem
+          title={t('settings.playback.proxySize')}
+          description={t('settings.playback.proxySizeHint')}
+          control={(
+            <SettingsSegmented<'540' | '720' | '1080'>
+              label={t('settings.playback.proxySize')}
+              value={String(prefs.proxies.height) as '540' | '720' | '1080'}
+              onChange={(v) => change({ height: Number(v) as 540 | 720 | 1080 })}
+              options={[{ value: '540', label: '540p' }, { value: '720', label: '720p' }, { value: '1080', label: '1080p' }]}
+            />
+          )}
+        />
+      ) : null}
+    </SettingsGroup>
   );
 }
 

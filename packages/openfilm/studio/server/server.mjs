@@ -36,6 +36,8 @@ import { FetchError, createFetches } from './fetch-repo.mjs';
 import { BrowseError, browseFolder, browsePlaces } from './browse.mjs';
 import { listExamples } from './examples.mjs';
 import { pickFiles, pickFolder } from './folder-picker.mjs';
+import { readPrefs, writePrefs } from './prefs.mjs';
+import { ensureProxies } from './proxies.mjs';
 import { npmOpenfilm, olderThanThis } from '../client.mjs';
 import { writeAtomic } from './atomic.mjs';
 import { createWatchers } from './watch.mjs';
@@ -262,6 +264,11 @@ export async function startStudio({ port = 4747, key, openBrowser = systemBrowse
         throw new HttpError(501, /** @type {Error} */ (e).message);
       }
     }
+    /* Studio's own preferences, the same for every project (prefs.mjs) */
+    if (parts[0] === 'prefs' && parts.length === 1) {
+      if (req.method === 'GET') return json(res, 200, readPrefs());
+      if (req.method === 'PATCH') return json(res, 200, writePrefs(await readJson(req)));
+    }
     /* the system's file dialog (folder-picker.mjs pickFiles), several at once: { paths } (none: cancelled); 501 when
        this system has none */
     if (parts[0] === 'pick-files' && parts.length === 1 && req.method === 'POST') {
@@ -484,6 +491,14 @@ export async function startStudio({ port = 4747, key, openBrowser = systemBrowse
       const where = typeof to === 'string' ? to
         : await (folder === true ? pickFolder(ask) : pickFiles(ask).then((p) => p[0] ?? null)).catch((e) => { throw new HttpError(501, String(e?.message ?? e)); });
       return json(res, 200, { path: where ? await relink(project.path, String(rel ?? ''), where) : null });
+    }
+    /* the proxies the preview plays heavy footage from (proxies.mjs), asked for when not made yet: each heavy video's
+       state. Off: none */
+    if (rest === 'proxies' && req.method === 'POST') {
+      const { proxies } = readPrefs();
+      if (!proxies.on) return json(res, 200, { on: false, height: proxies.height, states: {} });
+      const videos = (await listFiles(project.path)).files.filter((f) => f.kind === 'video').map((f) => f.path);
+      return json(res, 200, { on: true, height: proxies.height, states: await ensureProxies(project.path, videos, proxies.height) });
     }
     /* what a link leads to copied into the project in its place (files.mjs collect) */
     if (rest === 'files/collect' && req.method === 'POST') {

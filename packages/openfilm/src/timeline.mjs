@@ -37,7 +37,10 @@ async function limited(fn) {
   try { return await fn(); } finally { loadsBusy--; loadsWaiting.shift()?.(); }
 }
 
-/** Each media file's own length and picture size, read once (the clips of one recording share it); null: unreadable. */
+/**
+ * Each media file's own length and picture size, read once (the clips of one recording share it); null: unreadable.
+ * Asked as `?film-facts`: a host that plays a lighter copy in a file's place (a proxy) answers this with the file.
+ */
 const factsBySrc = new Map();
 function factsOf(src) {
   const href = url(src).href;
@@ -49,7 +52,9 @@ function factsOf(src) {
       const done = (facts) => { m.removeAttribute('src'); m.load(); ok(facts); };
       m.onloadedmetadata = () => done({ duration: m.duration, w: m.videoWidth, h: m.videoHeight });
       m.onerror = () => done(null);
-      m.src = href;
+      const facts = new URL(href);
+      facts.searchParams.set('film-facts', '1');
+      m.src = facts.href;
     })));
   }
   return factsBySrc.get(href);

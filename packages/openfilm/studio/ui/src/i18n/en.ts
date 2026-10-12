@@ -676,6 +676,7 @@ export const en = {
     propFps: 'Frame rate',
     propModified: 'Modified',
     propLinked: "Kept at",
+    propProxy: "Proxy",
     kindAudio: 'Audio',
     uploadFailed: 'Import failed, please retry',
     unreadable: '“{name}” was imported, but it can’t be read as a picture, video or sound ({why}). Check the file, or import another copy.',
@@ -745,6 +746,11 @@ export const en = {
     collectFailed: "Couldn’t copy it into the project",
     linkMissing: "Not found",
     linkedFrom: "Linked from {path}",
+    proxy: "Proxy",
+    proxyMaking: "Making a proxy… {p}%",
+    proxyWaiting: "Proxy waiting its turn",
+    proxyFailed: "A proxy couldn’t be made: it plays from the original",
+    proxyReady: "Ready: the viewer plays it",
   },
   assetsPane: {
     show: 'Show assets',
@@ -1325,6 +1331,13 @@ export const en = {
       languageSystem: 'Same as the system',
       themeHint: 'Light, dark, or the same as your system.',
       languageHint: 'The language OpenFilm shows itself in.',
+    },
+    playback: {
+      group: "Playback",
+      proxies: "Proxies for heavy footage",
+      proxiesHint: "Footage past 1080p, or slow to decode (ProRes, HEVC, 10-bit), plays from a lighter copy made in the background. Exports always use the originals.",
+      proxySize: "Proxy size",
+      proxySizeHint: "Smaller plays more smoothly; larger looks sharper in the viewer.",
     },
     about: {
       group: 'About',

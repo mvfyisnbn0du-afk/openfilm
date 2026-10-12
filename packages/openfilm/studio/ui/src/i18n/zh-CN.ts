@@ -676,6 +676,7 @@ export const zhCN: Words = {
     propFps: '帧率',
     propModified: '修改时间',
     propLinked: "存放位置",
+    propProxy: "代理",
     kindAudio: '音频',
     uploadFailed: '导入失败，请重试',
     unreadable: '“{name}”已导入，但无法作为图片、视频或声音读取（{why}）。请检查该文件，或导入另一份副本。',
@@ -745,6 +746,11 @@ export const zhCN: Words = {
     collectFailed: "无法复制到项目",
     linkMissing: "找不到",
     linkedFrom: "链接自 {path}",
+    proxy: "代理",
+    proxyMaking: "正在生成代理… {p}%",
+    proxyWaiting: "代理排队中",
+    proxyFailed: "无法生成代理，将直接播放原素材",
+    proxyReady: "已就绪：预览时播放代理",
   },
   assetsPane: {
     show: '显示素材',
@@ -1325,6 +1331,13 @@ export const zhCN: Words = {
       languageSystem: '跟随系统',
       themeHint: '浅色、深色，或跟随系统。',
       languageHint: 'OpenFilm 界面使用的语言。',
+    },
+    playback: {
+      group: "播放",
+      proxies: "为大体积素材生成代理",
+      proxiesHint: "超过 1080p 或解码较慢（ProRes、HEVC、10 位）的素材，会在后台生成一份轻量副本用于预览播放。导出始终使用原素材。",
+      proxySize: "代理分辨率",
+      proxySizeHint: "越小播放越流畅，越大预览越清晰。",
     },
     about: {
       group: '关于',

@@ -675,6 +675,7 @@ export const es: Words = {
     propFps: 'Velocidad de fotogramas',
     propModified: 'Modificado',
     propLinked: "Guardado en",
+    propProxy: "Proxy",
     kindAudio: 'Audio',
     uploadFailed: 'Error al importar, inténtalo de nuevo',
     unreadable: '“{name}” se importó, pero no se puede leer como imagen, video o sonido ({why}). Revisa el archivo o importa otra copia.',
@@ -744,6 +745,11 @@ export const es: Words = {
     collectFailed: "No se pudo copiar al proyecto",
     linkMissing: "No encontrado",
     linkedFrom: "Vinculado desde {path}",
+    proxy: "Proxy",
+    proxyMaking: "Creando el proxy… {p} %",
+    proxyWaiting: "Proxy en espera",
+    proxyFailed: "No se pudo crear el proxy: se reproduce el original",
+    proxyReady: "Listo: el visor lo reproduce",
   },
   assetsPane: {
     show: 'Mostrar recursos',
@@ -1324,6 +1330,13 @@ export const es: Words = {
       languageSystem: 'Igual que el sistema',
       themeHint: 'Claro, oscuro o igual que el sistema.',
       languageHint: 'El idioma en que se muestra OpenFilm.',
+    },
+    playback: {
+      group: "Reproducción",
+      proxies: "Proxies para el metraje pesado",
+      proxiesHint: "El metraje de más de 1080p, o lento de decodificar (ProRes, HEVC, 10 bits), se reproduce desde una copia ligera hecha en segundo plano. Las exportaciones siempre usan los originales.",
+      proxySize: "Tamaño del proxy",
+      proxySizeHint: "Más pequeño se reproduce con más fluidez; más grande se ve más nítido en el visor.",
     },
     about: {
       group: 'Acerca de',

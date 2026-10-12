@@ -58,7 +58,8 @@ const TYPES = {
  * `headers` go on every response (a host adds its own policy); the film (film.html) is played by the built-in
  * timeline, and gets `timelineInject` instead of `inject` (a host that drives it, like Studio, adds its bridge there). Returns false when the path is not inside
  * `root`, or leads out of it through a link.
- * `swap(file)` may name another file to serve in a file's place (a render's fast-seeking copy of a video, seekable.mjs).
+ * `swap(file)` may name another file to serve in a file's place (a render's fast-seeking copy of a video, seekable.mjs;
+ * the preview's proxy of heavy footage, studio/server/proxies.mjs); not for `?film-facts`, which asks what the file is.
  * @param {string} root @param {{ inject?: string, timelineInject?: string, headers?: Record<string, string>, swap?: (file: string) => string | null }} [options]
  */
 export function folderFiles(root, { inject = `<script>${HOST_FLAG}</script>`, timelineInject = inject, headers: extraHeaders = {}, swap } = {}) {
@@ -95,7 +96,8 @@ export function folderFiles(root, { inject = `<script>${HOST_FLAG}</script>`, ti
     let inRoot = false;
     try { inRoot = within(realpathSync(root), realpathSync(asked)) || readableLink(root, asked); } catch { /* gone meanwhile */ }
     if (!inRoot) return false;
-    const file = swap?.(asked) ?? asked;
+    /* what a file is (its length and size: `film-facts`) is the file's own, never its copy's */
+    const file = (query?.has('film-facts') ? null : swap?.(asked)) ?? asked;
     let stat;
     try { stat = statSync(file); } catch { res.writeHead(404, extraHeaders).end('not found'); return true; }
     if (stat.isDirectory()) { res.writeHead(302, { ...extraHeaders, location: `${path}/` }).end(); return true; }

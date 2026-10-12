@@ -26,4 +26,4 @@ export declare class FilmPage {
   close(): Promise<void>;
 }
 /** Serves one request for the files of `root` at `path`; false when the path leaves the folder. */
-export declare function folderFiles(root: string, opts?: { inject?: string; timelineInject?: string; headers?: Record<string, string> }): (req: import('node:http').IncomingMessage, res: import('node:http').ServerResponse, path: string, query?: URLSearchParams) => boolean;
+export declare function folderFiles(root: string, opts?: { inject?: string; timelineInject?: string; headers?: Record<string, string>; swap?: (file: string) => string | null }): (req: import('node:http').IncomingMessage, res: import('node:http').ServerResponse, path: string, query?: URLSearchParams) => boolean;

@@ -9,7 +9,7 @@
 import * as React from 'react';
 import { GalleryVerticalEnd, Layers, LibraryBig, MessageSquarePlus, MonitorDown, Settings2, TriangleAlert } from 'lucide-react';
 import { applyOps } from '../../../server/ops.mjs';
-import { api, ApiError, projectEvents, type Clip, type Film, type Listing, type Op, type ProjectFilm, type ProjectSettings } from '@/api';
+import { api, ApiError, PREFS_EVENT, projectEvents, type Clip, type Film, type Listing, type Op, type ProjectFilm, type ProjectSettings } from '@/api';
 import { useT } from '@/i18n';
 import { useFilm, type Step } from '@/editor/use-film';
 import { Player } from '@/editor/player';
@@ -42,7 +42,7 @@ import { useLoadedThumbs } from '@/lib/use-loaded-thumbs';
 import { droppedOverrides, overrideTarget, undoneFields, type DroppedEdits, type PersonEdit } from '@/lib/dropped-overrides';
 import { filmFrameBox, type FilmFrameId } from '@/lib/film-frame';
 import { canvasFor, fitToCanvas } from '@/lib/canvas-fit';
-import { factsOfProbe, mediaListingOf, resourceKindOf, srcHitsAsset, warmProjectMedia, type MediaListing, type MediaResult, type MediaSources, type WorkspaceResource } from '@/lib/workspace-resources';
+import { factsOfProbe, mediaListingOf, resourceKindOf, srcHitsAsset, warmProjectMedia, type MediaListing, type MediaProxy, type MediaResult, type MediaSources, type WorkspaceResource } from '@/lib/workspace-resources';
 import { BrandLoadingScreen } from './BrandLoadingScreen';
 import { BrandLogo } from './BrandLogo';
 import { SettingsModal, type SettingsSection } from './settings/SettingsModal';
@@ -288,9 +288,41 @@ export function ProjectView({ projectId, onProject, onLeave }: {
       pageSurface: (f) => `${folder}${f.path.split('/').map(encodeURIComponent).join('/')}`,
     };
   }, [projectId, folder, filesTick]);
+  /*
+   * proxies (studio/server/proxies.mjs): asked for the project's heavy footage whenever its files change or the
+   * preferences do, followed while they are made. One ready for footage on the film, or other preferences, load the
+   * preview again behind the picture, so it plays what it should.
+   */
+  const [proxies, setProxies] = React.useState<Record<string, MediaProxy>>({});
+  const [prefsTick, setPrefsTick] = React.useState(0);
+  React.useEffect(() => {
+    const changed = () => setPrefsTick((n) => n + 1);
+    window.addEventListener(PREFS_EVENT, changed);
+    return () => window.removeEventListener(PREFS_EVENT, changed);
+  }, []);
+  React.useEffect(() => { if (prefsTick) preview.current?.reload?.(); }, [prefsTick]);
+  React.useEffect(() => {
+    if (!rawListing) return undefined;
+    let alive = true;
+    let timer = 0;
+    let before: Record<string, MediaProxy> = {};
+    const ask = async () => {
+      const answer = await fetch(`/api/projects/${encodeURIComponent(projectId)}/proxies`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{}' })
+        .then((r) => (r.ok ? r.json() : null), () => null) as { states?: Record<string, MediaProxy> } | null;
+      if (!alive || !answer) return;
+      const states = answer.states ?? {};
+      setProxies(states);
+      const now = Object.keys(states).filter((path) => states[path]!.state === 'ready' && before[path] && before[path]!.state !== 'ready');
+      if (now.some((path) => blocksRef.current.some((b) => b.src && srcHitsAsset(b.src, path)))) preview.current?.reload?.();
+      before = states;
+      if (Object.values(states).some((s) => s.state === 'waiting' || s.state === 'making')) timer = window.setTimeout(() => { void ask(); }, 1500);
+    };
+    void ask();
+    return () => { alive = false; window.clearTimeout(timer); };
+  }, [rawListing, projectId, prefsTick]);
   const listing = React.useMemo<MediaListing | null>(
-    () => (rawListing ? mediaListingOf(rawListing, (path) => facts.get(path), (rawListing as { made?: string[] }).made) : null),
-    [rawListing, facts],
+    () => (rawListing ? mediaListingOf(rawListing, (path) => ({ ...facts.get(path), ...(proxies[path] ? { proxy: proxies[path] } : {}) }), (rawListing as { made?: string[] }).made) : null),
+    [rawListing, facts, proxies],
   );
   React.useEffect(() => { if (listing) warmProjectMedia(projectId, listing, mediaSources); }, [projectId, listing, mediaSources]);
   /* a file of the media pane as a reference: shown by its poster (a video, a page) or itself (a still, on Studio's

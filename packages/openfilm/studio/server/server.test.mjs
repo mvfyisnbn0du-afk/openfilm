@@ -195,6 +195,30 @@ test('rename renames the folder; delete moves it to the Trash and off the list',
   assert.ok(readdirSync(process.env.OPENFILM_TRASH_DIR).some((n) => n.startsWith('Final')));
 });
 
+test('the preview plays heavy footage from its proxy once made; what the file is (film-facts), an export and proxies off read the original', { skip: !(() => { try { execFileSync('ffmpeg', ['-version'], { stdio: 'ignore' }); return true; } catch { return false; } })() && 'no ffmpeg' }, async () => {
+  const { project } = await (await api('/api/projects', { method: 'POST', body: { path: join(scratch, 'Proxied') } })).json();
+  mkdirSync(join(project.path, 'assets'), { recursive: true });
+  const big = join(project.path, 'assets', 'big.mp4');
+  execFileSync('ffmpeg', ['-v', 'error', '-f', 'lavfi', '-i', 'testsrc=size=2560x1440:rate=25:duration=1', '-pix_fmt', 'yuv420p', big]);
+  assert.deepEqual(await (await api('/api/prefs')).json(), { proxies: { on: true, height: 720 } });
+  let answer;
+  for (const end = Date.now() + 30_000; answer?.states?.['assets/big.mp4']?.state !== 'ready' && Date.now() < end;) {
+    answer = await (await api(`/api/projects/${project.id}/proxies`, { method: 'POST', body: {} })).json();
+    if (answer.states['assets/big.mp4']?.state !== 'ready') await new Promise((r) => setTimeout(r, 150));
+  }
+  assert.deepEqual(answer, { on: true, height: 720, states: { 'assets/big.mp4': { state: 'ready' } } });
+  const { folder } = await (await api(`/api/projects/${project.id}`)).json();
+  const size = async (q = '') => (await (await fetch(`${folder}assets/big.mp4${q}`)).arrayBuffer()).byteLength;
+  const played = await size();
+  assert.ok(played > 0 && played !== statSync(big).size, 'the proxy');
+  assert.equal(await size('?film-facts=1'), statSync(big).size, 'what the file is: the file');
+  /* off: the original, and no proxy asked for */
+  assert.deepEqual(await (await api('/api/prefs', { method: 'PATCH', body: { proxies: { on: false } } })).json(), { proxies: { on: false, height: 720 } });
+  assert.equal(await size(), statSync(big).size);
+  assert.deepEqual((await (await api(`/api/projects/${project.id}/proxies`, { method: 'POST', body: {} })).json()).states, {});
+  await api('/api/prefs', { method: 'PATCH', body: { proxies: { on: true } } });
+});
+
 test('media linked in the media pane is served to the film; a link a project brings from elsewhere is not', { skip: process.platform === 'win32' && 'links need Developer Mode on Windows' }, async () => {
   const { project } = await (await api('/api/projects', { method: 'POST', body: { path: join(scratch, 'Linked') } })).json();
   const nas = mkdtempSync(join(tmpdir(), 'of-nas-'));
