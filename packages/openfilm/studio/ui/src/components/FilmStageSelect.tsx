@@ -1998,7 +1998,7 @@ function FilmStageSelectImpl({
         else commitHit(null);
         return;
       }
-      /* not pulled open far enough: a click. A layer of a page is selected, else a video or still; on nothing, nothing is */
+      /* not pulled open far enough: a click. A layer of a page is selected, else the clip; on nothing, nothing is */
       const layer = await ask<StageLayer>('hit', { x: p.x / vs, y: p.y / vs, cycleFrom: cycle, from, detail: true });
       if (token !== pressSeq.current) return;
       /* Shift-click adds to / takes from the selection (Figma) */
@@ -2013,8 +2013,9 @@ function FilmStageSelectImpl({
         commitHit(hitOf(layer));
         return;
       }
-      /* no layer of a page there: the video or still under the pointer is taken in hand, as on the timeline */
-      const id = !base && onEditClip ? await ask<string>('clipAt', { x: p.x / vs, y: p.y / vs, pictures: true }) : null;
+      /* no layer there: the clip under the pointer is taken in hand, as on the timeline (a page by its empty part: a
+         page smaller than the canvas is moved and sized as a video is) */
+      const id = !base && onEditClip ? await ask<string>('clipAt', { x: p.x / vs, y: p.y / vs }) : null;
       if (token !== pressSeq.current) return;
       const loc = id ? clipLocOf(docRef.current, id) : undefined;
       const info = loc ? infoOf(loc) : null;

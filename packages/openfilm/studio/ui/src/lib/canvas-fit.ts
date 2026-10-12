@@ -19,6 +19,20 @@ type Size = { w: number; h: number };
 /** Even sizes: H.264 samples chroma in 2×2 blocks and refuses odd dimensions. At most 8192 a side. */
 const even = (n: number) => Math.max(2, Math.min(8192, Math.round(n / 2) * 2));
 
+/** A canvas's sides, in px, and how far from square it may be (as a ratio typed for an export: 1:4 to 4:1). */
+export const CANVAS_SIDE = { min: 16, max: 8192 } as const;
+const CANVAS_STRETCH = 4;
+
+/**
+ * A canvas `side` (its width or height) of `n` px, the other side kept: whole even px within CANVAS_SIDE, and no more
+ * than 4 times the other side or less than a quarter of it.
+ */
+export function canvasSide(n: number, other: number): number {
+  const lo = Math.max(CANVAS_SIDE.min, other / CANVAS_STRETCH);
+  const hi = Math.min(CANVAS_SIDE.max, other * CANVAS_STRETCH);
+  return Math.min(Math.floor(hi / 2) * 2, Math.max(Math.ceil(lo / 2) * 2, Math.round(n / 2) * 2));
+}
+
 /** The canvas in another shape, its short side kept (a typed size is taken as it is elsewhere). */
 export function canvasFor(stage: Size, frame: FilmFrameId): Size {
   const ratio = frame === 'native' ? null : frameRatioOf(frame);

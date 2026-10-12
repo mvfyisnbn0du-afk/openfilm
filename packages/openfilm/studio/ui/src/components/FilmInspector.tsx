@@ -40,6 +40,7 @@ import { editsForMoves } from '@/lib/timeline-drag';
 import { useTimelinePrefs } from '@/lib/timeline-prefs';
 import { formatTimecode, FRAME_RATES, timecodeFps, useTimecodeFps } from '@/lib/timecode';
 import { MenuSelect } from './MenuSelect';
+import { CANVAS_SIDE, canvasSide } from '@/lib/canvas-fit';
 import { filmFrameOf, filmFrameRatio, type FilmFrameId } from '@/lib/film-frame';
 import { CANVAS_RATIOS, canvasRatioLabel, shaped } from './FramePicker';
 import { declared, withDeclarations, type ClipLook } from '@/lib/clip-look';
@@ -319,7 +320,6 @@ export const FilmInspector = React.memo(function FilmInspector({
 
 
 /** Even sizes: H.264 samples chroma in 2×2 blocks and refuses odd dimensions (as film-frame does). */
-const even = (n: number) => Math.max(2, Math.round(n / 2) * 2);
 
 /**
  * For a film that has clips: the canvas changes here, and laying the film out again for it is the agent's. The words
@@ -377,7 +377,7 @@ function FilmPanel({
   const placed = Boolean(film && !film.empty);
   const preset = CANVAS_RATIOS.find((r) => shaped(stage, filmFrameRatio(r.id, stage)));
   const setSize = (w: number, h: number) => {
-    const size = { w: even(w), h: even(h) };
+    const size = { w, h };
     if (size.w === kept.w && size.h === kept.h) { onCanvasPreview?.(null); return; }
     onCanvas?.(filmFrameOf(size), size);
   };
@@ -409,10 +409,10 @@ function FilmPanel({
         ) : null}
         <Row>
           {/* dragged, the canvas changes on the picture as the mark moves; kept when it is let go */}
-          <NumField label={t('inspector.width')} prefix="W" value={stage.w} unit="px" step={8} min={2} max={8192} disabled={!canvas} onCommit={(w) => setSize(w, kept.h)}
-            onPreview={(w) => onCanvasPreview?.({ w: even(w), h: kept.h })} onRevert={() => onCanvasPreview?.(null)} />
-          <NumField label={t('inspector.height')} prefix="H" value={stage.h} unit="px" step={8} min={2} max={8192} disabled={!canvas} onCommit={(h) => setSize(kept.w, h)}
-            onPreview={(h) => onCanvasPreview?.({ w: kept.w, h: even(h) })} onRevert={() => onCanvasPreview?.(null)} />
+          <NumField label={t('inspector.width')} prefix="W" value={stage.w} unit="px" step={8} min={CANVAS_SIDE.min} max={CANVAS_SIDE.max} disabled={!canvas}
+            onCommit={(w) => setSize(canvasSide(w, kept.h), kept.h)} onPreview={(w) => onCanvasPreview?.({ w: canvasSide(w, kept.h), h: kept.h })} onRevert={() => onCanvasPreview?.(null)} />
+          <NumField label={t('inspector.height')} prefix="H" value={stage.h} unit="px" step={8} min={CANVAS_SIDE.min} max={CANVAS_SIDE.max} disabled={!canvas}
+            onCommit={(h) => setSize(kept.w, canvasSide(h, kept.w))} onPreview={(h) => onCanvasPreview?.({ w: kept.w, h: canvasSide(h, kept.w) })} onRevert={() => onCanvasPreview?.(null)} />
         </Row>
         {/* with clips: the words that ask the agent to lay the film out again for this canvas */}
         {placed ? <RedesignHint t={t} stage={stage} /> : null}

@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { canvasFor, fitToCanvas } from './canvas-fit.ts';
+import { canvasFor, canvasSide, fitToCanvas } from './canvas-fit.ts';
 
 const wide = { w: 1920, h: 1080 }, tall = { w: 1080, h: 1440 }, cinema = { w: 2538, h: 1080 };
 const boxOf = (out: ReturnType<typeof fitToCanvas>, id: string) => out.find((c) => c.id === id)?.box;
@@ -49,4 +49,12 @@ test('a page laid out at the canvas keeps the old canvas as its size, so it is s
   assert.deepEqual(out.find((c) => c.id === 'free'), { id: 'free', box: { x: 0, y: 416, w: 1080, h: 608 }, size: wide });
   assert.equal(out.find((c) => c.id === 'sized')?.size, undefined);
   assert.equal(out.find((c) => c.id === 'given')?.size, undefined);
+});
+
+test('a canvas side typed or dragged stays in reason: 16 to 8192 px, even, at most 4 times the other side', () => {
+  assert.equal(canvasSide(1987, 1080), 1988);
+  assert.equal(canvasSide(1, 1080), 270);
+  assert.equal(canvasSide(300000, 1080), 4320);
+  assert.equal(canvasSide(9000, 4000), 8192);
+  assert.equal(canvasSide(2, 40), 16);
 });
