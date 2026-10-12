@@ -71,6 +71,7 @@ const DESTS: readonly { id: Dest; icon: React.ReactNode }[] = [
 
 /** Editors' names, never translated. */
 const NLE_APP_NAME = { premiere: 'Premiere Pro', resolve: 'DaVinci Resolve' } as const;
+const DRAFT_APP_NAME = { jianying: '剪映', capcut: 'CapCut' } as const;
 
 /** "As now" in a frame choice: the delivery frame picked beside the player. */
 type FrameChoice = FilmFrameId | 'current';
@@ -343,9 +344,13 @@ export function ExportCenter(props: ExportCenterProps) {
   const videoCodec: ExportVideoCodec = codecAvailable(s.video.codec, can) && VIDEO_CODECS.includes(s.video.codec) ? s.video.codec : 'h264';
   const alphaCodec: ExportVideoCodec = EXPORT_ALPHA_CODECS.includes(s.alpha.codec) && codecAvailable(s.alpha.codec, can) ? s.alpha.codec : 'prores4444';
   const audioFormat = s.audio.format === 'mp3' && can && !can.mp3 ? 'wav' : s.audio.format;
-  /* the same draft is 剪映's in Chinese and CapCut's in any other language: each named as the person knows it */
-  const draftApp: 'jianying' | 'capcut' = language === 'zh-CN' ? 'jianying' : 'capcut';
+  /* the same draft is 剪映's or CapCut's: the one on this computer, else (both or neither) 剪映 in Chinese and CapCut in
+     any other language; always by its own name */
+  const known: 'jianying' | 'capcut' = language === 'zh-CN' ? 'jianying' : 'capcut';
+  const draftApp = draftApps[known] || !draftApps[known === 'jianying' ? 'capcut' : 'jianying'] ? known : known === 'jianying' ? 'capcut' : 'jianying';
   const draftHere = draftApps[draftApp];
+  /** a translation naming the draft's app */
+  const tApp = (path: string) => t(path).replaceAll('{app}', DRAFT_APP_NAME[draftApp]);
   const nleApp = s.nle.app === 'auto' ? (draftHere ? 'draft' : 'premiere') : s.nle.app;
   /* a draft goes into its app's drafts folder, whatever folder is picked */
   const toDrafts = dest === 'nle' && nleApp === 'draft' && draftHere;
@@ -392,7 +397,7 @@ export function ExportCenter(props: ExportCenterProps) {
       case 'nle':
         return [{
           kind: 'nle', format: nleApp === 'draft' ? draftApp : 'xml', fps: s.nle.fps === 'source' ? (nleSourceFps ?? projectFps) : s.nle.fps, audio: s.nle.audio, media: 'copy',
-          subtitles: s.nle.subtitles, label: nleApp === 'draft' ? t('exportCenter.nleDraftTitle') : `${NLE_APP_NAME[nleApp]} XML`,
+          subtitles: s.nle.subtitles, label: nleApp === 'draft' ? tApp('exportCenter.nleDraftTitle') : `${NLE_APP_NAME[nleApp]} XML`,
         }];
       case 'subtitles':
         return [{ kind: 'subtitles', format: s.subtitles.format, label: s.subtitles.format === 'txt' ? t('exportCenter.transcript') : s.subtitles.format.toUpperCase(), ...ranged }];
@@ -561,7 +566,7 @@ export function ExportCenter(props: ExportCenterProps) {
                   <span className={`block text-[13px] font-medium ${on ? 'text-[var(--text)]' : 'text-[var(--text-muted)]'}`}>
                     {t(`exportCenter.dest.${d.id}`)}
                   </span>
-                  <span className="block text-[11px] leading-snug text-[var(--text-faint)]">{t(`exportCenter.destHint.${d.id}`)}</span>
+                  <span className="block text-[11px] leading-snug text-[var(--text-faint)]">{tApp(`exportCenter.destHint.${d.id}`)}</span>
                 </span>
               </button>
             );
@@ -577,7 +582,7 @@ export function ExportCenter(props: ExportCenterProps) {
           <div className="flex shrink-0 items-center gap-2 px-5 pb-1 pt-4">
             <div className="min-w-0 flex-1">
               <h3 className="text-[14px] font-semibold text-[var(--text)]">{t(`exportCenter.dest.${dest}`)}</h3>
-              <p className="mt-0.5 text-[12px] leading-relaxed text-[var(--text-muted)]">{t(`exportCenter.destDesc.${dest}`)}</p>
+              <p className="mt-0.5 text-[12px] leading-relaxed text-[var(--text-muted)]">{tApp(`exportCenter.destDesc.${dest}`)}</p>
             </div>
             <button
               type="button"
@@ -813,7 +818,7 @@ export function ExportCenter(props: ExportCenterProps) {
                     <Segmented
                       value={nleApp}
                       options={[
-                        { value: 'draft', label: t('exportCenter.nleDraftApp') },
+                        { value: 'draft', label: DRAFT_APP_NAME[draftApp] },
                         { value: 'premiere', label: NLE_APP_NAME.premiere },
                         { value: 'resolve', label: NLE_APP_NAME.resolve },
                       ]}
@@ -842,7 +847,7 @@ export function ExportCenter(props: ExportCenterProps) {
                   {captions > 0 && (
                     <Toggle checked={s.nle.subtitles} onChange={(subtitles) => patch('nle', { subtitles })} label={t(nleApp === 'draft' ? 'exportCenter.nleSubs' : 'exportCenter.nleSrt')} />
                   )}
-                  <Hint>{t(nleApp === 'premiere' ? 'exportCenter.nleHintPremiere' : nleApp === 'resolve' ? 'exportCenter.nleHintResolve' : draftHere ? 'exportCenter.nleHintDraft' : 'exportCenter.nleHintDraftNone')}</Hint>
+                  <Hint>{tApp(nleApp === 'premiere' ? 'exportCenter.nleHintPremiere' : nleApp === 'resolve' ? 'exportCenter.nleHintResolve' : draftHere ? 'exportCenter.nleHintDraft' : 'exportCenter.nleHintDraftNone')}</Hint>
                 </>
               )}
 
@@ -1095,7 +1100,7 @@ export function ExportCenter(props: ExportCenterProps) {
                 </span>
                 <span className="flex min-w-0 items-baseline gap-1.5">
                   <span className="shrink-0 text-[11px] text-[var(--text-faint)]">{t('exportCenter.saveTo')}</span>
-                  <span className="truncate text-[13px] font-medium text-[var(--text)]">{t('exportCenter.nleDraftTitle')}</span>
+                  <span className="truncate text-[13px] font-medium text-[var(--text)]">{tApp('exportCenter.nleDraftTitle')}</span>
                 </span>
               </div>
             ) : folderDraft != null ? (
