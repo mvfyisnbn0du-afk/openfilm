@@ -53,7 +53,8 @@ export type StickToBottom = {
    */
   pinIfFollowing: () => void;
   /**
-   * Skips pinning on the next height change and stops following.
+   * Skips pinning on the next height change and stops following, unless the view is
+   * still at the bottom once the change settles.
    *
    * Expanding or collapsing a summary changes height, and the observer would pin back to
    * the bottom, pulling away the row the user just clicked.
@@ -194,13 +195,20 @@ export function useStickToBottom(): StickToBottom {
   const skipNextPin = React.useCallback(() => {
     skipPin.current = true;
     following.current = false;
-    setAtBottom(false);
     const gen = ++skipGen.current;
     /* The content grows on the click frame and the spacer shrinks on the next, so both
        observations are skipped. On repeated clicks only the last one counts. */
     requestAnimationFrame(() => {
       requestAnimationFrame(() => {
-        if (skipGen.current === gen) skipPin.current = false;
+        if (skipGen.current !== gen) return;
+        skipPin.current = false;
+        /* Still at the very bottom: nothing went below the view (the running turn's
+           min-height took the change), so keep following and hide "Jump to latest". */
+        const el = viewportNode.current;
+        if (el && el.scrollHeight - el.scrollTop - el.clientHeight <= 2) {
+          following.current = true;
+          setAtBottom(true);
+        }
       });
     });
   }, []);
@@ -232,7 +240,8 @@ export function useStickToBottom(): StickToBottom {
         following.current = true;
       }
       previousTop = top;
-      setAtBottom(following.current && near);
+      /* A collapse at the bottom clamps scrollTop; during the skip that is not leaving the bottom */
+      setAtBottom((following.current || skipPin.current) && near);
     };
     const release = () => {
       // When the content does not scroll yet, a wheel up does nothing and does not release.
@@ -270,6 +279,8 @@ export function useStickToBottom(): StickToBottom {
         return;
       }
       if (following.current) pin();
+      /* Not following (a row was expanded): show "Jump to latest" once new content goes below the view */
+      else if (el.scrollHeight - el.scrollTop - el.clientHeight > NEAR_BOTTOM_PX) setAtBottom(false);
     });
     observer.current = ro;
     ro.observe(el);
