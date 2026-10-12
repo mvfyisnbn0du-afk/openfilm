@@ -155,6 +155,7 @@ export const FilmInspector = React.memo(function FilmInspector({
   onEditMask,
   film,
   onCanvas,
+  onCanvasPreview,
   layers,
   onEditLayers,
   locked = false,
@@ -210,6 +211,8 @@ export const FilmInspector = React.memo(function FilmInspector({
   film?: FilmSummary | null;
   /** The canvas: a shape (the editor grows it around the film), or a size typed. */
   onCanvas?: (next: FilmFrameId, size?: { w: number; h: number }) => void;
+  /** Show the canvas at a size not kept yet, as its width or height is dragged (null: as it is again). */
+  onCanvasPreview?: (size: { w: number; h: number } | null) => void;
   /** Several layers selected on the picture, and how to write them at once. */
   layers?: readonly StageElement[];
   onEditLayers?: (list: LayerEdit[]) => Promise<string | null>;
@@ -301,7 +304,7 @@ export const FilmInspector = React.memo(function FilmInspector({
         ) : geometry?.kind === 'group' && geometry.group ? (
           <GroupPanel geometry={geometry} group={geometry.group} layers={layers} onEditLayers={onEditLayers} t={t} />
         ) : (
-          <FilmPanel t={t} stage={stageSize} film={film ?? null} onCanvas={onCanvas} rate={rate ?? null} />
+          <FilmPanel t={t} stage={stageSize} film={film ?? null} onCanvas={onCanvas} onCanvasPreview={onCanvasPreview} rate={rate ?? null} />
         )}
       </div>
       </fieldset>
@@ -354,12 +357,13 @@ function RedesignHint({ t, stage }: { t: T; stage: { w: number; h: number } }) {
  * (what is on it stays as it is, centered); laying the film out again for it is the agent's (RedesignHint).
  */
 function FilmPanel({
-  t, stage, film, onCanvas, rate,
+  t, stage, film, onCanvas, onCanvasPreview, rate,
 }: {
   t: T;
   stage: { w: number; h: number };
   film: FilmSummary | null;
   onCanvas?: (next: FilmFrameId, size?: { w: number; h: number }) => void;
+  onCanvasPreview?: (size: { w: number; h: number } | null) => void;
   rate: { fps: number; fromFootage: boolean; onChange: (fps: number) => void } | null;
 }) {
   const canvas = Boolean(onCanvas);
@@ -397,8 +401,11 @@ function FilmPanel({
           />
         ) : null}
         <Row>
-          <NumField label={t('inspector.width')} prefix="W" value={stage.w} unit="px" min={2} max={8192} disabled={!canvas} onCommit={(w) => setSize(w, stage.h)} />
-          <NumField label={t('inspector.height')} prefix="H" value={stage.h} unit="px" min={2} max={8192} disabled={!canvas} onCommit={(h) => setSize(stage.w, h)} />
+          {/* dragged, the canvas changes on the picture as the mark moves; kept when it is let go */}
+          <NumField label={t('inspector.width')} prefix="W" value={stage.w} unit="px" min={2} max={8192} disabled={!canvas} onCommit={(w) => setSize(w, stage.h)}
+            onPreview={(w) => onCanvasPreview?.({ w: even(w), h: stage.h })} onRevert={() => onCanvasPreview?.(null)} />
+          <NumField label={t('inspector.height')} prefix="H" value={stage.h} unit="px" min={2} max={8192} disabled={!canvas} onCommit={(h) => setSize(stage.w, h)}
+            onPreview={(h) => onCanvasPreview?.({ w: stage.w, h: even(h) })} onRevert={() => onCanvasPreview?.(null)} />
         </Row>
         {/* with clips: the words that ask the agent to lay the film out again for this canvas */}
         {placed ? <RedesignHint t={t} stage={stage} /> : null}

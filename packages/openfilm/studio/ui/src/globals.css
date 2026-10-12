@@ -510,6 +510,9 @@ body.tl-scrubbing * {
   left: 0;
   top: 0;
   border: 0;
+  /* the film's own scheme (it sets none): a frame of another scheme than its page gets an opaque white backdrop in
+     Chrome, which shows as a light line along the picture's right and bottom edges in the dark theme */
+  color-scheme: light;
   transform-origin: 0 0;
   pointer-events: none;
 }

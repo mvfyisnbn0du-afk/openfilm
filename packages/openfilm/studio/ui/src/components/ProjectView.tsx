@@ -8,6 +8,7 @@
  */
 import * as React from 'react';
 import { GalleryVerticalEnd, Layers, LibraryBig, MessageSquarePlus, MonitorDown, Settings2, TriangleAlert } from 'lucide-react';
+import { applyOps } from '../../../server/ops.mjs';
 import { api, ApiError, projectEvents, type Clip, type Film, type Listing, type Op, type ProjectFilm, type ProjectSettings } from '@/api';
 import { useT } from '@/i18n';
 import { useFilm, type Step } from '@/editor/use-film';
@@ -1692,8 +1693,6 @@ export function ProjectView({ projectId, onProject, onLeave }: {
   const stage = film.film?.stage ?? { w: 1920, h: 1080 };
   stageRef.current = stage;
   const empty = !film.film?.tracks.some((tr) => tr.clips.length);
-  /* the picture is the canvas, nothing around it: another shape is another canvas (a delivery frame is the export's) */
-  const frameBox = React.useMemo(() => filmFrameBox(stage, 'native'), [stage]);
   /* the canvas (the stage in film.html), from the viewer's ratio button or the inspector, as CapCut's: another shape
      keeps the canvas's short side (canvasFor; a typed size is that size), and every picture on it is scaled by one
      factor into the new canvas, centered, in the same edit (one undo). Laying the film out again for the new canvas
@@ -1706,9 +1705,8 @@ export function ProjectView({ projectId, onProject, onLeave }: {
       .sort((a, b) => (a.at ?? 0) - (b.at ?? 0))[0];
     return first ? sized.get(first.id) ?? null : null;
   }, [spans, film.film]);
-  const changeCanvas = React.useCallback((next: FilmFrameId, given?: { w: number; h: number }) => {
-    const size = given ?? canvasFor(stage, next);
-    if (size.w === stage.w && size.h === stage.h) return;
+  /** The edit that makes the canvas `size`, the film fitted into it (see canvas-fit). */
+  const canvasOps = React.useCallback((size: { w: number; h: number }): Op[] => {
     const own = new Map(spans.map((span) => [span.id, span.w && span.h ? { w: span.w, h: span.h } : null]));
     const reflows = new Set(spans.filter((span) => span.reflows).map((span) => span.id));
     const clips = (film.film?.tracks ?? []).flatMap((track) => track.clips.map((clip) => ({
@@ -1719,14 +1717,37 @@ export function ProjectView({ projectId, onProject, onLeave }: {
       reflows: reflows.has(clip.id),
       size: clip.size ?? null,
     })));
-    void edit([
+    return [
       { op: 'stage', w: size.w, h: size.h },
       ...fitToCanvas(clips, stage, size).flatMap((fit) => [
         { op: 'set' as const, clip: fit.id, field: 'box', value: fit.box },
         ...(fit.size ? [{ op: 'set' as const, clip: fit.id, field: 'size', value: fit.size }] : []),
       ]),
-    ], 'history.stepEdit');
-  }, [edit, stage, spans, film.film]);
+    ];
+  }, [stage, spans, film.film]);
+  /* a canvas size shown on the picture while its width or height is dragged, not kept yet */
+  const [canvasDraft, setCanvasDraft] = React.useState<{ w: number; h: number } | null>(null);
+  const shownStage = canvasDraft ?? stage;
+  /* the picture is the canvas, nothing around it: another shape is another canvas (a delivery frame is the export's) */
+  const frameBox = React.useMemo(() => filmFrameBox(shownStage, 'native'), [shownStage]);
+  const previewCanvas = React.useCallback((size: { w: number; h: number } | null) => {
+    const value = film.film;
+    if (!value) return;
+    if (!size || (size.w === stage.w && size.h === stage.h)) {
+      setCanvasDraft((cur) => { if (cur) preview.current?.update(value); return null; });
+      return;
+    }
+    let shown: Film;
+    try { shown = applyOps(structuredClone(value), canvasOps(size)) as Film; } catch { return; }
+    setCanvasDraft(size);
+    preview.current?.update(shown);
+  }, [film.film, stage, canvasOps]);
+  const changeCanvas = React.useCallback((next: FilmFrameId, given?: { w: number; h: number }) => {
+    const size = given ?? canvasFor(stage, next);
+    setCanvasDraft(null);
+    if (size.w === stage.w && size.h === stage.h) { if (canvasDraft && film.film) preview.current?.update(film.film); return; }
+    void edit(canvasOps(size), 'history.stepEdit');
+  }, [edit, stage, canvasOps, canvasDraft, film.film]);
   const stageFullRef = React.useRef<HTMLDivElement>(null);
   const [fullscreen, setFullscreen] = React.useState(false);
   React.useEffect(() => {
@@ -2228,12 +2249,12 @@ export function ProjectView({ projectId, onProject, onLeave }: {
                           width: `${(frameBox.inner.w / frameBox.w) * 100}%`,
                           height: `${(frameBox.inner.h / frameBox.h) * 100}%`,
                         }}>
-                          <Preview ref={preview} folder={folder} stage={stage} time={() => player.current.time()}
+                          <Preview ref={preview} folder={folder} stage={shownStage} time={() => player.current.time()}
                             onInfo={onInfo} onKey={previewKey} onError={setPreviewError}>
                             {!fullscreen ? (
                               <FilmStageSelect
                                 previewRef={preview}
-                                stage={stage}
+                                stage={shownStage}
                                 doc={value as unknown as FilmDoc}
                                 spans={spans}
                                 timeMs={timeMs}
@@ -2365,6 +2386,7 @@ export function ProjectView({ projectId, onProject, onLeave }: {
                       stage={stage}
                       film={filmSummary}
                       onCanvas={changeCanvas}
+                      onCanvasPreview={previewCanvas}
                       onEditLayers={editStageOverrides}
                       locked={inspectorLocked}
                       rate={frameRate}

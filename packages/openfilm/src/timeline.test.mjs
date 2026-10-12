@@ -6,7 +6,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { FilmPage, launch, serve } from './host.mjs';
 import { open } from './shared.mjs';
-import { filmHtml } from './film-doc.mjs';
+import { filmHead, filmHtml } from './film-doc.mjs';
 
 const page = (word, seconds) => `<!doctype html><body style="margin:0;background:#123"><p>${word}</p>
 <script>window.film={duration:${seconds},width:320,height:180,frame(){}}</script></body>`;
@@ -363,9 +363,46 @@ test('an edit that splits, adds, removes or moves clips to a new track changes t
     assert.equal(await s.film.page.evaluate(() => document.querySelector('#v0')), null, 'the deleted clip\'s element is gone');
     await s.film.seek(1);
     assert.equal(await s.film.page.evaluate(() => document.querySelector('#title').style.visibility), 'visible', 'the new page draws');
-    /* a file that is not there, or another stage: the film is loaded again (which says why) */
+    /* a file that is not there: the film is loaded again (which says why) */
     assert.equal(await update({ ...film, tracks: [...film.tracks, { clips: [{ id: 'gone', src: 'gone.mp4' }] }] }), false);
-    assert.equal(await update({ ...film, stage: { w: 640, h: 360 } }), false);
+    assert.equal(await s.film.page.evaluate(() => window.__same), true, 'the same page all along');
+  } finally {
+    await s.close();
+  }
+});
+
+test('another stage size changes the film in place: the body, the film\'s size and every clip placed again', { timeout: 60_000 }, async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'of-reshape-'));
+  writeFileSync(join(dir, 'wide.html'), `<!doctype html><body style="margin:0"><script>window.film={duration:2,frame(){}}</script></body>`);
+  writeFileSync(join(dir, 'chip.html'), page('chip', 2).replace('width:320,height:180', 'width:80,height:40'));
+  const film = { stage: { w: 320, h: 180 }, tracks: [
+    { clips: [{ id: 'chip', src: 'chip.html', box: { x: 20, y: 30, w: 80 } }] },
+    { clips: [{ id: 'wide', src: 'wide.html' }] },
+  ] };
+  writeFileSync(join(dir, 'film.html'), filmHtml(film));
+  const s = await open(dir);
+  const frames = () => s.film.page.evaluate(() => [...document.querySelectorAll('iframe')].map((el) => {
+    const r = el.getBoundingClientRect();
+    return [el.id, el.contentWindow.innerWidth, el.contentWindow.innerHeight, r.left, r.top, r.width, r.height];
+  }));
+  try {
+    await s.film.page.evaluate(() => { window.__same = true; });
+    /* 3:4, as Studio writes it: the wide page keeps 320 × 180 as its size, scaled into its box */
+    film.stage = { w: 240, h: 320 };
+    film.tracks[1].clips[0] = { id: 'wide', src: 'wide.html', size: { w: 320, h: 180 }, box: { x: 0, y: 92, w: 240, h: 135 } };
+    /* the head as Studio tells it after writing the file: only its viewport changed */
+    const head = filmHead(filmHtml(film));
+    assert.equal(await s.film.page.evaluate(([v, h]) => window.__filmEditor.update(v, h), [film, head]), true);
+    await s.film.seek(1);
+    assert.deepEqual(await s.film.page.evaluate(() => [document.body.style.width, document.body.style.height, window.film.width, window.film.height]), ['240px', '320px', 240, 320]);
+    assert.deepEqual(await frames(), [['chip', 80, 40, 20, 30, 80, 40], ['wide', 320, 180, 0, 92, 240, 135]]);
+    /* a page without a size of its own or of its clip is laid out at the new stage */
+    film.tracks[1].clips[0] = { id: 'wide', src: 'wide.html' };
+    assert.equal(await s.film.page.evaluate((v) => window.__filmEditor.update(v), film), true);
+    await s.film.seek(1);
+    assert.deepEqual((await frames())[1], ['wide', 240, 320, 0, 0, 240, 320]);
+    /* other styles in the head: the film has to be loaded again */
+    assert.equal(await s.film.page.evaluate(([v, h]) => window.__filmEditor.update(v, h), [film, filmHead(filmHtml(film)).replace('</head>', '<style>p{color:red}</style></head>')]), false);
     assert.equal(await s.film.page.evaluate(() => window.__same), true, 'the same page all along');
   } finally {
     await s.close();

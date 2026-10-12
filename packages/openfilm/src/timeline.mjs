@@ -9,11 +9,15 @@ const own = new URL(location.href);
 own.searchParams.set('film-host', '0');
 const ownText = await (await fetch(own, { cache: 'no-store' })).text();
 const read = readFilmFile(ownText);
-/* what the tracks are not (the stage, the styles): changed, the film is loaded again, not changed in place */
-const head = filmHead(ownText);
+/* what the tracks and the stage are not (the styles, the fonts): changed, the film is loaded again, not changed in
+   place. The stage is the viewport's size, and changes in place (see change) */
+const VIEWPORT = /<meta\b[^>]*\bname\s*=\s*["']?viewport\b[^>]*>/i;
+const styleOf = (text) => text.replace(VIEWPORT, '');
+const head = styleOf(filmHead(ownText));
 if (!read.doc) throw new Error(read.problems.length === 1 ? read.problems[0] : `film.html has ${read.problems.length} problems:\n  ${read.problems.join('\n  ')}`);
 let doc = read.doc;
-const stage = doc.stage;
+/* the stage, the same object while the film is shown: an edit of its size changes it in place (see reshape) */
+const stage = { ...doc.stage };
 Object.assign(document.body.style, { width: stage.w + 'px', height: stage.h + 'px', margin: '0', overflow: 'hidden', position: 'relative' });
 /* the clips' elements, in the order the file has them (the reading above checked that is all a track holds) */
 const CLIP_TAGS = new Set(['iframe', 'video', 'img', 'audio']);
@@ -664,12 +668,12 @@ function sectionOf(ti, track) {
 /**
  * The film after an edit, changed in place: clips kept (by id, with the same source) take their new fields, clips
  * added get elements and load (a video's file only once the playhead comes near), clips gone are taken out. False
- * when the film has to be loaded again: another stage or head, or a clip that cannot load (that says why).
+ * when the film has to be loaded again: another head (its styles), or a clip that cannot load (that says why). Another
+ * stage is changed in place too (reshape).
  */
 async function change(value, look) {
-  if (look != null && look !== head) return false;
+  if (look != null && styleOf(look) !== head) return false;
   const next = parseFilm(value);
-  if (next.stage.w !== stage.w || next.stage.h !== stage.h) return false;
   const rows = next.tracks.flatMap((track, ti) => track.clips.map((row) => ({ row, track, ti })));
   const byId = new Map(clips.map((c) => [c.id, c]));
   const kept = (row) => { const c = byId.get(row.id); return c && c.src === row.src && c.kind === kindOf(row) ? c : null; };
@@ -697,7 +701,7 @@ async function change(value, look) {
     await Promise.race([ready, late]);
     clearTimeout(timer);
   }
-  try { doc = next; rows.forEach(({ row, track, ti }, i) => settle(records[i], row, track, ti)); }
+  try { reshape(next.stage); doc = next; rows.forEach(({ row, track, ti }, i) => settle(records[i], row, track, ti)); }
   catch { return false; }
   /* what the change put on at the moment shown and made ready shows now, with the clips it took away going: the
      picture changes at once, not first without them until that moment is drawn again */
@@ -718,6 +722,18 @@ async function change(value, look) {
   hear();
   window.__filmEditor.stage.updated?.();
   return true;
+}
+/**
+ * The stage at another size, in place: the body, the viewport and what the film says of its size. Every clip is
+ * placed again after (settle): a picture without a box fills the new stage, a page without a size of its own is laid
+ * out at it, a boxed one stays where its box says.
+ */
+function reshape(next) {
+  if (next.w === stage.w && next.h === stage.h) return;
+  stage.w = next.w; stage.h = next.h;
+  Object.assign(document.body.style, { width: stage.w + 'px', height: stage.h + 'px' });
+  document.querySelector('meta[name="viewport"]')?.setAttribute('content', `width=${stage.w}, height=${stage.h}`);
+  window.film.width = stage.w; window.film.height = stage.h;
 }
 /* edits are changed in the order they came, each once the one before is done */
 let changing = Promise.resolve(true);
