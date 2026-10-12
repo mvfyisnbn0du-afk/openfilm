@@ -358,6 +358,39 @@ test('a video woken ahead while hidden, then shown: its old frame presented agai
   }
 });
 
+test('a video coming on is drawn visible before it is sought: a frame made current as it turns visible kept the old picture', { skip: !hasFfmpeg && 'no ffmpeg', timeout: 60_000 }, async () => {
+  const dir = footage('of-coming-on-');
+  /* `u` first, so how long the file's frames last is known before `v` comes on */
+  writeFileSync(join(dir, 'film.html'), filmHtml({ stage: { w: 320, h: 180 }, tracks: [{ clips: [
+    { id: 'u', src: 'a.mp4', time: [0, 1] }, { id: 'v', src: 'a.mp4', at: 2, time: [0, 4] },
+  ] }] }));
+  const s = await open(dir);
+  try {
+    const seen = await s.film.page.evaluate(async () => {
+      const v = document.getElementById('v');
+      await window.film.frame(0.5);
+      /* before the clip: its video is woken at its first frame, hidden */
+      await window.film.frame(1.5);
+      let drawn = 0;
+      let on = true;
+      const count = () => { drawn++; if (on) requestAnimationFrame(count); };
+      requestAnimationFrame(count);
+      let shown = null;
+      new MutationObserver(() => { if (shown == null && v.style.visibility === 'visible') shown = drawn; }).observe(v, { attributeFilter: ['style'] });
+      const seeks = [];
+      v.addEventListener('seeking', () => seeks.push({ drawn: drawn - shown, visible: v.style.visibility }));
+      await window.film.frame(2.75);
+      on = false;
+      return seeks;
+    });
+    assert.equal(seen.length, 1, JSON.stringify(seen));
+    assert.equal(seen[0].visible, 'visible');
+    assert.ok(seen[0].drawn >= 2, `drawn visible ${seen[0].drawn} times before the seek`);
+  } finally {
+    await s.close();
+  }
+});
+
 test('an edit that splits, adds, removes or moves clips to a new track changes the film in place, without loading it again', { skip: !hasFfmpeg && 'no ffmpeg', timeout: 120_000 }, async () => {
   const dir = footage('of-inplace-');
   writeFileSync(join(dir, 'title.html'), page('title', 2));

@@ -196,6 +196,9 @@ function restore(c) {
   c.found = [];
 }
 
+/** `n` frames of the page's rendering: what was changed before is committed to the compositor. */
+const frames = (n) => new Promise((done) => { const next = () => (--n > 0 ? requestAnimationFrame(next) : done()); requestAnimationFrame(next); });
+
 const SAME_TIME = 1e-4; // s: a video's currentTime is kept to the microsecond, so a time set is read back a hair off
 const PRESENT_MS = 1000; // how long a sought frame may take to be on screen before the seek is made again
 const SEEK_TRIES = 3;
@@ -601,6 +604,7 @@ async function draw(t, live) {
     if (c.kind === 'sound') return;
     const on = !c.hidden && t >= c.at && t < c.end;
     c.shown = on;
+    const appears = on && c.el.style.visibility !== 'visible';
     c.el.style.visibility = on ? 'visible' : 'hidden';
     if (on) fadeAt(c, t);
     if (!on) {
@@ -618,6 +622,10 @@ async function draw(t, live) {
       if (!c.el.paused) c.el.pause();
       c.lastWant = want;
       await loaded(c);
+      /* a video coming on: shown before it is sought. A frame made current in the moment it turns visible is said to
+         be presented, yet the picture keeps the frame it had for a second or so (Chromium, its frames sent apart from
+         the page's): the same t drew two pictures */
+      if (appears) await frames(2);
       await showVideoAt(c.el, want, await frameOf(c));
       return;
     }
