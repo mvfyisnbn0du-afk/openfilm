@@ -973,6 +973,7 @@ export const en = {
     strokeAdd: 'Add stroke',
     strokePosition: 'Stroke position',
     strokePositions: { inside: 'Inside', center: 'Center', outside: 'Outside' },
+    strokeCut: 'A crop, a mask or faded edges cut away what is drawn past the edge: pick Inside to see all of it.',
     fillAdd: 'Add fill',
     fillRemove: 'Remove fill',
     innerShadow: 'Inner shadow',

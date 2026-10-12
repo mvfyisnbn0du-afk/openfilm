@@ -972,6 +972,7 @@ export const ja: Words = {
     strokeAdd: '線を追加',
     strokePosition: '線の位置',
     strokePositions: { inside: '内側', center: '中央', outside: '外側' },
+    strokeCut: '切り抜き・マスク・端のフェードは、端の外に描かれた線を切り落とします。すべて見せるには「内側」を選んでください。',
     fillAdd: '塗りを追加',
     fillRemove: '塗りを削除',
     innerShadow: 'インナーシャドウ',

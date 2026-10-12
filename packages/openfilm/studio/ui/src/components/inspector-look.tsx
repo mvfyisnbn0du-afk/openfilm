@@ -676,6 +676,14 @@ export function StrokeSection({ look, t }: { look: Look; t: T }) {
     return placedStrokeCss({ ...now, ...(typeof part === 'function' ? part(now) : part) }, was);
   };
   const width = (apply: FieldApply): LookEdit => edit((now) => ({ width: Math.max(0, round(apply(now.width))) }));
+  /* a mask (faded edges, a mask shape) or a crop shows the box and nothing past it: a stroke outside, or half of one
+     across the edge, is cut away with it */
+  const cut = look.common((read) => {
+    const m = read('mask-image');
+    const c = read('clip-path');
+    return Boolean((m && m !== 'none') || (c && c !== 'none'));
+  });
+  const position = look.common((read) => placedStrokeOf(read)?.position);
   return (
     <Section
       id="stroke"
@@ -726,6 +734,9 @@ export function StrokeSection({ look, t }: { look: Look; t: T }) {
             }))}
             onChange={(s) => look.commit(edit({ style: s as StrokeStyle }))}
           />
+          {cut !== false && position !== 'inside' ? (
+            <p className="text-[10.5px] leading-[15px] text-[var(--text-faint)]">{t('inspector.strokeCut')}</p>
+          ) : null}
         </>
       ) : null}
     </Section>

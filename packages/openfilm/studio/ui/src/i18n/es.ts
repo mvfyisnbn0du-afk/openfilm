@@ -972,6 +972,7 @@ export const es: Words = {
     strokeAdd: 'Añadir trazo',
     strokePosition: 'Posición del trazo',
     strokePositions: { inside: 'Interior', center: 'Centro', outside: 'Exterior' },
+    strokeCut: 'Un recorte, una máscara o los bordes difuminados cortan lo que se dibuja fuera del borde: elige Interior para verlo entero.',
     fillAdd: 'Añadir relleno',
     fillRemove: 'Quitar relleno',
     innerShadow: 'Sombra interior',

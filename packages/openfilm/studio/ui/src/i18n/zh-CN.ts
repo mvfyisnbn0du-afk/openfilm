@@ -973,6 +973,7 @@ export const zhCN: Words = {
     strokeAdd: '添加描边',
     strokePosition: '描边位置',
     strokePositions: { inside: '内部', center: '居中', outside: '外部' },
+    strokeCut: '裁切、遮罩或边缘渐隐会切掉画在边外的描边，选「内部」才能完整显示。',
     fillAdd: '添加填充',
     fillRemove: '移除填充',
     innerShadow: '内阴影',

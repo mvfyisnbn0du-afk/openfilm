@@ -972,6 +972,7 @@ export const ko: Words = {
     strokeAdd: '테두리 추가',
     strokePosition: '테두리 위치',
     strokePositions: { inside: '안쪽', center: '가운데', outside: '바깥쪽' },
+    strokeCut: '자르기, 마스크, 가장자리 페이드는 가장자리 바깥에 그려진 테두리를 잘라냅니다. 모두 보이려면 안쪽을 고르세요.',
     fillAdd: '채우기 추가',
     fillRemove: '채우기 제거',
     innerShadow: '내부 그림자',
