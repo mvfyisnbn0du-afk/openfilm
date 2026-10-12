@@ -127,6 +127,10 @@ await builder.build({
   [arch]: true,
   config: {
     afterPack: win ? (context) => windowsResources(context) : undefined,
+    /* unsigned on a Mac: signed ad hoc, whole, before the .dmg and .zip are made. Electron's fuses are written into
+       its framework after the linker signed it, and an Apple chip kills a program whose pages no longer match its
+       signature ("Code Signature Invalid") the moment it starts */
+    afterSign: !win && unsigned ? (context) => adHocSign(context) : undefined,
     win: {
       icon: join(desktop, 'build/icon.ico'),
       /* resedit writes the icon and version (afterPack); rcedit would need wine on this Mac */
@@ -202,6 +206,11 @@ if (!unsigned && !win && FEED) {
 console.log(`\n${readdirSync(out).filter((f) => /\.(dmg|zip|exe|yml)$/.test(f)).map((f) => join(out, f)).join('\n')}`);
 console.log(`feed: ${FEED ?? 'none (a build of this source: it never looks for updates)'}`);
 if (FEED && !existsSync(join(out, win ? 'latest.yml' : 'latest-mac.yml'))) process.exitCode = 1;
+
+/** An unsigned Mac app signed ad hoc (no identity), all of it, so it starts. @param {{ appOutDir: string }} context */
+function adHocSign(context) {
+  execFileSync('codesign', ['--force', '--deep', '--sign', '-', join(context.appOutDir, `${NAME}.app`)], { stdio: 'inherit' });
+}
 
 /** OpenFilm.exe's icon and version, as rcedit would write them. */
 async function windowsResources(context) {
