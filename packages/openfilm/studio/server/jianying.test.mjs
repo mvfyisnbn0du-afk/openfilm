@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { join } from 'node:path';
 import { planNleTimeline } from './nle.mjs';
-import { jianyingDraft, jianyingDraftsRoot } from './jianying.mjs';
+import { draftsRoot, jianyingDraft } from './jianying.mjs';
 
 const facts = { w: 960, h: 540, duration: 10, hasVideo: true, hasAudio: true, channels: 2, sampleRate: 48000 };
 const sound = { duration: 20, hasVideo: false, hasAudio: true, channels: 2, sampleRate: 48000 };
@@ -88,11 +88,20 @@ test('subtitles: a text track over all, one clip a cue, white with a dark edge, 
   assert.deepEqual(content.styles[0].strokes[0].content.solid.color, [0, 0, 0]);
 });
 
-test('剪映\'s drafts folder: where it keeps them on a Mac and on Windows, when it is there', () => {
-  const mac = join('/mac-home', 'Movies', 'JianyingPro', 'User Data', 'Projects', 'com.lveditor.draft');
-  assert.equal(jianyingDraftsRoot({ platform: 'darwin', home: '/mac-home', exists: (p) => p === mac }), mac);
-  assert.equal(jianyingDraftsRoot({ platform: 'darwin', home: '/mac-home', exists: () => false }), null);
+test('the drafts folders: 剪映\'s and CapCut\'s, on a Mac and on Windows, when they are there', () => {
+  const mac = (app) => join('/mac-home', 'Movies', app, 'User Data', 'Projects', 'com.lveditor.draft');
+  assert.equal(draftsRoot('jianying', { platform: 'darwin', home: '/mac-home', exists: (p) => p === mac('JianyingPro') }), mac('JianyingPro'));
+  assert.equal(draftsRoot('capcut', { platform: 'darwin', home: '/mac-home', exists: (p) => p === mac('CapCut') }), mac('CapCut'));
+  assert.equal(draftsRoot('capcut', { platform: 'darwin', home: '/mac-home', exists: (p) => p === mac('JianyingPro') }), null);
   const win = join('D:\\local-app-data', 'JianyingPro', 'User Data', 'Projects', 'com.lveditor.draft');
-  assert.equal(jianyingDraftsRoot({ platform: 'win32', home: 'D:\\win-home', localAppData: 'D:\\local-app-data', exists: (p) => p === win }), win);
-  assert.equal(jianyingDraftsRoot({ platform: 'linux', home: '/linux-home', exists: () => true }), null);
+  assert.equal(draftsRoot('jianying', { platform: 'win32', home: 'D:\\win-home', localAppData: 'D:\\local-app-data', exists: (p) => p === win }), win);
+  assert.equal(draftsRoot('jianying', { platform: 'linux', home: '/linux-home', exists: () => true }), null);
+});
+
+test('a draft says which app wrote it: 剪映 or CapCut', () => {
+  const jy = jianyingDraft(plan(), { name: 'Film', folder: '/d/Film', root: '/d' }).info;
+  const cc = jianyingDraft(plan(), { app: 'capcut', name: 'Film', folder: '/d/Film', root: '/d' }).info;
+  assert.equal(jy.platform.app_source, 'lv');
+  assert.equal(cc.platform.app_source, 'cc');
+  assert.deepEqual(cc.last_modified_platform, cc.platform);
 });

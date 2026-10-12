@@ -2,4 +2,4 @@
 "openfilm": patch
 ---
 
-Export › Editing project makes a 剪映 (Jianying Pro) draft: the timeline goes straight into 剪映's drafts folder and opens there as a project, ready to keep cutting. Web pages come as clips with alpha, footage placed where it is in the film with its own sound, other sounds with their levels and fades, and subtitles as a text track. When 剪映 is on the computer it is the choice the dialog starts with; Premiere Pro and DaVinci Resolve still get the XML.
+Export › Editing project is for one app at a time, each by its own name: 剪映 (CapCut outside Chinese), Premiere Pro or DaVinci Resolve. For 剪映 or CapCut the timeline goes straight into the app's drafts folder and opens there as a project, ready to keep cutting: web pages as clips with alpha, footage placed where it is in the film with its own sound, other sounds with their levels and fades, and subtitles as a text track. When that app is on the computer it is the choice the dialog starts with; Premiere Pro and DaVinci Resolve get the XML, each with its own import steps.

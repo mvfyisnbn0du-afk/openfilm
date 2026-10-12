@@ -1,13 +1,15 @@
 // @ts-check
 /**
- * The film as a 剪映 (Jianying Pro) draft: the editor's timeline (nle.mjs planNleTimeline, the same plan the XML is
+ * The film as a 剪映 (Jianying Pro) or CapCut draft (the same editor, one for China, one for elsewhere, with the same
+ * drafts in their own folders): the editor's timeline (nle.mjs planNleTimeline, the same plan the XML is
  * written from) as the draft folder 剪映 lists on its home screen, so the film opens there as a project, ready to keep
  * cutting. exports.mjs makes the media the plan asks for; this file only writes the draft's JSON, so it can be
  * checked on its own.
  *
  * What 剪映 reads (tested with 剪映 11.6 on macOS): a folder in its drafts folder with `draft_info.json` (what Windows
  * calls `draft_content.json`; both are written) and `draft_meta_info.json`, plain JSON. 剪映 saves its own drafts
- * encrypted, but opens a plain one and saves it encrypted from then on.
+ * encrypted, but opens a plain one and saves it encrypted from then on. CapCut keeps its drafts plain; a draft says
+ * which of the two wrote it.
  *
  * The rules:
  *   · Times are microseconds: a clip's frames on the plan's rate, rounded edge by edge, so two clips back to back
@@ -29,17 +31,21 @@ import { join } from 'node:path';
  * @typedef {{ text: string, startMs: number, durMs: number }} JianyingCue
  */
 
+/** @typedef {'jianying' | 'capcut'} DraftApp */
+
+/** Each app's folder, in Movies on a Mac and in the local app data on Windows. */
+const APP_FOLDER = /** @type {Record<DraftApp, string>} */ ({ jianying: 'JianyingPro', capcut: 'CapCut' });
+
 /**
- * Where 剪映 keeps its drafts by default (Settings › Drafts location can move it): the first that exists, else null.
+ * Where 剪映 or CapCut keeps its drafts by default (its Settings › Drafts location can move them): the folder when it
+ * is there, else null.
+ * @param {DraftApp} app
  * @param {{ platform?: NodeJS.Platform, home: string, localAppData?: string, exists: (path: string) => boolean }} where
  */
-export function jianyingDraftsRoot({ platform = process.platform, home, localAppData, exists }) {
-  const candidates = platform === 'darwin'
-    ? [join(home, 'Movies', 'JianyingPro', 'User Data', 'Projects', 'com.lveditor.draft')]
-    : platform === 'win32'
-      ? [join(localAppData ?? join(home, 'AppData', 'Local'), 'JianyingPro', 'User Data', 'Projects', 'com.lveditor.draft')]
-      : [];
-  return candidates.find((dir) => exists(dir)) ?? null;
+export function draftsRoot(app, { platform = process.platform, home, localAppData, exists }) {
+  const base = platform === 'darwin' ? join(home, 'Movies') : platform === 'win32' ? localAppData ?? join(home, 'AppData', 'Local') : null;
+  const dir = base && join(base, APP_FOLDER[app], 'User Data', 'Projects', 'com.lveditor.draft');
+  return dir && exists(dir) ? dir : null;
 }
 
 /** 剪映 ids: 32 hex digits for materials and clips, an upper-case UUID for the draft. */
@@ -58,8 +64,11 @@ const MATERIAL_KINDS = [
   'time_marks', 'transitions', 'video_effects', 'video_trackings', 'videos', 'vocal_beautifys', 'vocal_separations',
 ];
 
-/** The platform a draft says wrote it: the one tested to open as a plain draft. */
-const PLATFORM = { app_id: 3704, app_source: 'lv', app_version: '5.9.0', os: 'windows' };
+/** The app a draft says wrote it: for 剪映 the one tested to open as a plain draft; CapCut's own id for CapCut. */
+const PLATFORM = /** @type {Record<DraftApp, object>} */ ({
+  jianying: { app_id: 3704, app_source: 'lv', app_version: '5.9.0', os: 'windows' },
+  capcut: { app_id: 359289, app_source: 'cc', app_version: '5.9.0', os: 'windows' },
+});
 
 /** A clip's picture settings: none (as placed), or scaled and moved. */
 const clipSettings = (/** @type {number} */ scale, /** @type {number} */ x, /** @type {number} */ y) => ({
@@ -69,12 +78,13 @@ const clipSettings = (/** @type {number} */ scale, /** @type {number} */ x, /** 
 const round6 = (/** @type {number} */ n) => { const r = Math.round(n * 1e6) / 1e6; return Object.is(r, -0) ? 0 : r; };
 
 /**
- * The draft: `info` (draft_info.json) and `meta` (draft_meta_info.json), for the folder `folder` in 剪映's drafts
+ * The draft: `info` (draft_info.json) and `meta` (draft_meta_info.json), for the folder `folder` in the app's drafts
  * folder `root`.
  * @param {NleTimeline} timeline
- * @param {{ name: string, folder: string, root: string, cues?: readonly JianyingCue[], now?: number }} opts
+ * @param {{ app?: DraftApp, name: string, folder: string, root: string, cues?: readonly JianyingCue[], now?: number }} opts
  */
 export function jianyingDraft(timeline, opts) {
+  const platform = PLATFORM[opts.app ?? 'jianying'];
   const fps = timeline.rate.fps;
   /** frame → microseconds, on the plan's rate */
   const us = (/** @type {number} */ frame) => Math.round((frame * 1e6) / fps);
@@ -237,7 +247,7 @@ export function jianyingDraft(timeline, opts) {
     cover: null, create_time: 0, duration, extra_info: null, fps, free_render_index_mode_on: false, group_container: null,
     id: draftId, keyframe_graph_list: [],
     keyframes: { adjusts: [], audios: [], effects: [], filters: [], handwrites: [], stickers: [], texts: [], videos: [] },
-    last_modified_platform: PLATFORM, platform: PLATFORM, materials, mutable_config: null, name: opts.name,
+    last_modified_platform: platform, platform, materials, mutable_config: null, name: opts.name,
     new_version: '110.0.0', relationships: [], render_index_track_mode_on: false, retouch_cover: null, source: 'default',
     static_cover_image_path: '', time_marks: null, tracks, update_time: 0, version: 360000,
   };

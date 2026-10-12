@@ -516,7 +516,7 @@ test('剪映: the same timeline as a draft in 剪映\'s drafts folder, its media
   const cut = join(scratch, 'Cut');
   const drafts = join(scratch, 'JianyingPro Drafts');
   mkdirSync(drafts, { recursive: true });
-  const exports = createExports({ captions: subtitles, jianyingDrafts: () => drafts });
+  const exports = createExports({ captions: subtitles, drafts: (app) => (app === 'jianying' ? drafts : null) });
   const done = await ended(exports, exports.start(project('Cut', cut), { kind: 'nle', format: 'jianying', fps: 25 }));
   assert.equal(done.status, 'done', done.error);
   const folder = join(drafts, 'Cut');
@@ -679,7 +679,7 @@ test('the API: where exports go and what can be made here; several at once; open
     assert.deepEqual(listed.exports, []);
     assert.equal(listed.folder, exportsRoot());
     assert.deepEqual(Object.keys(listed.can).sort(), ['h264', 'hevc', 'hevcAlpha', 'mp3', 'prores', 'vp9']);
-    assert.equal(typeof listed.jianying, 'boolean', 'whether 剪映 is here, for an editing project');
+    assert.deepEqual(Object.keys(listed.drafts).sort(), ['capcut', 'jianying'], 'whether 剪映 and CapCut are here, for an editing project');
     assert.equal(listed.subtitles, 0, 'no subtitle cues in a new project');
     const bad = await api(`/projects/${project.id}/exports`, { method: 'POST', body: { jobs: [{ kind: 'audio' }, { kind: 'slides', format: 'key' }] } });
     assert.equal(bad.status, 400);

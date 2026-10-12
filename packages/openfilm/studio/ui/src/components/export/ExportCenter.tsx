@@ -17,7 +17,7 @@ import {
 import React from 'react';
 import { createPortal } from 'react-dom';
 
-import { useT } from '@/i18n';
+import { useLanguage, useT } from '@/i18n';
 import { studioHost } from '@/lib/host';
 import { MenuSelect } from '@/components/MenuSelect';
 import { CustomFrame } from '@/components/FramePicker';
@@ -69,6 +69,9 @@ const DESTS: readonly { id: Dest; icon: React.ReactNode }[] = [
   { id: 'project', icon: <FolderArchive size={16} /> },
 ];
 
+/** Editors' names, never translated. */
+const NLE_APP_NAME = { premiere: 'Premiere Pro', resolve: 'DaVinci Resolve' } as const;
+
 /** "As now" in a frame choice: the delivery frame picked beside the player. */
 type FrameChoice = FilmFrameId | 'current';
 
@@ -101,8 +104,9 @@ interface Settings {
   alpha: { codec: ExportVideoCodec; source: string; shortEdge: number; scale: number; fps: number; audio: boolean };
   audio: { format: 'wav' | 'm4a' | 'mp3'; mix: boolean; stems: boolean };
   /** For an editing program: the sound as clips or as mixed stems. */
-  /** `auto`: 剪映 when it is on this computer, else the XML */
-  nle: { format: 'auto' | 'jianying' | 'xml'; fps: number | 'source'; audio: 'clips' | 'stems'; subtitles: boolean };
+  /** the app it is for: `draft` 剪映 (in Chinese) or CapCut (elsewhere), the same draft; `auto`: the draft when that app
+      is on this computer, else Premiere Pro */
+  nle: { app: 'auto' | 'draft' | 'premiere' | 'resolve'; fps: number | 'source'; audio: 'clips' | 'stems'; subtitles: boolean };
   subtitles: { format: 'srt' | 'vtt' | 'txt' };
   images: { format: 'png' | 'jpg'; shortEdge: number; frame: FrameChoice; fill: FilmFrameFill; burn: boolean };
   slides: { format: 'pptx' | 'pdf'; shortEdge: number; frame: FrameChoice; fill: FilmFrameFill; burn: boolean };
@@ -123,7 +127,7 @@ const DEFAULTS: Settings = {
   gif: { width: 640, fps: 15, frame: 'current', fill: 'contain', burn: true },
   alpha: { codec: 'prores4444', source: WHOLE_FILM, shortEdge: 1080, scale: 1, fps: 30, audio: true },
   audio: { format: 'wav', mix: true, stems: false },
-  nle: { format: 'auto', fps: 'source', audio: 'clips', subtitles: true },
+  nle: { app: 'auto', fps: 'source', audio: 'clips', subtitles: true },
   subtitles: { format: 'srt' },
   images: { format: 'png', shortEdge: 1080, frame: 'current', fill: 'contain', burn: false },
   slides: { format: 'pptx', shortEdge: 1080, frame: 'current', fill: 'contain', burn: false },
@@ -220,9 +224,10 @@ export interface ExportCenterProps {
 export function ExportCenter(props: ExportCenterProps) {
   const { open, onClose } = props;
   const t = useT();
+  const language = useLanguage();
   const [can, setCan] = React.useState<ExportCapabilities | null>(null);
-  /** 剪映 is on this computer: an editing project goes into its drafts */
-  const [jianyingHere, setJianyingHere] = React.useState(false);
+  /** 剪映 and CapCut on this computer: an editing project for one goes into its drafts */
+  const [draftApps, setDraftApps] = React.useState<{ jianying: boolean; capcut: boolean }>({ jianying: false, capcut: false });
   const [s, setS] = React.useState<Settings>(DEFAULTS);
   const [hydrated, setHydrated] = React.useState(false);
   const [range, setRange] = React.useState<{ on: boolean; from: number; to: number }>({ on: false, from: 0, to: 0 });
@@ -249,7 +254,7 @@ export function ExportCenter(props: ExportCenterProps) {
     setWorking(null);
     setFolderDraft(null);
     setRange((r) => ({ ...r, on: false }));
-    void listExports(props.projectId).then((r) => { setCan(r.can); setJianyingHere(Boolean(r.jianying)); setDefaultFolder(r.folder); setCaptionCount(r.subtitles ?? 0); setProjectSizes(r.project ?? null); }).catch(() => {});
+    void listExports(props.projectId).then((r) => { setCan(r.can); setDraftApps({ jianying: Boolean(r.drafts?.jianying), capcut: Boolean(r.drafts?.capcut) }); setDefaultFolder(r.folder); setCaptionCount(r.subtitles ?? 0); setProjectSizes(r.project ?? null); }).catch(() => {});
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open]);
 
@@ -338,9 +343,12 @@ export function ExportCenter(props: ExportCenterProps) {
   const videoCodec: ExportVideoCodec = codecAvailable(s.video.codec, can) && VIDEO_CODECS.includes(s.video.codec) ? s.video.codec : 'h264';
   const alphaCodec: ExportVideoCodec = EXPORT_ALPHA_CODECS.includes(s.alpha.codec) && codecAvailable(s.alpha.codec, can) ? s.alpha.codec : 'prores4444';
   const audioFormat = s.audio.format === 'mp3' && can && !can.mp3 ? 'wav' : s.audio.format;
-  const nleFormat: 'jianying' | 'xml' = s.nle.format === 'auto' ? (jianyingHere ? 'jianying' : 'xml') : s.nle.format;
-  /* a 剪映 draft goes into 剪映's drafts folder, whatever folder is picked */
-  const toJianying = dest === 'nle' && nleFormat === 'jianying' && jianyingHere;
+  /* the same draft is 剪映's in Chinese and CapCut's in any other language: each named as the person knows it */
+  const draftApp: 'jianying' | 'capcut' = language === 'zh-CN' ? 'jianying' : 'capcut';
+  const draftHere = draftApps[draftApp];
+  const nleApp = s.nle.app === 'auto' ? (draftHere ? 'draft' : 'premiere') : s.nle.app;
+  /* a draft goes into its app's drafts folder, whatever folder is picked */
+  const toDrafts = dest === 'nle' && nleApp === 'draft' && draftHere;
   const codecName = (c: ExportVideoCodec) => CODEC_LABEL[c] + (c === 'png' ? ` ${t('exportCenter.sequence')}` : '');
 
   /* the parts of the project asked that it has (a part it has none of is left out) */
@@ -383,8 +391,8 @@ export function ExportCenter(props: ExportCenterProps) {
       }
       case 'nle':
         return [{
-          kind: 'nle', format: nleFormat, fps: s.nle.fps === 'source' ? (nleSourceFps ?? projectFps) : s.nle.fps, audio: s.nle.audio, media: 'copy',
-          subtitles: s.nle.subtitles, label: t(nleFormat === 'jianying' ? 'exportCenter.nleJianyingTitle' : 'exportCenter.nleTitle'),
+          kind: 'nle', format: nleApp === 'draft' ? draftApp : 'xml', fps: s.nle.fps === 'source' ? (nleSourceFps ?? projectFps) : s.nle.fps, audio: s.nle.audio, media: 'copy',
+          subtitles: s.nle.subtitles, label: nleApp === 'draft' ? t('exportCenter.nleDraftTitle') : `${NLE_APP_NAME[nleApp]} XML`,
         }];
       case 'subtitles':
         return [{ kind: 'subtitles', format: s.subtitles.format, label: s.subtitles.format === 'txt' ? t('exportCenter.transcript') : s.subtitles.format.toUpperCase(), ...ranged }];
@@ -405,7 +413,7 @@ export function ExportCenter(props: ExportCenterProps) {
         }];
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [dest, s, can, jianyingHere, rangeSec?.[0], rangeSec?.[1], props.frame, blocks, nleSourceFps, captions, projectParts]);
+  }, [dest, s, can, nleApp, draftApp, rangeSec?.[0], rangeSec?.[1], props.frame, blocks, nleSourceFps, captions, projectParts]);
 
   /* a range, not a size: what is in the picture decides a video's or a GIF's size (export-spec.ts); sound is exact */
   const estBytes = React.useMemo(() => requests.reduce<[number, number]>(([low, high], r) => {
@@ -803,12 +811,13 @@ export function ExportCenter(props: ExportCenterProps) {
                 <>
                   <Field label={t('exportCenter.nleFor')}>
                     <Segmented
-                      value={nleFormat}
+                      value={nleApp}
                       options={[
-                        { value: 'jianying', label: t('exportCenter.nleForJianying') },
-                        { value: 'xml', label: t('exportCenter.nleForXml') },
+                        { value: 'draft', label: t('exportCenter.nleDraftApp') },
+                        { value: 'premiere', label: NLE_APP_NAME.premiere },
+                        { value: 'resolve', label: NLE_APP_NAME.resolve },
                       ]}
-                      onChange={(format) => patch('nle', { format })}
+                      onChange={(app) => patch('nle', { app })}
                     />
                   </Field>
                   <Field label={t('exportCenter.fps')}>
@@ -831,9 +840,9 @@ export function ExportCenter(props: ExportCenterProps) {
                     />
                   </Field>
                   {captions > 0 && (
-                    <Toggle checked={s.nle.subtitles} onChange={(subtitles) => patch('nle', { subtitles })} label={t(nleFormat === 'jianying' ? 'exportCenter.nleSubs' : 'exportCenter.nleSrt')} />
+                    <Toggle checked={s.nle.subtitles} onChange={(subtitles) => patch('nle', { subtitles })} label={t(nleApp === 'draft' ? 'exportCenter.nleSubs' : 'exportCenter.nleSrt')} />
                   )}
-                  <Hint>{t(nleFormat === 'xml' ? 'exportCenter.nleHint' : jianyingHere ? 'exportCenter.nleHintJianying' : 'exportCenter.nleHintJianyingNone')}</Hint>
+                  <Hint>{t(nleApp === 'premiere' ? 'exportCenter.nleHintPremiere' : nleApp === 'resolve' ? 'exportCenter.nleHintResolve' : draftHere ? 'exportCenter.nleHintDraft' : 'exportCenter.nleHintDraftNone')}</Hint>
                 </>
               )}
 
@@ -1079,14 +1088,14 @@ export function ExportCenter(props: ExportCenterProps) {
 
           {/* bottom: where it goes (the folder, a click changes it), what comes out, and the primary button */}
           <div className="flex shrink-0 flex-wrap items-center gap-x-4 gap-y-3 border-t border-[var(--border-soft)] bg-[color-mix(in_srgb,var(--surface-2)_45%,transparent)] px-5 py-3.5">
-            {toJianying ? (
+            {toDrafts ? (
               <div className="-ml-2 flex min-w-0 max-w-[340px] flex-1 items-center gap-2.5 px-2 py-1.5">
                 <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-[var(--surface-2)] text-[var(--text-muted)] ring-1 ring-[var(--border)]">
                   <Clapperboard size={15} />
                 </span>
                 <span className="flex min-w-0 items-baseline gap-1.5">
                   <span className="shrink-0 text-[11px] text-[var(--text-faint)]">{t('exportCenter.saveTo')}</span>
-                  <span className="truncate text-[13px] font-medium text-[var(--text)]">{t('exportCenter.nleJianyingTitle')}</span>
+                  <span className="truncate text-[13px] font-medium text-[var(--text)]">{t('exportCenter.nleDraftTitle')}</span>
                 </span>
               </div>
             ) : folderDraft != null ? (
