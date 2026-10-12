@@ -454,6 +454,7 @@ export const en = {
     editsRestore: 'Restore them',
     editsLeaveOut: 'Leave them out',
     previewFailed: 'The preview couldn\'t be drawn.',
+    previewMissing: 'Media not found: {file} · right-click its clip to relink',
     filmEmptyHint: 'Drag media onto the timeline to start your film, or ask your agent to make one.',
     filmBroken: 'film.html can’t be read right now, so Studio shows the film as it last was, and edits here can’t be saved until it’s fixed:',
     filmNotReady: 'The video isn’t ready yet',

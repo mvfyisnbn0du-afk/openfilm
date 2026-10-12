@@ -1597,6 +1597,13 @@ export function ProjectView({ projectId, onProject, onLeave }: {
     return out;
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [rawListing, timelineTracks]);
+  /** The file of a clip under the playhead that is gone (on a track that is seen), for the viewer to say. */
+  const missingHere = React.useMemo(() => {
+    if (!mediaTrouble.size) return null;
+    const hit = timelineTracks.filter((tr) => !tr.hidden).flatMap((tr) => tr.blocks)
+      .find((b) => b.src && mediaTrouble.get(b.src) === 'missing' && timeMs >= b.startMs && timeMs < b.endMs);
+    return hit?.src ? hit.src.split('/').pop() ?? hit.src : null;
+  }, [mediaTrouble, timelineTracks, timeMs]);
   const relinkCandidates = React.useCallback((src: string): string[] => {
     const name = src.split('/').pop()?.toLowerCase();
     return name ? (rawListing?.files ?? []).filter((f) => f.path.split('/').pop()?.toLowerCase() === name && f.path !== src).map((f) => f.path) : [];
@@ -2406,6 +2413,13 @@ export function ProjectView({ projectId, onProject, onLeave }: {
                             ) : null}
                           </Preview>
                         </div>
+                        {/* a clip under the playhead whose file is gone plays as nothing (src/timeline.mjs, film-missing):
+                            said here, over the picture, with what to do */}
+                        {missingHere && !fullscreen ? (
+                          <div data-preview-missing="" className="pointer-events-none absolute left-2 top-2 z-10 max-w-[80%] truncate rounded-[4px] bg-black/75 px-2 py-1 text-[11px] text-white">
+                            {t('project.previewMissing').replace('{file}', missingHere)}
+                          </div>
+                        ) : null}
                         {!viewerReady && !empty && !previewError ? (
                           <div className="pointer-events-none absolute inset-0 z-10 flex flex-col items-center justify-center gap-3 bg-black">
                             <span role="status" className="text-sweep relative text-[13px] text-white/60">{t('project.previewStageMount')}</span>

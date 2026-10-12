@@ -264,7 +264,9 @@ export const Preview = forwardRef<PreviewHandle, Props>(function Preview({ folde
           <iframe
             key={f.key}
             ref={(el) => { if (el) elements.current.set(f.key, el); else { elements.current.delete(f.key); up.current.delete(f.key); } }}
-            src={`${folder}film.html?load=${f.key}`}
+            /* `film-missing=skip`: a clip whose file is not there keeps its time and plays as nothing, the rest plays on
+               (src/timeline.mjs); the timeline marks it and offers to relink it */
+            src={`${folder}film.html?load=${f.key}&film-missing=skip`}
             /* the film's videos play when the person presses play here: another origin needs this to be allowed */
             allow="autoplay"
             scrolling="no"

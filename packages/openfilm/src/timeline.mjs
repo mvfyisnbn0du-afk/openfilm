@@ -24,6 +24,9 @@ const CLIP_TAGS = new Set(['iframe', 'video', 'img', 'audio']);
 const sections = [...document.body.children].filter((el) => el.localName === 'section');
 const elements = sections.map((s) => { s.style.display = 'contents'; return [...s.children].filter((el) => CLIP_TAGS.has(el.localName)); });
 const url = (src) => new URL(src, location.href);
+/* an editor's preview (`?film-missing=skip`) plays on past a clip whose file is not there: the clip keeps its time,
+   but is neither loaded, drawn nor heard. Anything else (a check, an export) says the missing file and stops */
+const SKIP_MISSING = new URL(location.href).searchParams.get('film-missing') === 'skip';
 const ready = (a) => Promise.resolve(typeof a.ready === 'function' ? a.ready() : a.ready);
 
 /* a browser opens about six connections to one server: more files asked at once only wait behind each other */
@@ -138,6 +141,7 @@ function unfade(c) {
  */
 function override(c, list = []) {
   const win = c.win;
+  if (!win) return;
   const touch = (el, prop) => {
     let saved = c.touched.get(el);
     if (!saved) { saved = { props: new Map(), texts: null }; c.touched.set(el, saved); }
@@ -410,7 +414,7 @@ function near(t, { only = false, exact = false } = {}) {
   const off = (c) => (t < c.at ? c.at - t : t >= c.end ? t - c.end : 0);
   const videos = clips.filter((c) => c.kind === 'video');
   const wanted = videos
-    .filter((c) => !c.hidden && (only ? off(c) === 0 : t < c.at ? c.at - t <= WAKE_AHEAD : t - c.end <= WAKE_BEHIND))
+    .filter((c) => !c.hidden && !c.missing && (only ? off(c) === 0 : t < c.at ? c.at - t <= WAKE_AHEAD : t - c.end <= WAKE_BEHIND))
     .sort((a, b) => off(a) - off(b));
   const on = wanted.filter((c) => off(c) === 0).length;
   const keep = new Set(wanted.slice(0, Math.max(on, AWAKE_MAX)));
@@ -477,7 +481,7 @@ function settle(c, row, track, ti) {
   c.at = row.at ?? 0;
   /* a hidden track's clips are loaded (an editor shows them, grayed) but neither drawn nor heard */
   c.hidden = Boolean(track.hidden);
-  c.volume = track.muted || c.hidden ? 0 : (row.volume ?? 1);
+  c.volume = track.muted || c.hidden || c.missing ? 0 : (row.volume ?? 1);
   c.span = clipSpan(row, c.native, where);
   c.end = c.at + c.span.length;
   c.fade = fittedFade(clipFade(row), c.span.length);
@@ -502,10 +506,15 @@ function hear() {
   }
 }
 
-/** A clip's file has to be there: a missing one is said at once, by its name (not as a page that never answered). */
+/**
+ * A clip's file has to be there: a missing one is said at once, by its name (not as a page that never answered).
+ * In an editor's preview (SKIP_MISSING) it is not an error: false, and the clip is played as missing.
+ */
 async function mustBeThere(src) {
   const res = await fetch(url(src), { method: 'HEAD' }).catch(() => null);
-  if (res && res.status === 404) throw new Error(`${src}: there is no such file`);
+  if (!(res && res.status === 404)) return true;
+  if (SKIP_MISSING) return false;
+  throw new Error(`${src}: there is no such file`);
 }
 
 /** Clips loaded so far: what a host waiting for `ready` sees moving (see host.mjs). */
@@ -525,23 +534,27 @@ async function load(row, track, ti, el) {
     el.preload = 'none';
     c.el = null;
     const facts = await factsOf(row.src);
-    if (!facts) await mustBeThere(row.src);
+    if (!facts && !(await mustBeThere(row.src))) c.missing = true;
     c.native = facts?.duration ?? 0;
   } else if (kind === 'still') {
     await el.decode().catch(() => {});
+    if (!el.naturalWidth && !(await mustBeThere(row.src))) c.missing = true;
     c.nw = el.naturalWidth || stage.w; c.nh = el.naturalHeight || stage.h;
   } else if (kind === 'video') {
     el.muted = true; el.playsInline = true;
     rest(c);
     const facts = await factsOf(row.src);
-    if (!facts) await mustBeThere(row.src);
+    if (!facts && !(await mustBeThere(row.src))) c.missing = true;
     c.native = facts?.duration ?? NaN;
     c.nw = facts?.w || stage.w; c.nh = facts?.h || stage.h;
+  } else if (!(await mustBeThere(row.src))) {
+    /* a page that is not there: its clip keeps its time, at the stage's size */
+    c.missing = true;
+    c.nw = stage.w; c.nh = stage.h;
   } else {
     /* a film is a picture, never scrolled: a page a little larger than its frame shows no scrollbars (some browsers
        always draw them; exports draw none) */
     el.setAttribute('scrolling', 'no');
-    await mustBeThere(row.src);
     const t0 = performance.now();
     /* the page is loading since the file was read (filmStart in host.mjs gave it the stage's size to lay itself out for) */
     while (!(el.contentWindow?.film && typeof el.contentWindow.film.frame === 'function')) {
@@ -602,7 +615,7 @@ async function draw(t, live) {
   if (live && !playing) { near(t, { only: true }); settleNear = setTimeout(() => near(t), 250); } else near(t, { exact: !live });
   await Promise.all(clips.map(async (c) => {
     if (c.kind === 'sound') return;
-    const on = !c.hidden && t >= c.at && t < c.end;
+    const on = !c.hidden && !c.missing && t >= c.at && t < c.end;
     c.shown = on;
     const appears = on && c.el.style.visibility !== 'visible';
     c.el.style.visibility = on ? 'visible' : 'hidden';
@@ -748,7 +761,7 @@ async function change(value, look) {
      picture changes at once, not first without them until that moment is drawn again */
   if (shownT != null) {
     for (const c of records) {
-      const on = c.el && !c.hidden && shownT >= c.at && shownT < c.end;
+      const on = c.el && !c.hidden && !c.missing && shownT >= c.at && shownT < c.end;
       const ready = c.kind === 'still' || (c.kind === 'video' && c.el.readyState >= 2) || (c.kind === 'page' && made.has(c.id));
       if (on && !c.shown && ready) { c.shown = true; c.el.style.visibility = 'visible'; fadeAt(c, shownT); }
     }
@@ -786,7 +799,7 @@ let changing = Promise.resolve(true);
  * state before its frame. A video on screen already keeps its picture until its new frame is drawn.
  */
 async function cue(c, row, track, t, fresh) {
-  if (track.hidden || (c.kind !== 'video' && !(fresh && c.kind === 'page'))) return;
+  if (track.hidden || c.missing || (c.kind !== 'video' && !(fresh && c.kind === 'page'))) return;
   if (c.kind === 'video' && c.shown && c.el.readyState >= 2) return;
   let span;
   try { span = clipSpan(row, c.native, row.id); } catch { return; }
