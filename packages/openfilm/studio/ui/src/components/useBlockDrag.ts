@@ -40,6 +40,7 @@ import {
 } from '@/lib/timeline-drag';
 import {
   linkedIds,
+  magnetOn,
   planEdges,
   planMove,
   planRippleTrim,
@@ -50,7 +51,7 @@ import {
   type EditPlan,
   type TrackDest,
 } from '@/lib/timeline-edit';
-import type { TimelinePrefs } from '@/lib/timeline-prefs';
+import { followOf, type TimelinePrefs } from '@/lib/timeline-prefs';
 import { snapToFrame } from '@/lib/timecode';
 import type { TimelineBlock, TimelineTrack } from '@/lib/timeline-layout';
 
@@ -289,7 +290,8 @@ export function useBlockDrag(opts: {
     const snapCache = new Map<string, SnapTarget[]>();
     /* without the magnet a trim stops at the neighbors on the clip's own track (every row of it) */
     const fence = mode === 'trim-start' || mode === 'trim-end' ? trimFence(geom, singleLanes[homeLaneIndex]?.occupied ?? []) : undefined;
-    const ripple = prefs.magnet && (mode === 'trim-start' || mode === 'trim-end');
+    /* the magnet acts on the main track alone: a trim there ripples, elsewhere it stops at the neighbors */
+    const ripple = magnetOn(model, homeLane?.docIndex, prefs.magnet) && (mode === 'trim-start' || mode === 'trim-end');
 
     let dragging = false;
     let last: DragPreview | null = null;
@@ -342,7 +344,7 @@ export function useBlockDrag(opts: {
           const edge = mode === 'trim-end' ? 'end' : 'start';
           const want = edge === 'end' ? out.endMs - geom.endMs : out.startMs - geom.startMs;
           plan = ripple
-            ? planRippleTrim(m, ids, edge, want, { sync: p.sync })
+            ? planRippleTrim(m, ids, edge, want, followOf(p))
             : planEdges(m, ids.map((id) => ({ id, kind: edge })), want);
           if (plan.deltaMs === want) snappedTo = out.snappedTo;
           const own = plan.placed.get(block.clipId!);
@@ -417,7 +419,9 @@ export function useBlockDrag(opts: {
       const alongOwnTrack = grouped ? shift.ok && shift.delta === 0 : drop.action === 'stay';
       const wouldLand = { startMs: out.startMs + (flush?.shiftMs ?? 0), endMs: out.endMs + (flush?.shiftMs ?? 0) };
       const overlaps = alongOwnTrack && rangeOverlaps(wouldLand, singleLanes[homeLaneIndex]?.occupied ?? []);
-      const editMode: EditMode = moveEditMode({ magnet: p.magnet, alt: altNow, overlaps });
+      /* the track it lands on: the magnet inserts on the main track only */
+      const landsOn = drop.action === 'move' ? drop.trackIndex : drop.action === 'insert' ? null : homeLane?.docIndex;
+      const editMode: EditMode = moveEditMode({ magnet: magnetOn(m, landsOn, p.magnet), alt: altNow, overlaps });
       const settle = editMode === 'overwrite' ? flush : null;
       const to = new Map<string, TrackDest>();
       if (drop.action === 'move') to.set(block.clipId!, drop.trackIndex);
@@ -433,7 +437,8 @@ export function useBlockDrag(opts: {
         pointerMs: grabMs + deltaMs,
         to,
         mode: editMode,
-        sync: p.sync,
+        magnet: p.magnet,
+        ...followOf(p),
       });
       lastPlan = plan;
       document.body.style.cursor = outside ? 'copy' : 'grabbing';

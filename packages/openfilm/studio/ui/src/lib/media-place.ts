@@ -10,7 +10,7 @@
 import type { Op } from '../api.ts';
 import { assetClipElement, assetClipKindOf, dropDurMsOf, type StageSize } from './asset-timeline.ts';
 import type { ResourceDragItem } from './resource-drag';
-import { planRoom, soundTrackFor, TOUCH_MS, type EditMode, type EditModel, type TrackDest } from './timeline-edit.ts';
+import { magnetOn, planRoom, soundTrackFor, TOUCH_MS, type EditMode, type EditModel, type TrackDest } from './timeline-edit.ts';
 import { snapToFrame } from './timecode.ts';
 
 export type PlaceFile = Pick<ResourceDragItem, 'path' | 'kind' | 'durationMs' | 'endless' | 'reflows' | 'w' | 'h'>;
@@ -25,8 +25,11 @@ export interface PlaceSpec {
   target: number | null;
   /** Where: the playhead (ms), or `end`, after the last clip of the track it goes on. */
   at: number | 'end';
-  mode: EditMode;
+  /** Insert or overwrite; not given, the magnet decides: an insert on the main track when it is on. */
+  mode?: EditMode;
+  magnet?: boolean;
   sync: boolean;
+  linkage?: boolean;
   /** The canvas: a picture of another shape gets a box in its own (asset-timeline assetFitBox). */
   stage?: StageSize | null;
 }
@@ -83,6 +86,7 @@ export function placeMedia(model: EditModel, spec: PlaceSpec): PlacePlan {
   if (typeof track !== 'number') return { ops: [insert], track, startMs, durMs: made.durMs };
   /* at the very end nothing follows: no room to make */
   const after = (model.find((t) => t.index === track)?.clips ?? []).some((c) => c.endMs > startMs + TOUCH_MS);
-  const room = after && !roomy ? planRoom(model, [{ track, startMs, endMs: startMs + made.durMs }], { mode: spec.mode, sync: spec.sync }).ops : [];
+  const mode = spec.mode ?? (magnetOn(model, track, spec.magnet ?? false) ? 'insert' : 'overwrite');
+  const room = after && !roomy ? planRoom(model, [{ track, startMs, endMs: startMs + made.durMs }], { mode, sync: spec.sync, linkage: spec.linkage }).ops : [];
   return { ops: [insert, ...room], track, startMs, durMs: made.durMs };
 }

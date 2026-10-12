@@ -8,7 +8,11 @@
  *   · clips on one track never overlap;
  *   · a ripple moves what comes after the edit point on the tracks it reaches: the clips' own tracks and, with sync
  *     lock, every unlocked track, so a voice-over or B-roll stays with the picture it belongs to. Time is closed only
- *     as far as every one of those tracks has room (`shortMs` says how much could not be), so they never come apart.
+ *     as far as every one of those tracks has room (`shortMs` says how much could not be), so they never come apart;
+ *   · with linkage (CapCut's 联动) an edit of the main track (the lowest picture track) carries the clips on the
+ *     other tracks with the main-track clips they start over (rides). A long clip crossing more than one cut there (a
+ *     music bed) stays where it is. The main track alone limits it; a clip carried into another on its track goes to
+ *     a free track nearby (settle).
  *
  * Pure: the timeline draws a plan's `placed` while the hand is still on a clip, and sends its `ops` on release.
  */
@@ -51,6 +55,48 @@ export interface EditTrack {
 }
 
 export type EditModel = readonly EditTrack[];
+
+/**
+ * What a ripple carries besides the tracks edited. `sync` (sync lock, as Premiere): every unlocked track, as far as
+ * all of them have room. `linkage` (as CapCut): an edit of the main track carries the clips on every other unlocked
+ * track. Sync lock wins when both are on.
+ */
+export interface Follow { sync: boolean; linkage?: boolean }
+
+/** The main track: the lowest picture track (V1), film.html's last track that is not a sound track. */
+export function mainTrackOf(model: EditModel): number | null {
+  const pictures = model.filter((t) => t.index >= 0 && t.role !== 'audio');
+  return pictures.length ? Math.max(...pictures.map((t) => t.index)) : null;
+}
+
+/** Whether the magnet acts on a track: it is CapCut's main-track magnet, so only on the main track. */
+export function magnetOn(model: EditModel, track: number | null | undefined, magnet: boolean): boolean {
+  return magnet && track != null && track === mainTrackOf(model);
+}
+
+/**
+ * The main-track clip a clip rides on with linkage: the one its start falls in, or the last when it starts after the
+ * main track ends. None in a gap of the main track.
+ */
+export function hostOf(main: Pick<EditTrack, 'clips'>, clip: { startMs: number }): EditClip | null {
+  const on = main.clips.find((c) => clip.startMs >= c.startMs - TOUCH_MS && clip.startMs < c.endMs - TOUCH_MS);
+  if (on) return on;
+  const last = [...main.clips].sort((a, b) => b.endMs - a.endMs)[0];
+  return last && clip.startMs >= last.endMs - TOUCH_MS ? last : null;
+}
+
+/**
+ * Whether a clip rides on the main track with linkage: it has a host (hostOf) and crosses at most one cut of the main
+ * track — a title, a sticker, a sound effect, B-roll over a shot or two. A clip crossing more (a music bed under
+ * several shots) belongs to the film's time, not to a shot, and stays where it is.
+ */
+export function ridesOn(main: Pick<EditTrack, 'clips'>, clip: { startMs: number; endMs: number }): boolean {
+  if (!hostOf(main, clip)) return false;
+  const cuts = new Set(main.clips.flatMap((c) => [c.startMs, c.endMs]));
+  let crossed = 0;
+  for (const cut of cuts) if (cut > clip.startMs + TOUCH_MS && cut < clip.endMs - TOUCH_MS) crossed += 1;
+  return crossed <= 1;
+}
 
 /** Where a track goes: one in film.html, or a new one opened at that place. */
 export type TrackDest = number | { insert: number };
@@ -115,6 +161,10 @@ export interface Draft {
   /** The right half cut off a clip, by the clip's id. */
   cut: Map<string, EditClip>;
   shortMs: number;
+  /** Linkage carried clips without asking their tracks for room: some may now run into another (see settle). */
+  settle?: boolean;
+  /** With linkage, the clips on other tracks that do not ride on the main track (ridesOn, as the film was). */
+  anchored?: Set<string>;
 }
 
 function draftOf(model: EditModel): Draft {
@@ -163,6 +213,32 @@ function reach(d: Draft, edited: Iterable<number>, sync: boolean): number[] {
 }
 
 /**
+ * The tracks a ripple moves (`tracks`) and those whose room limits it (`bound`): with sync lock every unlocked track
+ * both moves and limits; with linkage an edit of the main track moves every unlocked track, limited by the tracks
+ * edited alone; else just the tracks edited.
+ */
+function follow(d: Draft, edited: Iterable<number>, opts: Follow): { tracks: number[]; bound: number[] } {
+  const own = reach(d, edited, false);
+  if (opts.sync) {
+    const all = reach(d, [], true);
+    return { tracks: all, bound: all };
+  }
+  const main = mainTrackOf(d.tracks);
+  if (opts.linkage && main != null && own.includes(main)) {
+    d.anchored ??= anchoredOf(d, main);
+    return { tracks: reach(d, [], true), bound: own };
+  }
+  return { tracks: own, bound: own };
+}
+
+/** The clips on other tracks that stay put with linkage (they do not ride on the main track as it was). */
+function anchoredOf(d: Draft, main: number): Set<string> {
+  const was = [...d.before.values()];
+  const mainWas = { clips: was.filter((x) => x.track === main).map((x) => x.clip) };
+  return new Set(was.filter((x) => x.track !== main && !ridesOn(mainWas, x.clip)).map((x) => x.clip.id));
+}
+
+/**
  * How far left what starts at or after `point` on a track can go before it meets what stays (what starts before it).
  * Infinity when nothing starts after it.
  */
@@ -181,38 +257,57 @@ function roomBefore(track: EditTrack, point: number, skip?: ReadonlySet<string>)
  * Move what starts at or after `point` by `deltaMs` on these tracks. Leftwards only as far as every track has room;
  * the time that could not be closed is added to `shortMs`. Returns the shift made.
  */
-function rippleAt(d: Draft, point: number, deltaMs: number, tracks: readonly number[], skip?: ReadonlySet<string>): number {
+function rippleAt(
+  d: Draft,
+  point: number,
+  deltaMs: number,
+  tracks: readonly number[],
+  skip?: ReadonlySet<string>,
+  bound: readonly number[] = tracks,
+): number {
   const rows = tracks.map((i) => trackAt(d, i)).filter((t): t is EditTrack => Boolean(t && !t.locked));
+  const limits = rows.filter((t) => bound.includes(t.index));
   let amount = deltaMs;
   if (amount < 0) {
-    const room = Math.min(...rows.map((t) => roomBefore(t, point, skip)));
+    const room = Math.min(...limits.map((t) => roomBefore(t, point, skip)));
     if (-amount > room) {
       d.shortMs += -amount - room;
       amount = -room;
     }
   }
   if (!amount) return 0;
+  if (limits.length < rows.length) d.settle = true;
   for (const t of rows) {
-    for (const c of t.clips) if (!skip?.has(c.id) && c.startMs >= point - TOUCH_MS) shiftClip(c, amount);
+    /* the tracks carried along (linkage): what does not ride on the main track stays */
+    const still = limits.includes(t) ? undefined : d.anchored;
+    for (const c of t.clips) {
+      if (!skip?.has(c.id) && !still?.has(c.id) && c.startMs >= point - TOUCH_MS) shiftClip(c, amount);
+    }
   }
   return amount;
 }
 
 /**
- * Close spans of time: per track its own (`byTrack`), or with sync lock all of them merged, on every track. From the
- * last span back, so closing one does not move the ones before it. Returns the shifts made, for mapping a time from
- * before to after (see mapThrough).
+ * Close spans of time: per track its own (`byTrack`), or with sync lock all of them merged, on every track; with
+ * linkage, when the main track has spans, those, carrying every unlocked track. From the last span back, so closing
+ * one does not move the ones before it. Returns the shifts made, for mapping a time from before to after (see
+ * mapThrough).
  */
 interface Shift { point: number; amount: number; tracks: readonly number[] }
-function closeSpans(d: Draft, byTrack: ReadonlyMap<number, { startMs: number; endMs: number }[]>, sync: boolean): Shift[] {
+function closeSpans(d: Draft, byTrack: ReadonlyMap<number, { startMs: number; endMs: number }[]>, opts: Follow): Shift[] {
   const shifts: Shift[] = [];
-  const groups: { spans: { startMs: number; endMs: number }[]; tracks: number[] }[] = sync
-    ? [{ spans: [...byTrack.values()].flat(), tracks: reach(d, [], true) }]
-    : [...byTrack.entries()].map(([t, spans]) => ({ spans, tracks: reach(d, [t], false) }));
+  const main = mainTrackOf(d.tracks);
+  const onMain = main != null ? byTrack.get(main) : undefined;
+  type Group = { spans: { startMs: number; endMs: number }[]; tracks: number[]; bound: number[] };
+  const groups: Group[] = opts.sync
+    ? [{ spans: [...byTrack.values()].flat(), ...follow(d, [], opts) }]
+    : opts.linkage && onMain && !trackAt(d, main!)?.locked
+      ? [{ spans: onMain, ...follow(d, [main!], opts) }]
+      : [...byTrack.entries()].map(([t, spans]) => ({ spans, ...follow(d, [t], { sync: false }) }));
   for (const group of groups) {
     if (!group.tracks.length) continue;
     for (const span of mergeSpans(group.spans).reverse()) {
-      const amount = rippleAt(d, span.endMs, -(span.endMs - span.startMs), group.tracks);
+      const amount = rippleAt(d, span.endMs, -(span.endMs - span.startMs), group.tracks, undefined, group.bound);
       if (amount) shifts.push({ point: span.endMs, amount, tracks: group.tracks });
     }
   }
@@ -344,7 +439,66 @@ function changedFields(was: EditClip, now: EditClip): Record<string, PropValue> 
   return out;
 }
 
+const overlap = (a: { startMs: number; endMs: number }, b: { startMs: number; endMs: number }): boolean => (
+  a.startMs < b.endMs - TOUCH_MS && a.endMs > b.startMs + TOUCH_MS
+);
+
+/**
+ * Clips linkage carried into another clip on their track go to another track: the one that moved goes, the one that
+ * stayed stays. Where: the nearest unlocked track of their kind with room (above for a picture, below for a sound),
+ * not the main track; else a new track opened beside theirs.
+ */
+function settle(d: Draft): void {
+  const main = mainTrackOf(d.tracks);
+  const moved = (c: EditClip): boolean => {
+    const was = d.before.get(c.id);
+    return !was || Math.abs(was.clip.startMs - c.startMs) >= 0.5;
+  };
+  const sound = (t: EditTrack) => t.role === 'audio';
+  const relocate = (from: EditTrack, c: EditClip): void => {
+    const free = d.tracks
+      .filter((t) => t !== from && t.index >= 0 && t.index !== main && !t.locked && sound(t) === sound(from))
+      .filter((t) => !t.clips.some((x) => overlap(x, c)))
+      .sort((a, b) => {
+        const away = Math.abs(a.index - from.index) - Math.abs(b.index - from.index);
+        /* at the same distance: a picture goes up, a sound down */
+        return away || (sound(from) ? b.index - a.index : a.index - b.index);
+      })[0];
+    if (free) {
+      free.clips.push(c);
+      return;
+    }
+    const insert = sound(from) ? from.index + 1 : from.index;
+    d.opened.set(c.id, insert);
+    let opened = d.tracks.find((t) => t.index === -1 - insert);
+    if (!opened) {
+      opened = { index: -1 - insert, clips: [], ...(from.role ? { role: from.role } : {}) };
+      d.tracks.push(opened);
+    }
+    opened.clips.push(c);
+  };
+  for (const t of [...d.tracks]) {
+    if (t.index < 0 || t.index === main || t.locked) continue;
+    const kept: EditClip[] = [];
+    for (const c of [...t.clips].sort((a, b) => a.startMs - b.startMs)) {
+      const hits = kept.filter((k) => overlap(k, c));
+      if (!hits.length) {
+        kept.push(c);
+        continue;
+      }
+      const go = moved(c) || hits.some((h) => !moved(h)) ? [c] : hits;
+      for (const x of go) {
+        t.clips.splice(t.clips.indexOf(x), 1);
+        if (kept.includes(x)) kept.splice(kept.indexOf(x), 1);
+        relocate(t, x);
+      }
+      if (!go.includes(c)) kept.push(c);
+    }
+  }
+}
+
 function planOf(d: Draft): EditPlan {
+  if (d.settle) settle(d);
   relinkCuts(d);
   const ops: Op[] = [];
   const edits: { clip: string; prop: string; value: PropValue }[] = [];
@@ -385,7 +539,7 @@ function planOf(d: Draft): EditPlan {
 }
 
 /* the draft's own steps, for edits planned elsewhere (lib/transitions) */
-export { draftOf, find as findInDraft, planOf, reach, rippleAt, trackAt };
+export { draftOf, find as findInDraft, follow, planOf, reach, rippleAt, trackAt };
 
 /** An edit that changes nothing. */
 export function emptyPlan(): EditPlan {
@@ -461,14 +615,14 @@ export function planCloseGap(
   model: EditModel,
   track: number,
   gap: { startMs: number; endMs: number },
-  opts: { sync: boolean },
+  opts: Follow,
 ): EditPlan & { alone?: boolean } {
   const d = draftOf(model);
   if (trackAt(d, track)?.locked) return emptyPlan();
-  closeSpans(d, new Map([[track, [gap]]]), opts.sync);
+  closeSpans(d, new Map([[track, [gap]]]), opts);
   if (!opts.sync || d.shortMs <= 0) return planOf(d);
   const alone = draftOf(model);
-  closeSpans(alone, new Map([[track, [gap]]]), false);
+  closeSpans(alone, new Map([[track, [gap]]]), { sync: false });
   return { ...planOf(alone), alone: true };
 }
 
@@ -476,19 +630,23 @@ export function planCloseGap(
 
 /**
  * Delete clips. With `ripple` the time they took closes after them (each track its own, or with sync lock all the
- * deleted time on every unlocked track); without, they leave a gap. Clips on locked tracks stay.
+ * deleted time on every unlocked track, or with linkage the main track's, carrying the other tracks); `'main'` closes
+ * only the main track's (the magnet), the others leave a gap; without, they all leave a gap. Clips on locked tracks
+ * stay.
  */
-export function planRemove(model: EditModel, ids: readonly string[], opts: { ripple: boolean; sync: boolean }): EditPlan {
+export function planRemove(model: EditModel, ids: readonly string[], opts: Follow & { ripple: boolean | 'main' }): EditPlan {
   const d = draftOf(model);
+  const main = mainTrackOf(model);
   const spans = new Map<number, { startMs: number; endMs: number }[]>();
   for (const t of d.tracks) {
     if (t.locked) continue;
     const gone = t.clips.filter((c) => ids.includes(c.id));
     if (!gone.length) continue;
     t.clips = t.clips.filter((c) => !ids.includes(c.id));
+    if (opts.ripple === 'main' && t.index !== main) continue;
     spans.set(t.index, gone.map((c) => ({ startMs: c.startMs, endMs: c.endMs })));
   }
-  if (opts.ripple && spans.size) closeSpans(d, spans, opts.sync);
+  if (opts.ripple && spans.size) closeSpans(d, spans, opts);
   return planOf(d);
 }
 
@@ -521,7 +679,7 @@ export function insertPointOn(model: EditModel, track: number, pointerMs: number
 export function planRoom(
   model: EditModel,
   spans: readonly { track: number; startMs: number; endMs: number }[],
-  opts: { mode: EditMode; sync: boolean },
+  opts: Follow & { mode: EditMode },
 ): EditPlan {
   const d = draftOf(model);
   if (spans.some((s) => trackAt(d, s.track)?.locked)) return emptyPlan();
@@ -543,7 +701,8 @@ export function planRoom(
     if (!track) continue;
     for (const c of [...track.clips]) cutAt(d, track, c, at);
   }
-  rippleAt(d, at, durMs, reach(d, dests, opts.sync));
+  const f = follow(d, dests, opts);
+  rippleAt(d, at, durMs, f.tracks, undefined, f.bound);
   return planOf(d);
 }
 
@@ -560,12 +719,19 @@ export interface MoveSpec {
   to?: ReadonlyMap<string, TrackDest>;
   mode: EditMode;
   sync: boolean;
+  linkage?: boolean;
+  /**
+   * The main-track magnet. Given, the time clips leave on the main track closes up when it is on (wherever they land),
+   * and the time they leave on other tracks stays open; not given, an insert closes the time they leave everywhere.
+   */
+  magnet?: boolean;
 }
 
 /**
  * Clips moved. Overwrite: they land where they were let go and take that time off the tracks they land on. Insert:
  * they are lifted out (the time they took closes, as a ripple delete) and go in at the insert point of the track the
- * grabbed one lands on, pushing what comes after on (as an insert). A new track takes them as they are.
+ * grabbed one lands on, pushing what comes after on (as an insert). A new track takes them as they are. With linkage,
+ * main-track clips moved along the main track take the clips riding on them (hostOf) along.
  * Null when a track it would change is locked.
  */
 export function planMove(model: EditModel, spec: MoveSpec): (EditPlan & { landMs: number }) | null {
@@ -579,6 +745,21 @@ export function planMove(model: EditModel, spec: MoveSpec): (EditPlan & { landMs
     const dest = destOf(id);
     if (trackAt(d, d.before.get(id)!.track)?.locked) return null;
     if (typeof dest === 'number' && (!trackAt(d, dest) || trackAt(d, dest)!.locked)) return null;
+  }
+  /* with linkage, what rides on main-track clips that stay on the main track goes with them: taken off too */
+  const mainIndex = mainTrackOf(model);
+  const mainTrack = mainIndex != null ? trackAt(d, mainIndex) : undefined;
+  const riders = new Map<EditClip, { track: EditTrack; host: string }>();
+  if (spec.linkage && !spec.sync && mainTrack && !mainTrack.locked) {
+    const hosts = new Set(mainTrack.clips.filter((c) => hand.has(c.id) && destOf(c.id) === mainIndex).map((c) => c.id));
+    for (const t of d.tracks) {
+      if (t === mainTrack || t.locked || !hosts.size) continue;
+      for (const c of t.clips) {
+        const host = hand.has(c.id) || !ridesOn(mainTrack, c) ? null : hostOf(mainTrack, c);
+        if (host && hosts.has(host.id)) riders.set(c, { track: t, host: host.id });
+      }
+    }
+    for (const [c, r] of riders) r.track.clips.splice(r.track.clips.indexOf(c), 1);
   }
   /* take them off their tracks */
   const lifted = new Map<string, EditClip>();
@@ -598,8 +779,12 @@ export function planMove(model: EditModel, spec: MoveSpec): (EditPlan & { landMs
   const minOffset = Math.min(...[...lifted.values()].map(offset));
   landMs = Math.max(landMs, -minOffset);
 
-  /* an insert lifts them out: the time they took closes, as a ripple delete */
-  const shifts = spec.mode === 'insert' ? closeSpans(d, spans, spec.sync) : [];
+  /* an insert lifts them out: the time they took closes, as a ripple delete (with the magnet given: on the main
+     track, when it is on) */
+  const closing = spec.magnet === undefined
+    ? (spec.mode === 'insert' ? spans : null)
+    : spec.magnet && mainIndex != null && spans.has(mainIndex) ? new Map([[mainIndex, spans.get(mainIndex)!]]) : null;
+  const shifts = closing ? closeSpans(d, closing, spec) : [];
   if (spec.mode === 'insert' && typeof mainDest === 'number') {
     /* the insert point, worked out on the track as it was (where the hand is), then carried through the lift */
     const point = insertPointOn(model, mainDest, spec.pointerMs, landMs, hand);
@@ -612,7 +797,8 @@ export function planMove(model: EditModel, spec: MoveSpec): (EditPlan & { landMs
       const track = trackAt(d, index);
       if (track) for (const c of [...track.clips]) cutAt(d, track, c, at);
     }
-    rippleAt(d, at, durMs, reach(d, dests, spec.sync));
+    const f = follow(d, dests, spec);
+    rippleAt(d, at, durMs, f.tracks, undefined, f.bound);
   }
 
   /* put them down */
@@ -637,6 +823,13 @@ export function planMove(model: EditModel, spec: MoveSpec): (EditPlan & { landMs
       clearRange(d, track, c.startMs, c.endMs, hand);
     }
     track.clips.push(c);
+  }
+  /* the riders, where their clip went */
+  for (const [c, r] of riders) {
+    const host = lifted.get(r.host)!;
+    shiftClip(c, host.startMs - d.before.get(r.host)!.clip.startMs);
+    r.track.clips.push(c);
+    d.settle = true;
   }
   const plan = planOf(d);
   return { ...plan, landMs };
@@ -720,7 +913,7 @@ export function planRippleTrim(
   ids: readonly string[],
   edge: 'start' | 'end',
   deltaMs: number,
-  opts: { sync: boolean },
+  opts: Follow,
 ): EditPlan & { deltaMs: number } {
   const d = draftOf(model);
   const parts = ids.map((id) => find(d, id)).filter((x): x is { track: EditTrack; clip: EditClip } => Boolean(x && !x.track.locked));
@@ -733,10 +926,10 @@ export function planRippleTrim(
     grow = Math.min(grow, edge === 'end' ? tailRoomOf(clip) : headRoomOf(clip));
   }
   const point = main.clip.endMs;
-  const tracks = reach(d, parts.map((p) => p.track.index), opts.sync);
+  const { tracks, bound } = follow(d, parts.map((p) => p.track.index), opts);
   const skip = new Set(parts.map((p) => p.clip.id));
   if (grow < 0) {
-    const room = Math.min(...tracks.map((i) => roomBefore(trackAt(d, i)!, point, skip)));
+    const room = Math.min(...bound.map((i) => roomBefore(trackAt(d, i)!, point, skip)));
     grow = Math.max(grow, -room);
   }
   if (!grow) return { ...planOf(d), deltaMs: 0 };
@@ -744,7 +937,7 @@ export function planRippleTrim(
     if (edge === 'start' && !clip.still) clip.inMs = Math.max(0, clip.inMs - grow * clip.speed);
     clip.endMs += grow;
   }
-  rippleAt(d, point, grow, tracks, skip);
+  rippleAt(d, point, grow, tracks, skip, bound);
   return { ...planOf(d), deltaMs: edge === 'end' ? grow : -grow };
 }
 
@@ -752,7 +945,7 @@ export function planRippleTrim(
  * Ripple trim to the playhead (Q and W): `start` takes off the head up to `atMs`, `end` the tail from it, and what
  * comes after closes up. Null when `atMs` is not inside the first clip.
  */
-export function planRippleTrimTo(model: EditModel, ids: readonly string[], edge: 'start' | 'end', atMs: number, opts: { sync: boolean }): EditPlan | null {
+export function planRippleTrimTo(model: EditModel, ids: readonly string[], edge: 'start' | 'end', atMs: number, opts: Follow): EditPlan | null {
   const main = model.flatMap((t) => t.clips).find((c) => c.id === ids[0]);
   if (!main || !(atMs > main.startMs + TOUCH_MS && atMs < main.endMs - TOUCH_MS)) return null;
   const plan = planRippleTrim(model, ids, edge, edge === 'start' ? atMs - main.startMs : atMs - main.endMs, opts);
@@ -816,7 +1009,7 @@ export function planSpeed(
   model: EditModel,
   ids: readonly string[],
   speed: number,
-  opts: { ripple: boolean; sync: boolean },
+  opts: Follow & { ripple: boolean },
 ): EditPlan & { slowest?: number } {
   const d = draftOf(model);
   const parts = ids.map((id) => find(d, id)).filter((x): x is { track: EditTrack; clip: EditClip } => Boolean(x && !x.track.locked && !x.clip.still));
@@ -841,13 +1034,13 @@ export function planSpeed(
   }
   const point = main.clip.endMs;
   const by = grow(main.clip);
-  const tracks = reach(d, parts.map((p) => p.track.index), opts.sync);
+  const { tracks, bound } = follow(d, parts.map((p) => p.track.index), opts);
   const skip = new Set(parts.map((p) => p.clip.id));
   for (const { clip } of parts) {
     clip.endMs += grow(clip);
     clip.speed = speed;
   }
-  rippleAt(d, point, by, tracks, skip);
+  rippleAt(d, point, by, tracks, skip, bound);
   return planOf(d);
 }
 

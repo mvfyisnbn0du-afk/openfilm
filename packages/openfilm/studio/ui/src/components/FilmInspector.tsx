@@ -134,6 +134,7 @@ function useCommitBeforeLeaving(): void {
 export const FilmInspector = React.memo(function FilmInspector({
   element,
   clips,
+  mainTrack,
   onEditClips,
   width,
   onClose,
@@ -168,6 +169,8 @@ export const FilmInspector = React.memo(function FilmInspector({
   element: StageElement | null;
   /** The clips selected on the timeline. A layer picked on the picture wins: one selection at a time. */
   clips?: readonly TimelineBlock[];
+  /** The main track's film.html index (timeline-edit mainTrackOf): the magnet acts there alone. */
+  mainTrack?: number | null;
   /** Writes clip properties, through the same queue as dragging on the timeline. Resolves to an error when refused. */
   onEditClips?: (edits: ClipEdit[]) => Promise<string | null>;
   /** The pane's width (dragged at the divider beside the viewer). */
@@ -282,6 +285,7 @@ export const FilmInspector = React.memo(function FilmInspector({
           <ClipPanel
             key={clip.id}
             block={clip}
+            onMain={mainTrack != null && parseFilmDocLoc(clip.loc ?? '')?.track === mainTrack}
             geometry={geometry && geometry.kind === 'clip' && geometry.loc === clip.loc ? geometry : null}
             onEdit={onEditClips}
             onPreviewClip={onPreviewClip}
@@ -1320,10 +1324,12 @@ function clipsLook(
  * can only be looked at.
  */
 function ClipPanel({
-  block, geometry, stage, badges, onEdit, onPreviewClip, pageChangesOf, clipLookOf, onPreviewLook, onStartCrop, onEditMask, fades,
+  block, onMain, geometry, stage, badges, onEdit, onPreviewClip, pageChangesOf, clipLookOf, onPreviewLook, onStartCrop, onEditMask, fades,
 }: {
   fades?: ReadonlyMap<string, FadeMs>;
   block: TimelineBlock;
+  /** On the main track, where the magnet acts. */
+  onMain: boolean;
   geometry?: StageGeometry | null;
   /** The film's stage: with the clip's own size, where it lands when it is not on screen to measure. */
   stage: { w: number; h: number };
@@ -1417,7 +1423,7 @@ function ClipPanel({
               <EffectsSection look={look} t={t} />
             </>
           ) : null}
-          {block.anchor?.move || block.anchor?.resize === 'end' ? <TimingSection t={t} block={block} commit={commit} /> : null}
+          {block.anchor?.move || block.anchor?.resize === 'end' ? <TimingSection t={t} block={block} onMain={onMain} commit={commit} /> : null}
           {docLoc && block.clipId ? <FadeSection t={t} blocks={[block]} fades={fades} commit={commit} /> : null}
           {blockHasVolume(block) ? (
             <Section id="sound" title={t('inspector.sound')}>
@@ -1460,13 +1466,14 @@ function ClipPanel({
  * `at` is written the way dragging writes it, from the parent window; `end` is `in point + length` in source time
  * when there is an in point, else (a still) the right edge in the parent window.
  */
-function TimingSection({ t, block, commit }: { t: T; block: TimelineBlock; commit: (edits: ClipEdit[]) => void }) {
+function TimingSection({ t, block, onMain, commit }: { t: T; block: TimelineBlock; onMain: boolean; commit: (edits: ClipEdit[]) => void }) {
   const [unit, setUnit] = useTimeUnit();
   const loc = block.loc!;
   const parentSec = (block.anchor?.parentStartMs ?? 0) / 1000;
   const durSec = (block.endMs - block.startMs) / 1000;
-  /* the timeline's magnet: a longer clip pushes the next one along (a ripple), so the next one is no limit */
-  const { magnet } = useTimelinePrefs();
+  /* the timeline's magnet, on the main track: a longer clip pushes the next one along (a ripple), so the next one is
+     no limit */
+  const magnet = useTimelinePrefs().magnet && onMain;
   const maxDurSec = longestSec(block, durSec, magnet);
   const k = block.speed ?? 1;
   /* slowed down, the clip gets longer on the film: without the magnet, no slower than fits before the next clip */

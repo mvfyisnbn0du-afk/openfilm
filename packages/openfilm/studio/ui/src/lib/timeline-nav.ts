@@ -42,8 +42,9 @@ const lockedRows = (tracks: readonly TimelineTrack[]) => new Set(tracks.filter((
 
 /**
  * What ⌘B splits at the playhead: the selected clips it is inside; with nothing selected, the clip it is inside on the
- * targeted track (`targetLane`), else on the topmost track that is seen and has one. Never a clip on a locked track.
- * The clips linked to them are the caller's to add (the Linked switch).
+ * targeted track (`targetLane`), else on the main track (the lowest picture track, as CapCut), else on the topmost
+ * track that is seen and has one. Never a clip on a locked track. The clips linked to them are the caller's to add
+ * (the Linked switch).
  */
 export function splitTargets(
   tracks: readonly TimelineTrack[],
@@ -59,6 +60,10 @@ export function splitTargets(
     const hit = target.blocks.find(can);
     return hit ? [hit] : [];
   }
+  const pictures = tracks.filter((tr) => tr.docIndex != null && tr.role !== 'audio');
+  const mainIndex = pictures.length ? Math.max(...pictures.map((tr) => tr.docIndex!)) : null;
+  const main = tracks.filter((tr) => tr.docIndex === mainIndex && !tr.hidden).flatMap((tr) => tr.blocks).find(can);
+  if (main) return [main];
   for (const tr of tracks) {
     if (tr.hidden) continue;
     const hit = tr.blocks.find(can);

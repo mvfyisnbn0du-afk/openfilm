@@ -12,7 +12,7 @@ import type { Op } from '../api.ts';
 import { FILM_DOC_FILE } from './film.ts';
 
 import { newTrackSide } from './timeline-drag.ts';
-import { freshLink, planRoom, type EditMode, type EditModel } from './timeline-edit.ts';
+import { freshLink, magnetOn, planRoom, type EditMode, type EditModel, type Follow } from './timeline-edit.ts';
 import type { TimelineBlock, TimelineTrack } from './timeline-layout';
 
 export type TimelineClipboardItem = {
@@ -255,7 +255,7 @@ export function pasteEdit(
   model: EditModel,
   atMs: number,
   forceLane: string | null,
-  opts: { mode: EditMode; sync: boolean },
+  opts: Follow & ({ mode: EditMode } | { magnet: boolean }),
 ): Op[] | null {
   if (!clipboard.length) return [];
   const base = Math.min(...clipboard.map((item) => item.startMs));
@@ -267,7 +267,9 @@ export function pasteEdit(
     return { item, track: row?.docIndex, locked: Boolean(row?.locked), startMs, endMs: startMs + item.durMs };
   });
   if (spans.some((s) => s.track == null || s.locked)) return null;
-  const room = planRoom(model, spans.map((s) => ({ track: s.track!, startMs: s.startMs, endMs: s.endMs })), opts);
+  /* with the magnet given: an insert when it goes onto the main track, else an overwrite */
+  const mode = 'mode' in opts ? opts.mode : spans.some((s) => magnetOn(model, s.track, opts.magnet)) ? 'insert' : 'overwrite';
+  const room = planRoom(model, spans.map((s) => ({ track: s.track!, startMs: s.startMs, endMs: s.endMs })), { mode, sync: opts.sync, linkage: opts.linkage });
   const links = copyLinks(clipboard.map((item) => item.clipId), model);
   const inserts: Op[] = spans.map((s) => ({
     op: 'insert',

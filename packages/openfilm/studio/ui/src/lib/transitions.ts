@@ -30,7 +30,7 @@
  */
 import type { Op, PropValue } from '../api.ts';
 import {
-  TOUCH_MS, draftOf, findInDraft, linkedIds, planOf, reach, rippleAt, trackAt,
+  TOUCH_MS, draftOf, findInDraft, follow, linkedIds, planOf, rippleAt, trackAt,
   type Draft, type EditClip, type EditModel, type EditTrack, type TrackDest,
 } from './timeline-edit.ts';
 
@@ -84,9 +84,11 @@ export function transitionSpan(tr: FilmTransition, durationMs: number): { startM
 }
 
 export interface TransitionOpts {
-  /** The magnet: an overlap closes up what follows, removing one opens it again. */
+  /** The magnet on the cut's track: an overlap closes up what follows, removing one opens it again. */
   ripple: boolean;
   sync: boolean;
+  /** Linkage (timeline-edit Follow): a ripple on the main track carries the other tracks. */
+  linkage?: boolean;
   /** Linked clips go with each other (the Linked switch, unless ⌥). */
   linked: boolean;
   /** The white page's path (dip to white). */
@@ -189,6 +191,19 @@ const lengthOf = (c: EditClip) => c.endMs - c.startMs;
 const free = (track: EditTrack, startMs: number, endMs: number, skip: ReadonlySet<string>) => !track.clips.some(
   (c) => !skip.has(c.id) && c.startMs < endMs - TOUCH_MS && c.endMs > startMs + TOUCH_MS,
 );
+
+/** A ripple from a transition's edit, carrying what sync lock or linkage carries (timeline-edit follow). */
+function rippleThrough(
+  d: Draft,
+  point: number,
+  deltaMs: number,
+  edited: Iterable<number>,
+  opts: TransitionOpts,
+  skip?: ReadonlySet<string>,
+): void {
+  const f = follow(d, edited, opts);
+  rippleAt(d, point, deltaMs, f.tracks, skip, f.bound);
+}
 
 function fadeOf(fades: Fades, facts: FactsOf, id: string): [number, number] {
   const had = fades.get(id) ?? facts(id)?.fade ?? [0, 0];
@@ -318,7 +333,7 @@ export function planTransition(model: EditModel, facts: FactsOf, kind: Transitio
      then put down d earlier where there is room (see landing) */
   const against = new Map(moving.map((m) => [m.clip.id, partnerTrack(d, facts, m.clip, m.clip.startMs, skip) ?? m.track.index]));
   for (const m of moving) m.track.clips = m.track.clips.filter((c) => c.id !== m.clip.id);
-  if (opts.ripple) rippleAt(d, cutMs, -overlap, reach(d, homes, opts.sync));
+  if (opts.ripple) rippleThrough(d, cutMs, -overlap, homes, opts);
   for (const m of moving) {
     m.clip.startMs -= overlap;
     m.clip.endMs -= overlap;
@@ -369,7 +384,7 @@ export function planRemoveTransition(model: EditModel, facts: FactsOf, tr: FilmT
     /* where each goes back to: against the clip it overlaps, on that one's track */
     const homes = moving.map((m) => ({ m, home: partnerTrack(d, facts, m.clip, m.clip.startMs + back, skip) }));
     const reached = new Set([a.track.index, ...homes.flatMap((h) => (h.home != null ? [h.home] : []))]);
-    if (opts.ripple) rippleAt(d, a.clip.endMs, back, reach(d, reached, opts.sync), skip);
+    if (opts.ripple) rippleThrough(d, a.clip.endMs, back, reached, opts, skip);
     for (const { m, home } of homes) {
       m.clip.startMs += back;
       m.clip.endMs += back;
@@ -425,7 +440,7 @@ export function planResizeTransition(model: EditModel, facts: FactsOf, tr: FilmT
   const delta = want - now;
   if (Math.abs(delta) < 0.5) return { ops: [], shortMs: 0 };
   for (const m of moving) { m.clip.startMs -= delta; m.clip.endMs -= delta; }
-  if (opts.ripple) rippleAt(d, a.clip.endMs, -delta, reach(d, [a.track.index], opts.sync), skip);
+  if (opts.ripple) rippleThrough(d, a.clip.endMs, -delta, [a.track.index], opts, skip);
   for (const c of outgoing) setFade(fades, facts, c, 'out', holds(d, facts, c.id, tr.b) ? 0 : want);
   for (const c of incoming) setFade(fades, facts, c, 'in', want);
   return opsOf(d, fades);

@@ -29,6 +29,7 @@ export interface FreezeSpec {
   still: string;
   mode: EditMode;
   sync: boolean;
+  linkage?: boolean;
   durMs?: number;
 }
 
@@ -45,6 +46,6 @@ export function planFreeze(model: EditModel, spec: FreezeSpec): Op[] | null {
     ...(cls ? { class: cls } : {}),
     ...(style ? { style } : {}),
   };
-  const room = planRoom(model, [{ track: spec.track, startMs, endMs: startMs + durMs }], { mode: spec.mode, sync: spec.sync });
+  const room = planRoom(model, [{ track: spec.track, startMs, endMs: startMs + durMs }], { mode: spec.mode, sync: spec.sync, linkage: spec.linkage });
   return [{ op: 'insert', clip: still, at: Math.round(startMs) / 1000, track: spec.track }, ...room.ops];
 }
