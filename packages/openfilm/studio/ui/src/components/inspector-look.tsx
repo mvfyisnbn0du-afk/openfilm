@@ -9,15 +9,16 @@
  */
 import * as React from 'react';
 import {
-  AlignCenter, AlignJustify, AlignLeft, AlignRight, Ban, ChevronDown, Circle, Crop as CropIcon, Heart, Minus, Plus, RotateCcw, Square,
-  SquareDashed, Star,
+  AlignCenter, AlignJustify, AlignLeft, AlignRight, Ban, ChevronDown, Circle, Crop as CropIcon, Heart, Minus, Plus, RotateCcw, Scan, Square,
+  SquareDashed, Star, Strikethrough, Underline,
 } from 'lucide-react';
 
 import type { useT } from '@/i18n';
 import {
-  ADJUST_KEYS, BLEND_MODES, FADE_DEFAULT, SHADOW_DEFAULT, STROKE_DEFAULT, adjustOf, cropCss, cropForRatio, cropOf,
-  cropRatio, filterParts, framingCss, framingOf, ownedDeclaration, pxOf, shadowOf, strokeCss,
-  strokeOf, withAdjust, withShadow, type AdjustKey, type Crop, type Fade, type FadeSide, type Shadow, type Stroke,
+  ADJUST_KEYS, BLEND_MODES, FADE_DEFAULT, INNER_SHADOW_DEFAULT, PLACED_STROKE_DEFAULT, SHADOW_DEFAULT, adjustOf, backdropBlurCss,
+  backdropBlurOf, cropCss, cropForRatio, cropOf, cropRatio, filterParts, framingCss, framingOf, innerShadowCss, innerShadowOf,
+  ownedDeclaration, placedStrokeCss, placedStrokeOf, pxOf, shadowOf, strokeOf, withAdjust, withShadow, type AdjustKey, type Crop, type Fade,
+  type FadeSide, type InnerShadow, type PlacedStroke, type Shadow, type StrokePosition, type StrokeStyle,
 } from '@/lib/clip-look';
 import {
   MASK_FIELDS, MASK_SHAPES, fadeIn, maskDefault, maskOf, maskOwned, withFade, withMask, type Mask, type MaskBox, type MaskShape,
@@ -122,6 +123,8 @@ const previewSettled = () => { previewedBefore = null; };
 export const NEUTRAL: Record<string, string> = {
   opacity: '1', filter: 'none', 'clip-path': 'none', 'border-radius': '0', 'mix-blend-mode': 'normal', 'object-fit': 'contain',
   'object-position': '50% 50%', 'mask-image': 'none', border: 'none', 'text-transform': 'none',
+  outline: 'none', 'outline-offset': '0px', 'box-shadow': 'none', 'backdrop-filter': 'none', 'text-decoration-line': 'none',
+  'border-top-left-radius': '0', 'border-top-right-radius': '0', 'border-bottom-right-radius': '0', 'border-bottom-left-radius': '0',
 };
 
 /** Whether `v` looks as nothing set (`1`, `none`, `0px`, …). */
@@ -130,17 +133,15 @@ export function isNeutral(prop: string, v: string | undefined): boolean {
   const s = v.trim().toLowerCase();
   if (s === NEUTRAL[prop]) return true;
   if (prop === 'opacity') return Number(s) === 1;
-  if (prop === 'border-radius') return pxOf(s) === 0;
+  if (prop.endsWith('-radius') || prop === 'outline-offset') return pxOf(s) === 0;
   if (prop === 'object-position') { const f = framingOf(s); return f != null && f[0] === 50 && f[1] === 50; }
-  if (prop === 'border') return strokeOf(s) === undefined;
+  if (prop === 'border' || prop === 'outline') return strokeOf(s) === undefined;
   return s === 'none' || s === 'normal';
 }
 
 export const camelOf = (prop: string) => prop.replace(/-([a-z])/g, (_, c: string) => c.toUpperCase());
 export const kebabOf = (key: string) => key.replace(/[A-Z]/g, (c) => `-${c.toLowerCase()}`);
 
-/** Each value of an apply over a value that may be missing. */
-const at = (apply: FieldApply, v: number | null | undefined, fallback = 0) => apply(v ?? fallback);
 const round = (n: number, d = 1) => Math.round(n * 10 ** d) / 10 ** d;
 
 /* ───────────────────────────── crop & fill ───────────────────────────── */
@@ -173,11 +174,10 @@ export function CropSection({
     const v = read('object-fit') ?? 'contain';
     return v === 'cover' || v === 'fill' ? v : 'contain';
   });
-  const radius = look.common((read) => pxOf(read('border-radius')) ?? 0);
   const frame = look.common((read) => framingOf(read('object-position')));
   const cropUnreadable = look.common((read) => cropOf(read('clip-path')) == null);
   const touched = look.common((read) => !isNeutral('clip-path', read('clip-path')) || !isNeutral('object-position', read('object-position'))
-    || !isNeutral('border-radius', read('border-radius')) || (read('object-fit') ?? 'contain') !== 'contain');
+    || (read('object-fit') ?? 'contain') !== 'contain');
 
   const cropEdit = (side: number, apply: FieldApply): LookEdit => (read): LookSet => {
     const now = cropOf(read('clip-path'));
@@ -186,12 +186,6 @@ export function CropSection({
     /* the opposite edge stays: the two never meet */
     next[side] = Math.max(0, Math.min(99 - now[(side + 2) % 4]!, round(apply(now[side]!), 2)));
     return { 'clip-path': cropCss(next, pxOf(read('border-radius')) ?? 0) };
-  };
-  const radiusEdit = (apply: FieldApply): LookEdit => (read) => {
-    const r = Math.max(0, round(at(apply, pxOf(read('border-radius')))));
-    const now = cropOf(read('clip-path'));
-    /* a crop cuts the box's own corners away: it carries the same roundness */
-    return { 'border-radius': r > 0 ? `${r}px` : null, ...(now && now.some((v) => v > 0) ? { 'clip-path': cropCss(now, r) } : {}) };
   };
   const ratioOf = (id: string) => (id === 'original' ? (own && own.h > 0 ? own.w / own.h : undefined) : RATIOS.find((r) => r.id === id)?.ratio);
   const shape = (() => {
@@ -290,20 +284,6 @@ export function CropSection({
       ) : (
         <p className="text-[10.5px] leading-[15px] text-[var(--text-faint)]">{t('inspector.cropCustom')}</p>
       )}
-      <Row>
-        <NumField
-          label={t('inspector.radius')}
-          prefix={<RadiusGlyph />}
-          value={radius}
-          unit="px"
-          min={0}
-          max={100_000}
-          onPreview={(_, apply) => look.preview(radiusEdit(apply))}
-          onCommit={(_, apply) => look.commit(radiusEdit(apply))}
-          onRevert={() => look.revert()}
-        />
-        <span />
-      </Row>
       {framing && frame !== null ? (
         <>
           <SubLabel>{t('inspector.framing')}</SubLabel>
@@ -522,7 +502,86 @@ export function MaskSection({
 /* ───────────────────────────── appearance ───────────────────────────── */
 
 /** Opacity (`opacity`) and blending (`mix-blend-mode`), with names people use; `children` adds fills. */
-export function AppearanceSection({ look, t, children }: { look: Look; t: T; children?: React.ReactNode }) {
+/** A box's four corners (CSS order: top left, top right, bottom right, bottom left). */
+const CORNERS = ['top-left', 'top-right', 'bottom-right', 'bottom-left'] as const;
+type Corner = (typeof CORNERS)[number];
+
+/**
+ * Corner radius, as Figma's: one number for all four, or (the button beside it) each corner its own. A crop cuts the
+ * box's own corners away, so it carries the same roundness (one for all: a crop's shape rounds its corners alike).
+ */
+function RadiusField({ look, t }: { look: Look; t: T }) {
+  const cornerOf = (read: LookRead, c: Corner) => pxOf(read(`border-${c}-radius`)) ?? pxOf(read('border-radius')) ?? 0;
+  const corners = look.common((read) => CORNERS.map((c) => cornerOf(read, c)).join(' '));
+  const uneven = corners !== MIXED && new Set(corners.split(' ')).size > 1;
+  const [each, setEach] = React.useState(uneven);
+  React.useEffect(() => { if (uneven) setEach(true); }, [uneven]);
+  const cropped = (read: LookRead) => { const now = cropOf(read('clip-path')); return now && now.some((v) => v > 0) ? now : null; };
+  const all = look.common((read) => (CORNERS.every((c) => cornerOf(read, c) === cornerOf(read, 'top-left')) ? cornerOf(read, 'top-left') : MIXED));
+  const allEdit = (apply: FieldApply): LookEdit => (read) => {
+    const r = Math.max(0, round(apply(cornerOf(read, 'top-left'))));
+    const crop = cropped(read);
+    return {
+      'border-radius': r > 0 ? `${r}px` : null,
+      ...Object.fromEntries(CORNERS.map((c) => [`border-${c}-radius`, null])),
+      ...(crop ? { 'clip-path': cropCss(crop, r) } : {}),
+    };
+  };
+  const cornerEdit = (corner: Corner, apply: FieldApply): LookEdit => (read) => {
+    const now = CORNERS.map((c) => cornerOf(read, c));
+    now[CORNERS.indexOf(corner)] = Math.max(0, round(apply(now[CORNERS.indexOf(corner)]!)));
+    return { 'border-radius': now.every((v) => v === 0) ? null : now.map((v) => `${v}px`).join(' '), ...Object.fromEntries(CORNERS.map((c) => [`border-${c}-radius`, null])) };
+  };
+  const bind = (edit: (apply: FieldApply) => LookEdit) => ({
+    onPreview: (_: number, apply: FieldApply) => look.preview(edit(apply)),
+    onCommit: (_: number, apply: FieldApply) => look.commit(edit(apply)),
+    onRevert: () => look.revert(),
+  });
+  const croppedNow = look.common((read) => cropped(read) != null) === true;
+  return (
+    <>
+      <div className="grid grid-cols-[1fr_24px] items-center gap-1.5">
+        <NumField label={t('inspector.radius')} prefix={<RadiusGlyph />} value={each ? MIXED : all} unit="px" min={0} max={100_000}
+          placeholder={each ? t('inspector.cornersEach') : undefined} {...bind(allEdit)} />
+        <button
+          type="button"
+          aria-pressed={each}
+          aria-label={t('inspector.cornersEach')}
+          title={croppedNow ? t('inspector.cornersCropped') : t('inspector.cornersEach')}
+          disabled={croppedNow}
+          onClick={() => setEach((v) => !v)}
+          className={`flex h-[26px] w-6 items-center justify-center rounded-[5px] transition disabled:opacity-40 ${each ? 'bg-[var(--bg-active)] text-[var(--text)]' : 'text-[var(--text-faint)] hover:bg-[var(--bg-hover)] hover:text-[var(--text)]'}`}
+        >
+          <Scan size={12} />
+        </button>
+      </div>
+      {each && !croppedNow ? (
+        <Row>
+          {CORNERS.map((c) => (
+            <NumField key={c} label={t(`inspector.corners.${c}`)} prefix={<CornerGlyph corner={c} />}
+              value={look.common((read) => cornerOf(read, c))} min={0} max={100_000} {...bind((apply) => cornerEdit(c, apply))} />
+          ))}
+        </Row>
+      ) : null}
+    </>
+  );
+}
+
+/** A corner's mark: the quarter of a rounded square at that corner. */
+function CornerGlyph({ corner }: { corner: Corner }) {
+  const turn = { 'top-left': 0, 'top-right': 90, 'bottom-right': 180, 'bottom-left': 270 }[corner];
+  return (
+    <svg width="9" height="9" viewBox="0 0 9 9" aria-hidden style={{ transform: `rotate(${turn}deg)` }}>
+      <path d="M1.5 8V5a3.5 3.5 0 0 1 3.5-3.5H8" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />
+    </svg>
+  );
+}
+
+/**
+ * Opacity, corner radius (`radius`: for what has corners — a box, a picture, a line with its own fill) and blend,
+ * as Figma's Appearance.
+ */
+export function AppearanceSection({ look, t, children, radius = false }: { look: Look; t: T; children?: React.ReactNode; radius?: boolean }) {
   const opacity = look.common((read) => {
     const v = Number(read('opacity') ?? 1);
     return Number.isFinite(v) ? round(v * 100) : 100;
@@ -546,6 +605,7 @@ export function AppearanceSection({ look, t, children }: { look: Look; t: T; chi
         onCommit={(_, apply) => look.commit(opacityEdit(apply))}
         onRevert={() => look.revert()}
       />
+      {radius ? <RadiusField look={look} t={t} /> : null}
       <SelectField
         label={t('inspector.blend')}
         prefix={t('inspector.blendShort')}
@@ -554,6 +614,120 @@ export function AppearanceSection({ look, t, children }: { look: Look; t: T; chi
         onCommit={(v) => look.commit(() => ({ 'mix-blend-mode': v === 'normal' ? null : v }))}
       />
       {children}
+    </Section>
+  );
+}
+
+/* ───────────────────────────── fill ───────────────────────────── */
+
+/**
+ * Fill, as Figma's: what paints the thing — a line's color, a box's background, a shape's fill. One the thing may go
+ * without (a box's background) has "−" to take it off, and "+" brings one back.
+ */
+export function FillSection({ look, t, fills, add }: {
+  look: Look;
+  t: T;
+  /** The fills shown: their CSS property, label, and whether it can be taken off. */
+  fills: { prop: string; label: string; removable?: boolean }[];
+  /** A fill to offer with "+" when it is not there (a box with no background). */
+  add?: { prop: string; label: string; value: string } | null;
+}) {
+  if (!fills.length && !add) return null;
+  return (
+    <Section
+      id="fill"
+      title={t('inspector.fill')}
+      aside={add ? (
+        <SectionAction label={t('inspector.fillAdd')} onClick={() => look.commit(() => ({ [add.prop]: add.value }))}><Plus size={12} /></SectionAction>
+      ) : null}
+    >
+      {fills.map((f) => (
+        <div key={f.prop} className="flex items-center gap-1.5">
+          <div className="min-w-0 flex-1">
+            <ColorField
+              label={f.label}
+              value={look.common((read) => read(f.prop) ?? '')}
+              onPreview={(c) => look.preview(() => ({ [f.prop]: c }))}
+              onCommit={(c) => look.commit(() => ({ [f.prop]: c }))}
+            />
+          </div>
+          {f.removable ? (
+            <SectionAction label={t('inspector.fillRemove')} onClick={() => look.commit(() => ({ [f.prop]: null }))}><Minus size={12} /></SectionAction>
+          ) : null}
+        </div>
+      ))}
+    </Section>
+  );
+}
+
+/* ───────────────────────────── stroke ───────────────────────────── */
+
+/**
+ * Stroke, as Figma's: color, weight, where it lies against the edge (inside, across, outside) and its line (solid,
+ * dashed, dotted). Drawn as an `outline` with its offset (lib/clip-look placedStrokeOf): it adds nothing to the box,
+ * so the layout does not move as it is added or thickened.
+ */
+export function StrokeSection({ look, t }: { look: Look; t: T }) {
+  const stroke = look.common((read) => placedStrokeOf(read));
+  const has = stroke !== undefined;
+  const edit = (part: Partial<PlacedStroke> | ((now: PlacedStroke) => Partial<PlacedStroke>)): LookEdit => (read) => {
+    const was = placedStrokeOf(read);
+    const now: PlacedStroke = was ?? PLACED_STROKE_DEFAULT;
+    return placedStrokeCss({ ...now, ...(typeof part === 'function' ? part(now) : part) }, was);
+  };
+  const width = (apply: FieldApply): LookEdit => edit((now) => ({ width: Math.max(0, round(apply(now.width))) }));
+  return (
+    <Section
+      id="stroke"
+      title={t('inspector.stroke')}
+      aside={has ? (
+        <SectionAction label={t('inspector.effectRemove')} onClick={() => look.commit((read) => placedStrokeCss(null, placedStrokeOf(read)))}><Minus size={12} /></SectionAction>
+      ) : (
+        <SectionAction label={t('inspector.strokeAdd')} onClick={() => look.commit(edit({}))}><Plus size={12} /></SectionAction>
+      )}
+    >
+      {stroke === null ? (
+        <p className="text-[10.5px] leading-[15px] text-[var(--text-faint)]">{t('inspector.effectCustom')}</p>
+      ) : has ? (
+        <>
+          <ColorField
+            label={t('inspector.strokeColor')}
+            value={look.common((read) => placedStrokeOf(read)?.color ?? '')}
+            onPreview={(c) => look.preview(edit({ color: c }))}
+            onCommit={(c) => look.commit(edit({ color: c }))}
+          />
+          <Row>
+            <SelectField
+              label={t('inspector.strokePosition')}
+              value={look.common((read) => placedStrokeOf(read)?.position ?? 'inside')}
+              options={(['inside', 'center', 'outside'] as const).map((p) => ({ value: p, label: t(`inspector.strokePositions.${p}`) }))}
+              onCommit={(v) => look.commit(edit({ position: v as StrokePosition }))}
+            />
+            <NumField
+              label={t('inspector.strokeWidth')}
+              prefix={<span className="block h-[7px] w-[9px] rounded-[1.5px] border-[1.5px]" style={{ borderColor: 'currentColor' }} />}
+              value={look.common((read) => placedStrokeOf(read)?.width)}
+              unit="px"
+              min={0}
+              max={1000}
+              onPreview={(_, apply) => look.preview(width(apply))}
+              onCommit={(_, apply) => look.commit(width(apply))}
+              onRevert={() => look.revert()}
+            />
+          </Row>
+          <Segmented
+            label={t('inspector.strokeStyle')}
+            value={look.common((read) => placedStrokeOf(read)?.style ?? '')}
+            small
+            options={(['solid', 'dashed', 'dotted'] as const).map((s) => ({
+              value: s,
+              title: t(`inspector.strokeStyles.${s}`),
+              label: <span className="block w-4 border-t-[1.5px]" style={{ borderTopStyle: s, borderTopColor: 'currentColor' }} />,
+            }))}
+            onChange={(s) => look.commit(edit({ style: s as StrokeStyle }))}
+          />
+        </>
+      ) : null}
     </Section>
   );
 }
@@ -574,9 +748,12 @@ const ADJUST_RANGE: Record<AdjustKey, { min: number; max: number; unit: string; 
  * grayscale): 0 is as is, a double-click puts one back, the reset all. Filter functions without a control here
  * (sepia, a url) are kept as written, in their place.
  */
+/* the picture's color; its blur is an effect (Figma's layer blur) */
+const COLOR_KEYS = ADJUST_KEYS.filter((k) => k !== 'blur');
+
 export function AdjustSection({ look, t }: { look: Look; t: T }) {
   const readable = look.common((read) => filterParts(read('filter')) != null);
-  const touched = look.common((read) => ADJUST_KEYS.some((k) => adjustOf(read('filter'))[k] !== 0));
+  const touched = look.common((read) => COLOR_KEYS.some((k) => adjustOf(read('filter'))[k] !== 0));
   const edit = (key: AdjustKey, apply: FieldApply): LookEdit => (read) => {
     const now = adjustOf(read('filter'))[key];
     const r = ADJUST_RANGE[key];
@@ -597,13 +774,13 @@ export function AdjustSection({ look, t }: { look: Look; t: T }) {
       aside={touched === false ? null : (
         <SectionAction
           label={t('inspector.resetSection')}
-          onClick={() => look.commit((read) => ({ filter: ADJUST_KEYS.reduce<string | null>((f, k) => withAdjust(f ?? undefined, k, 0), read('filter') ?? null) }))}
+          onClick={() => look.commit((read) => ({ filter: COLOR_KEYS.reduce<string | null>((f, k) => withAdjust(f ?? undefined, k, 0), read('filter') ?? null) }))}
         >
           <RotateCcw size={11} />
         </SectionAction>
       )}
     >
-      {ADJUST_KEYS.map((key) => {
+      {COLOR_KEYS.map((key) => {
         const r = ADJUST_RANGE[key];
         const v = look.common((read) => adjustOf(read('filter'))[key]);
         return (
@@ -630,20 +807,23 @@ export function AdjustSection({ look, t }: { look: Look; t: T }) {
 
 /* ───────────────────────────── effects ───────────────────────────── */
 
-type EffectId = 'shadow' | 'stroke' | 'fade';
+type EffectId = 'shadow' | 'inner' | 'blur' | 'backdrop' | 'fade';
 
 /**
- * Effects a picture may have, each added with "+" and taken off with "−", none taking room unless used:
- * a drop shadow, a stroke, faded edges.
+ * Effects, as Figma's, each added with "+" and taken off with "−", none taking room unless used: a drop shadow, an
+ * inner shadow (`inner`: for what has a box of its own to cast it in), a layer blur, a background blur — and faded
+ * edges, a video editor's.
  *
- * The shadow is `filter: drop-shadow()`, not `box-shadow`: it follows what is drawn — the letters of a title on a
- * see-through page, a cut-out PNG, a layer of text — where a box shadow would draw the rectangle behind them, and it
- * is the same for a clip and a layer. (A `box-shadow` already written stays as it is, in the raw CSS.)
- * The stroke is `border`; faded edges are `mask-image` gradients, one an axis, intersected by `mask-composite`.
+ * The drop shadow is `filter: drop-shadow()`, not `box-shadow`: it follows what is drawn — the letters of a title on a
+ * see-through page, a cut-out PNG — where a box shadow would draw the rectangle behind them. The inner shadow is an
+ * `inset` box-shadow; the layer blur `filter: blur()`; the background blur `backdrop-filter: blur()`; faded edges are
+ * `mask-image` gradients, one an axis, intersected by `mask-composite`.
  */
-export function EffectsSection({ look, t }: { look: Look; t: T }) {
+export function EffectsSection({ look, t, inner = false }: { look: Look; t: T; inner?: boolean }) {
   const shadow = look.common((read) => shadowOf(read('filter')));
-  const stroke = look.common((read) => strokeOf(read('border')));
+  const innerShadow = look.common((read) => innerShadowOf(read('box-shadow')));
+  const blur = look.common((read) => { const b = adjustOf(read('filter')).blur; return b ? b : undefined; });
+  const backdrop = look.common((read) => backdropBlurOf(read('backdrop-filter')));
   /* faded edges share mask-image with the Mask section's shape (clip-mask): read and written beside it */
   const fadeRead = (read: LookRead) => fadeIn(read('mask-image'), read('mask-composite'));
   const fadeWrite = (read: LookRead, next: Fade | null): LookSet => withFade(read('mask-image'), read('mask-composite'), next) ?? {};
@@ -653,25 +833,36 @@ export function EffectsSection({ look, t }: { look: Look; t: T }) {
   const has = (v: unknown) => v !== undefined;
   const missing: { id: EffectId; label: string }[] = [
     ...(!has(shadow) && filterReadable ? [{ id: 'shadow' as const, label: t('inspector.shadow') }] : []),
-    ...(!has(stroke) ? [{ id: 'stroke' as const, label: t('inspector.stroke') }] : []),
+    ...(inner && !has(innerShadow) ? [{ id: 'inner' as const, label: t('inspector.innerShadow') }] : []),
+    ...(!has(blur) && filterReadable ? [{ id: 'blur' as const, label: t('inspector.layerBlur') }] : []),
+    ...(!has(backdrop) ? [{ id: 'backdrop' as const, label: t('inspector.backgroundBlur') }] : []),
     ...(!has(fade) ? [{ id: 'fade' as const, label: t('inspector.fade') }] : []),
   ];
   const add = (id: EffectId) => {
     setAdding(false);
     if (id === 'shadow') look.commit((read) => ({ filter: withShadow(read('filter'), shadowOf(read('filter')) ?? SHADOW_DEFAULT) }));
-    if (id === 'stroke') look.commit((read) => ({ border: strokeCss(strokeOf(read('border')) ?? STROKE_DEFAULT) }));
+    if (id === 'inner') look.commit(() => ({ 'box-shadow': innerShadowCss(INNER_SHADOW_DEFAULT) }));
+    if (id === 'blur') look.commit((read) => ({ filter: withAdjust(read('filter'), 'blur', 4) }));
+    if (id === 'backdrop') look.commit(() => ({ 'backdrop-filter': backdropBlurCss(8) }));
     if (id === 'fade') look.commit((read) => fadeWrite(read, fadeRead(read) ?? FADE_DEFAULT));
   };
   const remove = (id: EffectId) => {
     if (id === 'shadow') look.commit((read) => ({ filter: withShadow(read('filter'), null) }));
-    if (id === 'stroke') look.commit(() => ({ border: null }));
+    if (id === 'inner') look.commit(() => ({ 'box-shadow': null }));
+    if (id === 'blur') look.commit((read) => ({ filter: withAdjust(read('filter'), 'blur', 0) }));
+    if (id === 'backdrop') look.commit(() => ({ 'backdrop-filter': null }));
     if (id === 'fade') look.commit((read) => fadeWrite(read, null));
   };
   const removeBtn = (id: EffectId) => (
     <SectionAction label={t('inspector.effectRemove')} onClick={() => remove(id)}><Minus size={12} /></SectionAction>
   );
+  const bind = (edit: (apply: FieldApply) => LookEdit) => ({
+    onPreview: (_: number, apply: FieldApply) => look.preview(edit(apply)),
+    onCommit: (_: number, apply: FieldApply) => look.commit(edit(apply)),
+    onRevert: () => look.revert(),
+  });
 
-  /* shadow: each thing's own, or the default for one without */
+  /* drop shadow: each thing's own, or the default for one without */
   const shadowField = (key: 'x' | 'y' | 'blur') => {
     const edit = (apply: FieldApply): LookEdit => (read) => {
       const now: Shadow = shadowOf(read('filter')) ?? SHADOW_DEFAULT;
@@ -685,18 +876,26 @@ export function EffectsSection({ look, t }: { look: Look; t: T }) {
         value={look.common((read) => shadowOf(read('filter'))?.[key])}
         unit="px"
         {...(key === 'blur' ? { min: 0 } : {})}
-        onPreview={(_, apply) => look.preview(edit(apply))}
-        onCommit={(_, apply) => look.commit(edit(apply))}
-        onRevert={() => look.revert()}
+        {...bind(edit)}
       />
     );
   };
   const shadowColor = (color: string): LookEdit => (read) => ({ filter: withShadow(read('filter'), { ...(shadowOf(read('filter')) ?? SHADOW_DEFAULT), color }) });
-  const strokeEdit = (part: Partial<Stroke>): LookEdit => (read) => ({ border: strokeCss({ ...(strokeOf(read('border')) ?? STROKE_DEFAULT), ...part }) });
-  const strokeWidth = (apply: FieldApply): LookEdit => (read) => {
-    const now = strokeOf(read('border')) ?? STROKE_DEFAULT;
-    return { border: strokeCss({ ...now, width: Math.max(0, round(apply(now.width))) }) };
+  /* inner shadow: x, y, blur, spread and color */
+  const innerEdit = (part: (now: InnerShadow) => Partial<InnerShadow>): LookEdit => (read) => {
+    const now = innerShadowOf(read('box-shadow')) ?? INNER_SHADOW_DEFAULT;
+    return { 'box-shadow': innerShadowCss({ ...now, ...part(now) }) };
   };
+  const innerField = (key: 'x' | 'y' | 'blur' | 'spread', prefix: string, label: string) => (
+    <NumField
+      label={label}
+      prefix={prefix}
+      value={look.common((read) => innerShadowOf(read('box-shadow'))?.[key])}
+      unit="px"
+      {...(key === 'blur' ? { min: 0 } : {})}
+      {...bind((apply) => innerEdit((now) => ({ [key]: key === 'blur' ? Math.max(0, round(apply(now[key]))) : round(apply(now[key])) })))}
+    />
+  );
   const fadeOn = (side: FadeSide) => look.common((read) => fadeRead(read)?.sides[side] ?? false);
   const fadeSize = look.common((read) => fadeRead(read)?.size ?? null);
   const fadeToggle = (side: FadeSide) => {
@@ -714,6 +913,7 @@ export function EffectsSection({ look, t }: { look: Look; t: T }) {
   const custom = (label: string) => (
     <SubLabel>{label} · <span className="text-[var(--text-faint)]">{t('inspector.effectCustom')}</span></SubLabel>
   );
+  const none = !has(shadow) && !has(innerShadow) && !has(blur) && !has(backdrop) && !has(fade);
 
   return (
     <Section
@@ -745,9 +945,7 @@ export function EffectsSection({ look, t }: { look: Look; t: T }) {
         </Popover>
       ) : null}
     >
-      {!has(shadow) && !has(stroke) && !has(fade) ? (
-        <p className="text-[10.5px] leading-[15px] text-[var(--text-faint)]">{t('inspector.effectsNone')}</p>
-      ) : null}
+      {none ? <p className="text-[10.5px] leading-[15px] text-[var(--text-faint)]">{t('inspector.effectsNone')}</p> : null}
       {shadow === null ? custom(t('inspector.shadow')) : has(shadow) ? (
         <>
           <SubLabel aside={removeBtn('shadow')}>{t('inspector.shadow')}</SubLabel>
@@ -760,38 +958,52 @@ export function EffectsSection({ look, t }: { look: Look; t: T }) {
           />
         </>
       ) : null}
-      {stroke === null ? custom(t('inspector.stroke')) : has(stroke) ? (
+      {innerShadow === null ? custom(t('inspector.innerShadow')) : has(innerShadow) ? (
         <>
-          <SubLabel aside={removeBtn('stroke')}>{t('inspector.stroke')}</SubLabel>
-          <Row>
-            <NumField
-              label={t('inspector.strokeWidth')}
-              prefix={<span className="block h-[7px] w-[9px] rounded-[1.5px] border-[1.5px]" style={{ borderColor: 'currentColor' }} />}
-              value={look.common((read) => strokeOf(read('border'))?.width)}
-              unit="px"
-              min={0}
-              max={1000}
-              onPreview={(_, apply) => look.preview(strokeWidth(apply))}
-              onCommit={(_, apply) => look.commit(strokeWidth(apply))}
-              onRevert={() => look.revert()}
-            />
-            <Segmented
-              label={t('inspector.strokeStyle')}
-              value={look.common((read) => strokeOf(read('border'))?.style ?? '')}
-              small
-              options={(['solid', 'dashed', 'dotted'] as const).map((s) => ({
-                value: s,
-                title: t(`inspector.strokeStyles.${s}`),
-                label: <span className="block w-4 border-t-[1.5px]" style={{ borderTopStyle: s, borderTopColor: 'currentColor' }} />,
-              }))}
-              onChange={(s) => look.commit(strokeEdit({ style: s as Stroke['style'] }))}
-            />
-          </Row>
+          <SubLabel aside={removeBtn('inner')}>{t('inspector.innerShadow')}</SubLabel>
+          <Row>{innerField('x', 'X', t('inspector.shadowX'))}{innerField('y', 'Y', t('inspector.shadowY'))}</Row>
+          <Row>{innerField('blur', 'B', t('inspector.shadowBlur'))}{innerField('spread', 'S', t('inspector.shadowSpread'))}</Row>
           <ColorField
-            label={t('inspector.strokeColor')}
-            value={look.common((read) => strokeOf(read('border'))?.color ?? '')}
-            onPreview={(c) => look.preview(strokeEdit({ color: c }))}
-            onCommit={(c) => look.commit(strokeEdit({ color: c }))}
+            label={t('inspector.shadowColor')}
+            value={look.common((read) => innerShadowOf(read('box-shadow'))?.color ?? '')}
+            onPreview={(c) => look.preview(innerEdit(() => ({ color: c })))}
+            onCommit={(c) => look.commit(innerEdit(() => ({ color: c })))}
+          />
+        </>
+      ) : null}
+      {blur === null ? custom(t('inspector.layerBlur')) : has(blur) ? (
+        <>
+          <SubLabel aside={removeBtn('blur')}>{t('inspector.layerBlur')}</SubLabel>
+          <SliderField
+            label={t('inspector.layerBlur')}
+            value={blur === MIXED ? MIXED : blur ?? 0}
+            min={0}
+            max={40}
+            neutral={0}
+            unit="px"
+            fieldMin={0}
+            fieldMax={1000}
+            onPreview={(_, apply) => look.preview((read) => ({ filter: withAdjust(read('filter'), 'blur', Math.max(0, round(apply(adjustOf(read('filter')).blur ?? 0)))) }))}
+            onCommit={(_, apply) => look.commit((read) => ({ filter: withAdjust(read('filter'), 'blur', Math.max(0, round(apply(adjustOf(read('filter')).blur ?? 0)))) }))}
+            onRevert={() => look.revert()}
+          />
+        </>
+      ) : null}
+      {backdrop === null ? custom(t('inspector.backgroundBlur')) : has(backdrop) ? (
+        <>
+          <SubLabel aside={removeBtn('backdrop')}>{t('inspector.backgroundBlur')}</SubLabel>
+          <SliderField
+            label={t('inspector.backgroundBlur')}
+            value={backdrop === MIXED ? MIXED : backdrop ?? 0}
+            min={0}
+            max={40}
+            neutral={0}
+            unit="px"
+            fieldMin={0}
+            fieldMax={1000}
+            onPreview={(_, apply) => look.preview((read) => ({ 'backdrop-filter': backdropBlurCss(Math.max(0, round(apply(backdropBlurOf(read('backdrop-filter')) ?? 0)))) }))}
+            onCommit={(_, apply) => look.commit((read) => ({ 'backdrop-filter': backdropBlurCss(Math.max(0, round(apply(backdropBlurOf(read('backdrop-filter')) ?? 0)))) }))}
+            onRevert={() => look.revert()}
           />
         </>
       ) : null}
@@ -868,8 +1080,10 @@ export function TypographySection({ look, t, svg, sample }: { look: Look; t: T; 
   const spacing = look.common((read) => metricOf('letter-spacing', read('letter-spacing')));
   const align = look.common((read) => read('text-align') ?? '');
   const textCase = look.common((read) => read('text-transform') ?? 'none');
-  const colorProp = svg ? 'fill' : 'color';
-  const color = look.common((read) => read(colorProp) ?? '');
+  const decoration = look.common((read) => {
+    const v = read('text-decoration-line') ?? 'none';
+    return /underline/.test(v) ? 'underline' : /line-through/.test(v) ? 'line-through' : 'none';
+  });
   const styles = family === MIXED || !family ? null : stylesOf(family, installed ?? [], project);
   /* not drawn as named: not installed, not declared for the page — once the lists came, and the browser agrees */
   const missing = React.useMemo(() => {
@@ -998,12 +1212,22 @@ export function TypographySection({ look, t, svg, sample }: { look: Look; t: T; 
           />
         </Row>
       )}
-      <ColorField
-        label={svg ? t('inspector.fill') : t('inspector.color')}
-        value={color}
-        onPreview={(c) => look.preview(() => ({ [colorProp]: c }))}
-        onCommit={(c) => look.commit(() => ({ [colorProp]: c }))}
-      />
+      {svg ? null : (
+        <Row>
+          <Segmented
+            label={t('inspector.textDecoration')}
+            value={decoration}
+            small
+            options={[
+              { value: 'none', label: '—', title: t('inspector.decorations.none') },
+              { value: 'underline', label: <Underline size={ICON} />, title: t('inspector.decorations.underline') },
+              { value: 'line-through', label: <Strikethrough size={ICON} />, title: t('inspector.decorations.lineThrough') },
+            ]}
+            onChange={(v) => look.commit(() => ({ 'text-decoration-line': v === 'none' ? null : v }))}
+          />
+          <span />
+        </Row>
+      )}
     </Section>
   );
 }

@@ -309,6 +309,86 @@ export function strokeCss(s: Stroke): string | null {
   return s.width > 0 ? `${round(s.width, 1)}px ${s.style} ${s.color}` : null;
 }
 
+/* ───────────── stroke with a place: outline ───────────── */
+
+/** Where a stroke lies against the edge, as Figma's: inside it, across it, or outside it. */
+export type StrokePosition = 'inside' | 'center' | 'outside';
+/** A stroke and where it lies; `border`: read from an older `border` (written as an outline once changed). */
+export type PlacedStroke = Stroke & { position: StrokePosition; border?: true };
+
+export const PLACED_STROKE_DEFAULT: PlacedStroke = { ...STROKE_DEFAULT, position: 'inside' };
+
+/**
+ * A picture's stroke, as Figma draws one: an `outline` (it adds nothing to the box or the layout), its
+ * `outline-offset` saying where it lies (−width: inside, −width/2: across the edge, 0: outside). A `border` without an
+ * outline is a stroke written before, inside the box. Undefined: none; null: one the panel cannot read.
+ */
+export function placedStrokeOf(read: (prop: string) => string | undefined): PlacedStroke | null | undefined {
+  const outline = strokeOf(read('outline'));
+  if (outline === null) return null;
+  if (outline) {
+    const off = pxOf(read('outline-offset') ?? '0') ?? 0;
+    const position: StrokePosition = off <= -0.75 * outline.width ? 'inside' : off <= -0.25 * outline.width ? 'center' : 'outside';
+    return { ...outline, position };
+  }
+  const border = strokeOf(read('border'));
+  return border ? { ...border, position: 'inside', border: true } : border;
+}
+
+/** The CSS that draws `s` (null: none): an outline at its place; a stroke read from a border has the border taken off. */
+export function placedStrokeCss(s: PlacedStroke | null, was?: PlacedStroke | null): Record<string, string | null> {
+  const off = !s ? 0 : s.position === 'inside' ? -s.width : s.position === 'center' ? -s.width / 2 : 0;
+  return {
+    outline: s ? strokeCss(s) : null,
+    'outline-offset': s && s.width > 0 && off ? `${round(off, 1)}px` : null,
+    ...(was?.border ? { border: null } : {}),
+  };
+}
+
+/* ───────────── inner shadow: an inset box-shadow ───────────── */
+
+/** A shadow cast inside the box, over its fill (Figma's inner shadow). */
+export type InnerShadow = { x: number; y: number; blur: number; spread: number; color: string };
+
+export const INNER_SHADOW_DEFAULT: InnerShadow = { x: 0, y: 4, blur: 12, spread: 0, color: '#00000066' };
+
+/** One `inset` box-shadow: undefined when there is none, null when it is anything else (several, or not inset). */
+export function innerShadowOf(boxShadow: string | undefined): InnerShadow | null | undefined {
+  const s = (boxShadow ?? '').trim();
+  if (!s || s === 'none') return undefined;
+  let depth = 0;
+  for (const ch of s) { if (ch === '(') depth += 1; else if (ch === ')') depth -= 1; else if (ch === ',' && depth === 0) return null; }
+  const parts = words(s);
+  if (!parts.some((w) => w.toLowerCase() === 'inset')) return null;
+  const lengths: number[] = [];
+  const color: string[] = [];
+  for (const w of parts) {
+    if (w.toLowerCase() === 'inset') continue;
+    const n = pxOf(w);
+    if (n != null) lengths.push(n); else color.push(w);
+  }
+  if (lengths.length < 2 || lengths.length > 4 || color.length > 1) return null;
+  return { x: lengths[0]!, y: lengths[1]!, blur: lengths[2] ?? 0, spread: lengths[3] ?? 0, color: color[0] ?? 'currentcolor' };
+}
+
+export function innerShadowCss(s: InnerShadow | null): string | null {
+  return s ? `inset ${round(s.x, 1)}px ${round(s.y, 1)}px ${round(Math.max(0, s.blur), 1)}px ${round(s.spread, 1)}px ${s.color}` : null;
+}
+
+/* ───────────── background blur: backdrop-filter ───────────── */
+
+/** What is behind blurred (Figma's background blur): px; undefined when none, null when it is anything else. */
+export function backdropBlurOf(v: string | undefined): number | null | undefined {
+  const s = (v ?? '').trim();
+  if (!s || s === 'none') return undefined;
+  const m = /^blur\(\s*([\d.]+)px\s*\)$/i.exec(s);
+  return m ? Number(m[1]) : null;
+}
+
+export function backdropBlurCss(px: number | null): string | null {
+  return px != null && px > 0 ? `blur(${round(px, 1)}px)` : null;
+}
+
 /* ───────────── fade edges: mask-image ───────────── */
 
 export type FadeSide = 'top' | 'right' | 'bottom' | 'left';

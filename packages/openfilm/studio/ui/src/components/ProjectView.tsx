@@ -2495,6 +2495,7 @@ export function ProjectView({ projectId, onProject, onLeave }: {
                       onCanvasPreview={previewCanvas}
                       canvasDraft={canvasDraft}
                       onEditLayers={editStageOverrides}
+                      onPlaceLayers={(to) => stageControl.current?.placeLayers(to)}
                       locked={inspectorLocked}
                       rate={frameRate}
                       fades={clipFades}

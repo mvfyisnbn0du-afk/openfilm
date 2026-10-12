@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
   adjustOf, cropCss, cropForRatio, cropOf, cropRatio, declared, fadeCss, fadeOf, framingCss, framingOf, ownedDeclaration, shadowOf,
-  strokeCss, strokeOf, withAdjust, withDeclarations, withShadow,
+  backdropBlurCss, backdropBlurOf, innerShadowCss, innerShadowOf, placedStrokeCss, placedStrokeOf, strokeCss, strokeOf, withAdjust, withDeclarations, withShadow,
 } from './clip-look.ts';
 
 test('a clip\'s own CSS: each control writes its properties, the rest stays as it was', () => {
@@ -92,4 +92,32 @@ test('what the controls say is left out of the raw CSS', () => {
   assert.ok(!ownedDeclaration('clip-path', 'circle(40%)', none));
   assert.ok(!ownedDeclaration('box-shadow', '0 8px 24px #000', none));
   assert.ok(ownedDeclaration('mask-image', 'linear-gradient(to right, transparent, #000 15%)', none));
+});
+
+test('a stroke lies inside, across or outside the edge, as Figma\'s: an outline and its offset', () => {
+  const read = (css: Record<string, string>) => (prop: string) => css[prop];
+  assert.deepEqual(placedStrokeOf(read({ outline: 'rgb(255, 255, 255) solid 4px', 'outline-offset': '-4px' })), { width: 4, style: 'solid', color: 'rgb(255, 255, 255)', position: 'inside' });
+  assert.equal(placedStrokeOf(read({ outline: '#fff solid 4px', 'outline-offset': '-2px' }))?.position, 'center');
+  assert.equal(placedStrokeOf(read({ outline: '#fff solid 4px', 'outline-offset': '0px' }))?.position, 'outside');
+  assert.equal(placedStrokeOf(read({ outline: 'rgb(0, 0, 0) none 0px' })), undefined, 'as computed with none');
+  /* a stroke written before, as a border: inside, and the border goes when it is written again */
+  const old = placedStrokeOf(read({ border: '2px solid #fff' }));
+  assert.deepEqual(old, { width: 2, style: 'solid', color: '#fff', position: 'inside', border: true });
+  assert.deepEqual(placedStrokeCss({ ...old!, position: 'outside' }, old), { outline: '2px solid #fff', 'outline-offset': null, border: null });
+  assert.deepEqual(placedStrokeCss({ width: 3, style: 'dashed', color: '#f00', position: 'center' }), { outline: '3px dashed #f00', 'outline-offset': '-1.5px' });
+  assert.deepEqual(placedStrokeCss(null), { outline: null, 'outline-offset': null });
+});
+
+test('an inner shadow is one inset box-shadow; a background blur is backdrop-filter: blur()', () => {
+  assert.deepEqual(innerShadowOf('rgba(0, 0, 0, 0.4) 0px 4px 12px 0px inset'), { x: 0, y: 4, blur: 12, spread: 0, color: 'rgba(0, 0, 0, 0.4)' });
+  assert.deepEqual(innerShadowOf('inset 2px 3px #000'), { x: 2, y: 3, blur: 0, spread: 0, color: '#000' });
+  assert.equal(innerShadowOf('none'), undefined);
+  assert.equal(innerShadowOf('0px 4px 12px #000'), null, 'a drop shadow is not one: the raw CSS\'s');
+  assert.equal(innerShadowOf('inset 0 1px #000, 0 2px #fff'), null, 'several: the raw CSS\'s');
+  assert.equal(innerShadowCss({ x: 0, y: 4, blur: 12, spread: 2, color: '#00000066' }), 'inset 0px 4px 12px 2px #00000066');
+  assert.equal(backdropBlurOf('blur(8px)'), 8);
+  assert.equal(backdropBlurOf('none'), undefined);
+  assert.equal(backdropBlurOf('blur(8px) saturate(2)'), null);
+  assert.equal(backdropBlurCss(0), null);
+  assert.equal(backdropBlurCss(12.34), 'blur(12.3px)');
 });

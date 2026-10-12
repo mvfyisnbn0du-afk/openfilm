@@ -27,7 +27,7 @@ import {
   parseFilmDocLoc, type FilmOverride,
 } from '@/lib/film';
 import { useT } from '@/i18n';
-import { wrapDeg } from '@/lib/stage-gesture';
+import { groupDragged, wrapDeg, type GroupDrag } from '@/lib/stage-gesture';
 import {
   compactScale, isSvgTextTag, scalePair, sourceLocBare,
   type MgBox, type MgTransform, type NodeOverride, type OverridePivot, type StageElement, type StageElementStyle, type StageGeometry,
@@ -47,11 +47,12 @@ import { declared, withDeclarations, type ClipLook } from '@/lib/clip-look';
 import { PANE_BAR, PANE_BTN, PANE_ICON, PANE_TITLE } from './dock-pane-bar';
 import { Tooltip } from './Tooltip';
 import {
-  ColorField, ICON, MIXED, NumField, RadiusGlyph, Row, RotateGlyph, Section, SectionAction, Segmented, SliderField,
+  ICON, MIXED, NumField, Row, RotateGlyph, Section, SectionAction, Segmented, SliderField,
   useTimeUnit, type FieldApply, type Mixed,
 } from './inspector-fields';
 import {
-  AdjustSection, AdvancedSection, AppearanceSection, CropSection, EffectsSection, MaskSection, NEUTRAL, TypographySection, camelOf,
+  AdjustSection, AdvancedSection, AppearanceSection, CropSection, EffectsSection, FillSection, MaskSection, NEUTRAL, StrokeSection,
+  TypographySection, camelOf,
   isNeutral, kebabOf, makeLook, rawDeclarations, type Look, type LookRead, type LookSet,
 } from './inspector-look';
 import type { MaskSession } from '@/lib/stage-mask';
@@ -161,6 +162,7 @@ export const FilmInspector = React.memo(function FilmInspector({
   canvasDraft,
   layers,
   onEditLayers,
+  onPlaceLayers,
   locked = false,
   rate,
   fades,
@@ -223,6 +225,8 @@ export const FilmInspector = React.memo(function FilmInspector({
   /** Several layers selected on the picture, and how to write them at once. */
   layers?: readonly StageElement[];
   onEditLayers?: (list: LayerEdit[]) => Promise<string | null>;
+  /** Several layers' bounds typed: moved or scaled together on the picture (FilmStageControl.placeLayers). */
+  onPlaceLayers?: (to: { x?: number; y?: number; w?: number; h?: number }) => void;
   /** What is selected is on a locked track: shown, not changed (its fields are off, and say why). */
   locked?: boolean;
   /** The project's frame rate (the film's panel): its value, whether it was taken from the footage, and a new one. */
@@ -310,7 +314,7 @@ export const FilmInspector = React.memo(function FilmInspector({
         ) : transition ? (
           <TransitionPanel t={t} pick={transition} />
         ) : geometry?.kind === 'group' && geometry.group ? (
-          <GroupPanel geometry={geometry} group={geometry.group} layers={layers} onEditLayers={onEditLayers} t={t} />
+          <GroupPanel geometry={geometry} group={geometry.group} layers={layers} onEditLayers={onEditLayers} {...(onPlaceLayers ? { onPlace: onPlaceLayers } : {})} t={t} />
         ) : (
           <FilmPanel t={t} stage={stageSize} draft={canvasDraft} film={film ?? null} onCanvas={onCanvas} onCanvasPreview={onCanvasPreview} rate={rate ?? null} />
         )}
@@ -885,14 +889,8 @@ function LayerPanel({
   const bgProp = declaredKeys.has('background') ? 'background' : 'background-color';
   /* text in an SVG (`<text>` / `<tspan>`): no line layout, its color is fill — those sections look different */
   const svgText = kind === 'text' && isSvgTextTag(element.tag ?? '');
-  const fill = (prop: string, label: string) => (
-    <ColorField
-      label={label}
-      value={look.common((read) => read(prop) ?? '')}
-      onPreview={(c) => look.preview(() => ({ [prop]: c }))}
-      onCommit={(c) => look.commit(() => ({ [prop]: c }))}
-    />
-  );
+  /* a line with its own fill (a badge, a tag): it has a background and corners, as a box */
+  const textFilled = kind === 'text' && !svgText && style.backgroundColor != null;
   /* the override's own CSS, as declarations: what Advanced shows of it */
   const overrideCss = Object.entries(overrideStyle)
     .map(([k, v]) => `${kebabOf(k)}: ${typeof v === 'number' && !/opacity|z-index|font-weight|line-height|flex/.test(kebabOf(k)) ? `${v}px` : v}`)
@@ -1046,30 +1044,22 @@ function LayerPanel({
         {...(onEditMask ? { onEditMask } : {})}
       />
 
-      <AppearanceSection look={look} t={t}>
-        {kind === 'box' ? fill(bgProp, t('inspector.fill')) : null}
-        {kind === 'shape' && declaredKeys.has('fill') ? fill('fill', t('inspector.fill')) : null}
-        {kind === 'text' && !svgText && style.backgroundColor != null ? (
-          <>
-            {fill(bgProp, t('inspector.background'))}
-            <Row>
-              <NumField
-                label={t('inspector.radius')}
-                prefix={<RadiusGlyph />}
-                value={look.common((read) => Number.parseFloat(read('border-radius') ?? '0') || 0)}
-                unit="px"
-                min={0}
-                onPreview={(n) => look.preview(() => ({ 'border-radius': n > 0 ? `${n}px` : null }))}
-                onCommit={(n) => look.commit(() => ({ 'border-radius': n > 0 ? `${n}px` : null }))}
-                onRevert={() => look.revert()}
-              />
-              <span />
-            </Row>
-          </>
-        ) : null}
-      </AppearanceSection>
+      {/* Figma's order: appearance, fill, stroke, effects; then the picture's color adjustments */}
+      <AppearanceSection look={look} t={t} radius={kind === 'box' || kind === 'image' || textFilled} />
+      <FillSection
+        look={look}
+        t={t}
+        fills={[
+          ...(kind === 'text' ? [{ prop: svgText ? 'fill' : 'color', label: svgText ? t('inspector.fill') : t('inspector.color') }] : []),
+          ...(textFilled ? [{ prop: bgProp, label: t('inspector.background'), removable: true }] : []),
+          ...(kind === 'box' && style.backgroundColor != null ? [{ prop: bgProp, label: t('inspector.fill'), removable: true }] : []),
+          ...(kind === 'shape' && declaredKeys.has('fill') ? [{ prop: 'fill', label: t('inspector.fill') }] : []),
+        ]}
+        add={kind === 'box' && style.backgroundColor == null ? { prop: bgProp, label: t('inspector.fill'), value: '#ffffff' } : null}
+      />
+      {kind === 'shape' || svgText ? null : <StrokeSection look={look} t={t} />}
+      <EffectsSection look={look} t={t} inner={kind === 'box' || textFilled} />
       <AdjustSection look={look} t={t} />
-      <EffectsSection look={look} t={t} />
       {onEditOverride ? (
         <AdvancedSection
           t={t}
@@ -1195,16 +1185,25 @@ function TextSection({
  * the picture (dragged, nudged, aligned from the menu); here what they share: their look, and their type when all
  * are text.
  */
-function GroupPanel({ geometry, group, layers, onEditLayers, t }: {
+function GroupPanel({ geometry, group, layers, onEditLayers, onPlace, t }: {
   geometry: StageGeometry;
   group: NonNullable<StageGeometry['group']>;
   layers?: readonly StageElement[];
   onEditLayers?: (list: LayerEdit[]) => Promise<string | null>;
+  /** Their bounds typed: moved (x, y) or scaled in proportion (w, h), as Figma's fields do a selection. */
+  onPlace?: (to: { x?: number; y?: number; w?: number; h?: number }) => void;
   t: T;
 }) {
   const [refusal, setRefusal] = React.useState<string | null>(null);
-  const cell = (label: string, value: number) => (
-    <NumField label={label} prefix={label.slice(0, 1)} value={Math.round(value * 10) / 10} disabled onCommit={() => {}} />
+  const cell = (label: string, value: number, key: 'x' | 'y' | 'w' | 'h') => (
+    <NumField
+      label={label}
+      prefix={label.slice(0, 1)}
+      value={Math.round(value * 10) / 10}
+      {...(key === 'w' || key === 'h' ? { min: 1 } : {})}
+      disabled={!onPlace}
+      onCommit={(n) => onPlace?.({ [key]: n })}
+    />
   );
   /* the layers selected: the app's list, else the picture's own (a marquee's, a Shift-click's) */
   const targets = (layers ?? group.elements ?? []).filter((l) => l.clipLoc);
@@ -1225,16 +1224,18 @@ function GroupPanel({ geometry, group, layers, onEditLayers, t }: {
       />
       {refusal ? <RefusalBanner message={refusal} onDismiss={() => setRefusal(null)} t={t} /> : null}
       <Section id="position" title={t('inspector.position')}>
-        <Row>{cell(t('inspector.x'), geometry.x)}{cell(t('inspector.y'), geometry.y)}</Row>
-        <Row>{cell(t('inspector.width'), geometry.w)}{cell(t('inspector.height'), geometry.h)}</Row>
+        <Row>{cell(t('inspector.x'), geometry.x, 'x')}{cell(t('inspector.y'), geometry.y, 'y')}</Row>
+        <Row>{cell(t('inspector.width'), geometry.w, 'w')}{cell(t('inspector.height'), geometry.h, 'h')}</Row>
         <p className="text-[11px] leading-[16px] text-[var(--text-faint)]">{t('inspector.multiLayersHint')}</p>
       </Section>
       {look ? (
         <>
           {allText ? <TypographySection look={look} t={t} sample={targets[0]?.text?.value ?? ''} /> : null}
-          <AppearanceSection look={look} t={t} />
+          <AppearanceSection look={look} t={t} radius={targets.every((l) => l.kind === 'box' || l.kind === 'image')} />
+          {allText ? <FillSection look={look} t={t} fills={[{ prop: 'color', label: t('inspector.color') }]} /> : null}
+          {targets.some((l) => l.kind === 'shape') ? null : <StrokeSection look={look} t={t} />}
+          <EffectsSection look={look} t={t} inner={targets.every((l) => l.kind === 'box')} />
           <AdjustSection look={look} t={t} />
-          <EffectsSection look={look} t={t} />
         </>
       ) : null}
     </>
@@ -1418,9 +1419,10 @@ function ClipPanel({
                 target={{ kind: 'clip', clipLoc: target!.loc }}
                 {...(onEditMask ? { onEditMask } : {})}
               />
-              <AppearanceSection look={look} t={t} />
-              <AdjustSection look={look} t={t} />
+              <AppearanceSection look={look} t={t} radius />
+              <StrokeSection look={look} t={t} />
               <EffectsSection look={look} t={t} />
+              <AdjustSection look={look} t={t} />
             </>
           ) : null}
           {block.anchor?.move || block.anchor?.resize === 'end' ? <TimingSection t={t} block={block} onMain={onMain} commit={commit} /> : null}
@@ -1843,6 +1845,23 @@ function MultiClipPanel({
     const before = compactBox(p.value, p.own);
     return JSON.stringify(next) === JSON.stringify(before) ? [] : [{ loc: p.loc, prop: 'box', value: next }];
   });
+  /* their bounds, as Figma shows a selection's: typed, the X / Y move them all and the W / H scale them all, in
+     proportion, about the bounds' top left */
+  const bounds = allPlaced?.length ? (() => {
+    const x0 = Math.min(...allPlaced.map((p) => p.x)), y0 = Math.min(...allPlaced.map((p) => p.y));
+    return { x: x0, y: y0, w: Math.max(...allPlaced.map((p) => p.x + p.w)) - x0, h: Math.max(...allPlaced.map((p) => p.y + p.h)) - y0 };
+  })() : null;
+  const groupEdit = (d: Partial<GroupDrag>) => {
+    const drag: GroupDrag = { kind: 'move', dx: 0, dy: 0, kx: 1, ky: 1, turn: 0, anchor: { x: 0, y: 0 }, ...d };
+    commit(boxEdits((p) => {
+      /* the transform counts from the box's own offset: the anchor too */
+      const next = groupDragged({ ...drag, anchor: { x: drag.anchor.x - (p.own.x ?? 0), y: drag.anchor.y - (p.own.y ?? 0) } }, p.value, p.own);
+      return { x: next.x, y: next.y, scaleX: next.scaleX, scaleY: next.scaleY };
+    }));
+  };
+  const scaleBounds = (k: number) => {
+    if (bounds && k > 0 && Number.isFinite(k) && k !== 1) groupEdit({ kind: 'scale', kx: k, ky: k, anchor: { x: bounds.x, y: bounds.y } });
+  };
   const common = (fn: (p: Placed) => number) => {
     if (!allPlaced) return MIXED;
     const v = round1(fn(allPlaced[0]!));
@@ -1891,16 +1910,16 @@ function MultiClipPanel({
         <Section id="position" title={t('inspector.position')}>
           <AlignBar t={t} onAlign={alignTo} {...(allPlaced.length >= 3 ? { onDistribute: distribute } : {})} />
           <Row>
-            <NumField label={t('inspector.x')} prefix="X" value={common((p) => p.x)} min={-COORD_LIMIT} max={COORD_LIMIT} ctx={{ percent: stage.w }}
-              onCommit={(_, apply) => commit(boxEdits((p) => clipFieldPart('x', apply(p.x), p.own)))} />
-            <NumField label={t('inspector.y')} prefix="Y" value={common((p) => p.y)} min={-COORD_LIMIT} max={COORD_LIMIT} ctx={{ percent: stage.h }}
-              onCommit={(_, apply) => commit(boxEdits((p) => clipFieldPart('y', apply(p.y), p.own)))} />
+            <NumField label={t('inspector.x')} prefix="X" value={bounds ? round1(bounds.x) : MIXED} min={-COORD_LIMIT} max={COORD_LIMIT} ctx={{ percent: stage.w }}
+              onCommit={(x) => { if (bounds) groupEdit({ dx: x - bounds.x }); }} />
+            <NumField label={t('inspector.y')} prefix="Y" value={bounds ? round1(bounds.y) : MIXED} min={-COORD_LIMIT} max={COORD_LIMIT} ctx={{ percent: stage.h }}
+              onCommit={(y) => { if (bounds) groupEdit({ dy: y - bounds.y }); }} />
           </Row>
           <div className="grid grid-cols-[1fr_1fr_24px] items-center gap-1.5">
-            <NumField label={t('inspector.width')} prefix="W" value={common((p) => p.w)} min={1} max={COORD_LIMIT} ctx={{ percent: stage.w }}
-              onCommit={(_, apply) => commit(boxEdits((p) => clipFieldPart('w', apply(p.w), p.own)))} />
-            <NumField label={t('inspector.height')} prefix="H" value={common((p) => p.h)} min={1} max={COORD_LIMIT} ctx={{ percent: stage.h }}
-              onCommit={(_, apply) => commit(boxEdits((p) => clipFieldPart('h', apply(p.h), p.own)))} />
+            <NumField label={t('inspector.width')} prefix="W" value={bounds ? round1(bounds.w) : MIXED} min={1} max={COORD_LIMIT} ctx={{ percent: stage.w }}
+              onCommit={(w) => { if (bounds) scaleBounds(w / bounds.w); }} />
+            <NumField label={t('inspector.height')} prefix="H" value={bounds ? round1(bounds.h) : MIXED} min={1} max={COORD_LIMIT} ctx={{ percent: stage.h }}
+              onCommit={(h) => { if (bounds) scaleBounds(h / bounds.h); }} />
             <LockToggle t={t} locked />
           </div>
           <Row>
@@ -1912,9 +1931,10 @@ function MultiClipPanel({
       ) : null}
       {look ? (
         <>
-          <AppearanceSection look={look} t={t} />
-          <AdjustSection look={look} t={t} />
+          <AppearanceSection look={look} t={t} radius />
+          <StrokeSection look={look} t={t} />
           <EffectsSection look={look} t={t} />
+          <AdjustSection look={look} t={t} />
         </>
       ) : null}
       {onEdit && blocks.every((b) => b.clipId && b.loc && parseFilmDocLoc(b.loc) != null) ? <FadeSection t={t} blocks={blocks} fades={fades} commit={commit} /> : null}

@@ -394,10 +394,18 @@
   /* styles the inspector shows per kind (computed: a page states none as source keys) */
   const TEXT_STYLE_KEYS = ['fontFamily', 'fontWeight', 'fontStyle', 'fontSize', 'lineHeight', 'letterSpacing', 'textAlign', 'color', 'opacity'];
   const SVG_TEXT_STYLE_KEYS = ['fontFamily', 'fontWeight', 'fontStyle', 'fontSize', 'letterSpacing', 'fill', 'opacity'];
-  const KIND_STYLE_KEYS = { text: [...TEXT_STYLE_KEYS, 'textTransform'], image: ['opacity', 'borderRadius', 'objectFit', 'objectPosition', 'clipPath'], shape: ['opacity'], box: ['backgroundColor', 'borderRadius', 'opacity', 'clipPath'] };
-  /* the look every kind shows (blend, adjustments and shadow, stroke, faded edges): as the page draws it, its CSS's or its own */
-  const LOOK_STYLE_KEYS = ['mixBlendMode', 'filter', 'border', 'maskImage', 'maskComposite'];
-  const LOOK_KEYS = new Set([...LOOK_STYLE_KEYS, 'textTransform', 'objectPosition', 'clipPath']);
+  /* a box's corners one by one (Figma's independent corners) */
+  const CORNER_KEYS = ['borderTopLeftRadius', 'borderTopRightRadius', 'borderBottomRightRadius', 'borderBottomLeftRadius'];
+  const KIND_STYLE_KEYS = {
+    text: [...TEXT_STYLE_KEYS, 'textTransform', 'textDecorationLine'],
+    image: ['opacity', 'borderRadius', ...CORNER_KEYS, 'objectFit', 'objectPosition', 'clipPath'],
+    shape: ['opacity'],
+    box: ['backgroundColor', 'borderRadius', ...CORNER_KEYS, 'opacity', 'clipPath', 'boxShadow'],
+  };
+  /* the look every kind shows (blend, adjustments and shadow, stroke, faded edges, what is behind blurred): as the
+     page draws it, its CSS's or its own */
+  const LOOK_STYLE_KEYS = ['mixBlendMode', 'filter', 'border', 'outline', 'outlineOffset', 'backdropFilter', 'maskImage', 'maskComposite'];
+  const LOOK_KEYS = new Set([...LOOK_STYLE_KEYS, 'textTransform', 'textDecorationLine', 'objectPosition', 'clipPath', 'boxShadow']);
   const UNITLESS = new Set(['opacity', 'fontWeight', 'lineHeight', 'zIndex', 'flex', 'flexGrow', 'flexShrink', 'order', 'zoom', 'scale', 'fillOpacity', 'strokeOpacity', 'strokeMiterlimit']);
   const isColorKey = (key) => /^(color|fill|stroke|background|backgroundColor|borderColor|outlineColor|stopColor)$/.test(key) || /Color$/.test(key);
   const pxNumber = (value) => {
@@ -433,7 +441,12 @@
     if (key === 'fontFamily') return own(el, 'font-family') || cs.fontFamily || undefined;
     if (key === 'fontStyle') { const v = own(el, 'font-style') || cs.fontStyle; return v && v !== 'normal' ? v : undefined; }
     if (key === 'textAlign') { const v = own(el, 'text-align') || cs.textAlign; return v && v !== 'start' ? v : undefined; }
-    if (LOOK_KEYS.has(key)) { const v = own(el, name) || cs.getPropertyValue(name); return v && !/^(none|normal|add|50% 50%)$/.test(v) && !/^0px none\b/.test(v) ? v : undefined; }
+    if (LOOK_KEYS.has(key)) {
+      const v = own(el, name) || cs.getPropertyValue(name);
+      /* an outline is computed color first: "rgb(0, 0, 0) none 0px" is none */
+      if (key === 'outline' && /\bnone\b/.test(v)) return undefined;
+      return v && !/^(none|normal|add|50% 50%)$/.test(v) && !/^0px none\b/.test(v) ? v : undefined;
+    }
     if (UNITLESS.has(key)) {
       const mine = own(el, name);
       const n = Number(mine || cs.getPropertyValue(name));
@@ -448,7 +461,7 @@
     const cs = css(el);
     let keys = [...(kind === 'text' && isSvgText(el) ? SVG_TEXT_STYLE_KEYS : KIND_STYLE_KEYS[kind]), ...LOOK_STYLE_KEYS];
     /* a line with its own fill (a badge, a tag) is a box too */
-    if (kind === 'text' && paints(cs)) keys.push('backgroundColor', 'borderRadius');
+    if (kind === 'text' && paints(cs)) keys.push('backgroundColor', 'borderRadius', ...CORNER_KEYS, 'boxShadow');
     keys = [...new Set(keys)];
     for (const key of keys) {
       if (key === 'backgroundColor' && transparent(cs.backgroundColor)) continue;

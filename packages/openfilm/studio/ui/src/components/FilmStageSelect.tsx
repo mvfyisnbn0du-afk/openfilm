@@ -188,6 +188,11 @@ export interface FilmStageControl {
   picked(): StagePick[];
   /** Write now what the arrow keys moved and is not written yet: before an undo, or any other edit. */
   flushPending(): void;
+  /**
+   * Several layers in hand: their bounds put at `x` / `y` (all moved alike), or made `w` / `h` wide (all scaled alike,
+   * in proportion, about the bounds' top left), as Figma's fields move and scale a selection. Stage px.
+   */
+  placeLayers(to: { x?: number; y?: number; w?: number; h?: number }): void;
 }
 
 /** One thing in hand on the picture, for a reference: what it is, and its box (stage px) when it is a layer. */
@@ -664,6 +669,33 @@ function FilmStageSelectImpl({
     items.forEach((it, i) => { it.now = { ...it.base, t: movedOffset(it.base, dxOf(i), dyOf(i), it.layer.geo.parentR, it.scale) }; });
     multiPaint.push(items.map((it) => ({ ...it })));
   };
+  /** Several layers' bounds moved or scaled as the inspector's typed numbers say (FilmStageControl.placeLayers). */
+  const placeLayers = async (to: { x?: number; y?: number; w?: number; h?: number }) => {
+    const items = multiItemsNow();
+    const held = pickedRef.current;
+    if (items.length < 2 || !held || !onTransformLayers) return;
+    const b = held.rect;
+    if (to.x != null || to.y != null) {
+      const vs = viewScaleNow();
+      const dx = ((to.x ?? b.left) - b.left) * vs, dy = ((to.y ?? b.top) - b.top) * vs;
+      shiftLayers(items, () => dx, () => dy);
+      onTransformLayers(items.map((it) => ({ element: it.element, g: it.now })));
+      return;
+    }
+    const k = to.w != null ? to.w / b.width : to.h != null ? to.h / b.height : 1;
+    if (!(k > 0) || !Number.isFinite(k) || k === 1) return;
+    /* each one scaled by k about its own center, that center then moved as the bounds scale about their top left */
+    const scaled = await Promise.all(items.map(async (it) => {
+      const r = it.layer.rect;
+      const center = { x: b.left + (r.left + r.width / 2 - b.left) * k, y: b.top + (r.top + r.height / 2 - b.top) * k };
+      const g: LayerGeometry = { ...it.base, s: [it.base.s[0] * k, it.base.s[1] * k] };
+      const out = await ask<{ g: LayerGeometry }>('paint', { handle: it.layer.handle, g, center });
+      return { element: it.element, g: out?.g ?? g };
+    }));
+    onTransformLayers(scaled);
+  };
+  const placeLayersRef = React.useRef<(to: { x?: number; y?: number; w?: number; h?: number }) => void>(() => {});
+  placeLayersRef.current = (to) => { void placeLayers(to); };
   /** Line several layers up with an edge / middle of their union box. */
   const alignMany = (edge: AlignEdge) => {
     const items = multiItemsNow();
@@ -1302,6 +1334,7 @@ function FilmStageSelectImpl({
       editMask: setMaskSession,
       picked: () => pickedItemsRef.current(),
       flushPending: () => flushPendingRef.current(),
+      placeLayers: (to) => placeLayersRef.current(to),
     };
     return () => { controlRef.current = null; };
   }, [ask, controlRef, elementOf, syncGeomSoon]);
