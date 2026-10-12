@@ -15,6 +15,7 @@ import { useFilm, type Step } from '@/editor/use-film';
 import { Player } from '@/editor/player';
 import { Preview, type FilmInfo, type PreviewHandle } from '@/editor/Preview';
 import { filmShape, type MediaFacts } from '@/lib/film-shape';
+import { changesPicture } from '@/lib/picture-files';
 import { layoutTracks, type TimelineBlock, type TimelineTrack } from '@/lib/timeline-layout';
 import { filmClipKind, filmSrcIsPage, filmSrcKind, filmTrackBadges, parseFilmDocLoc, type FilmBox, type FilmDoc } from '@/lib/film';
 import { footageFps, setTimecodeFps, snapToFrame, stepFrames } from '@/lib/timecode';
@@ -210,9 +211,10 @@ export function ProjectView({ projectId, onProject, onLeave }: {
       setFilesTick((n) => n + 1);
       /* a page, or a file pages use, changed on disk: the picture is drawn from them again. So is a media file a clip
          plays, made again in place (a render written over the last one): its element would go on playing what it
-         had loaded of the old file. Other media under assets/ are loaded as they are used */
+         had loaded of the old file. Other media under assets/ are loaded as they are used, and what no page loads
+         (an agent's notes and scripts) leaves the picture as it is (lib/picture-files) */
       const used = new Set(blocksRef.current.map((b) => b.src).filter(Boolean));
-      if (!event.paths || event.paths.some((path) => !path.startsWith('assets/') || used.has(path))) preview.current?.reload?.();
+      if (changesPicture(event.paths, used)) preview.current?.reload?.();
     });
   }, [projectId]);
 

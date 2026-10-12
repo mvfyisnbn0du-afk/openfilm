@@ -44,7 +44,8 @@ interface LocalAgentStore extends Persisted {
   /** The option list a session reported, kept for the menu. */
   noteOptions(agent: LocalAgentId, options: ConfigOptions | null): void;
   /** No option list yet: ask for one (a session opened and closed, nothing said, nothing spent). */
-  ensureOptions(agent: LocalAgentId): Promise<void>;
+  /** Ask the agent for its options once; one that failed is asked again only on `retry` (the menu opened, Retry). */
+  ensureOptions(agent: LocalAgentId, opts?: { retry?: boolean }): Promise<void>;
 }
 
 const probing = new Set<LocalAgentId>();
@@ -173,9 +174,11 @@ export const useLocalAgents = create<LocalAgentStore>((set, get) => ({
     set({ options: { ...get().options, [agent]: options } });
     save(get());
   },
-  async ensureOptions(agent) {
-    /* the own key's are known from Settings (agentOptions) */
+  async ensureOptions(agent, { retry = false } = {}) {
+    /* the own key's are known from Settings (agentOptions); a failed probe is not tried again on every render, each
+       try being a whole session of the agent's */
     if (agent === 'byok' || get().options[agent] || probing.has(agent)) return;
+    if (get().optionsError[agent] && !retry) return;
     const api = desktopBridge()?.localAgents;
     if (!api) return;
     probing.add(agent);

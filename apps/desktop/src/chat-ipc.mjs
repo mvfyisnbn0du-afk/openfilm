@@ -4,7 +4,7 @@
  *   desktop:chat:load      { project } → { sessions, last, turns }
  *   desktop:chat:sessions  { project, sessions, last }
  *   desktop:chat:turn      { project, turn, items }
- *   desktop:chat:log       { project, turnId } → { file, cut, size, events } | null
+ *   desktop:chat:log       { project, turnId, unless? } → { file, cut, size, callsSize, events, calls } | { same } | null
  *   desktop:chat:reveal    { project, turnId? }   the turn's log (or the logs folder) in the file manager
  *   desktop:chat:ref-image { project, turnId, n, bytes } → { path }   a reference's picture, kept for the agent
  *   desktop:chat:snapshot  { project, turnId }     the project's files as a turn starts (file-changes.mjs), kept here
@@ -46,7 +46,9 @@ export function registerChatIpc(ipcMain, { trusted, projects, dataDir, reveal, t
   handle('desktop:chat:sessions', async ({ project: path, sessions, last }) => { saveSessions(await project(path), { sessions, last }); return { ok: true }; });
   handle('desktop:chat:turn', async ({ project: path, turn, items }) => { saveTurn(await project(path), { turn, items }); return { ok: true }; });
   handle('desktop:chat:ref-image', async ({ project: path, turnId, n, bytes }) => saveRefImage(await project(path), turnId, n, bytes));
-  handle('desktop:chat:log', async ({ project: path, turnId }) => readLog(await project(path), turnId));
+  handle('desktop:chat:log', async ({ project: path, turnId, unless }) => readLog(await project(path), turnId, {
+    unless: unless && Number.isFinite(unless.size) && Number.isFinite(unless.callsSize) ? unless : null,
+  }));
   /* the files as each running turn found them, by the turn: compared, and let go, when the turn settles */
   const snapshots = new Map();
   handle('desktop:chat:snapshot', async ({ project: path, turnId }) => {

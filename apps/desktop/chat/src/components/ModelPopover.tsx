@@ -90,7 +90,7 @@ export function ModelPopover({ placement = 'bottom', align = 'start' }: { placem
   React.useEffect(() => {
     if (!open) return;
     void refresh().then(() => {
-      for (const a of shownAgents(useLocalAgents.getState().roster)) if (a.status === 'ready') void ensureOptions(a.id);
+      for (const a of shownAgents(useLocalAgents.getState().roster)) if (a.status === 'ready') void ensureOptions(a.id, { retry: true });
     });
   }, [open, refresh, ensureOptions]);
 
@@ -233,7 +233,7 @@ export function ModelPopover({ placement = 'bottom', align = 'start' }: { placem
             ) : rows.length === 0 && options && !la.optionsError[agent] ? null : rows.length === 0 ? (
               <p className="px-2.5 py-1.5 text-[12px] leading-relaxed text-[var(--text-muted)]">
                 {la.optionsError[agent]
-                  ? <>{t('composer.agentOptionsFailed')} <button type="button" onMouseDown={keepFocus} onClick={() => void la.ensureOptions(agent)} className="text-[var(--text)] underline underline-offset-2">{t('project.retry')}</button></>
+                  ? <>{t('composer.agentOptionsFailed')} <button type="button" onMouseDown={keepFocus} onClick={() => void la.ensureOptions(agent, { retry: true })} className="text-[var(--text)] underline underline-offset-2">{t('project.retry')}</button></>
                   : t('composer.agentLoading')}
               </p>
             ) : rows.map((o, i) => (

@@ -50,7 +50,11 @@ function TurnLogViewer({ project, turnId, live, onClose }: { project: string; tu
   const [log, setLog] = React.useState<TurnLogData | null | undefined>(undefined);
   const [tab, setTab] = React.useState<'calls' | 'events' | null>(null);
   const [copied, setCopied] = React.useState(false);
-  const load = React.useCallback(() => { void app.chat.log(project, turnId).then(setLog).catch(() => setLog(null)); }, [project, turnId]);
+  const load = React.useCallback(() => {
+    void app.chat.log(project, turnId).then((next) => setLog(next && 'same' in next ? undefined : next)).catch(() => setLog(null));
+  }, [project, turnId]);
+  const known = React.useRef<{ size: number; callsSize: number } | null>(null);
+  known.current = log ? { size: log.size, callsSize: log.callsSize ?? 0 } : null;
   /* read on opening and once more as the turn ends (its last events); while it runs, again and again, one read at a time */
   React.useEffect(load, [load, live]);
   React.useEffect(() => {
@@ -59,7 +63,9 @@ function TurnLogViewer({ project, turnId, live, onClose }: { project: string; tu
     const timer = window.setInterval(() => {
       if (reading) return;
       reading = true;
-      void app.chat.log(project, turnId).then((next) => { if (next) setLog(next); }).catch(() => {}).finally(() => { reading = false; });
+      /* read again only once it has grown */
+      void app.chat.log(project, turnId, known.current ?? undefined)
+        .then((next) => { if (next && !('same' in next)) setLog(next); }).catch(() => {}).finally(() => { reading = false; });
     }, LIVE_READ_MS);
     return () => window.clearInterval(timer);
   }, [live, project, turnId]);

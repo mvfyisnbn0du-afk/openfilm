@@ -94,3 +94,16 @@ test('a reference\'s picture is kept as .film/refs/<turn>-<n>.jpg, and nothing b
   assert.throws(() => saveRefImage(dir, 'local:abc', 1, new Uint8Array([0x89, 0x50, 0x4e, 0x47])), /not a JPEG/);
   assert.throws(() => saveRefImage(dir, 'local:abc', 1, 'not bytes'), /not a picture/);
 });
+
+test('a log not grown since the sizes a reader has is not read again', async () => {
+  const dir = project();
+  const log = openLog(dir, 't2');
+  log.write('prompt', { text: 'hello' });
+  await new Promise((done) => setTimeout(done, 50));
+  const first = readLog(dir, 't2');
+  assert.deepEqual(readLog(dir, 't2', { unless: { size: first.size, callsSize: first.callsSize } }), { same: true });
+  log.write('done', { ok: true });
+  log.end();
+  await new Promise((done) => setTimeout(done, 50));
+  assert.deepEqual(readLog(dir, 't2', { unless: { size: first.size, callsSize: first.callsSize } }).events.map((e) => e.kind), ['prompt', 'done']);
+});

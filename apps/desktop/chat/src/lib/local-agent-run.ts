@@ -371,7 +371,8 @@ export class LocalAgentTurn {
       const act = this.items.find((item) => item.id === `act:${event.callId}`)?.act;
       if (!act || !LOOK_ONLY.has(act)) revision += 1;
     }
-    this.state = { ...this.state, thinking: false, revision };
+    /* the state is a new object only when it changed: the chat around the turn re-renders on it, the words do not */
+    if (this.state.thinking || this.state.revision !== revision) this.state = { ...this.state, thinking: false, revision };
     this.emit();
   }
 
@@ -403,7 +404,7 @@ export class LocalAgentTurn {
       const prev = this.items.find((item) => item.id === this.openThought);
       this.patchItem(this.openThought, { text: (prev?.text ?? '') + text });
     }
-    this.state = { ...this.state, thinking: true };
+    if (!this.state.thinking) this.state = { ...this.state, thinking: true };
     this.emit();
   }
 

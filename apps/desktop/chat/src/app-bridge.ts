@@ -56,7 +56,8 @@ interface AppBridge {
     load(project: string): Promise<{ sessions: unknown[]; last: string | null; turns: unknown[] }>;
     saveSessions(project: string, sessions: unknown[], last: string | null): Promise<unknown>;
     saveTurn(project: string, turn: unknown, items: unknown[]): Promise<unknown>;
-    log(project: string, turnId: string): Promise<TurnLog | null>;
+    /** `unless`: the sizes of the log already read; when it has not grown, `{ same: true }` */
+    log(project: string, turnId: string, unless?: { size: number; callsSize: number }): Promise<TurnLog | { same: true } | null>;
     reveal(project: string, turnId?: string): Promise<unknown>;
     /** a picture a message's reference points at, kept for its agent: .film/refs/<turn>-<n>.jpg (its path in the project) */
     saveRefImage(project: string, turnId: string, n: number, bytes: ArrayBuffer): Promise<{ path: string }>;
@@ -82,6 +83,7 @@ export interface TurnLog {
   /** too long to read whole: these are its last events */
   cut: boolean;
   size: number;
+  callsSize?: number;
   events: Array<{ t: number; kind: string; [field: string]: unknown }>;
   /** the requests the model got and its answers, each only what is new since the one before (lib/model-calls.ts) */
   calls?: unknown[];

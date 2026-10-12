@@ -99,18 +99,25 @@ export function saveRefImage(project, turnId, n, bytes) {
   return { path: `.film/refs/${name}` };
 }
 
-/** A turn's events, as written: [{ t, kind, … }] (a broken line, from a crash mid-write, is left out). */
-export function readLog(project, turnId) {
+/**
+ * A turn's events, as written: [{ t, kind, … }] (a broken line, from a crash mid-write, is left out). `unless`: the
+ * sizes a reader already has (`size`, `callsSize` of an earlier read): when neither file has grown, `{ same: true }`
+ * and nothing is read (a running turn's log is asked for again and again).
+ */
+export function readLog(project, turnId, { unless = null } = {}) {
   if (typeof turnId !== 'string' || !ID.test(turnId)) return null;
   const file = join(logsDir(project), `${fileOf(turnId)}.jsonl`);
   if (!existsSync(file)) return null;
+  const model = join(logsDir(project), `${fileOf(turnId)}.model.jsonl`);
+  const size = statSync(file).size;
+  const callsSize = existsSync(model) ? statSync(model).size : 0;
+  if (unless && unless.size === size && unless.callsSize === callsSize) return { same: true };
   let text = readFileSync(file, 'utf8');
   const cut = text.length > LOG_READ_MAX;
   if (cut) text = text.slice(text.length - LOG_READ_MAX).replace(/^[^\n]*\n/, '');
   const lines = (body) => body.split('\n').flatMap((line) => { try { return line ? [JSON.parse(line)] : []; } catch { return []; /* half a line */ } });
-  const model = join(logsDir(project), `${fileOf(turnId)}.model.jsonl`);
   const calls = existsSync(model) ? lines(readFileSync(model, 'utf8')) : [];
-  return { file, cut, size: statSync(file).size, events: lines(text), calls };
+  return { file, cut, size, callsSize, events: lines(text), calls };
 }
 
 /**
