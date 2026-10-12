@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { applyOps } from '../../../server/ops.mjs';
-import { clipboardItemsOf, clipboardNow, copyLinks, pasteEdit, pastePlan, type TimelinePasteJob } from './timeline-clipboard.ts';
+import { clipboardItemsOf, clipboardNow, copyLinks, pasteEdit, pastePlan, planCopies, type TimelinePasteJob } from './timeline-clipboard.ts';
 import { editModelOf } from './timeline-edit.ts';
 import type { TimelineBlock, TimelineTrack } from './timeline-layout';
 
@@ -177,6 +177,23 @@ test('with the magnet, as CapCut: a paste covers nothing and pushes nothing', ()
   assert.deepEqual(paste(tracks[1]!.blocks[0]!, 1000, 'doc-1'), [[['t1', 0, null]], [['a-2', 1, null]], [['a', 0, null], ['b', 2, null]]]);
   /* past the main track's end: onto it, closed up against its last clip */
   assert.deepEqual(paste(tracks[1]!.blocks[0]!, 6000, 'doc-1')[1], [['a', 0, null], ['b', 2, null], ['a-2', 4, null]]);
+});
+
+test('⌥-drag copies, as CapCut: the clip stays and a copy lands where it is let go', () => {
+  const film: Film = { tracks: [{ clips: [filmClip('t1', 0, 2)] }, { clips: [filmClip('a', 0, 2), filmClip('b', 2, 2)] }] };
+  const tracks = [
+    track(0, [blockOf('t1', 0, 0, 0, 2000)], { role: 'mg' }),
+    track(1, [blockOf('a', 1, 0, 0, 2000), blockOf('b', 1, 1, 2000, 4000)], { role: 'video' }),
+  ];
+  const model = editModelOf(tracks);
+  const run = (plan: { ops: unknown[] } | null) => spans(applyOps(structuredClone(film) as never, plan!.ops as never) as unknown as Film);
+  const opts = { magnet: true, sync: false, linkage: true };
+  /* b copied onto the first half of a on the main track: it goes in before a, what follows moves on */
+  assert.deepEqual(run(planCopies(model, { ids: ['b'], deltaMs: -1500, pointerMs: 500, ...opts }))[1], [['b-2', 0, null], ['a', 2, null], ['b', 4, null]]);
+  /* the title copied onto itself 1 s later: off the main track nothing is covered, a new track above takes it */
+  assert.deepEqual(run(planCopies(model, { ids: ['t1'], deltaMs: 1000, pointerMs: 1500, ...opts })), [[['t1-2', 1, null]], [['t1', 0, null]], [['a', 0, null], ['b', 2, null]]]);
+  /* without the magnet a copy covers what is under it */
+  assert.deepEqual(run(planCopies(model, { ids: ['t1'], deltaMs: 1000, pointerMs: 1500, magnet: false, sync: false }))[0], [['t1', 0, null], ['t1-2', 1, null]]);
 });
 
 test('copies of linked clips pasted together are linked to each other, not to the originals', () => {

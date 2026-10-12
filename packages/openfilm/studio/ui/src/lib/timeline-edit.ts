@@ -1,5 +1,5 @@
 /**
- * Edits that change more than one clip: insert and overwrite, ripple, roll, slip and slide, closing gaps, speed, and
+ * Edits that change more than one clip: insert and overwrite, ripple, roll, slip, closing gaps, speed, and
  * linked clips. Each works on a plain model of the tracks (film ms, and each clip's own source ms) and comes back as
  * the operations film.html takes (studio/server/ops.mjs), in one batch: one write, one undo step.
  *
@@ -46,8 +46,10 @@ export interface EditClip {
 }
 
 export interface EditTrack {
-  /** Its place in film.html. */
+  /** Its place in film.html; below 0 for a track an edit opens (see openTrack). */
   index: number;
+  /** A track an edit opens: what it was opened for. */
+  openKey?: string;
   locked?: boolean;
   /** What the timeline calls it by the clips on it; a sound taken off a video goes to an `audio` one. */
   role?: 'mg' | 'video' | 'audio';
@@ -165,6 +167,19 @@ export interface Draft {
   settle?: boolean;
   /** With linkage, the clips on other tracks that do not ride on the main track (ridesOn, as the film was). */
   anchored?: Set<string>;
+}
+
+/**
+ * A track this edit opens, at film.html place `insert`, for clips put there: one per `key` (a new track per track the
+ * clips came from, say), with an index of its own below 0 so new tracks never share one by accident.
+ */
+function openTrack(d: Draft, insert: number, key: string, role?: EditTrack['role']): EditTrack {
+  const name = `${insert}:${key}`;
+  const found = d.tracks.find((t) => t.index < 0 && t.openKey === name);
+  if (found) return found;
+  const track: EditTrack = { index: Math.min(0, ...d.tracks.map((t) => t.index)) - 1, clips: [], openKey: name, ...(role ? { role } : {}) };
+  d.tracks.push(track);
+  return track;
 }
 
 function draftOf(model: EditModel): Draft {
@@ -472,11 +487,10 @@ function settle(d: Draft): void {
     }
     const insert = newTrackBeside(from);
     d.opened.set(c.id, insert);
-    let opened = d.tracks.find((t) => t.index === -1 - insert);
-    if (!opened) {
-      opened = { index: -1 - insert, clips: [], ...(from.role ? { role: from.role } : {}) };
-      d.tracks.push(opened);
-    }
+    /* clips settled beside one track share a new one while they fit on it */
+    let n = 0;
+    let opened = openTrack(d, insert, `settle-${from.index}-${n}`, from.role);
+    while (opened.clips.some((x) => overlap(x, c))) opened = openTrack(d, insert, `settle-${from.index}-${++n}`, from.role);
     opened.clips.push(c);
   };
   for (const t of [...d.tracks]) {
@@ -550,6 +564,23 @@ function planOf(d: Draft): EditPlan {
     const opened = d.opened.get(id);
     return opened != null ? { insert: opened } : track;
   };
+  /*
+   * A new track takes one clip as it opens (film.html opens a track per clip moved to `{ insert }`); the others on it
+   * move onto it in a second step, by the place it has once all are open: the new tracks open in order of place, each
+   * before the track that was there, so the i-th (in that order) is at `insert + i`.
+   */
+  const fresh = d.tracks.filter((t) => t.index < 0 && t.clips.length)
+    .map((t) => ({ t, insert: d.opened.get(t.clips[0]!.id)! }))
+    .sort((a, b) => a.insert - b.insert);
+  const opener = new Set<string>();
+  const joins = new Map<string, number>();
+  fresh.forEach(({ t, insert }, i) => {
+    const [first, ...rest] = [...t.clips].sort((a, b) => a.startMs - b.startMs);
+    opener.add(first!.id);
+    for (const c of rest) joins.set(c.id, insert + i);
+  });
+  const openEdits: { clip: string; prop: string; value: PropValue }[] = [];
+  const joinEdits: { clip: string; prop: string; value: PropValue }[] = [];
   for (const [id, was] of d.before) {
     const cur = now.get(id);
     if (!cur) {
@@ -570,10 +601,16 @@ function planOf(d: Draft): EditPlan {
     const moved = typeof dest === 'object' || dest !== was.track;
     if (!Object.keys(fields).length && !moved) continue;
     for (const [prop, value] of Object.entries(fields)) edits.push({ clip: id, prop, value });
-    if (moved) edits.push({ clip: id, prop: 'track', value: dest });
+    if (joins.has(id)) joinEdits.push({ clip: id, prop: 'track', value: joins.get(id)! });
+    else if (opener.has(id)) openEdits.push({ clip: id, prop: 'track', value: dest });
+    else if (moved) edits.push({ clip: id, prop: 'track', value: dest });
     placed.set(id, { startMs: cur.clip.startMs, endMs: cur.clip.endMs, track: dest });
   }
-  if (edits.length) ops.push({ op: 'props', edits });
+  /* the openers in the order the new tracks open (see above) */
+  const openOrder = (clip: string) => fresh.findIndex((f) => f.t.clips.some((c) => c.id === clip));
+  openEdits.sort((a, b) => openOrder(a.clip) - openOrder(b.clip));
+  if (edits.length || openEdits.length) ops.push({ op: 'props', edits: [...edits, ...openEdits] });
+  if (joinEdits.length) ops.push({ op: 'props', edits: joinEdits });
   ops.push(...removes);
   return { ops, placed, shortMs: d.shortMs };
 }
@@ -700,12 +737,20 @@ export function planCloseMainGaps(model: EditModel, opts: Follow): EditPlan {
 /**
  * Delete clips. With `ripple` the time they took closes after them (each track its own, or with sync lock all the
  * deleted time on every unlocked track, or with linkage the main track's, carrying the other tracks); `'main'` closes
- * only the main track's (the magnet), the others leave a gap; without, they all leave a gap. Clips on locked tracks
- * stay.
+ * only the main track's (the magnet), the others leave a gap; without, they all leave a gap. With linkage the clips
+ * riding on a deleted main-track clip go too. Clips on locked tracks stay.
  */
 export function planRemove(model: EditModel, ids: readonly string[], opts: Follow & { ripple: boolean | 'main' }): EditPlan {
   const d = draftOf(model);
   const main = mainTrackOf(model);
+  /* with linkage what rides on a main-track clip goes with it, as CapCut's ("随着主轨移动、删除") */
+  const mainTrack = model.find((t) => t.index === main);
+  if (opts.linkage && !opts.sync && mainTrack && !mainTrack.locked) {
+    const gone = new Set(mainTrack.clips.filter((c) => ids.includes(c.id)).map((c) => c.id));
+    const riders = model.filter((t) => t !== mainTrack && !t.locked).flatMap((t) => t.clips)
+      .filter((c) => gone.size && ridesOn(mainTrack, c) && gone.has(hostOf(mainTrack, c)?.id ?? ''));
+    if (riders.length) ids = [...ids, ...riders.map((c) => c.id)];
+  }
   const spans = new Map<number, { startMs: number; endMs: number }[]>();
   for (const t of d.tracks) {
     if (t.locked) continue;
@@ -879,13 +924,9 @@ export function planMove(model: EditModel, spec: MoveSpec): (EditPlan & { landMs
     c.startMs = startMs;
     const dest = destOf(id);
     if (typeof dest === 'object') {
+      /* a new track for each track the clips came from: a group keeps its rows */
       d.opened.set(id, dest.insert);
-      let track = d.tracks.find((t) => t.index === -1 - dest.insert);
-      if (!track) {
-        track = { index: -1 - dest.insert, clips: [] };
-        d.tracks.push(track);
-      }
-      track.clips.push(c);
+      openTrack(d, dest.insert, `from-${d.before.get(id)!.track}`).clips.push(c);
       continue;
     }
     const track = trackAt(d, dest)!;
@@ -953,8 +994,8 @@ function applyEdge(c: EditClip, kind: EdgeKind, ms: number): void {
 
 /**
  * Edges moved together by one amount, kept to what every one of them allows: a trim (one edge, and the same edge of
- * linked clips), a roll (the end of one clip and the start of the next), a slip (the content of clips), a slide (a
- * clip shifted, the end of the one before and the start of the one after). Moves on locked tracks are left out.
+ * linked clips), a roll (the end of one clip and the start of the next), a slip (the content of clips, the
+ * inspector's source bar), a nudge (clips shifted into free time). Moves on locked tracks are left out.
  */
 export function planEdges(model: EditModel, moves: readonly EdgeMove[], deltaMs: number): EditPlan & { deltaMs: number } {
   const d = draftOf(model);
@@ -1023,38 +1064,6 @@ export function planRippleTrimTo(model: EditModel, ids: readonly string[], edge:
   if (!main || !(atMs > main.startMs + TOUCH_MS && atMs < main.endMs - TOUCH_MS)) return null;
   const plan = planRippleTrim(model, ids, edge, edge === 'start' ? atMs - main.startMs : atMs - main.endMs, opts);
   return plan.ops.length ? plan : null;
-}
-
-/** The clip's neighbors that touch it on its track: the one ending where it starts, the one starting where it ends. */
-export function touchingOf(model: EditModel, id: string): { prev?: string; next?: string } {
-  const track = model.find((t) => t.clips.some((c) => c.id === id));
-  const c = track?.clips.find((x) => x.id === id);
-  if (!track || !c) return {};
-  const prev = track.clips.find((x) => x !== c && Math.abs(x.endMs - c.startMs) <= TOUCH_MS);
-  const next = track.clips.find((x) => x !== c && Math.abs(x.startMs - c.endMs) <= TOUCH_MS);
-  return { ...(prev ? { prev: prev.id } : {}), ...(next ? { next: next.id } : {}) };
-}
-
-/**
- * A slide: these clips move along their tracks, the clips touching them give and take the time (with `linked`, so do
- * the clips linked to those, keeping a picture and its sound the same length).
- */
-export function slideMoves(model: EditModel, ids: readonly string[], linked = false): EdgeMove[] {
-  const moves = ids.flatMap((id) => {
-    const { prev, next } = touchingOf(model, id);
-    return [
-      { id, kind: 'shift' as const },
-      ...(prev && !ids.includes(prev) ? [{ id: prev, kind: 'end' as const }] : []),
-      ...(next && !ids.includes(next) ? [{ id: next, kind: 'start' as const }] : []),
-    ];
-  });
-  if (!linked) return moves;
-  const out = [...moves];
-  for (const m of moves) {
-    if (m.kind === 'shift') continue;
-    for (const id of linkedIds(model, [m.id])) if (!out.some((x) => x.id === id)) out.push({ id, kind: m.kind });
-  }
-  return out;
 }
 
 /**

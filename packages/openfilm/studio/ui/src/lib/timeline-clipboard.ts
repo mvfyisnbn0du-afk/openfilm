@@ -12,7 +12,7 @@ import type { Op } from '../api.ts';
 import { FILM_DOC_FILE } from './film.ts';
 
 import { newTrackSide } from './timeline-drag.ts';
-import { freshLink, freeTrackFor, mainTrackOf, planRoom, TOUCH_MS, type EditMode, type EditModel, type Follow, type TrackDest } from './timeline-edit.ts';
+import { freshLink, freeTrackFor, insertPointOn, mainTrackOf, planRoom, TOUCH_MS, type EditMode, type EditModel, type EditPlan, type Follow, type TrackDest } from './timeline-edit.ts';
 import type { TimelineBlock, TimelineTrack } from './timeline-layout';
 
 export type TimelineClipboardItem = {
@@ -303,4 +303,60 @@ export function pasteEdit(
     ...placed.filter((p) => typeof p.track === 'number').map((p) => insertOf(p.s, p.track)),
     ...opened.map((p) => insertOf(p.s, p.track)),
   ];
+}
+
+/**
+ * Copies of clips put down where a drag lets them go (⌥-drag, as CapCut's): the clips stay, a copy of each lands
+ * `deltaMs` later (earlier when negative) on its track or the one in `to`. As a paste does with the magnet: onto the
+ * main track an insert at the insert point under the hand (what follows moves on, with linkage what rides on it);
+ * off it nothing is covered, a copy whose time is taken going to a free track or a new one. Without the magnet a copy
+ * covers what is under it. Copies of clips linked together are linked to each other. Null when a track it goes onto
+ * is locked.
+ */
+export function planCopies(
+  model: EditModel,
+  spec: Follow & { ids: readonly string[]; deltaMs: number; pointerMs: number; to?: ReadonlyMap<string, TrackDest>; magnet: boolean },
+): EditPlan | null {
+  const clips = model.flatMap((t) => t.clips.map((c) => ({ c, track: t.index })));
+  const picked = spec.ids.flatMap((id) => clips.filter((x) => x.c.id === id));
+  if (!picked.length) return null;
+  const main = mainTrackOf(model);
+  const lead = picked[0]!;
+  const offset = Math.max(spec.deltaMs, -Math.min(...picked.map((x) => x.c.startMs)));
+  /* the group keeps its shape; on the main track it goes in at the insert point under the hand */
+  const leadDest = spec.to?.get(lead.c.id) ?? lead.track;
+  let shift = offset;
+  if (spec.magnet && leadDest === main) shift = insertPointOn(model, main, spec.pointerMs, lead.c.startMs + offset) - lead.c.startMs;
+  const spans = picked.map(({ c, track }) => {
+    const startMs = Math.max(0, c.startMs + shift);
+    return { id: c.id, startMs, endMs: startMs + c.endMs - c.startMs, dest: spec.to?.get(c.id) ?? (track as TrackDest) };
+  });
+  if (spans.some((s) => typeof s.dest === 'number' && model.find((t) => t.index === s.dest)?.locked)) return null;
+  const onMain = spec.magnet ? spans.filter((s) => s.dest === main) : [];
+  const covering = spec.magnet ? [] : spans.filter((s) => typeof s.dest === 'number');
+  const room = onMain.length
+    ? planRoom(model, onMain.map((s) => ({ track: s.dest as number, startMs: s.startMs, endMs: s.endMs })), { mode: 'insert', sync: spec.sync, linkage: spec.linkage })
+    : covering.length
+      ? planRoom(model, covering.map((s) => ({ track: s.dest as number, startMs: s.startMs, endMs: s.endMs })), { mode: 'overwrite', sync: spec.sync, linkage: spec.linkage })
+      : { ops: [], placed: new Map(), shortMs: 0 };
+  const taken: { track: number; startMs: number; endMs: number }[] = [];
+  const placed = spans.map((s) => {
+    if (typeof s.dest !== 'number' || !spec.magnet || s.dest === main) return { s, track: s.dest };
+    const track = freeTrackFor(model, s.dest, s, taken);
+    if (typeof track === 'number') taken.push({ track, startMs: s.startMs, endMs: s.endMs });
+    return { s, track };
+  });
+  const links = copyLinks(spec.ids, model);
+  const insertOf = ({ s, track }: (typeof placed)[number]): Op => ({
+    op: 'insert', from: s.id, at: Math.round(s.startMs) / 1000, track,
+    ...(links.has(s.id) ? { link: links.get(s.id)! } : {}),
+  });
+  /* the copies on tracks there are first; new tracks last, the lowest place first, so the places hold */
+  const opened = placed.filter((p) => typeof p.track === 'object')
+    .sort((x, y) => (y.track as { insert: number }).insert - (x.track as { insert: number }).insert);
+  return {
+    ops: [...placed.filter((p) => typeof p.track === 'number').map(insertOf), ...room.ops, ...opened.map(insertOf)],
+    placed: room.placed,
+    shortMs: room.shortMs,
+  };
 }

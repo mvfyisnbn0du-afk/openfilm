@@ -153,11 +153,11 @@ export const SHORTCUTS: { group: 'groupPlayback' | 'groupMarks' | 'groupEdit' | 
       { label: 'deselect', keys: [k('Esc')] },
       { label: 'selectMode', keys: [k('A'), k('V')] },
       { label: 'splitMode', keys: [k('B')] },
+      { label: 'splitModeAll', keys: [k('', { shift: true })] },
       { label: 'toggleMagnet', keys: [k('N', { shift: true })] },
       { label: 'toggleSnap', keys: [k('N')] },
       { label: 'editModeSwap', keys: [k('', { alt: true })] },
-      { label: 'slip', keys: [k('', { alt: true })] },
-      { label: 'slide', keys: [k('', { alt: true, shift: true })] },
+      { label: 'copyDrag', keys: [k('', { alt: true })] },
     ],
   },
   {

@@ -2603,16 +2603,18 @@ export const Timeline = React.memo(function Timeline({
                   if (mode === 'split') {
                     if (!inGroup) setSelected(own);
                     if (track.locked) return;
+                    const at = msAtClientX(e.clientX);
+                    /* ⇧: every track is cut there, as CapCut's */
+                    if (e.shiftKey) { void runSplit(splitAllTargets(tracks, at), at); return; }
                     const cut = new Set(own);
-                    void runSplit(tracks.flatMap((tr) => tr.blocks).filter((b) => cut.has(b.id)), msAtClientX(e.clientX));
+                    void runSplit(tracks.flatMap((tr) => tr.blocks).filter((b) => cut.has(b.id)), at);
                     return;
                   }
-                  /* ⌥-drag slips the content inside the clip, ⌥⇧-drag slides the clip between its neighbors; a ⌥-click
-                     picks this clip alone */
+                  /* ⌥-drag copies (this clip alone, or the group it is in), as CapCut's; a ⌥-click picks this clip alone */
                   if (e.altKey) {
                     if (!inGroup) setSelected(withLinked([block.id]));
                     collapseIfClick(e, block.id, true);
-                    if (e.shiftKey ? able.move : able.resize) drag.start(e, block, e.shiftKey ? 'slide' : 'slip');
+                    if (able.move) drag.start(e, block, 'move', inGroup ? current : [block.id], undefined, undefined, true);
                     return;
                   }
                   if (!inGroup) setSelected(own);

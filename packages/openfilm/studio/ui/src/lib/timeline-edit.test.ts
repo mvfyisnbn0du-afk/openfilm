@@ -26,7 +26,6 @@ import {
   planUnlink,
   ridesOn,
   rollMoves,
-  slideMoves,
   soundTrackFor,
   sourceLeftMs,
   type EditClip,
@@ -216,10 +215,17 @@ test('with linkage a ripple delete on the main track carries the titles and soun
   );
   const plan = planRemove(m, ['b'], { ripple: true, ...LINK });
   assert.equal(plan.shortMs, 0);
-  /* t2 rode on b, which went: it stays where it was, now over c. t3 moves back with c onto it, so it goes to a new
-     title track above; the sound effect moves back; the bed spans the cut and stays */
-  assert.deepEqual(after(m, plan), [[['t3', 2.5, 3.5]], [['t2', 2.5, 3.5]], [['a', 0, 2], ['c', 2, 4]], [['bed', 0, 9]], [['sfx', 2, 3]]]);
+  /* t2 rode on b, which went: it goes with it. t3 moves back with c; the sound effect moves back; the bed spans the
+     cut and stays */
+  assert.deepEqual(after(m, plan), [[['t3', 2.5, 3.5]], [['a', 0, 2], ['c', 2, 4]], [['bed', 0, 9]], [['sfx', 2, 3]]]);
   assert.equal(planRemove(m, ['b'], { ripple: true, sync: true }).shortMs, 1000);
+});
+
+test('with linkage what rides on a deleted main-track clip goes with it; a bed under several shots stays', () => {
+  const m = film([['ta', 0.5, 1.5], ['tb', 2.5, 3.5]], [['a', 0, 2], ['b', 2, 5], ['c', 5, 7]], [['bed', 0, 7]]);
+  assert.deepEqual(after(m, planRemove(m, ['b'], { ripple: 'main', ...LINK })), [[['ta', 0.5, 1.5]], [['a', 0, 2], ['c', 2, 4]], [['bed', 0, 7]]]);
+  /* without linkage the title stays */
+  assert.deepEqual(after(m, planRemove(m, ['b'], { ripple: 'main', sync: false }))[0], [['ta', 0.5, 1.5], ['tb', 2.5, 3.5]]);
 });
 
 test('linkage: a carried clip that runs into one that stayed goes to a free track above, else a new one', () => {
@@ -235,8 +241,8 @@ test('linkage: a carried clip that runs into one that stayed goes to a free trac
 
 test('with the magnet a delete closes up the main track only; titles leave a gap', () => {
   const m = film([['t1', 0, 1], ['t2', 1, 2], ['t3', 2, 3]], [['a', 0, 2], ['b', 2, 4], ['c', 4, 6]]);
-  const plan = planRemove(m, ['b', 't2'], { ripple: 'main', ...LINK });
-  /* the title track keeps its gap where t2 was; c closes up and carries nothing (t3 rode on b, which went) */
+  const plan = planRemove(m, ['b', 't2'], { ripple: 'main', sync: false });
+  /* the title track keeps its gap where t2 was; c closes up (without linkage nothing else moves) */
   assert.deepEqual(after(m, plan), [[['t1', 0, 1], ['t3', 2, 3]], [['a', 0, 2], ['c', 2, 4]]]);
 });
 
@@ -304,6 +310,21 @@ test('with the magnet a clip let go on another off the main track covers nothing
   const moved = planMove(across, { ids: ['y'], deltaMs: 0, pointerMs: 1000, to: new Map([['y', 0]]), mode: 'overwrite', magnet: true, ...LINK })!;
   assert.deepEqual(after(across, moved).flat().find(([id]) => id === 'x'), ['x', 1, 3]);
   assert.deepEqual(after(across, moved)[0], [['x', 1, 3]]);
+});
+
+test('clips moved together to new tracks keep their rows: a new track per track they came from', () => {
+  /* a title and a shot dragged above every track */
+  const m = model({ role: 'mg', clips: [['t', 1, 3]] }, { role: 'video', clips: [['a', 0, 4], ['b', 4, 8]] });
+  const up = planMove(m, { ids: ['t', 'b'], deltaMs: 0, pointerMs: 2000, to: new Map([['t', { insert: 0 }], ['b', { insert: 0 }]]), mode: 'overwrite', magnet: true, ...LINK })!;
+  /* two new tracks on top, the title's above the shot's; b's place on the main track closes up */
+  assert.deepEqual(after(m, up), [[['t', 1, 3]], [['b', 4, 8]], [['a', 0, 4]]]);
+  /* two clips of one track: one new track for both */
+  const two = model({ role: 'mg', clips: [['t1', 0, 1], ['t2', 2, 3]] }, { role: 'video', clips: [['a', 0, 4]] });
+  const both = planMove(two, { ids: ['t1', 't2'], deltaMs: 0, pointerMs: 500, to: new Map([['t1', { insert: 0 }], ['t2', { insert: 0 }]]), mode: 'overwrite', magnet: true, ...LINK })!;
+  assert.deepEqual(after(two, both), [[['t1', 0, 1], ['t2', 2, 3]], [['a', 0, 4]]]);
+  /* and below every track */
+  const down = planMove(m, { ids: ['t', 'b'], deltaMs: 0, pointerMs: 2000, to: new Map([['t', { insert: 2 }], ['b', { insert: 2 }]]), mode: 'overwrite', magnet: true, ...LINK })!;
+  assert.deepEqual(after(m, down), [[['a', 0, 4]], [['t', 1, 3]], [['b', 4, 8]]]);
 });
 
 test('with linkage closing a gap on the main track always closes it whole', () => {
@@ -501,17 +522,6 @@ test('a slip changes what a clip shows, not where or how long, inside its source
   assert.deepEqual(planEdges(still, [{ id: 'p', kind: 'slip' }], 1000).ops, []);
 });
 
-test('a slide moves a clip between its neighbors, which give and take the time', () => {
-  const m = model([['a', 0, 2, { sourceMs: 10_000 }], ['b', 2, 4], ['c', 4, 8, { inMs: 1000 }]]);
-  const plan = planEdges(m, slideMoves(m, ['b']), 500);
-  assert.deepEqual(after(m, plan), [[['a', 0, 2.5], ['b', 2.5, 4.5], ['c', 4.5, 8]]]);
-  /* left: as far as c has source before its in point */
-  assert.equal(planEdges(m, slideMoves(m, ['b']), -5000).deltaMs, -1000);
-  /* the sound linked to a neighbor keeps its picture's length */
-  const linked = model([['a', 0, 2, { link: 'a' }], ['b', 2, 4]], [['as', 0, 2, { link: 'a' }]]);
-  assert.deepEqual(after(linked, planEdges(linked, slideMoves(linked, ['b'], true), -500)), [[['a', 0, 1.5], ['b', 1.5, 3.5]], [['as', 0, 1.5]]]);
-});
-
 /* ── ripple trims ── */
 
 test('a ripple trim of the tail moves what follows, on every synced track', () => {
@@ -635,7 +645,6 @@ test('no plan makes two clips on a track overlap', () => {
     planMove(m, { ids: ['c'], deltaMs: -5000, pointerMs: 1000, mode: 'insert', sync: true }),
     planMove(m, { ids: ['a'], deltaMs: 4000, pointerMs: 5000, to: new Map([['a', 1]]), mode: 'insert', sync: false }),
     planRippleTrim(m, ['b'], 'end', 3000, { sync: true }),
-    planEdges(m, slideMoves(m, ['b']), -2000),
     planEdges(m, rollMoves(m, 'a', 'b', true), 2000),
     planSpeed(m, ['d'], 0.25, { ripple: true, sync: true }),
   ];
