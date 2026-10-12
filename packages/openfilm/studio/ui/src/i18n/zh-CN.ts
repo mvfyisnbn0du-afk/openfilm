@@ -707,7 +707,6 @@ export const zhCN: Words = {
     filter_audio: '音频',
     filter_page: '页面',
     filter_other: "其他",
-    importing: '正在导入 {n} 个文件… {p}%',
     dismiss: '关闭',
     emptyTitle: '还没有媒体',
     emptyBody: "导入视频、图片、声音或任何其他文件，或直接拖到这里。智能体在此项目中保存的任何内容也会显示在这里。",

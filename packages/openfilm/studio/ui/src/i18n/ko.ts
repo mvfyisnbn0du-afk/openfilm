@@ -706,7 +706,6 @@ export const ko: Words = {
     filter_audio: '오디오',
     filter_page: '페이지',
     filter_other: "기타",
-    importing: '파일 {n}개 가져오는 중… {p}%',
     dismiss: '닫기',
     emptyTitle: '아직 미디어가 없습니다',
     emptyBody: "비디오, 이미지, 사운드 등 어떤 파일이든 가져오거나 여기에 끌어다 놓으세요. 에이전트가 이 프로젝트에 저장한 것도 여기에 나타납니다.",

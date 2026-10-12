@@ -62,7 +62,7 @@ import { DEFAULT_INSPECTOR, DOCK_GAP, DockPaneDivider, MIN_DOCK_H, MIN_INSPECTOR
 import { PANE_BAR, PANE_BTN_ON, PANE_TOGGLE, PANE_TOGGLE_ICON } from './dock-pane-bar';
 import { Tooltip } from './Tooltip';
 import { UpdateButton } from './UpdateButton';
-import { MediaPool } from './MediaPool';
+import { MediaPool, type ImportProgress } from './MediaPool';
 import type { SubtitleRowSpec } from './SubtitleRow';
 import { LayersPanel } from './LayersPanel';
 import type { LayerRow } from '@/lib/layers-tree';
@@ -1548,19 +1548,31 @@ export function ProjectView({ projectId, onProject, onLeave }: {
   /* ── media pane actions ── */
   const projectApi = `/api/projects/${encodeURIComponent(projectId)}`;
   const mediaResult = async (res: Response): Promise<MediaResult> => (res.ok ? 'ok' : res.status === 409 ? 'taken' : 'failed');
-  /* resolves with where each file landed (a taken name gets a number); one that is no readable media is said at once */
-  const onImport = React.useCallback(async (files: File[], into: string, onProgress: (ratio: number) => void): Promise<string[]> => {
-    let done = 0;
+  /*
+   * resolves with where each file landed (a taken name gets a number); one that is no readable media is said at once.
+   * Each file's progress is its bytes sent (XMLHttpRequest: fetch cannot tell how much of a body has gone), then 1 and
+   * where it landed
+   */
+  const onImport = React.useCallback(async (files: File[], into: string, onProgress: ImportProgress): Promise<string[]> => {
     const landed: string[] = [];
-    for (const file of files) {
+    for (const [i, file] of files.entries()) {
       // eslint-disable-next-line no-await-in-loop
-      const res = await fetch(`${projectApi}/files?path=${encodeURIComponent(`${into}/${file.name}`)}`, { method: 'PUT', body: file });
-      // eslint-disable-next-line no-await-in-loop
-      const body = await res.json().catch(() => ({})) as { path?: string; error?: string; unreadable?: string };
-      if (!res.ok) throw new Error(String(body.error ?? t('assets.uploadFailed')));
+      const { ok, body } = await new Promise<{ ok: boolean; body: { path?: string; error?: string; unreadable?: string } }>((done) => {
+        const xhr = new XMLHttpRequest();
+        xhr.open('PUT', `${projectApi}/files?path=${encodeURIComponent(`${into}/${file.name}`)}`);
+        xhr.upload.onprogress = (e) => { if (e.lengthComputable && e.total > 0) onProgress(i, Math.min(0.99, e.loaded / e.total)); };
+        xhr.onload = () => {
+          let body = {};
+          try { body = JSON.parse(xhr.responseText); } catch { /* no answer to read */ }
+          done({ ok: xhr.status >= 200 && xhr.status < 300, body });
+        };
+        xhr.onerror = () => done({ ok: false, body: {} });
+        xhr.send(file);
+      });
+      if (!ok) throw new Error(String(body.error ?? t('assets.uploadFailed')));
       if (body.path) landed.push(body.path);
       if (body.unreadable) toast.show(t('assets.unreadable').replace('{name}', file.name).replace('{why}', body.unreadable));
-      onProgress(++done / files.length);
+      onProgress(i, 1, body.path);
     }
     return landed;
   }, [projectApi, t, toast]);

@@ -45,16 +45,18 @@ import {
   mediaNameMatches,
   renameChangesKind,
   renamedPath,
+  resourceKindOf,
   safeName,
   srcHitsAsset,
   type MediaListing,
   type MediaResult,
   type MediaSources,
   type WorkspaceResource,
+  type WorkspaceResourceKind,
 } from '@/lib/workspace-resources';
 import { ConfirmDialog } from './ConfirmDialog';
 import { ContextMenu, type ContextMenuEntry } from './ContextMenu';
-import { MediaPreview } from './MediaPreview';
+import { KIND_ICON, MediaPreview } from './MediaPreview';
 import { Tooltip } from './Tooltip';
 import { retryImage } from '@/lib/retry-image';
 import { boxBetween, boxHits, boxPick, moveTargets, pickItem, type Box } from '@/lib/media-selection';
@@ -93,6 +95,12 @@ function loadView(projectId: string): ViewState {
 
 type Item = { type: 'folder'; rel: string; name: string; count: number; covers: WorkspaceResource[] } | { type: 'file'; file: WorkspaceResource };
 
+/** An import's progress, per file (its index in the import): 0..1, and where it landed once it is in. */
+export type ImportProgress = (file: number, ratio: number, landed?: string) => void;
+/** A file on its way in: a card of its own in the folder it goes to, its progress inside, until the listing has it. */
+type Upload = { id: string; name: string; into: string; kind: WorkspaceResourceKind; ratio: number; preview?: string; landed?: string };
+let uploadSeq = 0;
+
 export interface MediaPoolProps {
   projectId: string;
   /** The project's media and pages; null while the first listing loads (the pane stays blank). */
@@ -104,10 +112,11 @@ export interface MediaPoolProps {
   selectedPath?: string | null;
   onSelectFile: (file: WorkspaceResource | null) => void;
   /**
-   * Import files from the computer into `folder` (project-relative: `assets` or `assets/<sub>`), reporting progress
-   * 0..1 over all of them. Reject with an Error whose message the pane shows (else "Upload failed, please retry").
+   * Import files from the computer into `folder` (project-relative: `assets` or `assets/<sub>`), reporting each file's
+   * progress 0..1 and, once it is in, where it landed. Reject with an Error whose message the pane shows (else "Upload
+   * failed, please retry").
    */
-  onImport: (files: File[], folder: string, onProgress: (ratio: number) => void) => Promise<unknown>;
+  onImport: (files: File[], folder: string, onProgress: ImportProgress) => Promise<unknown>;
   /** Rename or move a file or folder (project-relative `from` → `to`); its clips follow. */
   onMove: (from: string, to: string) => Promise<MediaResult>;
   /**
@@ -180,7 +189,7 @@ export function MediaPool({
   const [creating, setCreating] = React.useState(false);
   const [menu, setMenu] = React.useState<{ x: number; y: number; flipTo?: number; items: ContextMenuEntry[]; dense?: boolean } | null>(null);
   const [confirm, setConfirm] = React.useState<{ targets: { path: string; folder: boolean }[]; name: string } | null>(null);
-  const [importing, setImporting] = React.useState<{ count: number; ratio: number } | null>(null);
+  const [uploads, setUploads] = React.useState<Upload[]>([]);
   const [notice, setNotice] = React.useState<string | null>(null);
   const [dropTarget, setDropTarget] = React.useState<string | null>(null);
   const [osDrag, setOsDrag] = React.useState(false);
@@ -287,15 +296,51 @@ export function MediaPool({
   const importFiles = async (list: File[], intoRel = at) => {
     if (!list.length) return;
     setNotice(null);
-    setImporting({ count: list.length, ratio: 0 });
+    /* a card each, at once, where it goes: a picture shows itself while it is sent */
+    const batch: Upload[] = list.map((file) => {
+      const kind = resourceKindOf(file.name);
+      return { id: `upload-${++uploadSeq}`, name: file.name, into: intoRel, kind, ratio: 0, ...(kind === 'image' ? { preview: URL.createObjectURL(file) } : {}) };
+    });
+    setUploads((all) => [...all, ...batch]);
     try {
       /* into the open folder (the top of assets/ unless the person went into one), or the folder they were dropped on */
-      await onImport(list, folderPath(intoRel), (ratio) => setImporting({ count: list.length, ratio }));
+      await onImport(list, folderPath(intoRel), (i, ratio, landed) => {
+        const id = batch[i]?.id;
+        setUploads((all) => all.map((u) => (u.id === id ? { ...u, ratio, ...(landed ? { landed } : {}) } : u)));
+      });
     } catch (e) {
       setNotice(e instanceof Error && e.message ? e.message : t('assets.uploadFailed'));
-    } finally {
-      setImporting(null);
+      /* what did not get in goes; what did stays until the listing has it */
+      dropUploads((u) => batch.some((b) => b.id === u.id) && !u.landed);
     }
+  };
+  /** Take cards away (a picture's preview let go with them). */
+  const dropUploads = React.useCallback((gone: (u: Upload) => boolean) => {
+    setUploads((all) => {
+      if (!all.some(gone)) return all;
+      for (const u of all) if (gone(u) && u.preview) URL.revokeObjectURL(u.preview);
+      return all.filter((u) => !gone(u));
+    });
+  }, []);
+  /* a card gives way to the file once the listing has it (or a while after it landed, if it never shows here) */
+  React.useEffect(() => {
+    if (!media) return;
+    const have = new Set(media.files.map((f) => f.path));
+    dropUploads((u) => Boolean(u.landed && have.has(u.landed)));
+  }, [media, dropUploads]);
+  const landedCount = uploads.filter((u) => u.landed).length;
+  React.useEffect(() => {
+    if (!landedCount) return undefined;
+    const timer = window.setTimeout(() => dropUploads((u) => Boolean(u.landed)), 5000);
+    return () => window.clearTimeout(timer);
+  }, [landedCount, dropUploads]);
+  const uploadsRef = React.useRef(uploads);
+  uploadsRef.current = uploads;
+  React.useEffect(() => () => { for (const u of uploadsRef.current) if (u.preview) URL.revokeObjectURL(u.preview); }, []);
+  /** Files on their way into a folder or one inside it: their progress together, for its cover. */
+  const progressInto = (rel: string) => {
+    const going = uploads.filter((u) => u.into === rel || u.into.startsWith(`${rel}/`));
+    return going.length ? going.reduce((sum, u) => sum + u.ratio, 0) / going.length : undefined;
   };
 
   /* read when a move or rename settles: the file picked may have changed while it was on its way */
@@ -480,7 +525,7 @@ export function MediaPool({
     const grid = e.currentTarget;
     const r0 = grid.getBoundingClientRect();
     if (e.button !== 0 || e.clientX - r0.left >= grid.clientWidth) return;
-    if ((e.target as Element).closest('[data-media-path], [data-media-folder], [data-media-new-folder], button, input')) return;
+    if ((e.target as Element).closest('[data-media-path], [data-media-folder], [data-media-new-folder], [data-media-upload], button, input')) return;
     /* no text selected as it goes; the keys are the pane's */
     e.preventDefault();
     grid.focus({ preventScroll: true });
@@ -739,14 +784,6 @@ export function MediaPool({
         )}
       </div>
 
-      {importing ? (
-        <div className="mx-2.5 mb-2 shrink-0">
-          <div className="mb-1 text-[11.5px] text-[var(--text-muted)]">
-            {t('media.importing').replace('{n}', String(importing.count)).replace('{p}', String(Math.round(importing.ratio * 100)))}
-          </div>
-          <div className="h-1 overflow-hidden rounded bg-[var(--bg-hover)]"><div className="h-full bg-[var(--accent)] transition-[width]" style={{ width: `${Math.round(importing.ratio * 100)}%` }} /></div>
-        </div>
-      ) : null}
       {notice ? (
         <div className="mx-2.5 mb-2 flex shrink-0 items-start gap-2 rounded-md bg-[var(--bg-hover)] px-2 py-1.5 text-[12px] text-[var(--text-muted)]">
           <span className="min-w-0 flex-1">{notice}</span>
@@ -770,7 +807,7 @@ export function MediaPool({
           <div className="pointer-events-none absolute z-20 rounded-[2px] border border-[var(--accent)] bg-[color-mix(in_srgb,var(--accent)_14%,transparent)]"
             style={{ left: marquee.left, top: marquee.top, width: marquee.right - marquee.left, height: marquee.bottom - marquee.top }} />
         ) : null}
-        {items && !items.length && !creating ? (
+        {items && !items.length && !creating && !(flat ? [] : uploads.filter((u) => u.into === at)).length ? (
           flat ? <p className="px-1 pt-6 text-center text-[12px] text-[var(--text-muted)]">{t('media.noMatch')}</p> : (
             <div className="flex h-full flex-col items-center justify-center gap-2 px-4 text-center">
               <Clapperboard size={22} className="text-[var(--text-faint)]" />
@@ -804,6 +841,7 @@ export function MediaPool({
                 name={item.name}
                 count={item.count}
                 covers={item.covers}
+                progress={progressInto(item.rel)}
                 sources={sources}
                 pickKey={`${root}/${item.rel}`}
                 selected={chosen.includes(`${root}/${item.rel}`)}
@@ -837,6 +875,7 @@ export function MediaPool({
                 onCancelRename={() => setRenaming(null)}
               />
             ))}
+            {flat ? null : uploads.filter((u) => u.into === at).map((u) => <UploadTile key={u.id} upload={u} row={rows} />)}
           </div>
         )}
       </div>
@@ -943,6 +982,8 @@ function FolderGlyph({ open }: { open?: boolean }) {
  */
 function FolderTile(p: {
   name: string; count: number; covers: readonly WorkspaceResource[]; sources: MediaSources;
+  /** Files on their way into it: their progress together, a bar along its cover. */
+  progress?: number | undefined;
   /** Its key in what is picked (its path). */
   pickKey: string;
   selected: boolean; target: boolean; renaming: boolean;
@@ -964,6 +1005,7 @@ function FolderTile(p: {
           <span className="pointer-events-none absolute inset-0 flex items-center justify-center">
             {p.target ? <FolderOpen size={15} className="text-[var(--accent)]" /> : <Folder size={15} className="text-[var(--text-muted)]" />}
           </span>
+          {p.progress != null ? <UploadBar ratio={p.progress} /> : null}
         </span>
         <span className="min-w-0 flex-1">
           {p.renaming ? <NameInput value={p.name} onDone={p.onRename} onCancel={p.onCancelRename} />
@@ -995,6 +1037,7 @@ function FolderTile(p: {
             </div>
           ) : <FolderGlyph open={p.target} />}
           <span className="pointer-events-none absolute inset-x-0 bottom-0 h-1/2 bg-gradient-to-t from-black/55 to-transparent" />
+          {p.progress != null ? <UploadBar ratio={p.progress} /> : null}
           <span className="pointer-events-none absolute bottom-1 left-1.5 flex items-center gap-1 text-[10.5px] font-medium text-white/90">
             {p.target ? <FolderOpen size={11} /> : <Folder size={11} />}
             <span className="tabular-nums">{p.count ? String(p.count) : ''}</span>
@@ -1110,6 +1153,47 @@ function FileTile(p: {
         {p.where ? <div className="truncate text-left text-[11px] text-[var(--text-faint)]" dir="rtl"><bdi>{p.where}</bdi></div> : null}
       </div>
       </>}
+    </div>
+  );
+}
+
+/** How much of a file is in: a bar along the bottom of its card. */
+function UploadBar({ ratio }: { ratio: number }) {
+  return (
+    <span className="pointer-events-none absolute inset-x-0 bottom-0 z-10 h-1 bg-black/35">
+      <span className="block h-full bg-[var(--accent)] transition-[width] duration-200" style={{ width: `${Math.round(ratio * 100)}%` }} />
+    </span>
+  );
+}
+
+/** A file on its way in, where it will be: a picture shows itself, anything else its icon; its progress inside. */
+function UploadTile({ upload, row }: { upload: Upload; row: boolean }) {
+  const pct = `${Math.round(upload.ratio * 100)}%`;
+  const Icon = KIND_ICON[upload.kind];
+  const picture = upload.preview
+    ? <img src={upload.preview} alt="" className="absolute inset-0 h-full w-full object-contain opacity-45" />
+    : <span className="absolute inset-0 flex items-center justify-center"><Icon size={row ? 14 : 24} className="text-[var(--text-faint)]" /></span>;
+  if (row) {
+    return (
+      <div className={ROW} data-media-upload="">
+        <span className={ROW_THUMB}>{picture}<UploadBar ratio={upload.ratio} /></span>
+        <span className="block min-w-0 flex-1 truncate text-[12.5px] text-[var(--text-muted)]" style={KEEP_SPACES}>{upload.name}</span>
+        <span className={COL_DUR}>{pct}</span>
+      </div>
+    );
+  }
+  return (
+    <div className="min-w-0 cursor-default select-none" data-media-upload="">
+      <div className="pt-[7px]">
+        <div className={`${TILE_BOX} bg-[var(--bg-hover)] ring-transparent`}>
+          {picture}
+          <span className="absolute inset-0 flex items-center justify-center text-[12px] font-medium tabular-nums text-white [text-shadow:0_1px_3px_rgba(0,0,0,0.7)]">{pct}</span>
+          <UploadBar ratio={upload.ratio} />
+        </div>
+      </div>
+      <div className="mt-1 min-w-0 px-0.5">
+        <div className="truncate text-[12px] text-[var(--text-muted)]" style={KEEP_SPACES}>{upload.name}</div>
+      </div>
     </div>
   );
 }

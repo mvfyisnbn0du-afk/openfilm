@@ -707,7 +707,6 @@ export const en = {
     filter_audio: 'Audio',
     filter_page: 'Pages',
     filter_other: "Other",
-    importing: 'Importing {n} file(s)… {p}%',
     dismiss: 'Dismiss',
     emptyTitle: 'No media yet',
     emptyBody: "Import video, images, sound or any other file, or drop them here. Whatever your agent saves in this project shows up here too.",

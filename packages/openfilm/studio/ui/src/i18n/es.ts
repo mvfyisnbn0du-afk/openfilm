@@ -706,7 +706,6 @@ export const es: Words = {
     filter_audio: 'Audio',
     filter_page: 'Páginas',
     filter_other: "Otros",
-    importing: 'Importando {n} archivo(s)… {p} %',
     dismiss: 'Descartar',
     emptyTitle: 'Aún no hay medios',
     emptyBody: "Importa video, imágenes, sonido o cualquier otro archivo, o suéltalos aquí. Todo lo que tu agente guarde en este proyecto también aparece aquí.",

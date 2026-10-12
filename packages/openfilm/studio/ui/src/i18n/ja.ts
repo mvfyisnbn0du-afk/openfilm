@@ -706,7 +706,6 @@ export const ja: Words = {
     filter_audio: 'オーディオ',
     filter_page: 'ページ',
     filter_other: "その他",
-    importing: '{n} 個のファイルを読み込み中… {p}%',
     dismiss: '閉じる',
     emptyTitle: 'メディアはまだありません',
     emptyBody: "ビデオ、画像、サウンドなど、どんなファイルでも読み込むか、ここにドロップしてください。エージェントがこのプロジェクトに保存したものもここに表示されます。",
