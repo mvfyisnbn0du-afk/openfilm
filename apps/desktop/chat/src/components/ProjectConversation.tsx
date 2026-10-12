@@ -416,13 +416,11 @@ const ConversationTurn = React.memo(function ConversationTurn({
       {settled && developer && entry.filmChanges?.length ? <FilmChangesList changes={entry.filmChanges} /> : null}
 
       {/* Still running: one status line, always one line high, only its text changes (see StatusLine), and the
-          footer beside it on hover (its Log is the turn so far). Done, the footer alone. Always there, in one place
+          footer under it on hover (its Log is the turn so far). Done, the footer alone. Always there, in one place
           in the tree: a log opened from it stays open as the turn finishes. An interruption doesn't
           show Failed here: the reason and Resume appear above the composer, as in Cursor. */}
-      <div className={running ? 'flex h-6 min-w-0 items-center gap-3' : 'contents'}>
-        {running ? <div className="min-w-0 flex-1"><StatusLine items={rows ?? NO_ROWS} fallback={liveActivity} /></div> : null}
-        <TurnFooter entry={entry} items={items} running={running} />
-      </div>
+      {running ? <StatusLine items={rows ?? NO_ROWS} fallback={liveActivity} /> : null}
+      <TurnFooter entry={entry} items={items} running={running} />
       </div>
     </div>
   );
@@ -831,7 +829,7 @@ function CopyButton({ text }: { text: string }) {
 
 /**
  * The line under a reply: copy, who answered (icon only) · the model · how long ago, and how it stopped if it
- * didn't finish normally. While it runs, beside the status line: copy what it said so far, its log so far, who.
+ * didn't finish normally. While it runs, under the status line: copy what it said so far, its log so far, who.
  *
  * Several agents can answer in one project and their replies look alike, so the footer says which one. A stopped
  * turn says so, or a reply cut short leaves the reader unsure whether it finished, broke or was stopped.
@@ -860,7 +858,7 @@ function TurnFooter({ entry, items, running = false }: { entry: ProjectVersion; 
 
   return (
     /* -mt-1.5: the footer belongs to the reply above it — close to it, not a row of its own */
-    <div className={`${running ? 'max-w-[45%] shrink-0' : '-mt-1.5'} flex h-6 min-w-0 items-center gap-1.5 text-[11.5px] text-[var(--chat-hint)] group-hover/reply:opacity-100 ${HOVER_LINE}`}>
+    <div className={`-mt-1.5 flex h-6 min-w-0 items-center gap-1.5 text-[11.5px] text-[var(--chat-hint)] group-hover/reply:opacity-100 ${HOVER_LINE}`}>
       {answer ? <CopyButton text={answer} /> : null}
       {/* developer mode (Settings → Developer): the turn as it happened, every event; while it runs, as it goes */}
       {developer && project && !isPendingAssetId(entry.assetId) ? <TurnLogButton project={project} turnId={entry.assetId} live={running} /> : null}
