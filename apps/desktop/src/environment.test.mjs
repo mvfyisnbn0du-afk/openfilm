@@ -86,8 +86,8 @@ test("the agents get all the person's shell sets, but what the shell and its ter
     PATH: '/opt/homebrew/bin:/usr/bin', ANTHROPIC_BASE_URL: 'https://gateway.example', GITHUB_TOKEN: 't', NODE_EXTRA_CA_CERTS: '/ca.pem',
     HTTPS_PROXY: 'http://proxy', PWD: '/x', SHLVL: '2', _: '/usr/bin/env', TERM_PROGRAM: 'iTerm.app', ELECTRON_RUN_AS_NODE: '1', OPENFILM_HOME: '/o',
   };
-  const all = shellVariables(dump, '/home/me');
+  const all = shellVariables(dump, '/home/me/');
   assert.deepEqual(Object.keys(all).sort(), ['ANTHROPIC_BASE_URL', 'GITHUB_TOKEN', 'HTTPS_PROXY', 'NODE_EXTRA_CA_CERTS', 'PATH']);
   assert.ok(all.PATH.startsWith('/opt/homebrew/bin:/usr/bin'));
-  assert.deepEqual(Object.keys(shellSubset(all, '/home/me')).sort(), ['HTTPS_PROXY', 'PATH']);
+  assert.deepEqual(Object.keys(shellSubset(all, '/home/me/')).sort(), ['HTTPS_PROXY', 'PATH']);
 });
