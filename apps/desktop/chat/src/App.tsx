@@ -229,6 +229,8 @@ function ChatPane({ project, banners, selection, assetsOpen }: { project: Projec
 
   /* ── the composer ── */
   const thread = useStickToBottom();
+  /* scrolled away from the conversation's start: what passes under the session bar fades into it */
+  const [scrolled, setScrolled] = React.useState(false);
   const tail = useTailSpacer(thread.viewport, thread.pinIfFollowing, active);
   const composerRef = React.useRef<PromptEditorHandle>(null);
   /* the composer and what stands on it (a question, a permission): its height, with the 6 px under the pane, is all
@@ -787,9 +789,11 @@ function ChatPane({ project, banners, selection, assetsOpen }: { project: Projec
                   busy={active}
                 />
                 <div className="relative flex min-h-0 min-w-0 flex-1 flex-col">
+                  {/* the first message well below the session bar, as a chat app opens a conversation */}
                   <div
                     ref={thread.viewportRef}
-                    className={`flex min-h-0 min-w-0 flex-1 flex-col overflow-y-auto overflow-x-hidden [overflow-anchor:none] [scrollbar-gutter:stable] px-4 pt-3.5${blank ? ' justify-center pb-3.5' : ' pb-10'}`}
+                    onScroll={(event) => setScrolled(event.currentTarget.scrollTop > 2)}
+                    className={`flex min-h-0 min-w-0 flex-1 flex-col overflow-y-auto overflow-x-hidden [overflow-anchor:none] [scrollbar-gutter:stable] px-4${blank ? ' justify-center py-3.5' : ' pt-8 pb-10'}`}
                   >
                     {blank ? (
                       <div ref={thread.contentRef}>
@@ -813,6 +817,7 @@ function ChatPane({ project, banners, selection, assetsOpen }: { project: Projec
                       </div>
                     )}
                   </div>
+                  <div aria-hidden className={`pointer-events-none absolute inset-x-0 top-0 h-6 bg-gradient-to-b from-[var(--dock-pane)] to-transparent transition-opacity duration-150 ${scrolled && !blank ? 'opacity-100' : 'opacity-0'}`} />
                   <div aria-hidden className="pointer-events-none absolute inset-x-0 bottom-0 h-8 bg-gradient-to-t from-[var(--dock-pane)] to-transparent" />
                   {!blank && !thread.atBottom && (
                     <button
