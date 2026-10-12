@@ -12,7 +12,7 @@ export type MenuChoice = { value: string; label: string };
 export type MenuGroup = { label?: string; choices: MenuChoice[] };
 
 export function MenuSelect({
-  label, value, groups, onPick, disabled = false, className = '', size = 'sm',
+  label, value, groups, onPick, disabled = false, className = '', size = 'sm', prefix,
 }: {
   /** what it chooses, for screen readers (the field shows the choice) */
   label: string;
@@ -23,6 +23,8 @@ export function MenuSelect({
   className?: string;
   /** `sm`: the inspector's fields; `md`: a dialog's (the export's) */
   size?: 'sm' | 'md';
+  /** A word before the choice (Blend), as the inspector's other fields have their mark. */
+  prefix?: string;
 }) {
   const [open, setOpen] = React.useState(false);
   const [width, setWidth] = React.useState(0);
@@ -84,6 +86,7 @@ export function MenuSelect({
         onKeyDown={onKeyDown}
         className={`flex min-w-0 flex-1 items-center gap-1.5 border border-[var(--border)] bg-[var(--fill-tsp)] text-left text-[var(--text)] ${size === 'md' ? 'h-9 rounded-lg pl-3 pr-2 text-[13px]' : 'h-7 rounded-md pl-2 pr-1.5 text-[11px]'} outline-none transition hover:border-[var(--text-faint)] focus-visible:border-[var(--accent)] disabled:opacity-50 ${open ? 'border-[var(--accent)]' : ''} ${className}`}
       >
+        {prefix ? <span className="shrink-0 whitespace-nowrap text-[10.5px] text-[var(--text-faint)]">{prefix}</span> : null}
         <span className="min-w-0 flex-1 truncate">{current?.label ?? value}</span>
         <ChevronDown size={12} aria-hidden className={`shrink-0 text-[var(--text-faint)] transition-transform ${open ? 'rotate-180' : ''}`} />
       </button>

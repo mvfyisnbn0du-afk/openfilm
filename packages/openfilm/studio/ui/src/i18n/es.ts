@@ -335,6 +335,8 @@ export const es: Words = {
     range: 'Intervalo',
     rangeAll: 'Película completa',
     rangePart: 'Una parte',
+    rangeFrom: 'Desde',
+    rangeTo: 'Hasta',
     saveTo: 'Guardar en',
     change: 'Cambiar…',
     pickTitle: 'Elige dónde guardar las exportaciones',

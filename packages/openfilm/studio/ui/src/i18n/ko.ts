@@ -335,6 +335,8 @@ export const ko: Words = {
     range: '범위',
     rangeAll: '영상 전체',
     rangePart: '일부 구간',
+    rangeFrom: '시작',
+    rangeTo: '끝',
     saveTo: '저장 위치',
     change: '변경…',
     pickTitle: '내보내기 저장 위치 선택',

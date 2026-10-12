@@ -336,6 +336,8 @@ export const zhCN: Words = {
     range: '范围',
     rangeAll: '整部影片',
     rangePart: '部分',
+    rangeFrom: '起点',
+    rangeTo: '终点',
     saveTo: '保存到',
     change: '更改…',
     pickTitle: '选择导出的保存位置',

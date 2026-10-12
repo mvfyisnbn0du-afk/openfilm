@@ -335,6 +335,8 @@ export const ja: Words = {
     range: '範囲',
     rangeAll: '映像全体',
     rangePart: '一部',
+    rangeFrom: '開始',
+    rangeTo: '終了',
     saveTo: '保存先',
     change: '変更…',
     pickTitle: '書き出しの保存先を選択',

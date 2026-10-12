@@ -336,6 +336,8 @@ export const en = {
     range: 'Range',
     rangeAll: 'Whole film',
     rangePart: 'A part',
+    rangeFrom: 'From',
+    rangeTo: 'To',
     saveTo: 'Save to',
     change: 'Change…',
     pickTitle: 'Choose where to save exports',

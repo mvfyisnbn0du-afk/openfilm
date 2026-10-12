@@ -1031,28 +1031,28 @@ export function ExportCenter(props: ExportCenterProps) {
                   />
                   {range.on && (
                     <div className="mt-2 flex flex-wrap items-center gap-2 text-[12px] text-[var(--text-muted)]">
-                      <select
-                        value={range.from}
-                        onChange={(e) => {
-                          const from = Number(e.target.value);
-                          setRange((r) => ({ ...r, from, to: r.to > from ? r.to : (boundaries.ends.find((m) => m.ms > from)?.ms ?? totalMs) }));
-                        }}
-                        className="h-8 max-w-[220px] rounded-lg border border-[var(--border)] bg-[var(--bg)] px-2 text-[12px] text-[var(--text)]"
-                      >
-                        {boundaries.starts.map((m) => (
-                          <option key={`f${m.ms}`} value={m.ms}>{[formatFilmTime(m.ms), m.title].filter(Boolean).join(' · ')}</option>
-                        ))}
-                      </select>
+                      <div className="flex w-[220px] min-w-0">
+                        <MenuSelect
+                          label={t('exportCenter.rangeFrom')}
+                          size="md"
+                          value={String(range.from)}
+                          groups={[{ choices: boundaries.starts.map((m) => ({ value: String(m.ms), label: [formatFilmTime(m.ms), m.title].filter(Boolean).join(' · ') })) }]}
+                          onPick={(v) => {
+                            const from = Number(v);
+                            setRange((r) => ({ ...r, from, to: r.to > from ? r.to : (boundaries.ends.find((m) => m.ms > from)?.ms ?? totalMs) }));
+                          }}
+                        />
+                      </div>
                       <span>→</span>
-                      <select
-                        value={range.to}
-                        onChange={(e) => setRange((r) => ({ ...r, to: Number(e.target.value) }))}
-                        className="h-8 max-w-[220px] rounded-lg border border-[var(--border)] bg-[var(--bg)] px-2 text-[12px] text-[var(--text)]"
-                      >
-                        {boundaries.ends.filter((m) => m.ms > range.from).map((m) => (
-                          <option key={`t${m.ms}`} value={m.ms}>{[formatFilmTime(m.ms), m.title].filter(Boolean).join(' · ')}</option>
-                        ))}
-                      </select>
+                      <div className="flex w-[220px] min-w-0">
+                        <MenuSelect
+                          label={t('exportCenter.rangeTo')}
+                          size="md"
+                          value={String(range.to)}
+                          groups={[{ choices: boundaries.ends.filter((m) => m.ms > range.from).map((m) => ({ value: String(m.ms), label: [formatFilmTime(m.ms), m.title].filter(Boolean).join(' · ') })) }]}
+                          onPick={(v) => setRange((r) => ({ ...r, to: Number(v) }))}
+                        />
+                      </div>
                       <span className="tabular-nums">{formatFilmTime(rangeMs)}</span>
                     </div>
                   )}

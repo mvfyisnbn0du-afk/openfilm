@@ -20,6 +20,7 @@ import { metricCss, parseMetric, showMetric, stepMetric, type Metric, type Metri
 import { Tooltip } from './Tooltip';
 import { Popover } from './Popover';
 import { ColorPicker } from './ColorPicker';
+import { MenuSelect } from './MenuSelect';
 
 /* ───────────────────────────── skin ───────────────────────────── */
 
@@ -651,31 +652,19 @@ export function SelectField({
 }) {
   const t = useT();
   const current = value === MIXED ? '' : value;
+  /* several things with different values, or a value the list does not have: shown first, as it is */
+  const extra = options.some((opt) => opt.value === current) ? [] : [{ value: current, label: value === MIXED ? t('inspector.mixed') : current === '' ? '—' : current }];
   return (
     <Tooltip label={label}>
-      <div className={FIELD}>
-        {prefix ? <span className="shrink-0 whitespace-nowrap pl-2 pr-1 text-[10.5px] text-[var(--text-faint)]">{prefix}</span> : null}
-        <select
-          aria-label={label}
+      <div className="flex min-w-0 flex-1">
+        {/* Studio's own menu, not the browser's list: that one is drawn by the system, light in a dark Studio */}
+        <MenuSelect
+          label={label}
+          prefix={prefix}
           value={current}
-          onChange={(e) => {
-            if (e.target.value === '' || e.target.value === current) return;
-            onCommit(e.target.value);
-            /* hand focus back once picked: a focused select takes Space, ⌘Z and Delete as typing */
-            e.currentTarget.blur();
-          }}
-          className={`${INPUT} cursor-pointer appearance-none bg-[length:9px] bg-[right_8px_center] bg-no-repeat ${prefix ? 'pl-0' : 'pl-2'} pr-6`}
-          style={{
-            backgroundImage: 'url("data:image/svg+xml,%3Csvg xmlns=\'http://www.w3.org/2000/svg\' viewBox=\'0 0 10 6\'%3E%3Cpath d=\'M1 1l4 4 4-4\' fill=\'none\' stroke=\'%23999\' stroke-width=\'1.4\' stroke-linecap=\'round\' stroke-linejoin=\'round\'/%3E%3C/svg%3E")',
-          }}
-        >
-          {!options.some((opt) => opt.value === current) ? (
-            <option value={current}>{value === MIXED ? t('inspector.mixed') : current === '' ? '—' : current}</option>
-          ) : null}
-          {options.map((opt) => (
-            <option key={opt.value} value={opt.value}>{opt.label}</option>
-          ))}
-        </select>
+          groups={[{ choices: [...extra, ...options] }]}
+          onPick={(next) => { if (next !== '' && next !== current) onCommit(next); }}
+        />
       </div>
     </Tooltip>
   );
