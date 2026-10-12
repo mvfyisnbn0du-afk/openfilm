@@ -100,6 +100,10 @@ const staleBucket = (timeMs: number): number => Math.round(timeMs / STALE_BUCKET
 /* the key a region is drawn with: ⌘ on a Mac (its Ctrl-click is a right click), Ctrl elsewhere */
 const MAC = typeof navigator !== 'undefined' && /Mac|iPhone|iPad/.test(navigator.platform);
 const REGION_KEY = MAC ? 'Meta' : 'Control';
+/** What a press is read for: the overlay's own, or one on the dark around the picture. */
+type PressEvent = Pick<PointerEvent, 'button' | 'timeStamp' | 'pointerId' | 'target' | 'clientX' | 'clientY' | 'shiftKey' | 'altKey' | 'metaKey' | 'ctrlKey' | 'stopPropagation'>;
+/** Controls in the viewer's picture area: a press on one is theirs. */
+const CONTROLS = 'button, a, input, textarea, select, [role="button"], [role="slider"], [role="menu"], [contenteditable="true"]';
 const regionKeyHeld = (e: { metaKey: boolean; ctrlKey: boolean }) => (MAC ? e.metaKey : e.ctrlKey);
 /** ⌘A (Ctrl+A elsewhere): every layer on the picture, as Figma selects all. */
 const isSelectAll = (e: KeyLike) => isSelectAllKey(e, MAC);
@@ -2416,6 +2420,250 @@ function FilmStageSelectImpl({
   } : null;
   const barLabel = barKind === 'layers' ? t('selectionBar.layers').replace('{n}', String(multi?.length ?? 0)) : undefined;
 
+  /**
+   * A press: on the picture, or on the dark around it (a marquee starts there too, as on Figma's canvas, so what sits
+   * at an edge can be boxed whole). The moves and the release then come to the overlay, which holds the pointer.
+   */
+  const pressDown = (e: PressEvent) => {
+      if (e.button !== 0) return;
+      e.stopPropagation();
+      /* pause at the press, not the release: a clock still running would move the selection off under the hand */
+      onPause?.();
+      const p = local(e);
+      /* the first press of a double-click is kept: the second one lands where the picture has moved to */
+      const prev = lastPressRef.current;
+      if (!prev || e.timeStamp - prev.at > DOUBLE_PRESS_MS) lastPressRef.current = { x: p.x / viewScaleNow(), y: p.y / viewScaleNow(), at: e.timeStamp };
+      /* ⌘ held: a box to point at in the chat, whatever is under the press (nothing is selected or moved) */
+      if (onRegion && regionKeyHeld(e)) {
+        host.current?.setPointerCapture(e.pointerId);
+        regionDraftRef.current = { x1: p.x, y1: p.y, x2: p.x, y2: p.y };
+        setRegionDraft(regionDraftRef.current);
+        setHover(null);
+        return;
+      }
+      measureAt(null);
+      const vs = viewScaleNow();
+      const stagePt = { x: p.x / vs, y: p.y / vs };
+      const target = e.target as HTMLElement | null;
+      /* cropping: the crop's handles move its edges, a press inside it pans; a press elsewhere keeps the crop */
+      const crop = cropRef.current;
+      if (crop) {
+        const part = target?.closest('[data-crop-kind]');
+        const kind = part?.getAttribute('data-crop-kind');
+        if (kind === 'move' || kind === 'scale' || kind === 'stretch') {
+          cropDrag.current = {
+            kind,
+            handle: HANDLE_AT[part?.getAttribute('data-crop-handle') ?? ''] ?? { hx: 0, hy: 0 },
+            start: stagePt,
+            rect0: crop.rect,
+            pos0: crop.pos,
+          };
+          setDragging(true);
+          host.current?.setPointerCapture(e.pointerId);
+        } else {
+          finishCrop(true);
+        }
+        return;
+      }
+      const handle = target?.closest('[data-mg-handle]:not([data-mg-kind="move"])') as HTMLElement | null;
+      const moveClip = target?.closest('[data-mg-kind="move"]');
+      const outer = pickedRef.current?.element;
+      const origin = liveTRef.current ?? outer?.transform;
+      const currentTarget = host.current!;
+      const pointerId = e.pointerId;
+      ++pressSeq.current;
+      pressGo.current = Promise.resolve(true);
+      const startGesture = (g: Omit<NonNullable<typeof gestureRef.current>, 'snapTargets'>) => {
+        if (clipNudge.current) flushClipNudge();
+        const gesture = { ...g, snapTargets: [{ x: 0, y: 0, w: stage.w, h: stage.h }] };
+        gestureRef.current = gesture;
+        /* counted once at the press, and only a move or a scale uses them: the stage first (it wins ties), then the
+           part of each clip on screen now that shows */
+        if (g.kind !== 'rotate') {
+          void ask<{ id: string; visible: boolean; x: number; y: number; w: number; h: number }[]>('clips').then((list) => {
+            if (gestureRef.current !== gesture || !list) return;
+            gesture.snapTargets = [gesture.snapTargets[0]!, ...list.filter((c) => c.visible && c.id !== g.clipId).map(shownBoxOf)];
+          });
+        }
+        liveTRef.current = g.origin;
+        setLiveT(g.origin);
+        /* a handle has no "maybe a click": pressed is dragging */
+        if (!g.pendingClick) setDragging(true);
+        currentTarget.setPointerCapture(pointerId);
+      };
+      const outerCrop = outer?.isMgOuter && outer.clipLoc ? infoOf(outer.clipLoc)?.crop ?? NO_CROP : NO_CROP;
+      const stretchable = outer?.clipKind === 'video';
+      if (onEditClip && handle && outer?.isMgOuter && outer.clipLoc && outer.clipId && outer.mgBox && origin && !lockedClip(outer.clipLoc)) {
+        const kind = handle.getAttribute('data-mg-kind');
+        const at = HANDLE_AT[handle.getAttribute('data-mg-handle') ?? ''];
+        startGesture({
+          kind: kind === 'rotate' ? 'rotate' : 'scale',
+          ...(kind !== 'rotate' && at ? { handle: at } : {}),
+          stretchable,
+          start: stagePt,
+          origin,
+          box: outer.mgBox,
+          crop: outerCrop,
+          clipLoc: outer.clipLoc,
+          clipId: outer.clipId,
+        });
+        return;
+      }
+      /*
+       * A press inside the clip in hand moves it. Only the clip in hand: if a press on any clip started a drag,
+       * every drag would move something and the marquee would never happen (and a move is a real edit).
+       */
+      if (onEditClip && outer?.isMgOuter && outer.clipLoc && outer.clipId && outer.mgBox && origin && !lockedClip(outer.clipLoc)
+        && (moveClip || insideFrame(visibleFrame(origin, outer.mgBox, outerCrop), stagePt.x, stagePt.y))) {
+        startGesture({
+          kind: 'move',
+          stretchable,
+          pendingClick: true,
+          start: stagePt,
+          origin,
+          box: outer.mgBox,
+          crop: outerCrop,
+          clipLoc: outer.clipLoc,
+          clipId: outer.clipId,
+          hit: { x: p.x, y: p.y },
+        });
+        return;
+      }
+      /* several clips selected: a press on one of them drags them all, as Figma moves a selection (Shift: a marquee
+         that adds to them instead) */
+      const linkedNow = linkedLocs ?? [];
+      const groupHit = target?.closest('[data-group-kind]') as HTMLElement | null;
+      if (linkedNow.length > 1 && groupBox && onEditClip && !e.shiftKey && !linkedNow.some((loc) => lockedClip(loc))
+        && (groupHit || insideBox(groupBox, stagePt.x, stagePt.y))) {
+        const items = linkedNow.flatMap((loc) => {
+          const info = infoOf(loc);
+          return info?.box ? [{ loc, id: info.id, t0: info.t, box: info.box }] : [];
+        });
+        const kind = groupHit?.getAttribute('data-group-kind');
+        const handle = kind === 'scale' || kind === 'stretch' || kind === 'rotate' ? groupHit!.getAttribute('data-group-handle') : null;
+        const g = groupBox;
+        const mid = { x: g.left + g.width / 2, y: g.top + g.height / 2 };
+        /* a corner or an edge's middle, on the side pulled (`far`: the opposite one, which stays) */
+        const at = (h: string, far: boolean) => ({
+          x: h.includes('e') || h.includes('w') ? g.left + (h.includes('e') !== far ? g.width : 0) : mid.x,
+          y: h.includes('n') || h.includes('s') ? g.top + (h.includes('s') !== far ? g.height : 0) : mid.y,
+        });
+        const turning = kind === 'rotate';
+        clipsDrag.current = {
+          kind: turning ? 'rotate' : handle ? 'scale' : 'move', handle: turning ? null : handle,
+          x: p.x, y: p.y, moved: false, items, dx: 0, dy: 0, kx: 1, ky: 1, turn: 0, box0: g,
+          anchor: turning ? mid : handle ? at(handle, true) : { x: 0, y: 0 },
+          from: handle && !turning ? at(handle, false) : { x: 0, y: 0 },
+          a0: Math.atan2(stagePt.y - mid.y, stagePt.x - mid.x),
+        };
+        currentTarget.setPointerCapture(pointerId);
+        return;
+      }
+      /* several selected: a press inside their box drags them all (Shift adds / takes away instead) */
+      const many = multiRef.current;
+      const held0 = pickedRef.current;
+      if (many && held0 && !e.shiftKey && onTransformLayers && !many.some((it) => lockedClip(it.element.clipLoc)) && insideBox(scaleBox(held0.rect, vs), p.x, p.y)) {
+        multiDrag.current = { x: p.x, y: p.y, moved: false, rect0: held0.rect, items: multiItemsNow() };
+        currentTarget.setPointerCapture(pointerId);
+        return;
+      }
+      shiftBase.current = e.shiftKey ? selectedLayers() : null;
+      /* the layer in hand: its handles scale / turn it, a press in its box moves it (Alt in its box is kept for
+         cycling down) */
+      const held = pickedRef.current;
+      const heldLayer0 = held?.layer;
+      const layerHandle = target?.closest('[data-layer-kind]') as HTMLElement | null;
+      const layerKind = layerHandle?.getAttribute('data-layer-kind');
+      if (held?.element && layerMovable(heldLayer0, held.element)) {
+        const base = heldLayer0.geo.g;
+        const frame0 = scaleFrame(heldLayer0.frame, vs);
+        const aabb0 = scaleBox(heldLayer0.rect, vs);
+        const inside = insideBox(scaleBox(held.rect, vs), p.x, p.y);
+        const kind = layerKind === 'scale' ? 'scale'
+          : layerKind === 'stretch' ? 'stretch'
+            : layerKind === 'rotate' ? 'rotate'
+              : (layerKind === 'move' || inside) && !e.altKey ? 'move' : null;
+        const at = HANDLE_AT[layerHandle?.getAttribute('data-layer-handle') ?? ''] ?? { hx: 0, hy: 0 };
+        if (kind) {
+          if (nudge.current) flushNudge();
+          const d: LayerDrag = {
+            kind,
+            hx: at.hx,
+            hy: at.hy,
+            x: p.x,
+            y: p.y,
+            base,
+            frame0,
+            aabb0,
+            scale: heldLayer0.geo.k * vs,
+            layer: heldLayer0,
+            element: held.element,
+            /* a handle drags at once; a press in the box may be a click until it goes 4px */
+            moved: kind !== 'move',
+            now: base,
+            targets: [{ x: 0, y: 0, w: stage.w * vs, h: stage.h * vs }],
+          };
+          layerDrag.current = d;
+          if (kind !== 'rotate') {
+            void ask<{ x: number; y: number; w: number; h: number }[]>('snaps', { handle: heldLayer0.handle }).then((list) => {
+              if (list && layerDrag.current === d) d.targets = list.map((r) => ({ x: r.x * vs, y: r.y * vs, w: r.w * vs, h: r.h * vs }));
+            });
+          }
+          if (kind !== 'move') {
+            setDragging(true);
+            setHover(null);
+          }
+          currentTarget.setPointerCapture(pointerId);
+          return;
+        }
+      }
+      /* about to draw: the previous selection goes first (two boxes on screen would read as two selected), and the
+         timeline's with it; but a press on a clip selected there (several: no handles) is not a press elsewhere */
+      cycleFrom.current = e.altKey ? pickedRef.current?.layer?.handle ?? null : null;
+      pressedFrom.current = pickedRef.current?.layer?.handle ?? null;
+      const clearPrevious = () => {
+        dropPick();
+        onSelectElement?.(null);
+        setHover(null);
+      };
+      const linked = linkedLocs ?? [];
+      if (linked.length) {
+        pressGo.current = ask<string>('clipAt', stagePt).then((id) => {
+          const loc = id ? clipLocOf(docRef.current, id) : undefined;
+          if (loc && linked.includes(loc)) {
+            draftRef.current = null;
+            setDraft(null);
+            return false;
+          }
+          clearPrevious();
+          return true;
+        });
+      } else {
+        clearPrevious();
+      }
+      /* a click or a marquee is decided at the release */
+      currentTarget.setPointerCapture(pointerId);
+      marqueeClips.current = onSelectClips ? ask<StageClipBox[]>('clips') : null;
+      draftRef.current = { x1: p.x, y1: p.y, x2: p.x, y2: p.y };
+      setDraft(draftRef.current);
+  };
+  const pressDownRef = React.useRef(pressDown);
+  pressDownRef.current = pressDown;
+  React.useEffect(() => {
+    const area = host.current?.closest<HTMLElement>('[data-viewer-picture]');
+    if (!area) return;
+    const onDown = (e: PointerEvent) => {
+      const el = e.target as Element | null;
+      if (e.button !== 0 || !el || host.current?.contains(el) || el.closest(CONTROLS)) return;
+      /* only the dark around the picture: what lies over the picture (the subtitles) has its own presses */
+      const r = filmRect();
+      if (r && e.clientX >= r.left && e.clientX <= r.right && e.clientY >= r.top && e.clientY <= r.bottom) return;
+      pressDownRef.current(e);
+    };
+    area.addEventListener('pointerdown', onDown);
+    return () => area.removeEventListener('pointerdown', onDown);
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
   return (
     <div
       ref={host}
@@ -2428,229 +2676,7 @@ function FilmStageSelectImpl({
       onDoubleClick={onStageDoubleClick}
       onContextMenu={onStageContextMenu}
       onClick={(e) => e.stopPropagation()}
-      onPointerDown={(e) => {
-        if (e.button !== 0) return;
-        e.stopPropagation();
-        /* pause at the press, not the release: a clock still running would move the selection off under the hand */
-        onPause?.();
-        const p = local(e);
-        /* the first press of a double-click is kept: the second one lands where the picture has moved to */
-        const prev = lastPressRef.current;
-        if (!prev || e.timeStamp - prev.at > DOUBLE_PRESS_MS) lastPressRef.current = { x: p.x / viewScaleNow(), y: p.y / viewScaleNow(), at: e.timeStamp };
-        /* ⌘ held: a box to point at in the chat, whatever is under the press (nothing is selected or moved) */
-        if (onRegion && regionKeyHeld(e)) {
-          e.currentTarget.setPointerCapture(e.pointerId);
-          regionDraftRef.current = { x1: p.x, y1: p.y, x2: p.x, y2: p.y };
-          setRegionDraft(regionDraftRef.current);
-          setHover(null);
-          return;
-        }
-        measureAt(null);
-        const vs = viewScaleNow();
-        const stagePt = { x: p.x / vs, y: p.y / vs };
-        const target = e.target as HTMLElement | null;
-        /* cropping: the crop's handles move its edges, a press inside it pans; a press elsewhere keeps the crop */
-        const crop = cropRef.current;
-        if (crop) {
-          const part = target?.closest('[data-crop-kind]');
-          const kind = part?.getAttribute('data-crop-kind');
-          if (kind === 'move' || kind === 'scale' || kind === 'stretch') {
-            cropDrag.current = {
-              kind,
-              handle: HANDLE_AT[part?.getAttribute('data-crop-handle') ?? ''] ?? { hx: 0, hy: 0 },
-              start: stagePt,
-              rect0: crop.rect,
-              pos0: crop.pos,
-            };
-            setDragging(true);
-            e.currentTarget.setPointerCapture(e.pointerId);
-          } else {
-            finishCrop(true);
-          }
-          return;
-        }
-        const handle = target?.closest('[data-mg-handle]:not([data-mg-kind="move"])') as HTMLElement | null;
-        const moveClip = target?.closest('[data-mg-kind="move"]');
-        const outer = pickedRef.current?.element;
-        const origin = liveTRef.current ?? outer?.transform;
-        const currentTarget = e.currentTarget;
-        const pointerId = e.pointerId;
-        ++pressSeq.current;
-        pressGo.current = Promise.resolve(true);
-        const startGesture = (g: Omit<NonNullable<typeof gestureRef.current>, 'snapTargets'>) => {
-          if (clipNudge.current) flushClipNudge();
-          const gesture = { ...g, snapTargets: [{ x: 0, y: 0, w: stage.w, h: stage.h }] };
-          gestureRef.current = gesture;
-          /* counted once at the press, and only a move or a scale uses them: the stage first (it wins ties), then the
-             part of each clip on screen now that shows */
-          if (g.kind !== 'rotate') {
-            void ask<{ id: string; visible: boolean; x: number; y: number; w: number; h: number }[]>('clips').then((list) => {
-              if (gestureRef.current !== gesture || !list) return;
-              gesture.snapTargets = [gesture.snapTargets[0]!, ...list.filter((c) => c.visible && c.id !== g.clipId).map(shownBoxOf)];
-            });
-          }
-          liveTRef.current = g.origin;
-          setLiveT(g.origin);
-          /* a handle has no "maybe a click": pressed is dragging */
-          if (!g.pendingClick) setDragging(true);
-          currentTarget.setPointerCapture(pointerId);
-        };
-        const outerCrop = outer?.isMgOuter && outer.clipLoc ? infoOf(outer.clipLoc)?.crop ?? NO_CROP : NO_CROP;
-        const stretchable = outer?.clipKind === 'video';
-        if (onEditClip && handle && outer?.isMgOuter && outer.clipLoc && outer.clipId && outer.mgBox && origin && !lockedClip(outer.clipLoc)) {
-          const kind = handle.getAttribute('data-mg-kind');
-          const at = HANDLE_AT[handle.getAttribute('data-mg-handle') ?? ''];
-          startGesture({
-            kind: kind === 'rotate' ? 'rotate' : 'scale',
-            ...(kind !== 'rotate' && at ? { handle: at } : {}),
-            stretchable,
-            start: stagePt,
-            origin,
-            box: outer.mgBox,
-            crop: outerCrop,
-            clipLoc: outer.clipLoc,
-            clipId: outer.clipId,
-          });
-          return;
-        }
-        /*
-         * A press inside the clip in hand moves it. Only the clip in hand: if a press on any clip started a drag,
-         * every drag would move something and the marquee would never happen (and a move is a real edit).
-         */
-        if (onEditClip && outer?.isMgOuter && outer.clipLoc && outer.clipId && outer.mgBox && origin && !lockedClip(outer.clipLoc)
-          && (moveClip || insideFrame(visibleFrame(origin, outer.mgBox, outerCrop), stagePt.x, stagePt.y))) {
-          startGesture({
-            kind: 'move',
-            stretchable,
-            pendingClick: true,
-            start: stagePt,
-            origin,
-            box: outer.mgBox,
-            crop: outerCrop,
-            clipLoc: outer.clipLoc,
-            clipId: outer.clipId,
-            hit: { x: p.x, y: p.y },
-          });
-          return;
-        }
-        /* several clips selected: a press on one of them drags them all, as Figma moves a selection (Shift: a marquee
-           that adds to them instead) */
-        const linkedNow = linkedLocs ?? [];
-        const groupHit = target?.closest('[data-group-kind]') as HTMLElement | null;
-        if (linkedNow.length > 1 && groupBox && onEditClip && !e.shiftKey && !linkedNow.some((loc) => lockedClip(loc))
-          && (groupHit || insideBox(groupBox, stagePt.x, stagePt.y))) {
-          const items = linkedNow.flatMap((loc) => {
-            const info = infoOf(loc);
-            return info?.box ? [{ loc, id: info.id, t0: info.t, box: info.box }] : [];
-          });
-          const kind = groupHit?.getAttribute('data-group-kind');
-          const handle = kind === 'scale' || kind === 'stretch' || kind === 'rotate' ? groupHit!.getAttribute('data-group-handle') : null;
-          const g = groupBox;
-          const mid = { x: g.left + g.width / 2, y: g.top + g.height / 2 };
-          /* a corner or an edge's middle, on the side pulled (`far`: the opposite one, which stays) */
-          const at = (h: string, far: boolean) => ({
-            x: h.includes('e') || h.includes('w') ? g.left + (h.includes('e') !== far ? g.width : 0) : mid.x,
-            y: h.includes('n') || h.includes('s') ? g.top + (h.includes('s') !== far ? g.height : 0) : mid.y,
-          });
-          const turning = kind === 'rotate';
-          clipsDrag.current = {
-            kind: turning ? 'rotate' : handle ? 'scale' : 'move', handle: turning ? null : handle,
-            x: p.x, y: p.y, moved: false, items, dx: 0, dy: 0, kx: 1, ky: 1, turn: 0, box0: g,
-            anchor: turning ? mid : handle ? at(handle, true) : { x: 0, y: 0 },
-            from: handle && !turning ? at(handle, false) : { x: 0, y: 0 },
-            a0: Math.atan2(stagePt.y - mid.y, stagePt.x - mid.x),
-          };
-          currentTarget.setPointerCapture(pointerId);
-          return;
-        }
-        /* several selected: a press inside their box drags them all (Shift adds / takes away instead) */
-        const many = multiRef.current;
-        const held0 = pickedRef.current;
-        if (many && held0 && !e.shiftKey && onTransformLayers && !many.some((it) => lockedClip(it.element.clipLoc)) && insideBox(scaleBox(held0.rect, vs), p.x, p.y)) {
-          multiDrag.current = { x: p.x, y: p.y, moved: false, rect0: held0.rect, items: multiItemsNow() };
-          currentTarget.setPointerCapture(pointerId);
-          return;
-        }
-        shiftBase.current = e.shiftKey ? selectedLayers() : null;
-        /* the layer in hand: its handles scale / turn it, a press in its box moves it (Alt in its box is kept for
-           cycling down) */
-        const held = pickedRef.current;
-        const heldLayer0 = held?.layer;
-        const layerHandle = target?.closest('[data-layer-kind]') as HTMLElement | null;
-        const layerKind = layerHandle?.getAttribute('data-layer-kind');
-        if (held?.element && layerMovable(heldLayer0, held.element)) {
-          const base = heldLayer0.geo.g;
-          const frame0 = scaleFrame(heldLayer0.frame, vs);
-          const aabb0 = scaleBox(heldLayer0.rect, vs);
-          const inside = insideBox(scaleBox(held.rect, vs), p.x, p.y);
-          const kind = layerKind === 'scale' ? 'scale'
-            : layerKind === 'stretch' ? 'stretch'
-              : layerKind === 'rotate' ? 'rotate'
-                : (layerKind === 'move' || inside) && !e.altKey ? 'move' : null;
-          const at = HANDLE_AT[layerHandle?.getAttribute('data-layer-handle') ?? ''] ?? { hx: 0, hy: 0 };
-          if (kind) {
-            if (nudge.current) flushNudge();
-            const d: LayerDrag = {
-              kind,
-              hx: at.hx,
-              hy: at.hy,
-              x: p.x,
-              y: p.y,
-              base,
-              frame0,
-              aabb0,
-              scale: heldLayer0.geo.k * vs,
-              layer: heldLayer0,
-              element: held.element,
-              /* a handle drags at once; a press in the box may be a click until it goes 4px */
-              moved: kind !== 'move',
-              now: base,
-              targets: [{ x: 0, y: 0, w: stage.w * vs, h: stage.h * vs }],
-            };
-            layerDrag.current = d;
-            if (kind !== 'rotate') {
-              void ask<{ x: number; y: number; w: number; h: number }[]>('snaps', { handle: heldLayer0.handle }).then((list) => {
-                if (list && layerDrag.current === d) d.targets = list.map((r) => ({ x: r.x * vs, y: r.y * vs, w: r.w * vs, h: r.h * vs }));
-              });
-            }
-            if (kind !== 'move') {
-              setDragging(true);
-              setHover(null);
-            }
-            currentTarget.setPointerCapture(pointerId);
-            return;
-          }
-        }
-        /* about to draw: the previous selection goes first (two boxes on screen would read as two selected), and the
-           timeline's with it; but a press on a clip selected there (several: no handles) is not a press elsewhere */
-        cycleFrom.current = e.altKey ? pickedRef.current?.layer?.handle ?? null : null;
-        pressedFrom.current = pickedRef.current?.layer?.handle ?? null;
-        const clearPrevious = () => {
-          dropPick();
-          onSelectElement?.(null);
-          setHover(null);
-        };
-        const linked = linkedLocs ?? [];
-        if (linked.length) {
-          pressGo.current = ask<string>('clipAt', stagePt).then((id) => {
-            const loc = id ? clipLocOf(docRef.current, id) : undefined;
-            if (loc && linked.includes(loc)) {
-              draftRef.current = null;
-              setDraft(null);
-              return false;
-            }
-            clearPrevious();
-            return true;
-          });
-        } else {
-          clearPrevious();
-        }
-        /* a click or a marquee is decided at the release */
-        currentTarget.setPointerCapture(pointerId);
-        marqueeClips.current = onSelectClips ? ask<StageClipBox[]>('clips') : null;
-        draftRef.current = { x1: p.x, y1: p.y, x2: p.x, y2: p.y };
-        setDraft(draftRef.current);
-      }}
+      onPointerDown={pressDown}
       onPointerMove={(e) => {
         pointerAt.current = local(e);
         if (cropDrag.current) { stepCrop(local(e), e.shiftKey); return; }
