@@ -293,6 +293,37 @@ test('an exact frame of a video sought there waits for its own frame on screen, 
   }
 });
 
+test('a sought frame that is decoded but never presented (a seek just after loading, Chromium) is sought again until it shows', { skip: !hasFfmpeg && 'no ffmpeg', timeout: 60_000 }, async () => {
+  const dir = footage('of-unshown-frame-');
+  writeFileSync(join(dir, 'film.html'), filmHtml({ stage: { w: 320, h: 180 }, tracks: [{ clips: [{ id: 'v', src: 'a.mp4', at: 1, time: [0, 4] }] }] }));
+  const s = await open(dir);
+  try {
+    const seen = await s.film.page.evaluate(async () => {
+      const v = document.querySelector('video');
+      await window.film.frame(1);
+      /* the first seek's frame is never said to be presented (the picture stays where it was); the next ones are */
+      const real = v.requestVideoFrameCallback.bind(v);
+      let swallowed = false;
+      v.requestVideoFrameCallback = (callback) => {
+        if (swallowed) return real(callback);
+        swallowed = true;
+        return 0;
+      };
+      const seeks = [];
+      v.addEventListener('seeking', () => seeks.push(v.currentTime));
+      const t0 = performance.now();
+      await window.film.frame(3.25);
+      return { seeks, ms: performance.now() - t0, at: v.currentTime };
+    });
+    assert.equal(seen.seeks.length, 2, `sought again once: ${JSON.stringify(seen)}`);
+    assert.ok(Math.abs(seen.at - 2.25) < 0.002, `on the frame for 2.25 s: ${seen.at}`);
+    /* the second seek is shown at once: not the last try's long wait */
+    assert.ok(seen.ms < 2500, `${Math.round(seen.ms)} ms`);
+  } finally {
+    await s.close();
+  }
+});
+
 test('a video woken ahead while hidden, then shown: its old frame presented again after the seek is not taken for the sought one', { skip: !hasFfmpeg && 'no ffmpeg', timeout: 60_000 }, async () => {
   const dir = footage('of-stale-frame-');
   writeFileSync(join(dir, 'film.html'), filmHtml({ stage: { w: 320, h: 180 }, tracks: [{ clips: [{ id: 'v', src: 'a.mp4', at: 2, time: [0, 4] }] }] }));

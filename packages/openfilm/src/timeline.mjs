@@ -179,6 +179,8 @@ function restore(c) {
 }
 
 const SAME_TIME = 1e-4; // s: a video's currentTime is kept to the microsecond, so a time set is read back a hair off
+const PRESENT_MS = 1000; // how long a sought frame may take to be on screen before the seek is made again
+const SEEK_TRIES = 3;
 
 /**
  * Put a video on the frame at `t` and wait until that frame is the one on screen. `seeked` fires when the decoder
@@ -202,22 +204,35 @@ async function showVideoAt(v, t, frame = null) {
      with a quarter frame to spare for footage whose frames are not all as long; without the frame's length, the old
      frame is the one nearer where the video was than where it is sought (a frame there would look the same) */
   const right = (m) => (frame ? m <= t + 0.002 && t + 0.001 - m < frame * 1.25 : sought || Math.abs(m - t) <= Math.abs(m - before));
-  const presented = typeof v.requestVideoFrameCallback === 'function'
-    ? new Promise((done) => {
-      const next = () => v.requestVideoFrameCallback((now, meta) => { if (right(meta.mediaTime)) done(); else next(); });
-      next();
-      setTimeout(done, 3000);
-    })
-    : null;
-  v.currentTime = t;
-  await new Promise((done) => {
-    if (!v.seeking && v.readyState >= 2) { done(); return; }
-    v.addEventListener('seeked', done, { once: true });
-    v.addEventListener('loadeddata', done, { once: true });
-    setTimeout(done, 10000);
-  });
-  sought = true;
-  if (presented) await presented;
+  const callback = typeof v.requestVideoFrameCallback === 'function';
+  /* a seek made just after the file loaded can decode its frame and never present it (Chromium): the picture stays on
+     the frame it had (the clip's first, where it was woken), however long it is waited for. Not presented in a
+     moment, the seek is made again; the last try waits as long as a slow machine may need */
+  for (let tries = 1; ; tries++) {
+    const last = tries === SEEK_TRIES || !callback;
+    let handle = 0;
+    let timer = 0;
+    const presented = callback
+      ? new Promise((done) => {
+        const next = () => { handle = v.requestVideoFrameCallback((now, meta) => { if (right(meta.mediaTime)) done(true); else next(); }); };
+        next();
+        timer = setTimeout(() => done(false), last ? 3000 : PRESENT_MS);
+      })
+      : null;
+    /* again, half a millisecond on (the same frame): a seek to where the element already is may be skipped */
+    v.currentTime = t + (tries - 1) * 0.0005;
+    await new Promise((done) => {
+      if (!v.seeking && v.readyState >= 2) { done(); return; }
+      v.addEventListener('seeked', done, { once: true });
+      v.addEventListener('loadeddata', done, { once: true });
+      setTimeout(done, 10000);
+    });
+    sought = true;
+    const shown = presented ? await presented : true;
+    clearTimeout(timer);
+    if (handle) v.cancelVideoFrameCallback?.(handle);
+    if (shown || last) return;
+  }
 }
 
 /**
