@@ -280,6 +280,7 @@ export const ko: Words = {
     reply: '모델 응답',
     rest: '요청의 나머지 필드 · 도구 {n}개',
     reveal: '폴더에서 보기',
+    running: '진행 중',
     sent: '모델이 받은 내용 · 메시지 {n}개, 새 메시지 {fresh}개',
     showAll: '모두 보기 ({n}자)',
     thought: '생각',

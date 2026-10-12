@@ -280,6 +280,7 @@ export const zhCN: Words = {
     reply: '模型回复',
     rest: '请求体其余字段 · {n} 个工具',
     reveal: '在文件夹中显示',
+    running: '进行中',
     sent: '发给模型 · {n} 条消息，新 {fresh} 条',
     showAll: '展开全部（共 {n} 字符）',
     thought: '思考',

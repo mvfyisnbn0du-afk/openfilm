@@ -280,6 +280,7 @@ export const enUS = {
     reply: 'What came back',
     rest: 'The rest of the request · {n} tools',
     reveal: 'Show in folder',
+    running: 'Running',
     sent: 'What the model got · {n} messages, {fresh} new',
     showAll: 'Show all ({n} chars)',
     thought: 'Thinking',

@@ -267,6 +267,7 @@ const ConversationTurn = React.memo(function ConversationTurn({
   const storedItems = stored.items;
   /* Finished (not live, not still running): the changes card and footer go below */
   const settled = !live && entry.status !== 'active';
+  const running = entry.status === 'active';
   /* A finished turn folds, as in Codex / Claude Code: the process becomes one line ("Worked 3m 40s · 14 steps")
      and the answer stands out. For the turn you watched, folding must not move the answer you are reading: draw
      one frame unfolded, note the answer's bottom edge in the viewport, then fold and restore the scroll, so the
@@ -414,11 +415,14 @@ const ConversationTurn = React.memo(function ConversationTurn({
       {/* what it changed in film.html, line by line: for finding out what an agent did, so developer mode's */}
       {settled && developer && entry.filmChanges?.length ? <FilmChangesList changes={entry.filmChanges} /> : null}
 
-      {settled ? <TurnFooter entry={entry} items={items} /> : null}
-
-      {/* Still running: one status line below, always one line high, only its text changes (see StatusLine). An
-          interruption doesn't show Failed here: the reason and Resume appear above the composer, as in Cursor. */}
-      {entry.status === 'active' ? <StatusLine items={rows ?? NO_ROWS} fallback={liveActivity} /> : null}
+      {/* Still running: one status line, always one line high, only its text changes (see StatusLine), and the
+          footer beside it on hover (its Log is the turn so far). Done, the footer alone. Always there, in one place
+          in the tree: a log opened from it stays open as the turn finishes. An interruption doesn't
+          show Failed here: the reason and Resume appear above the composer, as in Cursor. */}
+      <div className={running ? 'flex h-6 min-w-0 items-center gap-3' : 'contents'}>
+        {running ? <div className="min-w-0 flex-1"><StatusLine items={rows ?? NO_ROWS} fallback={liveActivity} /></div> : null}
+        <TurnFooter entry={entry} items={items} running={running} />
+      </div>
       </div>
     </div>
   );
@@ -827,7 +831,7 @@ function CopyButton({ text }: { text: string }) {
 
 /**
  * The line under a reply: copy, who answered (icon only) · the model · how long ago, and how it stopped if it
- * didn't finish normally.
+ * didn't finish normally. While it runs, beside the status line: copy what it said so far, its log so far, who.
  *
  * Several agents can answer in one project and their replies look alike, so the footer says which one. A stopped
  * turn says so, or a reply cut short leaves the reader unsure whether it finished, broke or was stopped.
@@ -836,7 +840,7 @@ function CopyButton({ text }: { text: string }) {
  * running, so the bottom edge stays put when one replaces the other). The time is how long ago; how long it
  * worked is in the "Worked …" line.
  */
-function TurnFooter({ entry, items }: { entry: ProjectVersion; items: TranscriptItem[] | null }) {
+function TurnFooter({ entry, items, running = false }: { entry: ProjectVersion; items: TranscriptItem[] | null; running?: boolean }) {
   const t = useT();
   const locale = useUiLocale();
   const now = useMinuteTick();
@@ -845,8 +849,8 @@ function TurnFooter({ entry, items }: { entry: ProjectVersion; items: Transcript
     const from = Math.max(0, answerStart(items));
     return items.slice(from).filter((item) => item.kind === 'text').map((item) => item.text ?? '').join('\n\n').trim();
   }, [items]);
-  const when = relativeTime(entry.settledAt, locale, now);
-  const outcome = entry.outcome === 'stopped' ? t('turnFrame.stopped')
+  const when = running ? null : relativeTime(entry.settledAt, locale, now);
+  const outcome = running ? null : entry.outcome === 'stopped' ? t('turnFrame.stopped')
     : entry.outcome === 'failed' ? t('turnFrame.failed')
       : entry.outcome === 'balance' && entry.balance ? t('turnFrame.balance').replaceAll('{provider}', entry.balance.provider)
         : null;
@@ -856,10 +860,10 @@ function TurnFooter({ entry, items }: { entry: ProjectVersion; items: Transcript
 
   return (
     /* -mt-1.5: the footer belongs to the reply above it — close to it, not a row of its own */
-    <div className={`-mt-1.5 flex h-6 min-w-0 items-center gap-1.5 text-[11.5px] text-[var(--chat-hint)] group-hover/reply:opacity-100 ${HOVER_LINE}`}>
+    <div className={`${running ? 'max-w-[45%] shrink-0' : '-mt-1.5'} flex h-6 min-w-0 items-center gap-1.5 text-[11.5px] text-[var(--chat-hint)] group-hover/reply:opacity-100 ${HOVER_LINE}`}>
       {answer ? <CopyButton text={answer} /> : null}
-      {/* developer mode (Settings → Developer): the turn as it happened, every event */}
-      {developer && project ? <TurnLogButton project={project} turnId={entry.assetId} /> : null}
+      {/* developer mode (Settings → Developer): the turn as it happened, every event; while it runs, as it goes */}
+      {developer && project && !isPendingAssetId(entry.assetId) ? <TurnLogButton project={project} turnId={entry.assetId} live={running} /> : null}
       {entry.agent ? (
         <span className="flex min-w-0 items-center gap-1.5">
           {/* the icon says which agent (its name on hover); written out it would only repeat it */}

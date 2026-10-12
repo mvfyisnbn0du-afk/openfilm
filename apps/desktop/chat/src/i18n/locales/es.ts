@@ -280,6 +280,7 @@ export const es: Words = {
     reply: 'Lo que volvió',
     rest: 'El resto de la solicitud · {n} herramientas',
     reveal: 'Mostrar en la carpeta',
+    running: 'En curso',
     sent: 'Lo que recibió el modelo · {n} mensajes, {fresh} nuevos',
     showAll: 'Mostrar todo ({n} caracteres)',
     thought: 'Razonamiento',

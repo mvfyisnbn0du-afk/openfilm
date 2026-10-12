@@ -280,6 +280,7 @@ export const ja: Words = {
     reply: '返ってきた内容',
     rest: 'リクエストのその他 · ツール {n} 件',
     reveal: 'フォルダに表示',
+    running: '実行中',
     sent: 'モデルに渡した内容 · {n} 件、新規 {fresh} 件',
     showAll: 'すべて表示（{n} 文字）',
     thought: '思考',

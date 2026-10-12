@@ -2,7 +2,8 @@
  * Settings, opened from the logo at the top left: a search and the sections in groups on the left, the section on the
  * right as a page of titled groups. General (the theme and the language), Agents (in an app with a chat: the agents
  * it can use), Providers (the person's own keys for media services), Models (which provider and model makes each kind
- * of media) and the keyboard shortcuts; the search finds a section by any phrase on it.
+ * of media), the keyboard shortcuts and Developer; the search finds a section by any phrase on it. At the foot of the
+ * nav, quietly, where OpenFilm lives: its code, the examples and the website.
  */
 import React from 'react';
 import { createPortal } from 'react-dom';
@@ -21,11 +22,18 @@ import { useThemeMode, type ThemeMode } from './theme';
 
 export type SettingsSection = 'general' | 'agents' | 'providers' | 'models' | 'developer' | 'shortcuts';
 
-/* the nav, in groups: what OpenFilm does (Agents and Developer only inside an app with a chat: lib/host.ts `agents`,
-   `developer`), then help */
+/* the nav, in groups: what OpenFilm does, then help (Agents and Developer only inside an app with a chat:
+   lib/host.ts `agents`, `developer`) */
 const NAV: Array<{ group: 'settings' | 'help'; sections: SettingsSection[] }> = [
-  { group: 'settings', sections: ['general', ...(studioHost?.agents ? ['agents' as const] : []), 'providers', 'models', ...(studioHost?.developer ? ['developer' as const] : [])] },
-  { group: 'help', sections: ['shortcuts'] },
+  { group: 'settings', sections: ['general', ...(studioHost?.agents ? ['agents' as const] : []), 'providers', 'models'] },
+  { group: 'help', sections: ['shortcuts', ...(studioHost?.developer ? ['developer' as const] : [])] },
+];
+
+/** where OpenFilm lives, linked at the foot of the nav */
+const LINKS = [
+  { label: 'settings.links.github', href: 'https://github.com/openfilm/openfilm' },
+  { label: 'settings.links.examples', href: 'https://github.com/openfilm/examples' },
+  { label: 'settings.links.site', href: 'https://openfilm.dev' },
 ];
 
 const SECTION_ICON: Record<SettingsSection, React.ReactNode> = {
@@ -158,6 +166,11 @@ export function SettingsModal({ open, onClose, section: opening }: SettingsModal
             </div>
           ))}
           {found.length === 0 ? <p className="px-2.5 pt-4 text-[14px] text-[var(--text-faint)]">{t('settings.noResults')}</p> : null}
+          <div className="mt-auto flex flex-wrap gap-x-4 gap-y-1 px-2.5 pt-6 text-[13px] text-[var(--text-faint)]">
+            {LINKS.map((link) => (
+              <a key={link.href} href={link.href} target="_blank" rel="noreferrer" className="rounded-[4px] transition hover:text-[var(--text)]">{t(link.label)}</a>
+            ))}
+          </div>
         </nav>
 
         <div className="relative flex min-w-0 flex-1 flex-col">
