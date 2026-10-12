@@ -68,7 +68,10 @@ export interface StudioHost {
   agents?: {
     list: () => Promise<HostAgent[]>;
     connect: (id: HostAgentId) => Promise<{ ok: boolean; error?: string }>;
+    /** Claude Code and Codex: OpenFilm's own sign-in is signed out (the person's own stays); others only stop */
     disconnect: (id: HostAgentId) => Promise<unknown>;
+    /** Claude Code and Codex: OpenFilm's sign-in out, then its sign-in opened again, for another account */
+    switchAccount?: (id: HostAgentId) => Promise<{ ok: boolean; error?: string }>;
     setShown: (id: HostAgentId, shown: boolean) => Promise<unknown>;
     locate?: (id: HostAgentId, words?: { title?: string; button?: string }) => Promise<{ ok: boolean; error?: string; code?: 'not-a-program' | 'did-not-start' | string }>;
     useAutomatic?: (id: HostAgentId) => Promise<unknown>;
@@ -151,9 +154,10 @@ export interface HostAgentDiagnosis { found: string | null; program?: string; hi
 export type HostByokFormat = 'responses' | 'chat' | 'anthropic';
 
 /**
- * One agent as the app has it. `status`: ready · off (disconnected in the app; its own sign-in is kept) · sign-in (its
- * own sign-in is needed) · waiting (signing in, in Terminal) · missing (not installed: `install` says where from) ·
- * key (no key set up) · unavailable (not offered yet) · checking.
+ * One agent as the app has it. `status`: ready · off (disconnected in the app: Claude Code's and Codex's sign-in for
+ * OpenFilm signed out, the others' own kept) · sign-in (its sign-in is needed) · waiting (signing in, in Terminal) ·
+ * missing (not installed: `install` says where from) · key (no key set up) · unavailable (not offered yet) · checking.
+ * `account`: whose sign-in it uses, as the program says (no key or token).
  */
 export interface HostAgent {
   id: HostAgentId;
@@ -167,8 +171,12 @@ export interface HostAgent {
   path?: string | null;
   chosen?: string | null;
   error?: string;
+  account?: HostAgentAccount;
   byok?: { format: HostByokFormat; baseUrl: string; model: string; models?: string[]; last4: string };
 }
+
+/** Whose sign-in an agent uses: how (a claude.ai or ChatGPT account, an API key…), and what the program tells of it. */
+export interface HostAgentAccount { method: 'claude.ai' | 'console' | 'api-key' | 'chatgpt' | 'other'; email?: string; org?: string; plan?: string }
 
 /** A box on the picture, in the film's stage pixels (the stage is `stage.w` × `stage.h`, film.html's stage). */
 export interface StageBox { x: number; y: number; w: number; h: number }

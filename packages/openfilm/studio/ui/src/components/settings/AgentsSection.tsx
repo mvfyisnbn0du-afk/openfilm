@@ -2,9 +2,10 @@
  * Settings → Agents, inside an app that has a chat (lib/host.ts `agents`): the agents its chat can use, each connected
  * or not and shown in the chat's menu or not.
  *
- * Codex, Claude Code, Gemini CLI and the others are the person's own programs, with their own sign-in: connecting
- * uses it as it is and opens their own sign-in only when they are signed out (the app waits for it); disconnecting
- * stops the app using them and leaves their sign-in alone, since the makers' own apps share it. Codex and Claude Code
+ * Codex, Claude Code, Gemini CLI and the others are the person's own programs. Claude Code and Codex sign in for
+ * OpenFilm on their own: connecting opens their sign-in when OpenFilm's is not there (the app waits for it), the row
+ * says whose account it is, disconnecting signs OpenFilm's out (the person's own sign-in stays) and Switch account signs
+ * in another. The others use their own sign-in as it is; disconnecting only stops the app using them. Codex and Claude Code
  * are always listed under the person's agents, with the person's own key; the others there once switched on (connecting
  * one does), else under "More agents", with where to get them when they are not installed. The person's own key is on a service of theirs, with a model that reads pictures (the agent looks at its own frames).
  *
@@ -15,6 +16,9 @@ import React from 'react';
 import { Check, Copy, Download, KeyRound, Loader2 } from 'lucide-react';
 import { useT } from '@/i18n';
 import { studioHost, type HostAgent, type HostAgentDiagnosis, type HostAgentId, type HostByokFormat } from '@/lib/host';
+
+/** Claude Code and Codex: signed in for OpenFilm on their own (the app's agents.mjs `home`). */
+const OWN_SIGN_IN: readonly HostAgentId[] = ['claude', 'codex'];
 import { ProviderMark } from './ProviderMark';
 import { agentMark } from '@/lib/provider-marks';
 import { SettingsSelect } from './SettingsSelect';
@@ -98,7 +102,7 @@ export function AgentsSection() {
   const statusLine = (agent: HostAgent) => {
     switch (agent.status) {
       case 'off': return t('settings.agents.off');
-      case 'sign-in': return t('settings.agents.signedOut');
+      case 'sign-in': return OWN_SIGN_IN.includes(agent.id) ? t('settings.agents.signInOwn') : t('settings.agents.signedOut');
       case 'waiting': return t('settings.agents.waiting');
       case 'missing': return agent.setupRequired === 'code-tab' ? t('settings.agents.claudeSetup') : t('settings.agents.missing');
       case 'key': return t('settings.agents.needsKey');
@@ -108,11 +112,34 @@ export function AgentsSection() {
     }
   };
 
+  /* whose sign-in it is: an account's organization, email and plan as the program says them, or how it signs in */
+  const accountLine = (agent: HostAgent) => {
+    const a = agent.account;
+    if (!a) return null;
+    const how = a.method === 'chatgpt' ? t('settings.agents.accountChatgpt') : a.method === 'api-key' ? t('settings.agents.accountApiKey')
+      : a.method === 'console' ? t('settings.agents.accountConsole') : null;
+    const plan = a.plan ? a.plan.charAt(0).toUpperCase() + a.plan.slice(1) : null;
+    const parts = [a.org, a.email, plan, a.email || a.org ? null : how].filter(Boolean);
+    return parts.length ? parts.join(' · ') : null;
+  };
+
   /* `chosen`: among the agents in use (not under "More agents", where one ready to use is offered to connect) */
   const action = (agent: HostAgent, chosen = true) => {
     const working = busy === agent.id;
     if (agent.status === 'ready' && chosen) {
-      return <SettingsButton variant="quiet" disabled={working} onClick={() => act(agent.id, () => host.disconnect(agent.id))}>{t('settings.agents.disconnect')}</SettingsButton>;
+      const own = OWN_SIGN_IN.includes(agent.id);
+      return (
+        <>
+          {own && host.switchAccount ? (
+            <SettingsButton variant="quiet" disabled={working} onClick={() => act(agent.id, () => host.switchAccount!(agent.id))}>{t('settings.agents.switchAccount')}</SettingsButton>
+          ) : null}
+          <SettingsButton variant="quiet" disabled={working} title={own ? t('settings.agents.disconnectHint') : undefined}
+            onClick={() => act(agent.id, () => host.disconnect(agent.id))}>
+            {working ? <Loader2 size={16} className="animate-spin" aria-hidden /> : null}
+            {t('settings.agents.disconnect')}
+          </SettingsButton>
+        </>
+      );
     }
     if (agent.status === 'missing') {
       const canLocate = host.locate && agent.setupRequired !== 'code-tab';
@@ -165,7 +192,7 @@ export function AgentsSection() {
             {agent.status === 'ready' && chosen ? <SettingsStatus>{ownKey ? `${byokModels(agent).join(', ')} · •••• ${agent.byok!.last4}` : t('settings.agents.ready')}</SettingsStatus> : null}
           </>
         )}
-        description={agent.status === 'ready' ? null : statusLine(agent)}
+        description={agent.status === 'ready' ? accountLine(agent) : statusLine(agent)}
         control={(
           <>
             {ownKey && !open ? <SettingsButton variant="quiet" onClick={() => setKeyOpen(true)}>{t('settings.agents.change')}</SettingsButton> : null}

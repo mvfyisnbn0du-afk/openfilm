@@ -21,7 +21,7 @@ import { applicationMenu } from './menu.mjs';
 import { registerLocalAgentIpc } from './local-agents-ipc.mjs';
 import { registerChatIpc } from './chat-ipc.mjs';
 import { createRoster } from './agent-roster.mjs';
-import { checkAgentProgram, diagnoseAgent, listAgents, openAgentSignIn, setChosenPaths } from './agents.mjs';
+import { checkAgentProgram, diagnoseAgent, listAgents, openAgentSignIn, setAgentHomes, setChosenPaths, signOutAgent } from './agents.mjs';
 import { installOpenfilmCommand } from './openfilm-command.mjs';
 import { startUpdates } from './updates.mjs';
 import { ensureFfmpeg, ffmpegDir, ffmpegDownloadable, ffmpegIn, ffmpegOnPath } from './ffmpeg-runtime.mjs';
@@ -306,11 +306,14 @@ async function start() {
     env: { OPENFILM_HOME: env.OPENFILM_HOME, ...(env.OPENFILM_LIBRARY ? { OPENFILM_LIBRARY: env.OPENFILM_LIBRARY } : {}), ...browsers },
     harness: async (id) => roster?.harness(id) ?? null,
   });
-  /* Settings → Agents (in Studio's page) and the chat's agent menu: one roster, both told of every change */
+  /* Settings → Agents (in Studio's page) and the chat's agent menu: one roster, both told of every change. Claude Code
+     and Codex are signed in for OpenFilm in its own folders (agents/claude, agents/codex), apart from the person's own */
+  setAgentHomes(join(DATA, 'agents'));
   roster = createRoster({
     dataDir: DATA,
     localAgents: listAgents,
     openSignIn: openAgentSignIn,
+    signOut: signOutAgent,
     closeSessions: (id) => localAgents?.closeAgent(id),
     seal,
     unseal,
@@ -330,7 +333,8 @@ async function start() {
   });
   agentHandle('desktop:agents:list', () => { void roster.refresh(); return roster.list(); });
   agentHandle('desktop:agents:connect', ({ id }) => roster.connect(String(id)));
-  agentHandle('desktop:agents:disconnect', ({ id }) => { roster.disconnect(String(id)); return { ok: true }; });
+  agentHandle('desktop:agents:disconnect', ({ id }) => roster.disconnect(String(id)));
+  agentHandle('desktop:agents:switch', ({ id }) => roster.switchAccount(String(id)));
   agentHandle('desktop:agents:locate', ({ id, words }) => roster.locate(String(id), words));
   agentHandle('desktop:agents:automatic', ({ id }) => roster.useAutomatic(String(id)));
   agentHandle('desktop:agents:diagnose', ({ id }) => roster.diagnose(String(id)));

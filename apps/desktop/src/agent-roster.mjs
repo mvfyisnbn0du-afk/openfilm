@@ -2,11 +2,13 @@
  * The agents the chat can use, as Settings → Agents shows them, and the person's choices about them:
  *
  *   · codex, claude, gemini, copilot, cursor, opencode, codebuddy, qwen, kimi — the person's own agents (agents.mjs):
- *     Codex, Claude Code, Gemini CLI, GitHub Copilot, Cursor, OpenCode, CodeBuddy, Qwen Code and Kimi. Their sign-in
- *     is their own: connecting uses it as it is, and opens Terminal for their own sign-in command only when they are
- *     not signed in; disconnecting only stops OpenFilm using them (their sign-in is shared with the makers' own apps,
- *     and stays). Codex and Claude Code are shown in the chat's menu from the start; the others once the person
- *     connects one or switches it on.
+ *     Codex, Claude Code, Gemini CLI, GitHub Copilot, Cursor, OpenCode, CodeBuddy, Qwen Code and Kimi. Claude Code and
+ *     Codex are signed in for OpenFilm on their own (agents.mjs agentHomeEnv): connecting opens Terminal for their own
+ *     sign-in command when OpenFilm's is not there, disconnecting signs OpenFilm's out (`signOut`) so another account can
+ *     be signed in, and the person's own sign-in, in their terminal and the makers' apps, is never touched; `account`
+ *     says whose it is. The others use the person's own sign-in as it is, and disconnecting only stops OpenFilm using
+ *     them. Codex and Claude Code are shown in the chat's menu from the start; the others once the person connects one
+ *     or switches it on.
  *   · byok — the app's own agent (Pi, pi-agent.mjs) on the person's own key, on a standard API in one of three formats: the OpenAI
  *     Responses API (…/v1/responses), the OpenAI Chat Completions API (…/v1/chat/completions) or the Anthropic Messages
  *     API (…/v1/messages); Pi speaks each. It may name several models (the chat's menu switches between them, the first
@@ -149,8 +151,9 @@ export async function probeModel({ format, baseUrl, key, model, fetch: fetchImpl
  *
  * @param {{
  *   dataDir: string,
- *   localAgents: () => Promise<Array<{ id: string, cli: { path: string } | null, signedIn: boolean | null, install: string | null, setupRequired: string | null }>>,
+ *   localAgents: () => Promise<Array<{ id: string, cli: { path: string } | null, signedIn: boolean | null, account?: object | null, install: string | null, setupRequired: string | null }>>,
  *   openSignIn: (id: string) => Promise<{ ok: boolean, error?: string }>,
+ *   signOut?: (id: string) => Promise<{ ok: boolean, error?: string }>,
  *   usePaths?: (paths: Record<string, string>) => void,
  *   pickProgram?: (id: string, words?: { title?: string, button?: string }) => Promise<string | null>,
  *   checkProgram?: (id: string, path: string) => Promise<{ ok: boolean, error?: string, code?: string }>,
@@ -182,7 +185,7 @@ export function createRoster(deps) {
       if (!found.cli) return { status: 'missing', install: found.install ?? null, setupRequired: found.setupRequired ?? null, ...where };
       if (choices.disconnected.includes(id)) return { status: 'off', ...where };
       if (found.signedIn === false) return { status: live.waiting[id] ? 'waiting' : 'sign-in', ...where };
-      return { status: 'ready', ...where };
+      return { status: 'ready', ...where, ...(found.account ? { account: { ...found.account } } : {}) };
     }
     if (choices.disconnected.includes(id)) return { status: 'off' };
     if (!choices.byok || !byokKey()) return { status: 'key' };
@@ -252,12 +255,29 @@ export function createRoster(deps) {
       }
     },
 
-    /** Disconnect here only: its sessions close; an agent's own sign-in stays as it is. */
-    disconnect(id) {
-      if (!AGENT_IDS.includes(id)) return;
+    /**
+     * Disconnect: its sessions close, and OpenFilm's own sign-in is signed out (Claude Code, Codex; the person's own
+     * stays); the others are only no longer used here. Not signed out, it is not disconnected: the reason is shown.
+     */
+    async disconnect(id) {
+      if (!AGENT_IDS.includes(id)) return { ok: false, error: `No agent ${id}` };
       delete live.waiting[id];
+      delete live.errors[id];
       deps.closeSessions(id);
+      if (isOwn(id) && deps.signOut) {
+        const out = await deps.signOut(id).catch((e) => ({ ok: false, error: e instanceof Error ? e.message : String(e) }));
+        if (!out.ok) { live.errors[id] = out.error ?? 'It could not sign out.'; changed(); return { ok: false, error: live.errors[id] }; }
+      }
       save({ ...choices, disconnected: [...new Set([...choices.disconnected, id])] });
+      await refresh();
+      return { ok: true };
+    },
+
+    /** Another account: OpenFilm's sign-in signed out, then its own sign-in opened in Terminal (see connect). */
+    async switchAccount(id) {
+      if (!isOwn(id)) return { ok: false, error: `No agent ${id}` };
+      const out = await this.disconnect(id);
+      return out.ok ? this.connect(id) : out;
     },
 
     /**
