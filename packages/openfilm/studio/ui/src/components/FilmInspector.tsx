@@ -1202,7 +1202,8 @@ function GroupPanel({ geometry, group, layers, onEditLayers, t }: {
   const cell = (label: string, value: number) => (
     <NumField label={label} prefix={label.slice(0, 1)} value={Math.round(value * 10) / 10} disabled onCommit={() => {}} />
   );
-  const targets = layers?.filter((l) => l.clipLoc) ?? [];
+  /* the layers selected: the app's list, else the picture's own (a marquee's, a Shift-click's) */
+  const targets = (layers ?? group.elements ?? []).filter((l) => l.clipLoc);
   const look = targets.length && onEditLayers ? makeLook(targets, layerRead, {
     commit: (sets) => {
       setRefusal(null);

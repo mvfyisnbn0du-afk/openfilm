@@ -62,7 +62,7 @@ import {
   positionOf, roundOf, transformOfVisible, visibleFrame, type CropAspect, type Rect,
 } from '@/lib/stage-crop';
 import {
-  alignShift, groupDragged, HANDLE_AT, insideBox, insideFrame, movedOffset, pivotCenter, resizedFrame, sameClientRect, sameGuides,
+  alignShift, groupDragged, type GroupDrag, HANDLE_AT, insideBox, insideFrame, movedOffset, pivotCenter, resizedFrame, sameClientRect, sameGuides,
   sameLayerGeometry, scaledLayer, turnedLayer, unionRect, type AlignEdge, type ClientBox, type FramePivot,
   type LayerGeometry, type StageFrame,
 } from '@/lib/stage-gesture';
@@ -631,11 +631,13 @@ function FilmStageSelectImpl({
   type MultiDragItem = MultiItem & { base: LayerGeometry; scale: number; now: LayerGeometry };
   const multiDrag = React.useRef<{ x: number; y: number; moved: boolean; rect0: ClientBox; items: MultiDragItem[] } | null>(null);
   /* several whole clips selected (on the timeline, or by a marquee): a press on one of them drags them all */
-  const clipsDrag = React.useRef<{
-    kind: 'move' | 'scale'; x: number; y: number; moved: boolean; items: ClipsDragItem[];
-    /* scaling: the corner that stays (stage px) and where the one pulled was; the factor so far */
-    anchor: { x: number; y: number }; from: { x: number; y: number }; dx: number; dy: number; k: number;
-  } | null>(null);
+  const clipsDrag = React.useRef<(GroupDrag & {
+    x: number; y: number; moved: boolean; items: ClipsDragItem[];
+    /* scaling: the corner or edge pulled ('n', 'se'…) and where it was (stage px); turning: the pointer's first angle */
+    handle: string | null; from: { x: number; y: number }; a0: number; box0: ClientBox;
+  }) | null>(null);
+  /** The frame around several clips while they are turned: the frame they had, turned as far (Figma's). */
+  const [groupTurn, setGroupTurn] = React.useState<{ box: ClientBox; turn: number } | null>(null);
   /** Where the clips being dragged are drawn now (their outlines follow the hand; film.html is written at the release). */
   const [clipsMoved, setClipsMoved] = React.useState<readonly LinkedMark[] | null>(null);
   const multiItemsNow = (): MultiDragItem[] => {
@@ -777,9 +779,13 @@ function FilmStageSelectImpl({
   React.useEffect(() => {
     const held = pickedRef.current;
     if (!held) return;
-    const clip = held.element?.kind !== 'clip' ? held.layer?.clip : undefined;
-    const span = clip ? spans.find((s) => s.id === clip) : undefined;
-    if (span && !spanShows(span, timeMs)) {
+    /* several layers: one whose clip went lets them all go, as one does */
+    const clips = multiRef.current ? multiRef.current.map((i) => i.layer.clip) : [held.element?.kind !== 'clip' ? held.layer?.clip : undefined];
+    const gone = clips.some((clip) => {
+      const span = clip ? spans.find((s) => s.id === clip) : undefined;
+      return span && !spanShows(span, timeMs);
+    });
+    if (gone) {
       dropPick();
       onSelectElement?.(null);
       return;
@@ -1116,7 +1122,7 @@ function FilmStageSelectImpl({
         || el?.closest('[role="listbox"]')
         || el?.closest('[data-popover-panel]')
       ) return;
-      if (el?.closest('[data-timeline]') && (!pickedRef.current?.element || pickedRef.current.element.kind === 'clip')) return;
+      if (el?.closest('[data-timeline]') && !multiRef.current && (!pickedRef.current?.element || pickedRef.current.element.kind === 'clip')) return;
       dropPick();
       onSelectElement?.(null);
     };
@@ -1159,8 +1165,11 @@ function FilmStageSelectImpl({
     return preview.onStage((e) => {
       if (e.event === 'text') onTextDoneRef.current(e);
       else if (e.event === 'key') {
-        if (isSelectAll(e.key)) { if (!textEdit.current && !cropRef.current) void selectAllRef.current(); }
-        else keyHandler.current?.(e.key);
+        const k = e.key;
+        if (isSelectAll(k)) { if (!textEdit.current && !cropRef.current) void selectAllRef.current(); }
+        /* several clips selected: the picture's arrow keys move them all */
+        else if (k.key.startsWith('Arrow') && arrowsMoveRef.current && !k.metaKey && !k.ctrlKey && !k.altKey && nudgeGroupRef.current(k)) return;
+        else keyHandler.current?.(k);
       }
       else {
         if (textEdit.current) { textEdit.current = null; setEditingText(null); }
@@ -1504,10 +1513,55 @@ function FilmStageSelectImpl({
     return true;
   };
 
+  /* several clips selected: the arrow keys move them all (Shift: 10 px), shown at once and written once they stop */
+  const groupNudge = React.useRef<{ items: ClipsDragItem[]; dx: number; dy: number; timer: ReturnType<typeof setTimeout> | null } | null>(null);
+  const flushGroupNudge = () => {
+    const n = groupNudge.current;
+    groupNudge.current = null;
+    if (!n) return;
+    if (n.timer) clearTimeout(n.timer);
+    const moved = n.items.map((it) => ({ loc: it.loc, box: it.box, t: { ...it.t0, x: it.t0.x + n.dx, y: it.t0.y + n.dy } }));
+    setLinkedMarks((marks) => marks.map((m) => moved.find((it) => it.loc === m.loc) ? { ...m, t: moved.find((it) => it.loc === m.loc)!.t } : m));
+    setClipsMoved(null);
+    void clipsPlace.idle().then(() => onEditClip?.(moved.map((it) => ({ loc: it.loc, prop: 'box' as const, value: compactBox(it.t, it.box) }))));
+  };
+  const nudgeGroup = (e: KeyboardEvent): boolean => {
+    const locs = linkedLocs ?? [];
+    if (!onEditClip || locs.length < 2 || clipsDrag.current || cropRef.current || locs.some((loc) => lockedClip(loc))) return false;
+    e.preventDefault();
+    const step = e.shiftKey ? 10 : 1;
+    const n = groupNudge.current ?? {
+      items: locs.flatMap((loc) => { const info = infoOf(loc); return info?.box ? [{ loc, id: info.id, t0: info.t, box: info.box }] : []; }),
+      dx: 0, dy: 0, timer: null,
+    };
+    n.dx += e.key === 'ArrowLeft' ? -step : e.key === 'ArrowRight' ? step : 0;
+    n.dy += e.key === 'ArrowUp' ? -step : e.key === 'ArrowDown' ? step : 0;
+    const moved = n.items.map((it) => ({ loc: it.loc, box: it.box, t: { ...it.t0, x: it.t0.x + n.dx, y: it.t0.y + n.dy } }));
+    setClipsMoved(moved);
+    clipsPlace.push(n.items.map((it, i) => ({ clip: it.id, box: compactBox(moved[i]!.t, it.box) })));
+    if (n.timer) clearTimeout(n.timer);
+    n.timer = setTimeout(flushGroupNudge, NUDGE_WRITE_MS);
+    groupNudge.current = n;
+    return true;
+  };
+  const nudgeGroupRef = React.useRef(nudgeGroup);
+  nudgeGroupRef.current = nudgeGroup;
+  React.useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (!e.key.startsWith('Arrow') || !arrowsMoveRef.current || e.defaultPrevented || e.metaKey || e.ctrlKey || e.altKey) return;
+      const el = e.target as HTMLElement | null;
+      if (el?.closest('input, textarea, select, [contenteditable="true"], [data-timeline]')) return;
+      nudgeGroupRef.current(e);
+    };
+    window.addEventListener('keydown', onKey, true);
+    return () => window.removeEventListener('keydown', onKey, true);
+  }, []);
+
   /* what the arrow keys moved and is not written yet, written now (the editor asks before an undo or another edit) */
   flushPendingRef.current = () => {
     if (nudge.current) flushNudge();
     if (clipNudge.current) flushClipNudge();
+    if (groupNudge.current) flushGroupNudge();
   };
 
   /* ── crop mode: a video or still in hand, cropped in place ── */
@@ -1923,7 +1977,7 @@ function FilmStageSelectImpl({
         h: round(picked.rect.height),
         r: 0,
         unit: 1,
-        group: { n: multi.length, kinds: [...new Set(multi.map((i) => i.layer.kind))] },
+        group: { n: multi.length, kinds: [...new Set(multi.map((i) => i.layer.kind))], elements: multi.map((i) => i.element) },
         stage,
       });
       return;
@@ -2004,6 +2058,7 @@ function FilmStageSelectImpl({
       e.stopPropagation();
       setDragging(false);
       if (!cd.moved) {
+        setGroupTurn(null);
         /* not pulled: a click on one of them takes that one alone */
         const p = local(e);
         const token = ++pressSeq.current;
@@ -2015,7 +2070,8 @@ function FilmStageSelectImpl({
         });
         return;
       }
-      const moved = cd.items.map((it) => ({ ...it, t: groupDragged(cd, it.t0) }));
+      const moved = cd.items.map((it) => ({ ...it, t: groupDragged(cd, it.t0, it.box) }));
+      setGroupTurn(null);
       /* the outlines stay where they were let go (film.html follows a moment later) */
       setLinkedMarks((marks) => marks.map((m) => moved.find((it) => it.loc === m.loc) ? { ...m, t: moved.find((it) => it.loc === m.loc)!.t } : m));
       setClipsMoved(null);
@@ -2187,6 +2243,7 @@ function FilmStageSelectImpl({
   const linkedShown = linkedOutlines(linkedMarks, picked?.element?.clipLoc, dragging);
   /* several clips selected: one frame around them all, as Figma draws a selection (it moves with them) */
   const groupMarks = clipsMoved ?? (linkedShown.length > 1 ? linkedShown : null);
+  const groupStretch = Boolean(groupMarks?.every((m) => infoOf(m.loc)?.kind === 'video'));
   const groupBox = groupMarks ? unionRect(groupMarks.map((m) => clientOf(frameAabb(visibleFrame(m.t, m.box, infoOf(m.loc)?.crop ?? NO_CROP))))) : null;
   /* the clip of a pill hovered in the app's chat, where it is drawn now */
   const chatClip = chat?.clipLoc ? clipInfo(doc, spans, stage, chat.clipLoc) : null;
@@ -2422,15 +2479,22 @@ function FilmStageSelectImpl({
             const info = infoOf(loc);
             return info?.box ? [{ loc, id: info.id, t0: info.t, box: info.box }] : [];
           });
-          const corner = groupHit?.getAttribute('data-group-kind') === 'scale' ? groupHit.getAttribute('data-group-handle') : null;
+          const kind = groupHit?.getAttribute('data-group-kind');
+          const handle = kind === 'scale' || kind === 'stretch' || kind === 'rotate' ? groupHit!.getAttribute('data-group-handle') : null;
           const g = groupBox;
-          const at = (c: string, far: boolean) => ({
-            x: g.left + (c.includes('e') !== far ? g.width : 0),
-            y: g.top + (c.includes('s') !== far ? g.height : 0),
+          const mid = { x: g.left + g.width / 2, y: g.top + g.height / 2 };
+          /* a corner or an edge's middle, on the side pulled (`far`: the opposite one, which stays) */
+          const at = (h: string, far: boolean) => ({
+            x: h.includes('e') || h.includes('w') ? g.left + (h.includes('e') !== far ? g.width : 0) : mid.x,
+            y: h.includes('n') || h.includes('s') ? g.top + (h.includes('s') !== far ? g.height : 0) : mid.y,
           });
+          const turning = kind === 'rotate';
           clipsDrag.current = {
-            kind: corner ? 'scale' : 'move', x: p.x, y: p.y, moved: false, items, dx: 0, dy: 0, k: 1,
-            anchor: corner ? at(corner, true) : { x: 0, y: 0 }, from: corner ? at(corner, false) : { x: 0, y: 0 },
+            kind: turning ? 'rotate' : handle ? 'scale' : 'move', handle: turning ? null : handle,
+            x: p.x, y: p.y, moved: false, items, dx: 0, dy: 0, kx: 1, ky: 1, turn: 0, box0: g,
+            anchor: turning ? mid : handle ? at(handle, true) : { x: 0, y: 0 },
+            from: handle && !turning ? at(handle, false) : { x: 0, y: 0 },
+            a0: Math.atan2(stagePt.y - mid.y, stagePt.x - mid.x),
           };
           currentTarget.setPointerCapture(pointerId);
           return;
@@ -2552,16 +2616,26 @@ function FilmStageSelectImpl({
           const vs = viewScaleNow();
           if (!d.moved && Math.hypot(p.x - d.x, p.y - d.y) < 4) return;
           if (!d.moved) { d.moved = true; setDragging(true); setHover(null); }
+          const at = { x: p.x / vs, y: p.y / vs };
           if (d.kind === 'move') {
             d.dx = (p.x - d.x) / vs;
             d.dy = (p.y - d.y) / vs;
+          } else if (d.kind === 'rotate') {
+            /* Shift: in steps of 15°, as a single clip turns */
+            const turn = ((Math.atan2(at.y - d.anchor.y, at.x - d.anchor.x) - d.a0) * 180) / Math.PI;
+            d.turn = e.shiftKey ? Math.round(turn / 15) * 15 : turn;
+            setGroupTurn({ box: d.box0, turn: d.turn });
           } else {
-            /* the pulled corner along the frame's diagonal, from the corner that stays: all of them in proportion */
-            const ax = d.anchor.x, ay = d.anchor.y;
-            const ux = d.from.x - ax, uy = d.from.y - ay;
-            d.k = Math.max(0.02, ((p.x / vs - ax) * ux + (p.y / vs - ay) * uy) / Math.max(1e-6, ux * ux + uy * uy));
+            const ux = d.from.x - d.anchor.x, uy = d.from.y - d.anchor.y;
+            const along = (v: number, u: number, a: number) => Math.max(0.02, (v - a) / (Math.abs(u) > 1e-6 ? u : 1e-6));
+            if (d.handle && d.handle.length === 2) {
+              /* a corner: along the frame's diagonal, both ways alike (a page is never stretched) */
+              const k = Math.max(0.02, ((at.x - d.anchor.x) * ux + (at.y - d.anchor.y) * uy) / Math.max(1e-6, ux * ux + uy * uy));
+              d.kx = d.ky = k;
+            } else if (d.handle === 'e' || d.handle === 'w') d.kx = along(at.x, ux, d.anchor.x);
+            else d.ky = along(at.y, uy, d.anchor.y);
           }
-          const moved = d.items.map((it) => ({ loc: it.loc, box: it.box, t: groupDragged(d, it.t0) }));
+          const moved = d.items.map((it) => ({ loc: it.loc, box: it.box, t: groupDragged(d, it.t0, it.box) }));
           setClipsMoved(moved);
           clipsPlace.push(d.items.map((it, i) => ({ clip: it.id, box: compactBox(moved[i]!.t, it.box) })));
           return;
@@ -2624,16 +2698,20 @@ function FilmStageSelectImpl({
         {/* the clips selected elsewhere, under the selection: what is being moved is always on top */}
         {linkedShown.map((mark) => <MgOutline key={mark.loc} t={mark.t} box={mark.box} viewScale={vsNow} />)}
         {clipsMoved?.map((mark) => <MgOutline key={mark.loc} t={mark.t} box={mark.box} viewScale={vsNow} />)}
-        {groupBox ? (
-          <StageTransformFrame
-            frame={{ cx: (groupBox.left + groupBox.width / 2) * vsNow, cy: (groupBox.top + groupBox.height / 2) * vsNow, w: groupBox.width * vsNow, h: groupBox.height * vsNow, r: 0 }}
-            scope="group"
-            rotate={false}
-            moving={dragging}
-            label={`${Math.round(groupBox.width)} × ${Math.round(groupBox.height)}`}
-            bounds={stageBounds}
-          />
-        ) : null}
+        {groupBox ? (() => {
+          const g = groupTurn?.box ?? groupBox;
+          return (
+            <StageTransformFrame
+              frame={{ cx: (g.left + g.width / 2) * vsNow, cy: (g.top + g.height / 2) * vsNow, w: g.width * vsNow, h: g.height * vsNow, r: groupTurn?.turn ?? 0 }}
+              scope="group"
+              /* sides stretch videos only: a page is never stretched, a still keeps its shape (as one in hand) */
+              edges={groupStretch}
+              moving={dragging}
+              label={groupTurn ? `${Math.round(groupTurn.turn)}°` : `${Math.round(g.width)} × ${Math.round(g.height)}`}
+              bounds={stageBounds}
+            />
+          );
+        })() : null}
         {/* the menu is drawn on body, but React events bubble through the component tree: a press on an item must not
             reach the stage as a press on the picture */}
         {menu ? (

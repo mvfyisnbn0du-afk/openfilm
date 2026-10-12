@@ -103,8 +103,8 @@ export interface StageGeometry {
   parentR?: number;
   /** A clip's picture at its own size: typed numbers are worked out from it. */
   box?: MgBox;
-  /** A group: how many layers, and of which kinds. */
-  group?: { n: number; kinds: readonly StageNodeKind[] };
+  /** A group: how many layers, of which kinds, and which (the inspector edits their looks together). */
+  group?: { n: number; kinds: readonly StageNodeKind[]; elements?: readonly StageElement[] };
   stage: { w: number; h: number };
 }
 

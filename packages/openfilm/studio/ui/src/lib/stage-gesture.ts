@@ -200,15 +200,35 @@ export function alignShift(edge: AlignEdge, rect: ClientBox, union: ClientBox): 
   };
 }
 
-/** How several whole clips are being dragged together: moved by (dx, dy), or scaled by k about the corner that stays. */
-export interface GroupDrag { kind: 'move' | 'scale'; dx: number; dy: number; k: number; anchor: { x: number; y: number } }
+/**
+ * How several whole clips are being dragged together (stage px): moved by (dx, dy); scaled by (kx, ky) about the
+ * corner or edge that stays (`anchor`), the same on both axes from a corner; or turned by `turn` degrees about the
+ * middle of their frame (`anchor`).
+ */
+export interface GroupDrag {
+  kind: 'move' | 'scale' | 'rotate';
+  dx: number; dy: number;
+  kx: number; ky: number;
+  turn: number;
+  anchor: { x: number; y: number };
+}
 
 /**
- * Where one of several clips dragged together is now (`t0`: where it was, stage px): moved with the others, or scaled
- * with them in proportion about the group's corner that stays, so the gaps between them scale too (Figma).
+ * Where one of several clips dragged together is now. `t0` is where it was (its unturned top left, stage px, and its
+ * scale), `size` its picture's own size: its center moves with the others, scaled or turned about the same point, so
+ * the gaps between them change with them (Figma); a turn turns each one by as much.
  */
-export function groupDragged<T extends { x: number; y: number; scaleX: number; scaleY: number }>(d: GroupDrag, t0: T): T {
+export function groupDragged<T extends { x: number; y: number; scaleX: number; scaleY: number; rotate: number }>(
+  d: GroupDrag, t0: T, size: { w: number; h: number },
+): T {
   if (d.kind === 'move') return { ...t0, x: t0.x + d.dx, y: t0.y + d.dy };
-  const { k, anchor: a } = d;
-  return { ...t0, x: a.x + (t0.x - a.x) * k, y: a.y + (t0.y - a.y) * k, scaleX: t0.scaleX * k, scaleY: t0.scaleY * k };
+  const w0 = size.w * t0.scaleX, h0 = size.h * t0.scaleY;
+  const cx = t0.x + w0 / 2 - d.anchor.x, cy = t0.y + h0 / 2 - d.anchor.y;
+  if (d.kind === 'scale') {
+    const w = w0 * d.kx, h = h0 * d.ky;
+    return { ...t0, x: d.anchor.x + cx * d.kx - w / 2, y: d.anchor.y + cy * d.ky - h / 2, scaleX: t0.scaleX * d.kx, scaleY: t0.scaleY * d.ky };
+  }
+  const a = (d.turn * Math.PI) / 180;
+  const nx = cx * Math.cos(a) - cy * Math.sin(a), ny = cx * Math.sin(a) + cy * Math.cos(a);
+  return { ...t0, x: d.anchor.x + nx - w0 / 2, y: d.anchor.y + ny - h0 / 2, rotate: t0.rotate + d.turn };
 }
