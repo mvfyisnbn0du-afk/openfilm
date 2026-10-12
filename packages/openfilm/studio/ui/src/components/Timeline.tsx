@@ -52,7 +52,6 @@ import {
   ArrowRightToLine,
   Pencil,
   TriangleAlert,
-  AudioLines,
   Blend,
 } from 'lucide-react';
 import { useT } from '@/i18n';
@@ -2015,8 +2014,6 @@ export const Timeline = React.memo(function Timeline({
     clicked?: TimelineBlock;
     /** Right-clicked in a gap on a track: it can be closed. */
     gap?: { track: number; startMs: number; endMs: number };
-    /** A cut clicked or right-clicked: transitions go on it. */
-    cut?: CutRef;
     /** A transition's mark right-clicked. */
     transition?: FilmTransition;
   }
@@ -2446,17 +2443,6 @@ export const Timeline = React.memo(function Timeline({
     window.addEventListener('pointerup', up);
     window.addEventListener('pointercancel', up);
   }, [onTransition, onPickTransition, fps, dropMsAtClientX]);
-  /** A press on a cut that comes up where it went down: the cut's menu (its transitions), at the pointer. */
-  const openCutIfClick = React.useCallback((e: React.PointerEvent, cut: CutRef) => {
-    const fromX = e.clientX, fromY = e.clientY;
-    const lane = tracks.find((tr) => tr.blocks.some((b) => b.clipId === cut.a))?.lane ?? null;
-    const up = (ev: PointerEvent) => {
-      window.removeEventListener('pointerup', up);
-      if (Math.abs(ev.clientX - fromX) >= DRAG_THRESHOLD_PX || Math.abs(ev.clientY - fromY) >= DRAG_THRESHOLD_PX) return;
-      setMenu({ x: ev.clientX, y: ev.clientY, blocks: [], lane, atMs: 0, cut });
-    };
-    window.addEventListener('pointerup', up);
-  }, [tracks]);
 
   /** Where a clip is drawn while a gesture or a drop changes it (null: where it is). */
   const placedOf = React.useCallback((id: string): { startMs: number; endMs: number; gone?: boolean } | null => {
@@ -2842,16 +2828,8 @@ export const Timeline = React.memo(function Timeline({
               onPointerDown={(e) => {
                 e.stopPropagation();
                 if (e.button !== 0) return;
-                /* a drag rolls the cut (and selects the clip before it then); a click is the cut's alone: its
-                   transitions (lib/transitions) */
+                /* a drag rolls the cut (and selects the clip before it then) */
                 drag.start(e, a, 'roll', undefined, b, () => pickForTrim(e, a));
-                if (onTransition && a.clipId && b.clipId) openCutIfClick(e, { a: a.clipId, b: b.clipId });
-              }}
-              onContextMenu={(e) => {
-                if (!onTransition || !a.clipId || !b.clipId) return;
-                e.preventDefault();
-                e.stopPropagation();
-                setMenu({ x: e.clientX, y: e.clientY, blocks: [], lane: track.lane, atMs: atMs, cut: { a: a.clipId, b: b.clipId } });
               }}
             >
               <span aria-hidden className="pointer-events-none absolute inset-y-[2px] left-1/2 w-[2px] -translate-x-1/2 rounded-full bg-[var(--tl-select)] opacity-0 transition-opacity group-hover/roll:opacity-90" />
@@ -2930,7 +2908,7 @@ export const Timeline = React.memo(function Timeline({
     tracks, trackPx, pxPerMs, ringed, selected, drag, waveUrl, mode, msAtClientX, onSplit, clipThumbs, posters, mediaTrouble, t,
     openBlockMenu, openLaneMenu, onEditBlocks, collapseIfClick, selectOne, setSelected, clipElements, thumbWindow, view.width,
     chatClip, chatDraft, placedOf, pickForTrim, gap, withLinked, runSplit, trackOverlay,
-    fadeOfBlock, fadeDrag, startFade, transitions, transitionDrag, pickedTransition, onPickTransition, onTransition, startTransitionResize, openCutIfClick,
+    fadeOfBlock, fadeDrag, startFade, transitions, transitionDrag, pickedTransition, onPickTransition, onTransition, startTransitionResize,
   ]);
 
   const tickMarks = React.useMemo(() => ticks.map(({ ms, label }) => {
@@ -3113,11 +3091,11 @@ export const Timeline = React.memo(function Timeline({
     return () => { commandsRef.current = null; };
   }, [commandsRef, tracks, rippleTrimToPlayhead, closeGap, linkBlocks, unlinkBlocks, togglePref, withLinked, runSplit, onCopy, magnetRemove, runPlan, zoomTo]);
 
-  /** A transition's entries for a cut (or a clip's edge): each put there at its default length, in one step. */
+  /** A fade's entry for a clip's edge: put there at its default length, in one step. */
   const transitionEntries = React.useCallback((cut: CutRef, kinds: readonly TransitionKind[]): ContextMenuEntry[] => kinds.map((kind) => ({
     id: `tr-${kind}-${cut.a ?? ''}-${cut.b ?? ''}`,
     label: t(`transitions.${kind}`),
-    icon: kind === 'crossfade' ? <AudioLines size={14} /> : <Blend size={14} />,
+    icon: <Blend size={14} />,
     onSelect: () => { void onTransition?.({ kind: 'add', type: kind, cut }).then((err) => { if (err) setDropError(err); }); },
   })), [t, onTransition]);
 
@@ -3129,18 +3107,13 @@ export const Timeline = React.memo(function Timeline({
   const menuItems = React.useMemo((): ContextMenuEntry[] => {
     if (!menu) return [];
     if (menu.head) return headEntries(menu.head);
-    /* a cut, or a transition's mark: the transitions that go there, and taking one away */
-    if (menu.cut || menu.transition) {
-      const cut = menu.cut ?? { a: menu.transition!.a, b: menu.transition!.b };
-      const there = menu.transition ?? transitions?.find((x) => x.a === cut.a && x.b === cut.b);
-      return [
-        ...(menu.cut ? transitionEntries(cut, ['dissolve', 'dip-black', 'dip-white', 'crossfade']) : []),
-        ...(there && menu.cut ? [{ id: 'tr-sep', separator: true } as const] : []),
-        ...(there ? [{
-          id: 'tr-remove', label: t('transitions.remove'), icon: <Trash2 size={14} />, danger: true, shortcut: '⌫',
-          onSelect: () => { void onTransition?.({ kind: 'remove', key: there.key }).then((err) => { if (err) setDropError(err); }); onPickTransition?.(null); },
-        }] : []),
-      ];
+    /* a transition's mark (one the film has; none is put on from a menu: an agent writes transitions): taking it away */
+    if (menu.transition) {
+      const there = menu.transition;
+      return [{
+        id: 'tr-remove', label: t('transitions.remove'), icon: <Trash2 size={14} />, danger: true, shortcut: '⌫',
+        onSelect: () => { void onTransition?.({ kind: 'remove', key: there.key }).then((err) => { if (err) setDropError(err); }); onPickTransition?.(null); },
+      }];
     }
     const picked = menu.blocks;
     /* one clip, or one clip with the clips linked to it: the entries about a single clip are about the one clicked */
@@ -3248,7 +3221,7 @@ export const Timeline = React.memo(function Timeline({
         onSelect: () => { void onDetachAudio(one); },
       });
     }
-    /* fades and transitions at the clip's start and end (lib/transitions) */
+    /* fades at the clip's start and end (lib/transitions) */
     if (one && onTransition && one.clipId && !pickedLocked) {
       const row = tracks.find((tr) => tr.blocks.some((b) => b.id === one.id));
       const at = (ms: number) => (row?.docIndex != null ? cutNear(modelRef.current, row.docIndex, ms, 1) : null);
@@ -3259,8 +3232,6 @@ export const Timeline = React.memo(function Timeline({
         { id: 'tr-sep-1', separator: true },
         ...transitionEntries(startCut, ['fade-in']),
         ...transitionEntries(endCut, ['fade-out']),
-        { id: 'tr-start', label: t('transitions.atStart'), icon: <Blend size={14} />, submenu: transitionEntries(startCut, ['dissolve', 'dip-black', 'dip-white', 'crossfade']) },
-        { id: 'tr-end', label: t('transitions.atEnd'), icon: <Blend size={14} />, submenu: transitionEntries(endCut, ['dissolve', 'dip-black', 'dip-white', 'crossfade']) },
         { id: 'tr-sep-2', separator: true },
       );
     }

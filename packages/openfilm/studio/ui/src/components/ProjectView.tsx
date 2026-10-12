@@ -29,7 +29,7 @@ import { editModelOf, freshLink, linkedIds, magnetOn, mainTrackOf, planMove, pla
 import { followOf, readTimelinePrefs } from '@/lib/timeline-prefs';
 import { fadeMsOf, type FadeMs } from '@/lib/clip-fade';
 import {
-  findTransitions, planRemoveTransition, planResizeTransition, planTransition, TRANSITION_MS, WHITE_PAGE,
+  findTransitions, planRemoveTransition, planResizeTransition, planTransition, TRANSITION_MS,
   type ClipFacts, type TransitionAsk, type TransitionPlan,
 } from '@/lib/transitions';
 import { frameMs } from '@/lib/timecode';
@@ -721,8 +721,8 @@ export function ProjectView({ projectId, onProject, onLeave }: {
   const pickedTr = filmTransitions.find((x) => x.key === pickedTransition) ?? null;
   /**
    * A transition put on a cut, made longer or shorter, or taken away (lib/transitions): planned on the timeline as it
-   * is, in the timeline's mode (the magnet, sync lock, linked clips), one write and one undo step. A dip to white first
-   * keeps its white page in the project (transitions/white.html).
+   * is, in the timeline's mode (the magnet, sync lock, linked clips), one write and one undo step. The menus put on
+   * fades only; other transitions are an agent's to write.
    */
   const askTransition = React.useCallback(async (ask: TransitionAsk): Promise<string | null> => {
     const prefs = readTimelinePrefs();
@@ -734,13 +734,6 @@ export function ProjectView({ projectId, onProject, onLeave }: {
     let plan: TransitionPlan;
     let label: string;
     if (ask.kind === 'add') {
-      if (ask.type === 'dip-white') {
-        const made = await fetch(`/api/projects/${encodeURIComponent(projectId)}/transition-pages`, {
-          method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ name: 'white', html: WHITE_PAGE }),
-        }).catch(() => null);
-        if (!made?.ok) return t('transitions.failed').replace('{error}', made ? String(made.status) : 'offline');
-        await api.files(projectId).then(setRawListing, () => {});
-      }
       /* the default length, on the frame grid */
       const frame = frameMs(1);
       plan = planTransition(model, clipFacts, ask.type, ask.cut, Math.round(TRANSITION_MS / frame) * frame, opts);
@@ -753,7 +746,7 @@ export function ProjectView({ projectId, onProject, onLeave }: {
     }
     if ('error' in plan) return t(plan.error === 'locked' ? 'transitions.locked' : plan.error === 'short' ? 'transitions.short' : 'transitions.none');
     return plan.ops.length ? edit(plan.ops, label) : null;
-  }, [editModel, clipFacts, filmTransitions, edit, projectId, t]);
+  }, [editModel, clipFacts, filmTransitions, edit, t]);
   /**
    * The inspector's edits (its refusals it says beside its field). A new speed goes to the clips linked to the clip too; with the magnet on (the timeline's
    * switch) a speed or a length that makes the clip longer or shorter pushes or pulls what follows, as a ripple trim
