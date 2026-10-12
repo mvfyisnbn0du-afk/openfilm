@@ -25,6 +25,7 @@ import {
   rollMoves,
   slideMoves,
   soundTrackFor,
+  sourceLeftMs,
   type EditClip,
   type EditModel,
   type EditPlan,
@@ -166,6 +167,15 @@ test('a gap a synced track has no room for still closes, on its own track alone'
   assert.deepEqual(after(m, plan), [[['top', 0, 5]], [['title', 0, 5], ['cards', 5, 10]], [['bed', 0, 15]]]);
   /* with room on every track, sync lock is kept */
   assert.equal(planCloseGap(model([['a', 0, 2], ['b', 4, 5]], [['vo', 4, 6]]), 0, { startMs: 2000, endMs: 4000 }, { sync: true }).alone, undefined);
+});
+
+test('how much source a clip can still show at each edge', () => {
+  /* 2–6 s of a 10 s file, at 2 s on the film; a still has no end */
+  const m = model([['v', 2, 6, { inMs: 2000, sourceMs: 10_000 }], ['p', 6, 8, { still: true, sourceMs: Infinity }]]);
+  assert.equal(sourceLeftMs(m, 'v', 'start'), 2000);
+  assert.equal(sourceLeftMs(m, 'v', 'end'), 4000);
+  assert.equal(sourceLeftMs(m, 'p', 'end'), Infinity);
+  assert.equal(sourceLeftMs(m, 'gone', 'end'), undefined);
 });
 
 /* ── the main track and linkage (as CapCut) ── */

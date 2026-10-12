@@ -3995,6 +3995,8 @@ function GestureLabel({ tip, left, top }: { tip: GestureTip; left: number; top: 
     >
       {what} {signedSeconds(tip.deltaMs)}
       {tip.lengthMs != null ? <span className="opacity-75"> · {(tip.lengthMs / 1000).toFixed(2)} s</span> : null}
+      {/* the source ends here: why the edge stops */}
+      {tip.sourceEnd ? <span> · {t('timeline.tip.sourceEnd')}</span> : null}
     </div>
   );
 }

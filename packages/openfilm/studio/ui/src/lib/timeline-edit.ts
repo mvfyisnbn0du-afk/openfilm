@@ -183,6 +183,16 @@ const tailRoomOf = (c: EditClip): number => (
   c.still || !Number.isFinite(c.sourceMs) ? Infinity : Math.max(0, (c.sourceMs - srcEndOf(c)) / c.speed)
 );
 
+/**
+ * How much more of its source a clip can show at one edge, in film ms: how far that edge can still be pulled out.
+ * Infinity for a still or a source with no end; undefined for a clip not in the model.
+ */
+export function sourceLeftMs(model: EditModel, id: string, edge: 'start' | 'end'): number | undefined {
+  const c = model.flatMap((t) => t.clips).find((x) => x.id === id);
+  if (!c) return undefined;
+  return edge === 'start' ? headRoomOf(c) : tailRoomOf(c);
+}
+
 function trackAt(d: Draft, index: number): EditTrack | undefined {
   return d.tracks.find((t) => t.index === index);
 }

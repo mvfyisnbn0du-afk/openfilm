@@ -46,6 +46,7 @@ import {
   planRippleTrim,
   rollMoves,
   slideMoves,
+  sourceLeftMs,
   type EditMode,
   type EditModel,
   type EditPlan,
@@ -85,6 +86,8 @@ export interface GestureTip {
   deltaMs: number;
   /** The clip's length now, for a trim. */
   lengthMs?: number;
+  /** A trim that reached the end of the clip's source on that side: it can go no further. */
+  sourceEnd?: boolean;
   /** Where to show it: this film time, on this row. */
   atMs: number;
   lane: number;
@@ -348,9 +351,12 @@ export function useBlockDrag(opts: {
             : planEdges(m, ids.map((id) => ({ id, kind: edge })), want);
           if (plan.deltaMs === want) snappedTo = out.snappedTo;
           const own = plan.placed.get(block.clipId!);
+          /* how much source is left past that edge once it moved (pulled out, the edge moves away from the clip) */
+          const left = (sourceLeftMs(m, block.clipId!, edge) ?? Infinity) - (edge === 'end' ? plan.deltaMs : -plan.deltaMs);
           tip = {
             kind: ripple ? 'ripple' : 'trim', deltaMs: plan.deltaMs, lengthMs: own ? own.endMs - own.startMs : geom.endMs - geom.startMs,
             atMs: edge === 'end' || ripple ? (own?.endMs ?? geom.endMs) : (own?.startMs ?? geom.startMs), lane: homeLaneIndex,
+            ...(left < 1 ? { sourceEnd: true } : {}),
           };
         } else if (mode === 'roll') {
           const out = applyDrag(geom, 'trim-end', deltaMs, targets, pxPerMs);
