@@ -110,7 +110,7 @@ export function folderFiles(root, { inject = `<script>${HOST_FLAG}</script>`, ti
       /* the film itself: played by the timeline, and the host's driving of it (`timelineInject`) put in */
       const film = rel === `/${FILM_FILE}` || rel.endsWith(`/${FILM_FILE}`);
       const start = film ? timelineInject + filmStart(readFilmFile(html).doc?.stage ?? DEFAULT_STAGE) : inject;
-      res.writeHead(200, headers).end(injectFirst(html, start));
+      res.writeHead(200, headers).end(injectFirst(film ? holdPages(html) : html, start));
       return true;
     }
     const range = /^bytes=(\d*)-(\d*)$/.exec(req.headers.range ?? '');
@@ -184,6 +184,19 @@ export function serve(root, { port = 0, swap } = {}) {
 }
 
 /** Put `tag` before any script of the page: after <head> if there is one before the first script, else after the doctype. */
+/**
+ * The film's page clips served without loading: each <iframe>'s `src` is `data-film-src`. The timeline opens pages
+ * itself, a few at a time and only those near the playhead in a film of many (it reads the clips from the file as
+ * written); a page the parser had started loading would be cut short, a failed request to every host.
+ * @param {string} html
+ */
+export function holdPages(html) {
+  return html.replace(/<iframe\b(?:[^>"']|"[^"]*"|'[^']*')*>/gi, (tag) => tag.replace(
+    /(\s)([^\s=>"'/]+)(\s*=\s*(?:"[^"]*"|'[^']*'|[^\s>"']+))?/g,
+    (attr, space, name, value = '') => (name.toLowerCase() === 'src' ? `${space}data-film-src${value}` : attr),
+  ));
+}
+
 export function injectFirst(html, tag) {
   const firstScript = html.search(/<script\b/i);
   const prefix = firstScript < 0 ? html : html.slice(0, firstScript);

@@ -53,6 +53,24 @@ test('a film of page clips on its timeline reports no failed request', { timeout
   assert.ok(!r.lines.some((l) => /request|ERR_/.test(l)), r.lines.join('\n'));
 });
 
+test('a film of more pages than are kept open reports no failed request as its pages close and open again', { timeout: 90_000 }, async () => {
+  const { mkdtempSync, writeFileSync } = await import('node:fs');
+  const { tmpdir } = await import('node:os');
+  const { join } = await import('node:path');
+  const dir = mkdtempSync(join(tmpdir(), 'of-look-pages-'));
+  /* a 1 × 1 PNG: each page has a file of its own to load */
+  writeFileSync(join(dir, 'dot.png'), Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==', 'base64'));
+  const clips = [];
+  for (let i = 0; i < 12; i++) {
+    writeFileSync(join(dir, `p${i}.html`), `<!doctype html><body style="margin:0;background:#123"><img src="dot.png?${i}"><script>window.film = { duration: 1, width: 320, height: 180, frame() {} };</script>`);
+    clips.push({ src: `p${i}.html`, at: i });
+  }
+  writeFileSync(join(dir, 'film.html'), filmHtml({ stage: { w: 320, h: 180 }, tracks: [{ clips }] }));
+  const r = await look([dir], { count: 12 });
+  assert.notEqual(r.ok, false, r.lines.join('\n'));
+  assert.ok(!r.lines.some((l) => /request|ERR_/.test(l)), r.lines.join('\n'));
+});
+
 test('a page that still lists sounds in window.film.audio is told, once, that they are not played', { timeout: 90_000 }, async () => {
   const { mkdtempSync, writeFileSync } = await import('node:fs');
   const { tmpdir } = await import('node:os');

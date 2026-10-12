@@ -529,6 +529,38 @@ test('a text override with line breaks: all the words of an element of <br>s, a 
   }
 });
 
+test('a film of many pages keeps only a few open: one far from the playhead is closed, and opened again draws as before', { timeout: 60_000 }, async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'of-pages-'));
+  const clips = [];
+  for (let i = 0; i < 12; i++) {
+    writeFileSync(join(dir, `p${i}.html`), `<!doctype html><body style="margin:0"><p id="w"></p><p id="o">own</p>
+<script>window.film={duration:1,frame(t){document.getElementById('w').textContent='p${i} '+t.toFixed(2)}}</script></body>`);
+    clips.push({ id: `p${i}`, src: `p${i}.html`, at: i, ...(i === 11 ? { overrides: [{ at: '#o', text: 'tweaked' }] } : {}) });
+  }
+  writeFileSync(join(dir, 'film.html'), filmHtml({ stage: { w: 320, h: 180 }, tracks: [{ clips }] }));
+  const s = await open(dir);
+  const now = () => s.film.page.evaluate(() => [...document.querySelectorAll('iframe')].map((f) => {
+    const doc = f.contentWindow?.film ? f.contentDocument : null;
+    return doc ? `${doc.getElementById('w').textContent}|${doc.getElementById('o').textContent}` : null;
+  }));
+  try {
+    assert.equal(s.film.meta.duration, 12, 'every page\'s length is known, the closed ones\' too');
+    assert.ok((await now()).filter(Boolean).length <= 8, 'loaded: no more than 8 open');
+    await s.film.seek(11.5);
+    let pages = await now();
+    assert.equal(pages[11], 'p11 0.50|tweaked', 'opened, drawn at its moment, its tweak on it');
+    assert.ok(pages.filter(Boolean).length <= 8, `no more than 8 open: ${pages}`);
+    await s.film.seek(0.25);
+    pages = await now();
+    assert.equal(pages[0], 'p0 0.25|own');
+    assert.ok(pages.filter(Boolean).length <= 8, `${pages}`);
+    await s.film.seek(11.75);
+    assert.equal((await now())[11], 'p11 0.75|tweaked', 'closed and opened again: the same page');
+  } finally {
+    await s.close();
+  }
+});
+
 test('a host waits for a film as long as it keeps loading; a page that never gets further fails in time', { timeout: 60_000 }, async () => {
   const dir = mkdtempSync(join(tmpdir(), 'of-progress-'));
   /* five pages ready one after another, 0.5 s apart: 2.5 s in all, longer than the host waits without news */

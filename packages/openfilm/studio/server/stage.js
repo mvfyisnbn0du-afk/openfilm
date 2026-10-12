@@ -794,10 +794,11 @@
     if ((EDITOR_KEYS.has(e.key) && !mod) || (mod && (k === 'z' || (k === 'a' && !e.shiftKey && !e.altKey) || (e.shiftKey && (k === 'h' || k === 'l'))))) e.preventDefault();
     post({ type: 'stage-event', event: 'key', key: e.key, code: e.code, repeat: e.repeat, metaKey: e.metaKey, ctrlKey: e.ctrlKey, shiftKey: e.shiftKey, altKey: e.altKey });
   };
+  /* by document: a page closed and opened again (the timeline does, far from the playhead) is a new one to hear */
   const listening = new WeakSet();
   const listen = (win) => {
-    if (!win || listening.has(win)) return;
-    listening.add(win);
+    if (!win?.document || listening.has(win.document)) return;
+    listening.add(win.document);
     win.addEventListener('keydown', onKey, true);
   };
   const listenAll = () => { listen(window); for (const c of clips()) if (c.win) listen(c.win); };
@@ -808,7 +809,7 @@
     listenAll();
     const h = hooks();
     /* an update may have added pages: their keys are heard too */
-    if (h) h.updated = () => { listenAll(); updated(); };
+    if (h) { h.updated = () => { listenAll(); updated(); }; h.woke = listenAll; }
   })();
 
   /* ── restacking ── */
