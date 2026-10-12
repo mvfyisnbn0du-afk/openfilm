@@ -32,6 +32,7 @@ contextBridge.exposeInMainWorld('openfilmNative', {
     connect: (id) => ipcRenderer.invoke('desktop:agents:connect', { id }),
     disconnect: (id) => ipcRenderer.invoke('desktop:agents:disconnect', { id }),
     switchAccount: (id) => ipcRenderer.invoke('desktop:agents:switch', { id }),
+    usage: (id, fresh) => ipcRenderer.invoke('desktop:agents:usage', { id, fresh: fresh === true }),
     setShown: (id, shown) => ipcRenderer.invoke('desktop:agents:shown', { id, shown: shown === true }),
     locate: (id, words) => ipcRenderer.invoke('desktop:agents:locate', { id, words }),
     useAutomatic: (id) => ipcRenderer.invoke('desktop:agents:automatic', { id }),

@@ -14,8 +14,8 @@
  */
 import React from 'react';
 import { Check, Copy, Download, KeyRound, Loader2 } from 'lucide-react';
-import { useT } from '@/i18n';
-import { studioHost, type HostAgent, type HostAgentDiagnosis, type HostAgentId, type HostByokFormat } from '@/lib/host';
+import { useLanguage, useT } from '@/i18n';
+import { studioHost, type HostAgent, type HostAgentDiagnosis, type HostAgentId, type HostAgentUsage, type HostByokFormat } from '@/lib/host';
 
 /** Claude Code and Codex: signed in for OpenFilm on their own (the app's agents.mjs `home`). */
 const OWN_SIGN_IN: readonly HostAgentId[] = ['claude', 'codex'];
@@ -47,9 +47,62 @@ function AgentMark({ id }: { id: HostAgentId }) {
   return id === 'byok' ? <KeyRound size={16} /> : <ProviderMark id={agentMark(id)} size={17} />;
 }
 
+/**
+ * What is left of Claude Code's and Codex's plans, for the ones ready: asked as they become ready and when the window
+ * comes back into focus (the app keeps an answer a minute). `undefined`: being asked; null: they can't say.
+ */
+function useAgentUsage(agents: HostAgent[] | null): Partial<Record<HostAgentId, HostAgentUsage | null | undefined>> {
+  const [usage, setUsage] = React.useState<Partial<Record<HostAgentId, HostAgentUsage | null | undefined>>>({});
+  const ready = (agents ?? []).filter((a) => OWN_SIGN_IN.includes(a.id) && a.status === 'ready').map((a) => a.id).join(',');
+  React.useEffect(() => {
+    const ask = studioHost?.agents?.usage;
+    if (!ask || !ready) return undefined;
+    let live = true;
+    const look = () => {
+      for (const id of ready.split(',') as HostAgentId[]) {
+        void ask(id).then((u) => { if (live) setUsage((was) => ({ ...was, [id]: u })); }).catch(() => { if (live) setUsage((was) => ({ ...was, [id]: null })); });
+      }
+    };
+    look();
+    window.addEventListener('focus', look);
+    return () => { live = false; window.removeEventListener('focus', look); };
+  }, [ready]);
+  return usage;
+}
+
+/** One window of a plan: what it is, a bar of its share used, and when it resets. */
+function UsageBar({ window: w }: { window: HostAgentUsage['windows'][number] }) {
+  const t = useT();
+  const language = useLanguage();
+  const label = w.kind === 'five_hour' ? t('settings.agents.usageFiveHour')
+    : w.kind === 'seven_day' ? t('settings.agents.usageWeek')
+    : w.kind === 'seven_day_opus' ? t('settings.agents.usageWeekModel').replace('{model}', 'Opus')
+    : w.kind === 'seven_day_sonnet' ? t('settings.agents.usageWeekModel').replace('{model}', 'Sonnet')
+    : t('settings.agents.usageWindow').replace('{hours}', String(Math.round((w.minutes ?? 0) / 60)));
+  const used = Math.round(w.usedPercent);
+  const resets = (() => {
+    if (w.resetsAt == null) return null;
+    const minutes = Math.max(0, Math.round((w.resetsAt - Date.now()) / 60_000));
+    const rtf = new Intl.RelativeTimeFormat(language, { numeric: 'auto' });
+    const when = minutes < 60 ? rtf.format(minutes, 'minute') : minutes < 48 * 60 ? rtf.format(Math.round(minutes / 60), 'hour') : rtf.format(Math.round(minutes / 1440), 'day');
+    return t('settings.agents.usageResets').replace('{time}', when);
+  })();
+  return (
+    <div className="flex items-center gap-3 text-[13px]">
+      <span className="w-[92px] shrink-0 text-[var(--text-muted)]">{label}</span>
+      <div className="h-1.5 min-w-[80px] flex-1 overflow-hidden rounded-full bg-[var(--fill-tsp)]" role="progressbar" aria-label={label} aria-valuenow={used} aria-valuemin={0} aria-valuemax={100}>
+        <div className={`h-full rounded-full ${used >= 90 ? 'bg-[var(--danger,#e5484d)]' : used >= 70 ? 'bg-[var(--warn,#f5a524)]' : 'bg-[var(--text)]'}`} style={{ width: `${Math.max(used, 1.5)}%` }} />
+      </div>
+      <span className="w-[64px] shrink-0 text-right tabular-nums text-[var(--text)]">{t('settings.agents.usageUsed').replace('{percent}', String(used))}</span>
+      <span className="w-[120px] shrink-0 truncate text-[var(--text-faint)]">{resets ?? ''}</span>
+    </div>
+  );
+}
+
 export function AgentsSection() {
   const t = useT();
   const agents = useHostAgents();
+  const usage = useAgentUsage(agents);
   const host = studioHost?.agents;
   const [busy, setBusy] = React.useState<HostAgentId | null>(null);
   const [error, setError] = React.useState<{ id: HostAgentId; text: string } | null>(null);
@@ -114,7 +167,9 @@ export function AgentsSection() {
 
   /* whose sign-in it is: an account's organization, email and plan as the program says them, or how it signs in */
   const accountLine = (agent: HostAgent) => {
-    const a = agent.account;
+    /* Codex says its email and plan only to its app server: the usage's answer, when it has come */
+    const told = usage[agent.id]?.account;
+    const a = agent.account ? { ...agent.account, ...(told?.email ? { email: told.email } : {}), ...(told?.plan && !agent.account.plan ? { plan: told.plan } : {}) } : null;
     if (!a) return null;
     const how = a.method === 'chatgpt' ? t('settings.agents.accountChatgpt') : a.method === 'api-key' ? t('settings.agents.accountApiKey')
       : a.method === 'console' ? t('settings.agents.accountConsole') : null;
@@ -174,6 +229,9 @@ export function AgentsSection() {
     /* where it is not found: why, on asking (Claude Code waiting for its app's Code tab is not lost) */
     const lost = agent.status === 'missing' && agent.setupRequired !== 'code-tab' && Boolean(host.diagnose);
     const diag = diagnosis?.id === agent.id ? diagnosis : null;
+    /* what is left of its plan: while being asked, and once told (an agent that can't say shows nothing) */
+    const plan = usage[agent.id];
+    const meter = chosen && agent.status === 'ready' && OWN_SIGN_IN.includes(agent.id) && Boolean(host.usage) && (plan === undefined || Boolean(plan?.windows.length));
     const hint = diag?.report ? hintOf(diag.report) : null;
     return (
       <SettingsItem
@@ -202,8 +260,15 @@ export function AgentsSection() {
           </>
         )}
       >
-        {agent.status === 'waiting' || open || said || agent.chosen || lost ? (
+        {agent.status === 'waiting' || open || said || agent.chosen || lost || meter ? (
           <div className="flex flex-col gap-1.5 pl-[34px]">
+            {meter ? (
+              <div className="flex flex-col gap-1.5" aria-label={t('settings.agents.usage')}>
+                {plan === undefined ? (
+                  <p className="flex items-center gap-1.5 text-[13px] text-[var(--text-faint)]"><Loader2 size={13} className="animate-spin" aria-hidden />{t('settings.agents.usageLoading')}</p>
+                ) : plan?.windows.map((w) => <UsageBar key={w.kind + (w.minutes ?? '')} window={w} />)}
+              </div>
+            ) : null}
             {agent.chosen ? (
               <p className="break-all text-[13.5px] leading-relaxed text-[var(--text-muted)]">
                 {t('settings.agents.chosenAt').replace('{path}', agent.chosen)}{' '}

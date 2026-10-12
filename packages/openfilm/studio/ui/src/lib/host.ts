@@ -72,6 +72,8 @@ export interface StudioHost {
     disconnect: (id: HostAgentId) => Promise<unknown>;
     /** Claude Code and Codex: OpenFilm's sign-in out, then its sign-in opened again, for another account */
     switchAccount?: (id: HostAgentId) => Promise<{ ok: boolean; error?: string }>;
+    /** Claude Code and Codex: what is left of their plan, as they say on OpenFilm's sign-in (null: they can't say) */
+    usage?: (id: HostAgentId, fresh?: boolean) => Promise<HostAgentUsage | null>;
     setShown: (id: HostAgentId, shown: boolean) => Promise<unknown>;
     locate?: (id: HostAgentId, words?: { title?: string; button?: string }) => Promise<{ ok: boolean; error?: string; code?: 'not-a-program' | 'did-not-start' | string }>;
     useAutomatic?: (id: HostAgentId) => Promise<unknown>;
@@ -173,6 +175,17 @@ export interface HostAgent {
   error?: string;
   account?: HostAgentAccount;
   byok?: { format: HostByokFormat; baseUrl: string; model: string; models?: string[]; last4: string };
+}
+
+/**
+ * What is left of an agent's plan: each window's share used (0–100), how long it is (minutes) and when it resets (ms);
+ * `kind`: five_hour · seven_day · seven_day_opus · seven_day_sonnet (a model's own week) · window (another length).
+ * `account`: whose it is, when the program says it here (Codex's email and plan).
+ */
+export interface HostAgentUsage {
+  plan: string | null;
+  windows: Array<{ kind: 'five_hour' | 'seven_day' | 'seven_day_opus' | 'seven_day_sonnet' | 'window'; minutes: number | null; usedPercent: number; resetsAt: number | null }>;
+  account?: { email?: string; plan?: string };
 }
 
 /** Whose sign-in an agent uses: how (a claude.ai or ChatGPT account, an API key…), and what the program tells of it. */

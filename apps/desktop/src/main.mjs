@@ -22,6 +22,7 @@ import { registerLocalAgentIpc } from './local-agents-ipc.mjs';
 import { registerChatIpc } from './chat-ipc.mjs';
 import { createRoster } from './agent-roster.mjs';
 import { checkAgentProgram, diagnoseAgent, listAgents, openAgentSignIn, setAgentHomes, setChosenPaths, signOutAgent } from './agents.mjs';
+import { agentUsage, forgetAgentUsage } from './agent-usage.mjs';
 import { installOpenfilmCommand } from './openfilm-command.mjs';
 import { startUpdates } from './updates.mjs';
 import { ensureFfmpeg, ffmpegDir, ffmpegDownloadable, ffmpegIn, ffmpegOnPath } from './ffmpeg-runtime.mjs';
@@ -312,8 +313,8 @@ async function start() {
   roster = createRoster({
     dataDir: DATA,
     localAgents: listAgents,
-    openSignIn: openAgentSignIn,
-    signOut: signOutAgent,
+    openSignIn: (id) => { forgetAgentUsage(id); return openAgentSignIn(id); },
+    signOut: (id) => { forgetAgentUsage(id); return signOutAgent(id); },
     closeSessions: (id) => localAgents?.closeAgent(id),
     seal,
     unseal,
@@ -335,6 +336,8 @@ async function start() {
   agentHandle('desktop:agents:connect', ({ id }) => roster.connect(String(id)));
   agentHandle('desktop:agents:disconnect', ({ id }) => roster.disconnect(String(id)));
   agentHandle('desktop:agents:switch', ({ id }) => roster.switchAccount(String(id)));
+  /* what is left of Claude Code's and Codex's plan, on OpenFilm's sign-in (agent-usage.mjs); null when it can't say */
+  agentHandle('desktop:agents:usage', ({ id, fresh }) => agentUsage(String(id), { fresh: fresh === true }));
   agentHandle('desktop:agents:locate', ({ id, words }) => roster.locate(String(id), words));
   agentHandle('desktop:agents:automatic', ({ id }) => roster.useAutomatic(String(id)));
   agentHandle('desktop:agents:diagnose', ({ id }) => roster.diagnose(String(id)));
