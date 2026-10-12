@@ -123,8 +123,6 @@ export const zhCN: Words = {
   composer: {
     commands: '命令',
     context: '上下文已用 {percent}% · {used} / {size} tokens',
-    mode: '模式',
-    planOn: '计划',
     agentLoading: '正在加载…',
     agentNone: '智能体',
     agentNoneShown: '对话中尚未开启任何智能体。',

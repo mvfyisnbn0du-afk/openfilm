@@ -123,8 +123,6 @@ export const ko: Words = {
   composer: {
     commands: '명령',
     context: '컨텍스트 {percent}% 사용 · {used} / {size} 토큰',
-    mode: '모드',
-    planOn: '계획',
     agentLoading: '불러오는 중…',
     agentNone: '에이전트',
     agentNoneShown: '채팅에 켜 둔 에이전트가 없습니다.',

@@ -123,8 +123,6 @@ export const ja: Words = {
   composer: {
     commands: 'コマンド',
     context: 'コンテキスト {percent}% 使用 · {used} / {size} トークン',
-    mode: 'モード',
-    planOn: '計画',
     agentLoading: '読み込み中…',
     agentNone: 'エージェント',
     agentNoneShown: 'チャットで使えるエージェントがオンになっていません。',

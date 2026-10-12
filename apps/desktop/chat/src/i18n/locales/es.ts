@@ -123,8 +123,6 @@ export const es: Words = {
   composer: {
     commands: 'Comandos',
     context: 'Contexto al {percent}% · {used} de {size} tokens',
-    mode: 'Modo',
-    planOn: 'Plan',
     agentLoading: 'Cargando…',
     agentNone: 'Agente',
     agentNoneShown: 'No hay ningún agente activado para el chat.',

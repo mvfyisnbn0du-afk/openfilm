@@ -122,8 +122,6 @@ export const enUS = {
   composer: {
     commands: 'Commands',
     context: 'Context {percent}% full · {used} of {size} tokens',
-    mode: 'Mode',
-    planOn: 'Plan',
     agentLoading: 'Loading…',
     agentNone: 'Agent',
     agentNoneShown: 'No agent is switched on for the chat.',
