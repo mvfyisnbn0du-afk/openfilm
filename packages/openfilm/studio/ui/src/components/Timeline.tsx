@@ -189,6 +189,8 @@ const INFO_H = 15;
  * the preview — the expensive part. The line itself follows every frame from local state.
  */
 const SCRUB_TELL_MS = 40;
+/** How far (px) a press on the ruler moves before it is a scrub (it pauses) and not a click (playing goes on). */
+const SCRUB_CLICK_PX = 3;
 /**
  * The audio band at the bottom of a video clip: its own sound draws its waveform here; a video without sound keeps
  * the band empty but still takes its height, so the preview bands of neighboring videos line up. A page or a still
@@ -1333,14 +1335,21 @@ export const Timeline = React.memo(function Timeline({
   }, [playable, hasLanes, playheadGapPx, totalMs]);
 
   /* A scrub follows the pointer from pointerdown to pointerup even outside the timeline (listeners on window). Each
-     frame previews, release commits: hundreds of seeks would make the sound tear. A click without dragging takes the
-     same path. */
+     frame previews, release commits: hundreds of seeks would make the sound tear. With snapping on, the line snaps to
+     clip edges and markers, as CapCut's. A click without dragging only seeks: playing goes on from there, as in CapCut
+     and Premiere; a drag pauses. */
   const startScrub = React.useCallback((e: React.PointerEvent, fromRuler = false) => {
     if (e.button !== 0 || !playable) return;
     e.preventDefault();
-    let at = msAtClientX(e.clientX);
+    const targets = snap ? snapTargetsFor(allBlocks, '', 0, undefined, snapPointsMs).filter((t) => t.kind !== 'playhead') : [];
+    const timeAt = (clientX: number): number => {
+      const raw = msAtClientX(clientX);
+      return targets.length ? snapMs(raw, targets, pxPerMs).ms : raw;
+    };
+    const fromX = e.clientX;
+    let moved = false;
+    let at = timeAt(e.clientX);
     setScrubMs(at);
-    onScrubPreview(at);
     lastTold.current = performance.now();
     setScrubbing(true);
     /* the scrub cursor holds for the whole drag (an !important class), or clips under the line take it */
@@ -1350,12 +1359,13 @@ export const Timeline = React.memo(function Timeline({
     let atX = e.clientX;
     const flush = (): void => {
       raf = 0;
-      at = msAtClientX(atX);
+      at = timeAt(atX);
       /* the line every frame (cheap: the rows are memoized without the time) */
       setScrubMs(at);
-      /* the editor and the picture every SCRUB_TELL_MS (the expensive part) */
+      /* the editor and the picture every SCRUB_TELL_MS (the expensive part); the first one pauses */
       const now = performance.now();
-      if (now - lastTold.current >= SCRUB_TELL_MS) {
+      if (!moved || now - lastTold.current >= SCRUB_TELL_MS) {
+        moved = true;
         lastTold.current = now;
         onScrubPreview(at);
       }
@@ -1364,6 +1374,8 @@ export const Timeline = React.memo(function Timeline({
     const edge = edgeAutoScroll(scrollRef, () => { if (!raf) raf = requestAnimationFrame(flush); });
     const move = (ev: PointerEvent) => {
       atX = ev.clientX;
+      /* a hand that has not moved yet is still a click */
+      if (!moved && Math.abs(ev.clientX - fromX) < SCRUB_CLICK_PX) return;
       if (!raf) raf = requestAnimationFrame(flush);
       edge.at(ev.clientX);
     };
@@ -1375,19 +1387,20 @@ export const Timeline = React.memo(function Timeline({
       if (raf) {
         cancelAnimationFrame(raf);
         raf = 0;
-        at = msAtClientX(atX);
+        at = timeAt(atX);
       }
       document.body.classList.remove('tl-scrubbing');
       setScrubbing(false);
       setScrubMs(null);
-      onScrubCommit(at);
+      if (moved) onScrubCommit(at);
+      else onSeek(at);
       warmPlayheadAt(ev.clientX, ev.clientY, at);
       /* a point picked on the ruler: the selection bar is about the moment there */
       if (fromRuler) setBarFocus('point');
     };
     window.addEventListener('pointermove', move, { passive: true });
     window.addEventListener('pointerup', up);
-  }, [msAtClientX, onScrubCommit, onScrubPreview, playable, warmPlayheadAt]);
+  }, [msAtClientX, onScrubCommit, onScrubPreview, onSeek, playable, warmPlayheadAt, snap, allBlocks, snapPointsMs, pxPerMs]);
 
   /** The range being pulled on the ruler, before it is the editor's (drawn from here, not re-rendering the editor). */
   const [rangeDraft, setRangeDraft] = React.useState<FilmRange | null>(null);
@@ -1580,12 +1593,13 @@ export const Timeline = React.memo(function Timeline({
       const exactMs = Math.max(0, (e.clientX - (scrollRef.current?.getBoundingClientRect().left ?? 0) + (scrollRef.current?.scrollLeft ?? 0)) / pxPerMs);
       const found = docIndex != null && onEditOps && !tracks[fromLane]?.locked ? gapAt(modelRef.current, docIndex, exactMs) : null;
       setGap(found ? { track: docIndex!, ...found } : null);
-      onScrubCommit(fromMs);
+      /* a seek: playing goes on from there */
+      onSeek(fromMs);
       warmPlayheadAt(ev.clientX, ev.clientY, fromMs);
     };
     window.addEventListener('pointermove', move);
     window.addEventListener('pointerup', up);
-  }, [playable, msAtClientX, laneAtY, contentY, tracks, selectOne, onScrubCommit, warmPlayheadAt, setSelected, withLinked, onEditOps, pxPerMs]);
+  }, [playable, msAtClientX, laneAtY, contentY, tracks, selectOne, onSeek, warmPlayheadAt, setSelected, withLinked, onEditOps, pxPerMs]);
 
   /**
    * A press within ±4 px of the playhead line in the empty track space grabs the playhead. Not over a clip: a clip a
@@ -1876,7 +1890,7 @@ export const Timeline = React.memo(function Timeline({
       ghosts,
       /* the guide only when release lands right there: not for a new track, a refused spot or an insert moved to a
          cut (same rule as moving clips) */
-      snapGuideMs: snapped.target && snapped.target.kind !== 'playhead' && !preview.newTrack && !preview.error && !moved
+      snapGuideMs: snapped.target && !preview.newTrack && !preview.error && !moved
         ? snapped.target.ms
         : null,
     };
@@ -3007,11 +3021,9 @@ export const Timeline = React.memo(function Timeline({
     return out;
   }, [allBlocks, assetHint, drag.preview, padTop, tracks, onEditOps]);
 
-  /* the snap guide only when snapped to an edge (or zero) and landing right there (useBlockDrag landsFlush); not for
-     the playhead, which is already a line */
-  const snapGuideMs = drag.preview?.snappedTo && drag.preview.snappedTo.kind !== 'playhead'
-    ? drag.preview.snappedTo.ms
-    : (assetHint?.snapGuideMs ?? null);
+  /* the snap guide when snapped (to an edge, zero, a marker or the playhead) and landing right there (useBlockDrag
+     landsFlush): over the playhead too, so the person sees it caught */
+  const snapGuideMs = drag.preview?.snappedTo ? drag.preview.snappedTo.ms : (assetHint?.snapGuideMs ?? null);
 
   /** The selected clips, in timeline order. */
   const selectedBlocks = React.useMemo(
