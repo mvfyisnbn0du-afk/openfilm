@@ -13,7 +13,7 @@ import { basename, join } from 'node:path';
 import { Readable } from 'node:stream';
 import { fileURLToPath } from 'node:url';
 import { FLAVOR, IDENTITY, PRODUCT_NAME } from './flavor.mjs';
-import { folderDialogOptions } from './folder-dialog.mjs';
+import { folderDialogOptions, programDialogOptions } from './folder-dialog.mjs';
 import { childEnvironment, loginShellEnvironment } from './environment.mjs';
 import { startWindowStudio } from './studio.mjs';
 import { CHAT_MIN, STUDIO_MIN, WINDOW_MIN, placeOnDisplays, readWindowState, writeWindowState } from './window-state.mjs';
@@ -21,7 +21,7 @@ import { applicationMenu } from './menu.mjs';
 import { registerLocalAgentIpc } from './local-agents-ipc.mjs';
 import { registerChatIpc } from './chat-ipc.mjs';
 import { createRoster } from './agent-roster.mjs';
-import { listAgents, openAgentSignIn } from './agents.mjs';
+import { checkAgentProgram, diagnoseAgent, listAgents, openAgentSignIn, setChosenPaths } from './agents.mjs';
 import { installOpenfilmCommand } from './openfilm-command.mjs';
 import { startUpdates } from './updates.mjs';
 import { ensureFfmpeg, ffmpegDir, ffmpegDownloadable, ffmpegIn, ffmpegOnPath } from './ffmpeg-runtime.mjs';
@@ -315,6 +315,14 @@ async function start() {
     seal,
     unseal,
     onChange: (list) => view?.webContents.send('desktop:agents', list),
+    /* the program the person points at, for an agent not found where it is looked for */
+    usePaths: setChosenPaths,
+    pickProgram: async (_id, words) => {
+      const { canceled, filePaths } = await dialog.showOpenDialog(win, programDialogOptions(words));
+      return canceled || !filePaths[0] ? null : filePaths[0];
+    },
+    checkProgram: checkAgentProgram,
+    diagnose: (id) => diagnoseAgent(id, { appVersion: app.getVersion() }),
   });
   const agentHandle = (channel, fn) => ipcMain.handle(channel, (event, opts) => {
     if (!fromPage(event)) throw new Error('not the window\'s page');
@@ -323,6 +331,9 @@ async function start() {
   agentHandle('desktop:agents:list', () => { void roster.refresh(); return roster.list(); });
   agentHandle('desktop:agents:connect', ({ id }) => roster.connect(String(id)));
   agentHandle('desktop:agents:disconnect', ({ id }) => { roster.disconnect(String(id)); return { ok: true }; });
+  agentHandle('desktop:agents:locate', ({ id, words }) => roster.locate(String(id), words));
+  agentHandle('desktop:agents:automatic', ({ id }) => roster.useAutomatic(String(id)));
+  agentHandle('desktop:agents:diagnose', ({ id }) => roster.diagnose(String(id)));
   agentHandle('desktop:agents:shown', ({ id, shown }) => { roster.setShown(String(id), shown === true); return { ok: true }; });
   agentHandle('desktop:agents:byok', ({ config }) => roster.configureByok(config));
   /* a file on the disk brought into the chat goes into the project the page names, through Studio's own import (it

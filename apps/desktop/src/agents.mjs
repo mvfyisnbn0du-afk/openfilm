@@ -22,14 +22,14 @@
  */
 import { execFile, spawn } from 'node:child_process';
 import { existsSync, mkdtempSync, readFileSync } from 'node:fs';
-import { homedir, tmpdir } from 'node:os';
+import { arch, homedir, release, tmpdir } from 'node:os';
 import { createRequire } from 'node:module';
-import { dirname, join } from 'node:path';
+import { dirname, isAbsolute, join } from 'node:path';
 import { Readable, Writable } from 'node:stream';
 import { fileURLToPath } from 'node:url';
 import * as acp from '@agentclientprotocol/sdk';
-import { PATH_SEP, childEnvironment, loginShellEnvironment } from './environment.mjs';
-import { detectAgentInstallation } from './agent-installation.mjs';
+import { PATH_SEP, childEnvironment, lastPathSource, loginShellEnvironment } from './environment.mjs';
+import { AGENT_PROGRAMS, HOME_BIN_CANDIDATES, chosenProgram, detectAgentInstallation, searchReport } from './agent-installation.mjs';
 import { nodeBinary } from './node-runtime.mjs';
 import { outOfBalance } from './pi-config.mjs';
 
@@ -111,26 +111,150 @@ export function ownAgentPrompt() {
   return `${prompt}\n\n## Where you are\n\n${INSTRUCTIONS}\n\n${WEB_INSTRUCTIONS}\n\n<manual>\n${manual}\n</manual>`;
 }
 
-/** The person's program for this agent, on their login shell's PATH or inside the maker's app. */
-export function resolveAgentCli(id, { pathDirs = [] } = {}) {
-  if (!isAgentId(id)) return null;
-  const found = detectAgentInstallation(id, { env: { ...process.env, PATH: pathDirs.join(PATH_SEP) } }).cli;
-  return found ? { path: found } : null;
+/** The programs the person chose for their agents (Settings → Agents → Locate, agent-roster.mjs), by agent. */
+let chosenPaths = {};
+export function setChosenPaths(paths) {
+  chosenPaths = Object.fromEntries(Object.entries(paths ?? {}).filter(([id, path]) => isAgentId(id) && typeof path === 'string' && path));
 }
 
-function run(cmd, args, timeoutMs = 10_000, { cwd, env } = {}) {
+const windows = process.platform === 'win32';
+/** what the slower search found last (Windows): npm's global folder, Codex inside a Microsoft Store app */
+let slowFound = { npmPrefix: null, storeCodex: null };
+let slowCache = null;
+const SLOW_FOR_MS = 10 * 60_000;
+/* an OpenAI app from the Microsoft Store (ChatGPT, Codex) that carries Codex: where its codex.exe is */
+const STORE_CODEX = "Get-AppxPackage -Name 'OpenAI.*' | ForEach-Object { Get-ChildItem -LiteralPath $_.InstallLocation -Recurse -Depth 5 -Filter codex.exe -ErrorAction SilentlyContinue | Select-Object -First 1 -ExpandProperty FullName }";
+
+/**
+ * Windows only, and only when an agent is not found the quick way: where npm puts global commands (a prefix of the
+ * person's own that is not on their PATH), and Codex inside an OpenAI app from the Microsoft Store. Asked again after
+ * ten minutes, or at once with `fresh`.
+ */
+function windowsSlowSearch({ fresh = false } = {}) {
+  if (!windows) return Promise.resolve(slowFound);
+  if (slowCache && !fresh && Date.now() - slowCache.at < SLOW_FOR_MS) return slowCache.value;
+  const value = (async () => {
+    const env = childEnvironment({ shell: await loginShellEnvironment() });
+    const [npm, store] = await Promise.all([
+      run(process.env.ComSpec || 'cmd.exe', ['/d', '/s', '/c', 'npm prefix -g'], 15_000, { env }),
+      run('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', STORE_CODEX], 20_000, { env }),
+    ]);
+    const prefix = npm.ok ? npm.stdout.trim().split(/\r?\n/).pop()?.trim() : null;
+    const exe = store.ok ? store.stdout.split(/\r?\n/).map((l) => l.trim()).find((l) => /codex\.exe$/i.test(l)) : null;
+    slowFound = { npmPrefix: prefix && isAbsolute(prefix) ? prefix : null, storeCodex: exe && isAbsolute(exe) ? exe : null };
+    return slowFound;
+  })().catch(() => slowFound);
+  slowCache = { at: Date.now(), value };
+  return value;
+}
+
+/** Where this agent was looked for, beyond the PATH. */
+const searchDirs = () => [...HOME_BIN_CANDIDATES(), ...(slowFound.npmPrefix ? [slowFound.npmPrefix] : [])];
+
+/**
+ * The person's program for this agent: the one they chose; else on their login shell's PATH (on Windows, the PATH the
+ * registry has now), in the folders installers use, or inside the maker's app. `source`: chosen · path · app.
+ */
+export function resolveAgentCli(id, { pathDirs = [] } = {}) {
+  if (!isAgentId(id)) return null;
+  const found = detectAgentInstallation(id, {
+    env: { PATH: pathDirs.join(PATH_SEP) },
+    pathDirs: searchDirs(),
+    chosen: chosenPaths[id] ?? null,
+    others: id === 'codex' && slowFound.storeCodex ? [slowFound.storeCodex] : [],
+  });
+  return found.cli ? { path: found.cli, source: found.source } : null;
+}
+
+function run(cmd, args, timeoutMs = 10_000, { cwd, env, options } = {}) {
   return new Promise((resolve) => {
-    execFile(cmd, args, { timeout: timeoutMs, encoding: 'utf8', ...(cwd ? { cwd } : {}), ...(env ? { env } : {}) }, (error, stdout, stderr) => {
-      resolve({ ok: !error, out: `${stdout ?? ''}\n${stderr ?? ''}`, stdout: stdout ?? '' });
-    });
+    try {
+      execFile(cmd, args, { timeout: timeoutMs, encoding: 'utf8', windowsHide: true, ...options, ...(cwd ? { cwd } : {}), ...(env ? { env } : {}) }, (error, stdout, stderr) => {
+        resolve({ ok: !error, out: `${stdout ?? ''}\n${stderr ?? ''}`, stdout: stdout ?? '' });
+      });
+    } catch (e) {
+      /* a program Windows cannot start that way (EINVAL) */
+      resolve({ ok: false, out: e instanceof Error ? e.message : String(e), stdout: '' });
+    }
   });
 }
 
-/** How to start a program found for an agent: itself, or a script with the app's own Node (an npm install on Windows). */
+/* one word of a cmd.exe command line: quoted when it has to be */
+const winArg = (a) => (/^[\w.:\\/=+@-]+$/.test(a) ? a : `"${String(a).replace(/"/g, '""')}"`);
+
+/**
+ * How to start a program found for an agent: itself, a script with the app's own Node (an npm install on Windows), or
+ * a `.cmd` shim whose target could not be told, through cmd.exe. `options` go to spawn.
+ */
 function starting(cliPath, args) {
-  return /\.(?:c|m)?js$/i.test(cliPath)
-    ? { cmd: nodeBinary(), args: [cliPath, ...args], env: { ELECTRON_RUN_AS_NODE: '1' } }
-    : { cmd: cliPath, args, env: {} };
+  if (/\.(?:c|m)?js$/i.test(cliPath)) return { cmd: nodeBinary(), args: [cliPath, ...args], env: { ELECTRON_RUN_AS_NODE: '1' }, options: {} };
+  if (windows && /\.(?:cmd|bat)$/i.test(cliPath)) {
+    return { cmd: process.env.ComSpec || 'cmd.exe', args: ['/d', '/s', '/c', `"${[cliPath, ...args].map(winArg).join(' ')}"`], env: {}, options: { windowsVerbatimArguments: true } };
+  }
+  return { cmd: cliPath, args, env: {}, options: {} };
+}
+
+/**
+ * A program the person chose for an agent, tried: it has to start and answer `--version`. `{ ok, version }`, or why
+ * not: `code` 'not-a-program' (nothing there this computer can start) or 'did-not-start' (with what it said).
+ */
+export async function checkAgentProgram(id, path) {
+  const spec = AGENTS[id];
+  if (!spec) return { ok: false, error: `No agent ${id}`, code: 'not-a-program' };
+  const cli = chosenProgram(path, { names: AGENT_PROGRAMS[id]?.names ?? [id] });
+  if (!cli) return { ok: false, error: 'That is not a program this computer can start.', code: 'not-a-program' };
+  const how = starting(cli, ['--version']);
+  const r = await run(how.cmd, how.args, 20_000, { env: childEnvironment({ shell: await loginShellEnvironment(), extra: how.env }), options: how.options });
+  if (!r.ok) return { ok: false, error: r.out.trim().slice(0, 400), code: 'did-not-start' };
+  return { ok: true, path: cli, version: r.stdout.trim().split(/\r?\n/)[0] ?? '' };
+}
+
+/** Where in WSL (Linux on Windows) one of these programs is, or null: there the app cannot use it. */
+async function inWsl(names) {
+  const wsl = join(process.env.SystemRoot ?? 'C:\\Windows', 'System32', 'wsl.exe');
+  if (!existsSync(wsl)) return null;
+  const r = await run(wsl, ['-e', 'bash', '-lic', names.map((n) => `command -v ${n}`).join(' || ')], 15_000);
+  return r.stdout.replace(/\0/g, '').split(/\r?\n/).map((l) => l.trim()).find((l) => /^\/\S+$/.test(l)) ?? null;
+}
+
+/**
+ * Why an agent is or is not found, for the person to read or send with an issue: the PATH and where it came from, the
+ * program chosen, every folder searched, each file there with the agent's name and what it runs; on Windows, npm's
+ * global folder and whether it is in WSL instead. `hint`, when it is not found: chosen-missing (the program chosen is
+ * gone) · wsl (only in WSL) · unusable (files with its name, none that starts) · none.
+ */
+export async function diagnoseAgent(id, { appVersion = '' } = {}) {
+  const spec = AGENTS[id];
+  if (!spec) return null;
+  const shell = await loginShellEnvironment();
+  const slow = await windowsSlowSearch({ fresh: true });
+  const pathDirs = shell.PATH.split(PATH_SEP);
+  const found = resolveAgentCli(id, { pathDirs });
+  const names = AGENT_PROGRAMS[id]?.names ?? [id];
+  const report = searchReport(id, { env: { PATH: shell.PATH }, pathDirs: searchDirs() });
+  const wsl = windows && !found ? await inWsl(names) : null;
+  const chosen = chosenPaths[id] ?? null;
+  const hint = found ? null : chosen ? 'chosen-missing' : wsl ? 'wsl' : report.files.length ? 'unusable' : 'none';
+  const lines = [
+    `OpenFilm ${appVersion}`.trim(),
+    `Agent: ${spec.label} (${names.join(', ')})`,
+    `System: ${process.platform} ${release()} ${arch()}`,
+    `PATH from: ${lastPathSource() ?? 'unknown'}`,
+    `Chosen: ${chosen ?? '(none)'}`,
+    `Found: ${found ? `${found.path} (${found.source})` : '(not found)'}`,
+    ...(windows ? [
+      `npm global folder: ${slow.npmPrefix ?? '(unknown)'}`,
+      ...(id === 'codex' ? [`Codex in a Store app: ${slow.storeCodex ?? '(none)'}`] : []),
+      `In WSL: ${found ? '(not checked)' : wsl ?? '(no)'}`,
+    ] : []),
+    '',
+    `Files named ${names.join(', ')}:`,
+    ...(report.files.length ? report.files.map((f) => `  ${f.file}${f.runs && f.runs !== f.file ? ` -> ${f.runs}` : ''}${f.usable ? '' : ' (cannot be started)'}`) : ['  (none)']),
+    '',
+    `Folders searched (${report.searched.length}):`,
+    ...report.searched.map((d) => `  ${d}`),
+  ];
+  return { found: found?.path ?? null, program: names[0], hint, text: lines.join('\n') };
 }
 
 /**
@@ -142,7 +266,7 @@ export async function agentSignedIn(id, cliPath) {
   if (!spec || !cliPath) return null;
   if (!spec.auth) return acpSignedIn(id);
   const how = starting(cliPath, spec.auth);
-  const r = await run(how.cmd, how.args, 10_000, { env: childEnvironment({ shell: await loginShellEnvironment(), extra: how.env }) });
+  const r = await run(how.cmd, how.args, 10_000, { env: childEnvironment({ shell: await loginShellEnvironment(), extra: how.env }), options: how.options });
   if (id === 'claude') {
     try {
       const status = JSON.parse(r.stdout);
@@ -203,11 +327,11 @@ export async function openAgentSignIn(id) {
   const spec = AGENTS[id];
   const pathDirs = (await loginShellEnvironment()).PATH.split(PATH_SEP);
   const cli = spec ? resolveAgentCli(id, { pathDirs }) : null;
-  if (!spec || !cli) return { ok: false, error: `${spec?.label ?? id} is not installed on this Mac.` };
+  if (!spec || !cli) return { ok: false, error: `${spec?.label ?? id} is not installed on this computer.` };
   asked.delete(id);
   if (process.platform === 'win32') {
-    /* a command window of its own, left open so its sign-in can be read and answered */
-    const how = starting(cli.path, spec.login);
+    /* a command window of its own, left open so its sign-in can be read and answered (it runs a shim itself) */
+    const how = /\.(?:cmd|bat)$/i.test(cli.path) ? { cmd: cli.path, args: spec.login, env: {} } : starting(cli.path, spec.login);
     try {
       spawn('cmd.exe', ['/d', '/c', 'start', `${spec.label} sign-in`, 'cmd.exe', '/k', how.cmd, ...how.args], {
         detached: true, stdio: 'ignore', windowsHide: false, env: childEnvironment({ shell: await loginShellEnvironment(), extra: how.env }),
@@ -225,6 +349,11 @@ export async function openAgentSignIn(id) {
  */
 export async function listAgents() {
   const pathDirs = (await loginShellEnvironment()).PATH.split(PATH_SEP);
+  /* one not found the quick way: the slower search (Windows), then all of them again; waited for a few seconds at
+     most, what it finds later is there on the next look */
+  if (windows && Object.keys(AGENTS).some((id) => !resolveAgentCli(id, { pathDirs }))) {
+    await Promise.race([windowsSlowSearch(), new Promise((done) => setTimeout(done, 3000).unref?.())]);
+  }
   return Promise.all(Object.entries(AGENTS).map(async ([id, spec]) => {
     const cli = resolveAgentCli(id, { pathDirs });
     const { install } = detectAgentInstallation(id);
@@ -232,7 +361,8 @@ export async function listAgents() {
     return {
       id,
       label: spec.label,
-      cli: cli ? { path: cli.path, source: 'installed' } : null,
+      cli: cli ? { path: cli.path, source: cli.source } : null,
+      chosen: chosenPaths[id] ?? null,
       signedIn: cli ? await agentSignedIn(id, cli.path) : null,
       install,
       setupRequired: claudeApp ? 'code-tab' : null,
@@ -380,7 +510,7 @@ export class AgentSession {
     const shell = await loginShellEnvironment();
     const harness = this.opts.harness ?? null;
     const cli = harness ? null : resolveAgentCli(this.opts.agent, { pathDirs: shell.PATH.split(PATH_SEP) });
-    if (!harness && !cli) throw Object.assign(new Error(`${this.spec.label} is not installed on this Mac.`), { code: 'not-installed' });
+    if (!harness && !cli) throw Object.assign(new Error(`${this.spec.label} is not installed on this computer.`), { code: 'not-installed' });
     const node = nodeRuntime();
     const path = [this.opts.binDir, shell.PATH].filter(Boolean).join(PATH_SEP);
     const instructions = INSTRUCTIONS;
@@ -401,7 +531,7 @@ export class AgentSession {
 
     const script = harness ? fileURLToPath(new URL('./pi-agent.mjs', import.meta.url)) : native ? null : adapterScript(this.spec.adapter);
     this.child = native
-      ? spawn(native.cmd, native.args, { cwd: this.opts.cwd, env, stdio: ['pipe', 'pipe', 'pipe'] })
+      ? spawn(native.cmd, native.args, { ...native.options, cwd: this.opts.cwd, env, stdio: ['pipe', 'pipe', 'pipe'] })
       : spawn(node.command, [script], { cwd: this.opts.cwd, env, stdio: ['pipe', 'pipe', 'pipe'] });
     this.child.stderr.on('data', (d) => { this.stderr = (this.stderr + String(d)).slice(-16_000); });
     this.child.once('exit', (code) => this.opts.onExit?.({ code, stderr: this.stderr }));

@@ -31,8 +31,8 @@ export interface LocalAgentState {
   setupRequired?: 'code-tab' | null;
   id: LocalAgentId;
   label: string;
-  /** The executable it uses: the user's own install, or in development the official one among the adapter's dependencies. null = not installed. */
-  cli: { path: string; source: 'installed' | 'bundled' } | null;
+  /** The executable it uses: the one the person chose, one found on the PATH or in installers' folders, or the copy inside the maker's app. null = not installed. */
+  cli: { path: string; source: 'chosen' | 'path' | 'app' } | null;
   /** Its own reported sign-in state; null when it cannot be asked. */
   signedIn: boolean | null;
   /** The official install page. When it is missing the UI points there; the app does not install it for the user. */

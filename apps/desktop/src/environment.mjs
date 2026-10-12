@@ -111,16 +111,83 @@ function captureLoginShell(shell, env, timeoutMs) {
   });
 }
 
+/** `reg query <key>` output, read: each value's name and its text (REG_SZ and REG_EXPAND_SZ only). */
+export function parseRegQuery(text) {
+  const values = {};
+  for (const line of String(text ?? '').split(/\r?\n/)) {
+    const m = /^\s{2,}(\S(?:.*?\S)?)\s{2,}(REG_SZ|REG_EXPAND_SZ)\s{2,}(.*)$/.exec(line);
+    if (m) values[m[1]] = m[3].trim();
+  }
+  return values;
+}
+
+/** `%NAME%` replaced by the variable's value, whatever its case; one not set is left as it is. */
+export function expandWindowsVars(text, vars) {
+  const lower = new Map(Object.entries(vars ?? {}).map(([k, v]) => [k.toLowerCase(), v]));
+  return String(text ?? '').replace(/%([^%;]+)%/g, (all, name) => (typeof lower.get(name.toLowerCase()) === 'string' ? lower.get(name.toLowerCase()) : all));
+}
+
+const valueOf = (vars, name) => Object.entries(vars ?? {}).find(([k]) => k.toLowerCase() === name.toLowerCase())?.[1];
+
+/**
+ * The PATH Windows gives a program started now: the system's, then the person's (as the registry has them, their
+ * variables expanded), then whatever else the app's own PATH has. Each folder once, whatever its case.
+ */
+export function windowsFreshPath({ machine = {}, user = {}, source = process.env } = {}) {
+  const vars = { ...source, ...machine, ...user };
+  const dirs = [valueOf(machine, 'Path'), valueOf(user, 'Path'), pathOf(source)]
+    .flatMap((p) => expandWindowsVars(p ?? '', vars).split(';'))
+    .map((d) => d.trim().replace(/^"(.*)"$/, '$1'))
+    .filter(Boolean);
+  const seen = new Map();
+  for (const d of dirs) if (!seen.has(d.toLowerCase())) seen.set(d.toLowerCase(), d);
+  return [...seen.values()].join(';');
+}
+
+const REG_MACHINE = 'HKLM\\SYSTEM\\CurrentControlSet\\Control\\Session Manager\\Environment';
+const REG_USER = 'HKCU\\Environment';
+
+function regQuery(key, timeoutMs) {
+  return new Promise((resolve) => {
+    const reg = join(process.env.SystemRoot ?? 'C:\\Windows', 'System32', 'reg.exe');
+    execFile(reg, ['query', key], { timeout: timeoutMs, encoding: 'utf8', windowsHide: true }, (error, stdout) => resolve(error ? null : parseRegQuery(stdout)));
+  });
+}
+
+/** Where the PATH last came from: 'registry' or 'process' (Windows), 'login shell' or 'fallback' (elsewhere). */
+let pathSource = null;
+export const lastPathSource = () => pathSource;
+
+/** Windows asked again after this long: a program installed meanwhile is found without restarting the app. */
+const WINDOWS_ENV_FOR_MS = 5000;
+let windowsCache = null;
+
+function windowsEnvironment(source, timeoutMs) {
+  if (windowsCache && Date.now() - windowsCache.at < WINDOWS_ENV_FOR_MS) return windowsCache.value;
+  const value = (async () => {
+    const [machine, user] = await Promise.all([regQuery(REG_MACHINE, timeoutMs), regQuery(REG_USER, timeoutMs)]);
+    pathSource = machine || user ? 'registry' : 'process';
+    /* the person's own variables (proxies, CODEX_HOME) as they are now, over the system's */
+    return shellSubset({ ...machine, ...user, PATH: windowsFreshPath({ machine: machine ?? {}, user: user ?? {}, source }) }, homedir());
+  })().catch(() => { pathSource = 'process'; return { PATH: mergePath(pathOf(source), homedir()) }; });
+  windowsCache = { at: Date.now(), value };
+  return value;
+}
+
 let loginShellCache = null;
-/** The login shell's subset (`shellSubset`), asked once per process. Never rejects: on failure, the fallback PATH. */
+/**
+ * The login shell's subset (`shellSubset`), asked once per process (on Windows, the registry's, asked again every few
+ * seconds). Never rejects: on failure, the fallback PATH.
+ */
 export function loginShellEnvironment({ source = process.env, timeoutMs = 5000 } = {}) {
-  /* Windows has no login shell: a program started from the Start menu already has the person's PATH */
-  if (windows) return Promise.resolve({ PATH: mergePath(pathOf(source), homedir()) });
+  if (windows) return windowsEnvironment(source, timeoutMs);
   loginShellCache ??= (async () => {
     const base = osEnvironment(source);
     const dump = base.SHELL ? await captureLoginShell(base.SHELL, { ...base, PATH: BASE_PATH }, timeoutMs) : null;
-    return shellSubset(parseEnvDump(dump), base.HOME);
-  })().catch(() => ({ PATH: mergePath('', homedir()) }));
+    const parsed = parseEnvDump(dump);
+    pathSource = parsed.PATH ? 'login shell' : 'fallback';
+    return shellSubset(parsed, base.HOME);
+  })().catch(() => { pathSource = 'fallback'; return { PATH: mergePath('', homedir()) }; });
   return loginShellCache;
 }
 

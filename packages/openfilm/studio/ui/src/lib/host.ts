@@ -61,13 +61,18 @@ export interface StudioHost {
   /**
    * The agents the app's chat can use, for Settings → Agents: connected or not, shown in the chat's menu or not, and
    * the person's own key for the one that takes one. `onChange` tells of every change (a sign-in finished, a key set up)
-   * and returns a way to stop listening.
+   * and returns a way to stop listening. One of the person's own agents not found can be pointed at (`locate`: the
+   * system's file dialog, with Studio's words; `{ ok: false }` and no error when cancelled) and set back to being
+   * found (`useAutomatic`); `diagnose` says what was searched (an older app has none of these).
    */
   agents?: {
     list: () => Promise<HostAgent[]>;
     connect: (id: HostAgentId) => Promise<{ ok: boolean; error?: string }>;
     disconnect: (id: HostAgentId) => Promise<unknown>;
     setShown: (id: HostAgentId, shown: boolean) => Promise<unknown>;
+    locate?: (id: HostAgentId, words?: { title?: string; button?: string }) => Promise<{ ok: boolean; error?: string; code?: 'not-a-program' | 'did-not-start' | string }>;
+    useAutomatic?: (id: HostAgentId) => Promise<unknown>;
+    diagnose?: (id: HostAgentId) => Promise<HostAgentDiagnosis | null>;
     configureByok: (config: { format: HostByokFormat; baseUrl?: string; models: string[]; key?: string }) => Promise<{ ok: boolean; error?: string; code?: string }>;
     onChange: (listener: (agents: HostAgent[]) => void) => () => void;
   };
@@ -116,6 +121,13 @@ export interface HostAsk { id: string; title: string; body: string | null; allow
 export type HostUpdate = { status: 'ready' | 'installing'; version: string; waiting?: 'agent-busy' | 'exporting' | 'install-failed' | null };
 
 export type HostAgentId = 'codex' | 'claude' | 'gemini' | 'copilot' | 'cursor' | 'opencode' | 'codebuddy' | 'qwen' | 'kimi' | 'byok';
+/**
+ * What was searched for an agent (`agents.diagnose`): the report to copy, the program's name, where it was found, and
+ * when it was not, why: chosen-missing (the program chosen is gone) · wsl (only inside WSL, which the app cannot use) ·
+ * unusable (files with its name, none that starts) · none.
+ */
+export interface HostAgentDiagnosis { found: string | null; program?: string; hint: 'chosen-missing' | 'wsl' | 'unusable' | 'none' | null; text: string }
+
 /** The API a person's own key is for: OpenAI's Responses or Chat Completions, or Anthropic's Messages. */
 export type HostByokFormat = 'responses' | 'chat' | 'anthropic';
 
@@ -132,6 +144,9 @@ export interface HostAgent {
   install?: string | null;
   /** What installing it takes, when `install` is not a download: 'code-tab', Claude Code comes with the Claude app (its Code tab). */
   setupRequired?: string | null;
+  /** The program used (the person's own agents), and the one the person chose for it, if they did. */
+  path?: string | null;
+  chosen?: string | null;
   error?: string;
   byok?: { format: HostByokFormat; baseUrl: string; model: string; models?: string[]; last4: string };
 }

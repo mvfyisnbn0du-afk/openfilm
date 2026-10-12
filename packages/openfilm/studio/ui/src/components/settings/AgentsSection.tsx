@@ -7,11 +7,14 @@
  * stops the app using them and leaves their sign-in alone, since the makers' own apps share it. Codex and Claude Code
  * are always listed under the person's agents, with the person's own key; the others there once switched on (connecting
  * one does), else under "More agents", with where to get them when they are not installed. The person's own key is on a service of theirs, with a model that reads pictures (the agent looks at its own frames).
+ *
+ * One not found can be pointed at: Locate… opens the system's file dialog, the program chosen is tried and used from
+ * then on (Find automatically goes back). "Why isn't it found?" says what was searched, with a report to copy.
  */
 import React from 'react';
-import { Download, KeyRound, Loader2 } from 'lucide-react';
+import { Check, Copy, Download, KeyRound, Loader2 } from 'lucide-react';
 import { useT } from '@/i18n';
-import { studioHost, type HostAgent, type HostAgentId, type HostByokFormat } from '@/lib/host';
+import { studioHost, type HostAgent, type HostAgentDiagnosis, type HostAgentId, type HostByokFormat } from '@/lib/host';
 import { ProviderMark } from './ProviderMark';
 import { agentMark } from '@/lib/provider-marks';
 import { SettingsSelect } from './SettingsSelect';
@@ -47,6 +50,7 @@ export function AgentsSection() {
   const [busy, setBusy] = React.useState<HostAgentId | null>(null);
   const [error, setError] = React.useState<{ id: HostAgentId; text: string } | null>(null);
   const [keyOpen, setKeyOpen] = React.useState(false);
+  const [diagnosis, setDiagnosis] = React.useState<{ id: HostAgentId; report: HostAgentDiagnosis | null; copied?: boolean } | null>(null);
   if (!host) return null;
 
   const act = (id: HostAgentId, run: () => Promise<{ ok?: boolean; error?: string } | unknown>) => {
@@ -56,6 +60,39 @@ export function AgentsSection() {
       .then((r) => { const res = r as { ok?: boolean; error?: string } | undefined; if (res && res.ok === false) setError({ id, text: res.error ?? t('settings.agents.failed') }); })
       .catch((e: unknown) => setError({ id, text: e instanceof Error ? e.message : String(e) }))
       .finally(() => setBusy(null));
+  };
+
+  /* the person points at the program: tried by the app before it is used; cancelling says nothing */
+  const locate = (agent: HostAgent) => act(agent.id, async () => {
+    const r = await host.locate!(agent.id, { title: t('settings.agents.locateTitle').replace('{name}', agent.name), button: t('settings.agents.locateButton') });
+    if (r.ok) setDiagnosis(null);
+    if (r.ok || (!r.error && !r.code)) return { ok: true };
+    if (r.code === 'not-a-program') return { ok: false, error: t('settings.agents.notAProgram') };
+    if (r.code === 'did-not-start') return { ok: false, error: `${t('settings.agents.didNotStart')} ${r.error ?? ''}`.trim() };
+    return r;
+  });
+
+  const diagnose = (agent: HostAgent) => {
+    setDiagnosis({ id: agent.id, report: null });
+    void host.diagnose!(agent.id)
+      .then((report) => setDiagnosis((d) => (d?.id === agent.id ? { id: agent.id, report } : d)))
+      .catch((e: unknown) => { setDiagnosis(null); setError({ id: agent.id, text: e instanceof Error ? e.message : String(e) }); });
+  };
+
+  const hintOf = (report: HostAgentDiagnosis) => {
+    switch (report.hint) {
+      case 'chosen-missing': return t('settings.agents.hintChosenMissing');
+      case 'wsl': return t('settings.agents.hintWsl');
+      case 'unusable': return t('settings.agents.hintUnusable');
+      case 'none': return t('settings.agents.hintNone').replaceAll('{program}', report.program ?? '');
+      default: return report.found ? t('settings.agents.hintFound').replace('{path}', report.found) : null;
+    }
+  };
+
+  const copyReport = (report: HostAgentDiagnosis, id: HostAgentId) => {
+    void navigator.clipboard.writeText(report.text)
+      .then(() => setDiagnosis((d) => (d?.id === id ? { ...d, copied: true } : d)))
+      .catch(() => {});
   };
 
   const statusLine = (agent: HostAgent) => {
@@ -78,7 +115,19 @@ export function AgentsSection() {
       return <SettingsButton variant="quiet" disabled={working} onClick={() => act(agent.id, () => host.disconnect(agent.id))}>{t('settings.agents.disconnect')}</SettingsButton>;
     }
     if (agent.status === 'missing') {
-      return agent.install ? <SettingsLinkButton href={agent.install}><Download size={16} />{t('settings.agents.install')}</SettingsLinkButton> : null;
+      const canLocate = host.locate && agent.setupRequired !== 'code-tab';
+      if (!agent.install && !canLocate) return null;
+      return (
+        <>
+          {canLocate ? (
+            <SettingsButton variant="quiet" disabled={working} onClick={() => locate(agent)}>
+              {working ? <Loader2 size={16} className="animate-spin" aria-hidden /> : null}
+              {t('settings.agents.locate')}
+            </SettingsButton>
+          ) : null}
+          {agent.install ? <SettingsLinkButton href={agent.install}><Download size={16} />{t('settings.agents.install')}</SettingsLinkButton> : null}
+        </>
+      );
     }
     if (agent.status === 'key') return <SettingsButton onClick={() => setKeyOpen(true)}>{t('settings.agents.setUpKey')}</SettingsButton>;
     if (agent.status === 'unavailable') return null;
@@ -95,6 +144,10 @@ export function AgentsSection() {
     const ownKey = agent.id === 'byok' && agent.byok;
     const said = error?.id === agent.id ? error.text : agent.error;
     const open = agent.id === 'byok' && keyOpen;
+    /* where it is not found: why, on asking (Claude Code waiting for its app's Code tab is not lost) */
+    const lost = agent.status === 'missing' && agent.setupRequired !== 'code-tab' && Boolean(host.diagnose);
+    const diag = diagnosis?.id === agent.id ? diagnosis : null;
+    const hint = diag?.report ? hintOf(diag.report) : null;
     return (
       <SettingsItem
         key={agent.id}
@@ -122,8 +175,37 @@ export function AgentsSection() {
           </>
         )}
       >
-        {agent.status === 'waiting' || open || said ? (
+        {agent.status === 'waiting' || open || said || agent.chosen || lost ? (
           <div className="flex flex-col gap-1.5 pl-[34px]">
+            {agent.chosen ? (
+              <p className="break-all text-[13.5px] leading-relaxed text-[var(--text-muted)]">
+                {t('settings.agents.chosenAt').replace('{path}', agent.chosen)}{' '}
+                {host.useAutomatic ? (
+                  <button type="button" onClick={() => act(agent.id, () => host.useAutomatic!(agent.id))} className="underline underline-offset-2 hover:text-[var(--text)]">{t('settings.agents.automatic')}</button>
+                ) : null}
+              </p>
+            ) : null}
+            {lost && !diag ? (
+              <p className="text-[13.5px] leading-relaxed text-[var(--text-muted)]">
+                <button type="button" onClick={() => diagnose(agent)} className="underline underline-offset-2 hover:text-[var(--text)]">{t('settings.agents.whyMissing')}</button>
+              </p>
+            ) : null}
+            {lost && diag && !diag.report ? (
+              <p className="flex items-center gap-1.5 text-[13.5px] text-[var(--text-muted)]"><Loader2 size={14} className="animate-spin" aria-hidden />{t('settings.agents.searching')}</p>
+            ) : null}
+            {lost && diag?.report ? (
+              <SettingsInset>
+                {hint ? <p className="break-words text-[14px] leading-relaxed text-[var(--text)]">{hint}</p> : null}
+                <p className="text-[13px] leading-relaxed text-[var(--text-faint)]">{t('settings.agents.reportNote')}</p>
+                <div className="flex justify-end gap-1.5">
+                  <SettingsButton variant="quiet" onClick={() => setDiagnosis(null)}>{t('settings.agents.close')}</SettingsButton>
+                  <SettingsButton onClick={() => copyReport(diag.report!, agent.id)}>
+                    {diag.copied ? <Check size={15} aria-hidden /> : <Copy size={15} aria-hidden />}
+                    {diag.copied ? t('settings.agents.copied') : t('settings.agents.copyReport')}
+                  </SettingsButton>
+                </div>
+              </SettingsInset>
+            ) : null}
             {agent.status === 'waiting' ? (
               <p className="text-[14.5px] leading-relaxed text-[var(--text-muted)]">
                 {t('settings.agents.waitingHint')}{' '}

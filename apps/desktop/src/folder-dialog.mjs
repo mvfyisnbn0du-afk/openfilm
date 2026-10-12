@@ -22,3 +22,24 @@ export function folderDialogOptions(options) {
     properties: ['openDirectory', 'createDirectory'],
   };
 }
+
+/**
+ * The system's file dialog for the program of one of the person's agents (Settings → Agents → Locate), with Studio's
+ * own words. On Windows only programs and the shims installers leave are offered; on a Mac an app can be chosen too
+ * (Codex.app: the Codex inside it is used).
+ * @param {unknown} options
+ * @param {string} [platform]
+ * @returns {import('electron').OpenDialogOptions}
+ */
+export function programDialogOptions(options, platform = process.platform) {
+  const o = options && typeof options === 'object' ? /** @type {Record<string, unknown>} */ (options) : {};
+  const text = (/** @type {unknown} */ v) => (typeof v === 'string' && v.trim() ? v.trim().slice(0, 120) : null);
+  const title = text(o.title) ?? 'Choose the program';
+  return {
+    title,
+    message: title,
+    buttonLabel: text(o.button) ?? 'Choose',
+    ...(platform === 'win32' ? { filters: [{ name: 'Programs', extensions: ['exe', 'cmd', 'bat', 'ps1', 'js'] }, { name: 'All files', extensions: ['*'] }] } : {}),
+    properties: ['openFile', 'showHiddenFiles'],
+  };
+}

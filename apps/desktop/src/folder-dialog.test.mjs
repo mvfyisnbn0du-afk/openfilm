@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { folderDialogOptions } from './folder-dialog.mjs';
+import { folderDialogOptions, programDialogOptions } from './folder-dialog.mjs';
 
 test('with no options the dialog opens a project', () => {
   const o = folderDialogOptions(undefined);
@@ -23,4 +23,13 @@ test('a starting folder that is not a full path, and text that is not text, are 
   assert.equal(o.title, 'Open Project');
   assert.equal(o.buttonLabel, 'Open');
   assert.equal(o.defaultPath, undefined);
+});
+
+test("an agent's program: Studio's words; on Windows only programs and shims are offered", () => {
+  const win = programDialogOptions({ title: 'Choose the Codex program', button: 'Use this' }, 'win32');
+  assert.equal(win.title, 'Choose the Codex program');
+  assert.equal(win.buttonLabel, 'Use this');
+  assert.deepEqual(win.filters?.[0].extensions, ['exe', 'cmd', 'bat', 'ps1', 'js']);
+  assert.ok(win.properties?.includes('openFile'));
+  assert.equal(programDialogOptions(null, 'darwin').filters, undefined, 'on a Mac an app can be chosen too');
 });
