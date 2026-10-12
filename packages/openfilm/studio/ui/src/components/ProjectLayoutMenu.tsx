@@ -69,7 +69,7 @@ export function ProjectLayoutMenu({ className, assets, layers, timeline, inspect
         ['inspector', t('layout.inspector'), inspector, onInspector, PanelRight] as const,
       ].map(([key, label, checked, change, Icon]) => <button key={key} type="button" role="switch"
         aria-checked={checked} onClick={() => change(!checked)}
-        className="flex w-full items-center gap-2.5 rounded-lg px-2 py-1.5 text-[13px] text-[var(--text)] hover:bg-[var(--bg-hover)] focus-visible:outline focus-visible:outline-[var(--border-strong)]">
+        className="flex w-full items-center gap-2.5 rounded-[7px] px-2 py-1.5 text-[13px] text-[var(--text)] hover:bg-[var(--bg-hover)] focus-visible:outline focus-visible:outline-[var(--border-strong)]">
         <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md bg-[var(--surface-2)] text-[var(--text-muted)]"><Icon size={13} aria-hidden /></span>
         <span className="flex-1 text-left">{label}</span>
         {/* a switch, not a tick: each pane is open or closed, not one picked from a set. Ink-colored, not blue. */}

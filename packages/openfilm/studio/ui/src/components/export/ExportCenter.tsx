@@ -1276,14 +1276,15 @@ function Segmented<V extends string>({ value, options, onChange }: {
   onChange: (v: V) => void;
 }) {
   return (
-    <div className="inline-flex max-w-full flex-wrap self-start rounded-lg border border-[var(--border)] bg-[var(--bg)] p-0.5">
+    /* a capsule in a capsule: the same even gap all round, so their curves run side by side */
+    <div className="inline-flex max-w-full self-start overflow-x-auto rounded-full border border-[var(--border)] bg-[var(--bg)] p-[3px]">
       {options.map((o) => (
         <button
           key={o.value}
           type="button"
           aria-pressed={o.value === value}
           onClick={() => onChange(o.value)}
-          className={`rounded-md px-2.5 py-1 text-[12px] font-medium transition ${
+          className={`shrink-0 whitespace-nowrap rounded-full px-3 py-1 text-[12px] font-medium transition ${
             o.value === value ? 'bg-[var(--surface-3,var(--bg-hover))] text-[var(--text)] shadow-[var(--shadow-sm)]' : 'text-[var(--text-muted)] hover:text-[var(--text)]'
           }`}
         >

@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { cancelled, filePickerCommand, folderPickerCommand } from './folder-picker.mjs';
+import { cancelled, filePickerCommand, folderPickerCommand, startFolder } from './folder-picker.mjs';
 
 test('macOS: the words and the folder are arguments of the script, never inside it', () => {
   const c = folderPickerCommand('darwin', { title: 'Save "here" end tell', at: '/Volumes/Films' });
@@ -54,4 +54,19 @@ test('only a real cancel is a cancel: osascript failing (Finder not allowed) is 
   assert.equal(cancelled('osascript', fail(1, 'execution error: Not authorized to send Apple events to Finder. (-1743)')), false);
   assert.equal(cancelled('zenity', fail(1, '')), true);
   assert.equal(cancelled('kdialog', fail(2, 'crashed')), false);
+});
+
+test('a dialog starts in the folder asked, or the nearest one above it that is there', () => {
+  const there = new Set(['/', '/Films', '/Films/Cut']);
+  const exists = (/** @type {string} */ p) => there.has(p);
+  assert.equal(startFolder('/Films/Cut', exists), '/Films/Cut');
+  assert.equal(startFolder('/Films/Cut/exports/not yet', exists), '/Films/Cut');
+  assert.equal(startFolder('relative/path', exists), null);
+  assert.equal(startFolder(null, exists), null);
+});
+
+test('macOS: the starting folder is made before Finder is asked, and one that is gone opens none', () => {
+  const lines = folderPickerCommand('darwin', { title: 'T', at: '/Films' }).args.filter((a, i, all) => all[i - 1] === '-e');
+  assert.ok(lines.indexOf('set startAt to (POSIX file (item 2 of argv)) as alias') < lines.indexOf('tell application "Finder"'));
+  assert.ok(!lines.some((l) => l.includes('default location (POSIX file')), 'Finder never makes a path a folder itself');
 });

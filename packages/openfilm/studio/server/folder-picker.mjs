@@ -16,7 +16,7 @@
  */
 import { execFile } from 'node:child_process';
 import { existsSync } from 'node:fs';
-import { isAbsolute } from 'node:path';
+import { dirname, isAbsolute } from 'node:path';
 
 /**
  * osascript's lines (`-e` each) for a dialog Finder opens in front, `lines` setting `picked`; the app that was in
@@ -26,6 +26,13 @@ function finderDialog(lines) {
   return [
     'on run argv',
     'set frontApp to (path to frontmost application as text)',
+    /* the folder to start in, made here: Finder can't make a path one (-1700), and one that is gone opens none */
+    'set startAt to missing value',
+    'if (item 2 of argv) is not "" then',
+    'try',
+    'set startAt to (POSIX file (item 2 of argv)) as alias',
+    'end try',
+    'end if',
     'try',
     'tell application "Finder"',
     'activate',
@@ -52,10 +59,10 @@ export function folderPickerCommand(platform, { title, at }, has = () => true) {
     return {
       cmd: 'osascript',
       args: [...finderDialog([
-        'if (item 2 of argv) is "" then',
+        'if startAt is missing value then',
         'set picked to POSIX path of (choose folder with prompt (item 1 of argv))',
         'else',
-        'set picked to POSIX path of (choose folder with prompt (item 1 of argv) default location (POSIX file (item 2 of argv)))',
+        'set picked to POSIX path of (choose folder with prompt (item 1 of argv) default location startAt)',
         'end if',
       ]), title, start],
     };
@@ -91,10 +98,10 @@ export function filePickerCommand(platform, { title, at }, has = () => true) {
     return {
       cmd: 'osascript',
       args: [...finderDialog([
-        'if (item 2 of argv) is "" then',
+        'if startAt is missing value then',
         'set chosen to choose file with prompt (item 1 of argv) with multiple selections allowed',
         'else',
-        'set chosen to choose file with prompt (item 1 of argv) default location (POSIX file (item 2 of argv)) with multiple selections allowed',
+        'set chosen to choose file with prompt (item 1 of argv) default location startAt with multiple selections allowed',
         'end if',
         'set picked to ""',
         'repeat with f in chosen',
@@ -133,6 +140,19 @@ export function cancelled(cmd, error) {
   return cmd !== 'osascript' && error.code === 1;
 }
 
+/**
+ * Where a dialog starts: the folder asked, or the nearest folder above it that is there (an exports folder is made
+ * by the first export); none when nothing of it is. @param {string | null | undefined} at
+ * @param {(path: string) => boolean} [exists]
+ */
+export function startFolder(at, exists = existsSync) {
+  if (!at || !isAbsolute(at)) return null;
+  for (let dir = at; ; dir = dirname(dir)) {
+    if (exists(dir)) return dir;
+    if (dirname(dir) === dir) return null;
+  }
+}
+
 /** Whether a program is on the PATH (Linux: which dialog there is). @param {string} name */
 const onPath = (name) => (process.env.PATH ?? '').split(':').some((dir) => dir && existsSync(`${dir}/${name}`));
 
@@ -142,7 +162,7 @@ const onPath = (name) => (process.env.PATH ?? '').split(':').some((dir) => dir &
  * @param {{ title: string, at?: string | null }} ask @returns {Promise<string | null>}
  */
 export function pickFolder(ask) {
-  const command = folderPickerCommand(process.platform, ask, onPath);
+  const command = folderPickerCommand(process.platform, { ...ask, at: startFolder(ask.at) }, onPath);
   if (!command) return Promise.reject(new Error('no folder dialog on this system'));
   return new Promise((resolve, reject) => {
     execFile(command.cmd, command.args, { env: { ...process.env, ...command.env }, windowsHide: false, timeout: 15 * 60_000 }, (error, stdout) => {
@@ -161,7 +181,7 @@ export function pickFolder(ask) {
  * @param {{ title: string, at?: string | null }} ask @returns {Promise<string[]>}
  */
 export function pickFiles(ask) {
-  const command = filePickerCommand(process.platform, ask, onPath);
+  const command = filePickerCommand(process.platform, { ...ask, at: startFolder(ask.at) }, onPath);
   if (!command) return Promise.reject(new Error('no file dialog on this system'));
   return new Promise((resolve, reject) => {
     execFile(command.cmd, command.args, { env: { ...process.env, ...command.env }, windowsHide: false, timeout: 15 * 60_000 }, (error, stdout) => {
