@@ -14,6 +14,8 @@
  *                                    images: [{ data (base64), mimeType }], the pictures of the message's references,
  *                                    sent after the text to an agent that takes pictures (the text names their files
  *                                    either way)
+ *   desktop:local-agents:steer       { key, text, images? } → { ok, outcome }   a message sent while a turn runs,
+ *                                    into that turn (ok: it joined it); the page sends it as a turn of its own if not
  *   desktop:local-agents:cancel      { key }
  *   desktop:local-agents:set-option  { key, configId, value }
  *   desktop:local-agents:permission  { key, requestId, optionId | null }   the page answers a permission request
@@ -233,6 +235,17 @@ export function registerLocalAgentIpc(ipcMain, { trusted, binDir = null, fallbac
     const turn = sessions.get(opts?.key)?.turn;
     if (turn && !turn.done) turn.file.write(kind, fields);
   };
+
+  handle('desktop:local-agents:steer', async (_event, opts) => {
+    const entry = sessions.get(opts?.key);
+    if (!entry || !(entry.running > 0)) return { ok: false, outcome: 'noRunningTurn' };
+    const images = entry.info?.promptCapabilities?.image ? imageBlocks(opts?.images) : [];
+    const text = String(opts?.text ?? '');
+    noted(opts, 'steer', { text, images: images.length });
+    const outcome = await entry.session.steer([{ type: 'text', text }, ...images]);
+    noted(opts, 'steer-answer', { outcome });
+    return { ok: outcome === 'injected', outcome };
+  });
 
   handle('desktop:local-agents:cancel', async (_event, opts) => {
     noted(opts, 'cancel', {});

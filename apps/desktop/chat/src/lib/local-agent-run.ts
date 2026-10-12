@@ -649,7 +649,7 @@ export async function runLocalAgentTurn({
   /** Options the user picked in the model menu (configId → value), set one by one once the session is open. */
   options?: Record<string, unknown>;
   onSessionInfo?: (info: LocalAgentSessionInfo) => void;
-}): Promise<{ stopReason: string }> {
+}): Promise<{ stopReason: string; lastTurnId: string }> {
   const bridge = desktopBridge()?.localAgents;
   if (!bridge) throw new Error('This needs the OpenFilm Mac app.');
   listen();
@@ -685,19 +685,54 @@ export async function runLocalAgentTurn({
 
   /* where it is and how to work (the project, the `openfilm` manual, Studio already open) it was told when the
      session started (apps/desktop src/agents.mjs INSTRUCTIONS): the message goes as the person wrote it */
+  const key = session.key;
+  /* the turn the agent's words go to at the end: this one, or the last message sent into it while it ran (steer) */
+  const last = () => turnByKey.get(key) ?? turn;
   try {
-    const r = await bridge.prompt(session.key, text, meta, images?.length ? images : undefined);
+    const r = await bridge.prompt(key, text, meta, images?.length ? images : undefined);
     /* The answer to the prompt can overtake its last updates (the closing words of its reply): stop
        listening only once they have stopped coming, or the saved reply ends mid-sentence. */
-    await drain(turn);
-    if (!r.ok) throw Object.assign(new Error(r.error), r.balance ? { balance: r.balance } : {});
-    return { stopReason: r.stopReason };
+    await drain(last());
+    if (!r.ok) throw Object.assign(new Error(r.error), { lastTurnId: last().turnId }, r.balance ? { balance: r.balance } : {});
+    return { stopReason: r.stopReason, lastTurnId: last().turnId };
   } finally {
+    const ended = last();
     turn.seal();
-    turnByKey.delete(session.key);
-    if (current === turn) current = null;
-    if (meta) void bridge.ack?.(session.key, meta.turnId);
+    ended.seal();
+    turnByKey.delete(key);
+    if (current === turn || current === ended) current = null;
+    if (meta) void bridge.ack?.(key, meta.turnId);
   }
+}
+
+/** Whether a message sent while this turn runs can join it (the agent takes steering), rather than wait for its end. */
+export function canSteer(turnId: string): boolean {
+  if (!desktopBridge()?.localAgents?.steer) return false;
+  for (const [key, t] of turnByKey) {
+    if (t.turnId !== turnId) continue;
+    for (const s of sessions.values()) if (s.key === key) return s.info.steering === true;
+  }
+  return false;
+}
+
+/**
+ * A message sent while `fromTurnId` runs, into that turn, as in the agent's own chat: once it has joined, what the
+ * agent says and does from then on goes to `next` (the message's own turn in the conversation), and `from` is done.
+ * False when it did not join (the turn ended meanwhile, the agent refused): the caller sends it as a turn of its own.
+ */
+export async function steerLocalAgentTurn(fromTurnId: string, next: LocalAgentTurn, text: string, images?: PromptImage[]): Promise<boolean> {
+  const bridge = desktopBridge()?.localAgents;
+  const key = [...turnByKey].find(([, t]) => t.turnId === fromTurnId)?.[0];
+  if (!bridge?.steer || !key) return false;
+  turns.set(next.turnId, next);
+  const r = await bridge.steer(key, text, images?.length ? images : undefined).catch(() => null);
+  const from = turnByKey.get(key);
+  if (!r?.ok || !from || from.turnId !== fromTurnId) return false;
+  await drain(from, 150, 1000);
+  from.seal();
+  turnByKey.set(key, next);
+  current = next;
+  return true;
 }
 
 export interface RecoveredLocalTurn {

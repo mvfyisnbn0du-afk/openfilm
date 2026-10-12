@@ -27,15 +27,18 @@ import {
   answerLocalAgentPermission,
   answerLocalAgentQuestion,
   cancelLocalAgentTurn,
+  canSteer,
   createLocalAgentTurn,
   finishRunningLocalTurn,
   loadLocalAgentTurns,
+  localAgentTurn,
   makeLocalAgentTurnId,
   recoverLocalAgentTurns,
   registerRunningLocalTurn,
   runLocalAgentTurn,
   runningLocalTurns,
   saveLocalAgentTurn,
+  steerLocalAgentTurn,
   useLocalAgentTurn,
   type LocalAgentTurn,
   type LocalTranscriptStore,
@@ -248,6 +251,8 @@ function ChatPane({ project, banners, selection, assetsOpen }: { project: Projec
   /** files of the project pointed at with @ (their pills turn back into their paths when sent) */
   const [fileRefs, setFileRefs] = React.useState<PromptReference[]>([]);
   const followUpFilled = followUp.trim().length > 0;
+  /* the composer's button stops the turn while it runs, until something is written to send */
+  const stopping = active && !followUpFilled;
   const composerPills = React.useMemo(
     () => [...[...studioRefs.entries()].map(([id, ref]) => refPill(id, ref)), ...fileRefs],
     [studioRefs, fileRefs],
@@ -396,11 +401,15 @@ function ChatPane({ project, banners, selection, assetsOpen }: { project: Projec
   React.useEffect(() => { app.draftRefsInStudio(draft); }, [draftKey]); // eslint-disable-line react-hooks/exhaustive-deps
   React.useEffect(() => () => { app.draftRefsInStudio([]); app.highlightInStudio(null); }, []);
 
+  /** each open turn's way to settle (by turn id), and the agent's run each running turn belongs to */
+  const settlers = React.useRef(new Map<string, (patch: Partial<Turn & TurnBalance>) => void>());
+  const runs = React.useRef(new Map<string, Promise<unknown>>());
+
   /**
-   * Start one turn with the person's own agent. The turn shows at
-   * once; what the agent is sent (`prepared`: the text, and the references' pictures) may take a moment to make.
+   * One turn of the conversation: shown at once, kept, and settled by `settlers` when the agent is done with it. The
+   * project's files are read as it opens (`ready`), so what it changed in them is shown under its reply.
    */
-  function startTurn(id: string, instruction: string, prepared: Promise<{ text: string; images: PromptImage[] }>, promptDisplay: Turn['promptDisplay'] | null, attachments: Turn['attachments'] = []): void {
+  function openTurn(id: string, instruction: string, promptDisplay: Turn['promptDisplay'] | null, attachments: Turn['attachments'] = []): { turn: LocalAgentTurn; meta: LocalAgentTurnMeta; prefs: Record<string, unknown>; ready: Promise<boolean> } {
     const turn = createLocalAgentTurn(id, agent, ordered.length);
     const agentStore = useLocalAgents.getState();
     const options = agentOptions(agentStore, agent);
@@ -428,10 +437,11 @@ function ChatPane({ project, banners, selection, assetsOpen }: { project: Projec
     /* the project's files as the turn found them (read before the agent is sent anything); once the turn settles,
        what it changed in them is kept with it and shown under its reply. The turn settles first: comparing the files
        is not worth keeping the person waiting for */
-    const filesBefore = app.chat.snapshot(project.path, id).then(() => true, () => false);
-    const settle = (patch: Partial<Turn & TurnBalance>) => {
+    const ready = app.chat.snapshot(project.path, id).then(() => true, () => false);
+    settlers.current.set(id, (patch) => {
+      settlers.current.delete(id);
       const done = settleLocalTurn(meta, turn, patch);
-      void filesBefore.then(async (taken) => {
+      void ready.then(async (taken) => {
         const found = taken ? await app.chat.changes(project.path, id).catch(() => null) : null;
         const fileChanges = found?.files ?? [];
         if (!fileChanges.length) return;
@@ -439,10 +449,24 @@ function ChatPane({ project, banners, selection, assetsOpen }: { project: Projec
         saveLocalAgentTurn(meta.projectId, kept, turn.items);
         setTurns((list) => list.map((item) => (item.id === id ? { ...item, fileChanges } : item)));
       });
+    });
+    return { turn, meta, prefs, ready };
+  }
+
+  /**
+   * Send a turn to the agent: what it is sent (`prepared`: the text, and the pictures) may take a moment to make. It
+   * settles the turn the agent's run ends on: this one, or the last message sent into it while it ran (steerTurn).
+   */
+  function runTurn(opened: ReturnType<typeof openTurn>, prepared: Promise<{ text: string; images: PromptImage[] }>): void {
+    const { turn, meta, prefs, ready } = opened;
+    const id = meta.turnId;
+    const finish = (lastTurnId: string | undefined, patch: Partial<Turn & TurnBalance>) => {
+      settlers.current.get(lastTurnId ?? id)?.(patch);
+      settlers.current.get(id)?.(patch);
     };
     /* the agent's own session of this conversation, gone on with (after a restart too); a new one is kept for next time */
     const resume = sessions.find((s) => s.id === sessionId)?.agentSessions?.[agent] ?? null;
-    void Promise.all([prepared, filesBefore]).then(([{ text, images }]) => runLocalAgentTurn({
+    const run = Promise.all([prepared, ready]).then(([{ text, images }]) => runLocalAgentTurn({
       projectId: projectKey,
       conversation: sessionId,
       resume,
@@ -460,21 +484,43 @@ function ChatPane({ project, banners, selection, assetsOpen }: { project: Projec
         }
       },
     })).then(
-      ({ stopReason }) => settle(stopReason === 'cancelled' ? { status: 'cancelled', cancelReason: 'user' } : { status: 'ready' }),
+      ({ stopReason, lastTurnId }) => finish(lastTurnId, stopReason === 'cancelled' ? { status: 'cancelled', cancelReason: 'user' } : { status: 'ready' }),
       (error: unknown) => {
         /* the ACP adapter wraps the agent's own message as JSON-RPC "Internal error: …": the message is the reason */
         const reason = (error instanceof Error ? error.message : String(error)).replace(/^Internal error:\s*/i, '').trim() || String(error);
         /* the service the app's own agent runs on has no balance left: said as such, with its page, not as an error */
         const balance = readBalance((error as { balance?: unknown } | null)?.balance);
-        turn.patch(balance ? { balance } : { error: reason });
-        settle({ status: 'error', error: reason, ...(balance ? { balance } : {}) });
+        const lastTurnId = (error as { lastTurnId?: string } | null)?.lastTurnId;
+        (localAgentTurn(lastTurnId ?? id) ?? turn).patch(balance ? { balance } : { error: reason });
+        finish(lastTurnId, { status: 'error', error: reason, ...(balance ? { balance } : {}) });
       },
-    );
+    ).finally(() => { runs.current.delete(id); });
+    runs.current.set(id, run);
+  }
+
+  /**
+   * A message sent while a turn runs, as in the agent's own chat: into that turn, the agent reading it at its next step
+   * (an agent that takes steering). It shows as a turn of its own, what the agent says from then on under it, and the
+   * running one is done. One that did not join (the turn ended meanwhile) is sent once that run ends.
+   */
+  function steerTurn(fromId: string, opened: ReturnType<typeof openTurn>, prepared: Promise<{ text: string; images: PromptImage[] }>): void {
+    /* the agent's run going now (one at a time in a conversation): a message that did not join waits for it */
+    const run = [...runs.current.values()].at(-1) ?? Promise.resolve();
+    void Promise.all([prepared, opened.ready]).then(async ([{ text, images }]) => {
+      if (await steerLocalAgentTurn(fromId, opened.turn, text, images)) {
+        settlers.current.get(fromId)?.({ status: 'ready' });
+        return;
+      }
+      await run.catch(() => {});
+      runTurn(opened, Promise.resolve({ text, images }));
+    });
   }
 
   function submitFollowUp(): void {
     if (!followUpFilled) return;
-    if (active) { setQueued(true); return; }
+    /* while a turn runs: into it, for an agent that takes that; else it waits for the turn to end */
+    const steer = active && asset ? canSteer(asset.id) : false;
+    if (active && !steer) { setQueued(true); return; }
     setQueued(false);
     /* the sentence as the agent reads it: a pill becomes "[n: name]", and what each number is follows, in a block */
     const used: StudioRef[] = [];
@@ -503,10 +549,12 @@ function ChatPane({ project, banners, selection, assetsOpen }: { project: Projec
     /* each reference's picture is kept in the project for the agent (the block names it), and sent to one that takes pictures */
     const prepared = referencePictures(refs, { project: project.path, turnId: id })
       .then(({ pictures, images }) => ({ text: said + studioReferencesText(refs, { stage, pictures }), images: [...attachedPictures(files), ...images] }));
-    startTurn(id, instruction, prepared, promptDisplay ?? null, turnAttachments(files));
+    const opened = openTurn(id, instruction, promptDisplay ?? null, turnAttachments(files));
+    if (steer && asset) steerTurn(asset.id, opened, prepared);
+    else runTurn(opened, prepared);
   }
 
-  /* queued while the turn ran: sent as soon as it ends */
+  /* queued while the turn ran (an agent that cannot take a message mid-turn): sent as soon as it ends */
   React.useEffect(() => { if (queued && !active) submitFollowUp(); }, [queued, active]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const onNewSession = () => {
@@ -622,15 +670,16 @@ function ChatPane({ project, banners, selection, assetsOpen }: { project: Projec
               mentions={{ providers: mentionProviders, label: t('mention.menu'), onOpen: loadMentionFiles }}
             />
           </div>
-          <Tooltip label={active ? t('project.stop') : t('project.sendFollowUp')} shortcut={active ? 'Esc' : 'Enter'}>
+          {/* while it works: Stop, or Send once something is written (it goes into the turn, or after it); Esc stops */}
+          <Tooltip label={stopping ? t('project.stop') : t('project.sendFollowUp')} shortcut={stopping ? 'Esc' : 'Enter'}>
             <button
               type="button"
-              onClick={active ? () => { if (asset) void cancelLocalAgentTurn(asset.id); } : submitFollowUp}
-              disabled={active ? false : !followUpFilled}
+              onClick={stopping ? () => { if (asset) void cancelLocalAgentTurn(asset.id); } : submitFollowUp}
+              disabled={stopping ? false : !followUpFilled}
               className="flex h-[22px] w-[22px] shrink-0 items-center justify-center rounded-[6px] text-[var(--text-dim)] transition-colors duration-150 hover:bg-[var(--bg-hover)] hover:text-[var(--text)] disabled:cursor-not-allowed disabled:text-[var(--text-faint)] disabled:hover:bg-transparent"
-              aria-label={active ? t('project.stop') : t('project.sendFollowUp')}
+              aria-label={stopping ? t('project.stop') : t('project.sendFollowUp')}
             >
-              {active ? <Square size={14} /> : <CornerDownLeft size={14} />}
+              {stopping ? <Square size={14} /> : <CornerDownLeft size={14} />}
             </button>
           </Tooltip>
         </div>

@@ -44,6 +44,8 @@ export interface LocalAgentSessionInfo {
   sessionId: string;
   /** taken up where it stopped (the agent's own record, or the session still open), not a new one */
   resumed?: boolean;
+  /** a message sent while it works can join the running turn (`steer`) */
+  steering?: boolean;
   agentInfo: { name: string; title?: string; version?: string } | null;
   authMethods: Array<{ id: string; name: string; description?: string }>;
   /** Whether our MCP tools were handed over (not when the agent does not take HTTP). */
@@ -197,6 +199,8 @@ export interface DesktopBridge {
     running?(): Promise<LocalAgentRunningTurn[]>;
     /** The page has put this finished turn back: the shell forgets it. */
     ack?(key: string, turnId: string): Promise<{ ok: true }>;
+    /** A message sent while a turn runs, into that turn; ok: false when it did not join it. Older shells lack it. */
+    steer?(key: string, text: string, images?: PromptImage[]): Promise<{ ok: boolean; outcome: string }>;
     cancel(key: string): Promise<{ ok: true }>;
     setOption(key: string, configId: string, value: unknown): Promise<{ ok: boolean; error?: string }>;
     answerPermission(key: string, requestId: string, optionId: string | null): Promise<{ ok: boolean }>;

@@ -363,6 +363,8 @@ function rowOf(event: LogEvent, titles: Map<string, string>): Omit<Row, 'at' | '
     case 'permission-answer': return { kind: 'ask', label: 'permission · answer', summary: str(event.optionId ?? 'cancelled') };
     case 'question': return { kind: 'ask', label: 'question', summary: str(event.message ?? event.questions, 300) };
     case 'question-answer': return { kind: 'ask', label: 'question · answer', summary: str(event.answers ?? 'skipped', 300) };
+    case 'steer': return { kind: 'prompt', label: 'steer', summary: str(event.text, 600) };
+    case 'steer-answer': return { kind: 'prompt', label: 'steer · answer', summary: str(event.outcome), tone: event.outcome === 'injected' ? undefined : 'error' };
     case 'cancel': return { kind: 'end', label: 'cancel', summary: '' };
     case 'set-option': return { kind: 'update', label: 'set option', summary: `${str(event.configId)} = ${str(event.value)}`, tone: 'quiet' };
     case 'exit': return { kind: 'end', label: 'exit', summary: `code ${str(event.code)}${event.stderr ? `  ${str(event.stderr, 300)}` : ''}`, tone: event.code ? 'error' : undefined };

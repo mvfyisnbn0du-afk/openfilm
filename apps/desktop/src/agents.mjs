@@ -669,6 +669,8 @@ export class AgentSession {
       configOptions: session.configOptions ?? (this.legacy ? legacyOptions(session) : null),
       /* what a prompt may carry besides text (pictures, for one): the agent says so as it shakes hands */
       promptCapabilities: caps.promptCapabilities ?? null,
+      /* a message sent while it works joins the turn it is in (steer), as in its own chat */
+      steering: init._meta?.steering?.supported === true,
     };
     return this.info;
   }
@@ -693,6 +695,17 @@ export class AgentSession {
         throw said;
       });
     return r.stopReason;
+  }
+
+  /**
+   * A message sent while a turn runs, into that turn (ACP's steering extension, `_session/steering`): the agent reads
+   * it at its next step, as when the person types while it works in its own chat. → 'injected' when it joined the
+   * turn; anything else ('startedNewTurn', 'promptRequired', 'failed') when it did not.
+   */
+  async steer(blocks) {
+    if (!this.sessionId || !this.info?.steering) return 'failed';
+    const r = await this.conn.agent.request('_session/steering', { sessionId: this.sessionId, prompt: blocks }).catch(() => null);
+    return typeof r?.outcome === 'string' ? r.outcome : 'failed';
   }
 
   /** Stop this turn (it ends with stopReason 'cancelled'). */
