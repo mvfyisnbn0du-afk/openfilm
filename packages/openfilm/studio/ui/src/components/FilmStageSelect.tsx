@@ -214,6 +214,8 @@ function sameLinkedMarks(a: readonly LinkedMark[], b: readonly LinkedMark[]): bo
 const scaleBox = (b: ClientBox, k: number): ClientBox => ({ left: b.left * k, top: b.top * k, width: b.width * k, height: b.height * k });
 const scaleFrame = (f: StageFrame, k: number): StageFrame => ({ cx: f.cx * k, cy: f.cy * k, w: f.w * k, h: f.h * k, r: f.r });
 
+/** Whether `r` is wholly inside `area` (a px to spare for rounding). */
+const rectInside = (r: Rect, area: Rect) => r.x >= area.x - 1 && r.y >= area.y - 1 && r.x + r.w <= area.x + area.w + 1 && r.y + r.h <= area.y + area.h + 1;
 const clientOf = (r: Rect): ClientBox => ({ left: r.x, top: r.y, width: r.w, height: r.h });
 
 /**
@@ -325,6 +327,8 @@ interface FilmStageSelectProps {
   onEditClip?: (edits: StageClipEdit[]) => Promise<string | null>;
   /** The clips selected elsewhere (`film.html#<track>.<clip>`): one is in hand here, several are outlined. */
   linkedLocs?: readonly string[];
+  /** Select these clips whole (a marquee around several): the timeline selects them, and they are outlined here. */
+  onSelectClips?: (locs: readonly string[]) => void;
   /**
    * Select the layer at `loc` in the clip at `clipLoc` (the inspector's breadcrumb, the menu's Select parent). `seq`
    * goes up each time, so the same layer can be asked for twice.
@@ -383,7 +387,7 @@ interface FilmStageSelectProps {
 }
 
 function FilmStageSelectImpl({
-  previewRef, stage, doc, spans, timeMs, playing, onPause, onSelectElement, onEditClip, linkedLocs, selectRequest,
+  previewRef, stage, doc, spans, timeMs, playing, onPause, onSelectElement, onEditClip, linkedLocs, onSelectClips, selectRequest,
   clipPreviewRef, lookPreviewRef, controlRef, onTransformLayer, onTransformLayers, onEditTextInline, onGeometry, menuFor, recoveryMenu,
   onRegion, regionHint, flashBox, chat, onHoverLayer, selectionBar = false, onRefer, onStartMask, pointLayer, arrowsMove = true,
 }: FilmStageSelectProps) {
@@ -2036,8 +2040,35 @@ function FilmStageSelectImpl({
       if (token !== pressSeq.current) return;
       /* the threshold is in stage px: the same gesture is a click in a small window and in full screen alike */
       if (box.width / vs >= MARQUEE_MIN_PX && box.height / vs >= MARQUEE_MIN_PX) {
-        /* the outermost layers wholly inside are selected (Figma); Shift adds them to what was selected */
-        const inside = await ask<StageLayer[]>('box', { x: box.left / vs, y: box.top / vs, w: box.width / vs, h: box.height / vs }) ?? [];
+        const area = { x: box.left / vs, y: box.top / vs, w: box.width / vs, h: box.height / vs };
+        /* clips wholly inside (a page, a video, a still, by the part on the canvas) are selected whole, as Figma takes
+           a frame the box goes around; Shift adds them to the clips selected */
+        const clips = onSelectClips ? await ask<{ id: string; visible: boolean; x: number; y: number; w: number; h: number }[]>('clips') ?? [] : [];
+        if (token !== pressSeq.current) return;
+        /* by what shows on the canvas: a part past its edge cannot be boxed */
+        const onCanvas = (r: Rect): Rect => {
+          const x = Math.max(0, r.x), y = Math.max(0, r.y);
+          return { x, y, w: Math.min(stage.w, r.x + r.w) - x, h: Math.min(stage.h, r.y + r.h) - y };
+        };
+        const around = clips.filter((c) => {
+          const shown = onCanvas(shownBoxOf(c));
+          return c.visible && shown.w > 0 && shown.h > 0 && rectInside(shown, area);
+        })
+          .map((c) => clipLocOf(docRef.current, c.id)).filter((loc): loc is string => Boolean(loc));
+        if (around.length) {
+          const locs = [...new Set([...(shift ? linkedLocs ?? [] : []), ...around])];
+          setHover(null);
+          if (locs.length === 1) {
+            const info = infoOf(locs[0]!);
+            commitHit(info ? describeClip(info, stage) : null);
+          } else {
+            dropPick();
+            onSelectClips!(locs);
+          }
+          return;
+        }
+        /* else the outermost layers wholly inside (a box within a page: its layers); Shift adds them */
+        const inside = await ask<StageLayer[]>('box', area) ?? [];
         if (token !== pressSeq.current) return;
         const prior = shift ? (base ?? []) : [];
         const all = [...prior, ...inside.filter((l) => !prior.some((b) => b.handle === l.handle))];

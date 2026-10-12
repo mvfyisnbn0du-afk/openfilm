@@ -1275,6 +1275,8 @@ export function ProjectView({ projectId, onProject, onLeave }: {
     setStageSelectRequest((cur) => ({ loc, ...(clipLoc ? { clipLoc } : {}), seq: (cur?.seq ?? 0) + 1 }));
   }, []);
   const selectStageClip = React.useCallback((clipLoc: string) => { setStageElement(null); setSelectedLocs([clipLoc]); }, [setSelectedLocs]);
+  /* a marquee on the picture around several clips: the timeline selects them */
+  const selectStageClips = React.useCallback((locs: readonly string[]) => { setStageElement(null); setSelectedLocs([...locs]); }, [setSelectedLocs]);
   /* ── the Layers panel: its rows select on the picture, outline there, hide, lock and restack (overrides) ── */
   const [pointedLayer, setPointedLayer] = React.useState<{ clipId: string; loc: string } | null>(null);
   const askStage = React.useCallback(<T,>(op: string, args: object = {}): Promise<T | null> => (
@@ -2269,6 +2271,7 @@ export function ProjectView({ projectId, onProject, onLeave }: {
                                 onSelectElement={selectStageElement}
                                 onEditClip={editClipsFromStage}
                                 linkedLocs={selectedLocs}
+                                onSelectClips={selectStageClips}
                                 selectRequest={stageSelectRequest}
                                 clipPreviewRef={clipPreviewRef}
                                 lookPreviewRef={lookPreviewRef}
