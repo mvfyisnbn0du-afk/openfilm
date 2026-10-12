@@ -86,10 +86,24 @@ function byokModels(roster: RosterAgent[] | null): string[] {
  * own agents' is the one a session last reported.
  */
 export function agentOptions(state: Pick<LocalAgentStore, 'options' | 'roster'>, agent: LocalAgentId): ConfigOptions | undefined {
-  if (agent !== 'byok') return state.options[agent];
+  if (agent !== 'byok') return withPlan(state.options[agent]);
   const models = byokModels(state.roster);
   if (!models.length) return undefined;
   return [{ id: 'model', name: 'Model', category: 'model', type: 'select', currentValue: models[0], options: models.map((m) => ({ value: m, name: m })) }];
+}
+
+/**
+ * Plan mode, as the agent has it: Codex's own collaboration mode (Default / Plan); for Claude Code, whose plan mode is
+ * one of its permission modes (which the app sets to full access), an option of the app's (`plan`) that sets that mode
+ * to plan instead (effectivePrefs). It plans, and asks before it changes anything, as in its own chat.
+ */
+export const PLAN_OPTION = 'plan';
+function withPlan(options: ConfigOptions | undefined): ConfigOptions | undefined {
+  if (!options || options.some((o) => o.category === 'collaboration_mode')) return options;
+  const mode = options.find((o) => o.id === 'mode');
+  if (!mode?.options?.some((o) => o.value === 'plan')) return options;
+  return [...options, { id: PLAN_OPTION, name: 'Plan', category: 'collaboration_mode', type: 'select', currentValue: 'default',
+    options: [{ value: 'default', name: 'Default' }, { value: 'plan', name: 'Plan' }] }];
 }
 
 /** Which of an agent's options the menu offers. The app's own agent offers its models, and no OpenAI fast mode. */
@@ -197,12 +211,15 @@ const AGENT_FORCED_PREFS: Partial<Record<LocalAgentId, Record<string, unknown>>>
 export function effectivePrefs(prefs: Persisted['prefs'], agent: LocalAgentId, roster?: RosterAgent[] | null): Record<string, unknown> {
   const claudeHarness = agent === 'byok' && roster?.find((a) => a.id === 'byok')?.byok?.format === 'anthropic';
   /* "default" was a row the menu no longer offers (the agents name their default for what it is): the agent's own
-     current value stands instead */
+     current value stands instead; but for plan mode, Default is how it is turned off */
   /* a model the own key no longer names: its first one stands instead */
   const models = agent === 'byok' ? byokModels(roster ?? null) : null;
   const kept = Object.fromEntries(Object.entries(prefs[agent] ?? {})
-    .filter(([id, value]) => value !== 'default' && !(models && id === 'model' && !models.includes(String(value)))));
-  return { ...kept, ...(AGENT_FORCED_PREFS[claudeHarness ? 'claude' : agent] ?? {}) };
+    .filter(([id, value]) => (value !== 'default' || id === PLAN_OPTION || id === 'collaboration_mode') && !(models && id === 'model' && !models.includes(String(value)))));
+  const out: Record<string, unknown> = { ...kept, ...(AGENT_FORCED_PREFS[claudeHarness ? 'claude' : agent] ?? {}) };
+  /* Claude Code's plan mode is its permission mode: plan, while it is on */
+  if (out[PLAN_OPTION] === 'plan' && (agent === 'claude' || claudeHarness)) out.mode = 'plan';
+  return out;
 }
 
 /** An option's current value (the person's pick first, else the value the session reports). */

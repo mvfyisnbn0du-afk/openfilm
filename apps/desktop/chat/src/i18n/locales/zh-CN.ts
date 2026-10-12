@@ -121,6 +121,9 @@ export const zhCN: Words = {
     previewFailed: '无法读取此文件',
   },
   composer: {
+    commands: '命令',
+    mode: '模式',
+    planOn: '计划',
     agentLoading: '正在加载…',
     agentNone: '智能体',
     agentNoneShown: '对话中尚未开启任何智能体。',

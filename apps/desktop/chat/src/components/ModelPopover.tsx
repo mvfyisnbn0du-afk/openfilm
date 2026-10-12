@@ -39,11 +39,12 @@ const ROW = `${ROW_BASE} hover:bg-[var(--bg-hover)] focus-visible:bg-[var(--bg-h
 
 type Option = { id: string; name: string; category?: string; options?: Array<{ value: unknown; name: string; description?: string }> };
 
-/** The options the menu offers, in this order: the model, the reasoning effort, the speed (when the model has one). */
+/** The options the menu offers, in this order: the model, the reasoning effort, the speed (when the model has one), plan mode. */
 const isSpeed = (o: Option) => o.category === 'speed' || /^(fast|fast-mode|speed)$/i.test(o.id) || /\b(fast|speed)\b/i.test(o.name);
 function menuOptions(options: Option[] | undefined): Option[] {
   const pick = (test: (o: Option) => boolean) => (options ?? []).find((o) => test(o) && (o.options?.length ?? 0) > 1);
-  return [pick((o) => o.category === 'model'), pick((o) => o.category === 'thought_level'), pick(isSpeed)].filter((o): o is Option => Boolean(o));
+  return [pick((o) => o.category === 'model'), pick((o) => o.category === 'thought_level'), pick(isSpeed), pick((o) => o.category === 'collaboration_mode')]
+    .filter((o): o is Option => Boolean(o));
 }
 
 export function ChatAgentIcon({ id, size = 14 }: { id: LocalAgentId; size?: number }) {
@@ -100,7 +101,11 @@ export function ModelPopover({ placement = 'bottom', align = 'start' }: { placem
   const triggerModel = summary.model;
   const triggerEffort = rows.some((o) => o.category === 'thought_level') ? summary.effort : null;
   const valueOf = (o: Option) => (o.category === 'model' ? triggerModel : null) ?? optionLabel(options, o.id, optionValue(options, prefs, o.id)) ?? '';
-  const rowLabel = (o: Option) => (o.category === 'model' ? t('composer.model') : o.category === 'thought_level' ? t('composer.effort') : isSpeed(o) ? t('composer.speed') : o.name);
+  const rowLabel = (o: Option) => (o.category === 'model' ? t('composer.model') : o.category === 'thought_level' ? t('composer.effort')
+    : isSpeed(o) ? t('composer.speed') : o.category === 'collaboration_mode' ? t('composer.mode') : o.name);
+  /* plan mode on: the trigger says so */
+  const planRow = rows.find((o) => o.category === 'collaboration_mode');
+  const planning = planRow ? optionValue(options, prefs, planRow.id) === 'plan' : false;
   const nameOf = (a: RosterAgent) => (a.id === 'byok' ? t('composer.agentOwnKey') : a.name);
 
   /* an agent that is not ready: what it needs, said here; setting it up is Settings → Agents */
@@ -155,8 +160,8 @@ export function ModelPopover({ placement = 'bottom', align = 'start' }: { placem
   const sideMenu = open && choosing && typeof document !== 'undefined' ? createPortal(
     <div ref={sideRef} onMouseEnter={() => showSide(choosing.id)} onMouseLeave={hideSideSoon}
       style={{ ...POPOVER_CHROME, padding: 4, overflowY: 'auto', ...(sideStyle ?? { position: 'fixed', left: -9999, top: 0 }) }}>
-      {/* the names only: no descriptions, and no "Default" row (a default is one of the others) */}
-      {(choosing.options ?? []).filter((choice) => choice.value !== 'default').map((choice) => {
+      {/* the names only: no descriptions, and no "Default" row (a default is one of the others), but in plan mode's */}
+      {(choosing.options ?? []).filter((choice) => choice.value !== 'default' || choosing.category === 'collaboration_mode').map((choice) => {
         const selected = chosenValue(choosing) === choice.value;
         return (
           <button key={String(choice.value)} type="button" onMouseDown={keepFocus}
@@ -189,6 +194,7 @@ export function ModelPopover({ placement = 'bottom', align = 'start' }: { placem
                 {(ready(agent) && triggerModel) || (current ? nameOf(current) : t('composer.agentNone'))}
               </span>
               {ready(agent) && triggerEffort ? <span className="text-[var(--text-muted)] transition group-hover:text-[var(--text-dim)]">{triggerEffort}</span> : null}
+              {ready(agent) && planning ? <span className="text-[var(--accent)]">{t('composer.planOn')}</span> : null}
             </span>
           </button>
         </Tooltip>

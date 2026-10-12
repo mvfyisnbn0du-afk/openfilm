@@ -34,6 +34,7 @@ import {
   PromptReferenceNode,
 } from './PromptReferenceNode';
 import { MentionMenuPlugin, type MentionMenuConfig } from './MentionMenuPlugin';
+import { matchSlashTrigger } from './mention-menu';
 import type { PromptPillCard } from './PromptPill';
 import {
   collectPromptReferences,
@@ -107,6 +108,8 @@ export interface PromptEditorProps {
   disabled?: boolean;
   /** What `@` can pick; without it there is no `@` menu. */
   mentions?: MentionMenuConfig;
+  /** The agent's commands, a `/` at the start of the message; without it there is no `/` menu. */
+  commands?: MentionMenuConfig;
 }
 
 /**
@@ -139,6 +142,7 @@ export const PromptEditor = React.forwardRef<PromptEditorHandle, PromptEditorPro
       autoFocus,
       disabled,
       mentions,
+      commands,
     } = props;
 
     const lookup = React.useMemo(() => {
@@ -210,6 +214,7 @@ export const PromptEditor = React.forwardRef<PromptEditorHandle, PromptEditorPro
           <ChangePlugin onChange={onChange} lookup={lookup} />
           <HandlePlugin ref={ref} lookupRef={lookupRef} autoFocus={autoFocus} />
           {mentions ? <MentionMenuPlugin {...mentions} /> : null}
+          {commands ? <MentionMenuPlugin {...commands} trigger={matchSlashTrigger} /> : null}
         </PromptReferenceContext.Provider>
       </LexicalComposer>
     );

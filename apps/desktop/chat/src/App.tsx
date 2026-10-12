@@ -6,7 +6,7 @@
  * (lib/local-agent-run's saved turns).
  */
 import React from 'react';
-import { ArrowDown, Coins, CornerDownLeft, LibraryBig, Loader2, Play, Plus, ShieldQuestion, Square, X } from 'lucide-react';
+import { ArrowDown, Coins, CornerDownLeft, LibraryBig, Loader2, Play, Plus, ShieldQuestion, Square, SquareSlash, X } from 'lucide-react';
 import { buildPromptDisplay, type Turn } from '@openfilm/shared';
 import { useT } from '@/i18n';
 import { ConversationSessionBar } from '@/components/ConversationSessionBar';
@@ -39,6 +39,7 @@ import {
   runningLocalTurns,
   saveLocalAgentTurn,
   steerLocalAgentTurn,
+  useAgentCommands,
   useLocalAgentTurn,
   type LocalAgentTurn,
   type LocalTranscriptStore,
@@ -282,6 +283,25 @@ function ChatPane({ project, banners, selection, assetsOpen }: { project: Projec
     });
     return pills;
   }, []);
+  /* the agent's own commands, a `/` at the start of the message, as in its own chat: they go as typed */
+  const agentCommands = useAgentCommands(agent);
+  const commandMenu = React.useMemo(() => (agentCommands.length ? {
+    label: t('composer.commands'),
+    providers: [{
+      id: 'commands',
+      groupLabel: t('composer.commands'),
+      items: agentCommands.map((c) => ({
+        id: `command:${c.name}`,
+        kind: 'file' as const,
+        icon: SquareSlash,
+        label: `/${c.name}`,
+        /* what it does, in a few words (the menu's detail is one short line) */
+        ...(c.description ? { detail: c.description.length > 44 ? `${c.description.slice(0, 43).trimEnd()}…` : c.description } : {}),
+        keywords: [c.name, c.description],
+        select: () => ({ text: `/${c.name}` }),
+      })),
+    }],
+  } : undefined), [agentCommands, t]);
   const mentionProviders = React.useMemo<MentionProvider[]>(() => {
     const picked = selection?.refs ?? [];
     const range = selection ? selectionRange(selection) : null;
@@ -668,6 +688,7 @@ function ChatPane({ project, banners, selection, assetsOpen }: { project: Projec
               contentClassName="text-[14px] leading-[22px] text-[var(--chat-text)]"
               onPasteFiles={(files) => composerFiles.add(files)}
               mentions={{ providers: mentionProviders, label: t('mention.menu'), onOpen: loadMentionFiles }}
+              commands={commandMenu}
             />
           </div>
           {/* while it works: Stop, or Send once something is written (it goes into the turn, or after it); Esc stops */}

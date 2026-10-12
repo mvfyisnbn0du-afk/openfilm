@@ -121,6 +121,9 @@ export const ja: Words = {
     previewFailed: 'このファイルを読み込めませんでした',
   },
   composer: {
+    commands: 'コマンド',
+    mode: 'モード',
+    planOn: '計画',
     agentLoading: '読み込み中…',
     agentNone: 'エージェント',
     agentNoneShown: 'チャットで使えるエージェントがオンになっていません。',

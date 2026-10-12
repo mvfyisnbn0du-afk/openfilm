@@ -120,6 +120,9 @@ export const enUS = {
     previewFailed: 'This file could not be read',
   },
   composer: {
+    commands: 'Commands',
+    mode: 'Mode',
+    planOn: 'Plan',
     agentLoading: 'Loading…',
     agentNone: 'Agent',
     agentNoneShown: 'No agent is switched on for the chat.',

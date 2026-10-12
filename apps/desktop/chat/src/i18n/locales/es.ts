@@ -121,6 +121,9 @@ export const es: Words = {
     previewFailed: 'No se pudo leer este archivo',
   },
   composer: {
+    commands: 'Comandos',
+    mode: 'Modo',
+    planOn: 'Plan',
     agentLoading: 'Cargando…',
     agentNone: 'Agente',
     agentNoneShown: 'No hay ningún agente activado para el chat.',
