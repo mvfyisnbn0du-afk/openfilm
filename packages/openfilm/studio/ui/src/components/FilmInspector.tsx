@@ -1412,6 +1412,8 @@ function ClipPanel({
               {...(onPreviewClip ? { onPreview: (patch: Partial<MgTransform> | null) => onPreviewClip(loc!, patch) } : {})}
             />
           ) : null}
+          {/* the fades right under the place: used on most clips */}
+          {docLoc && block.clipId ? <FadeSection t={t} blocks={[block]} fades={fades} commit={commit} /> : null}
           {look ? (
             <>
               <CropSection
@@ -1439,7 +1441,6 @@ function ClipPanel({
             </>
           ) : null}
           {block.anchor?.move || block.anchor?.resize === 'end' ? <TimingSection t={t} block={block} onMain={onMain} commit={commit} /> : null}
-          {docLoc && block.clipId ? <FadeSection t={t} blocks={[block]} fades={fades} commit={commit} /> : null}
           {blockHasVolume(block) ? (
             <Section id="sound" title={t('inspector.sound')}>
               <VolumeField value={linearVolumeOf(block)} t={t} onCommit={(apply) => commit(volumeEdits([block], apply))} />
@@ -1950,6 +1951,7 @@ function MultiClipPanel({
           </Row>
         </Section>
       ) : null}
+      {onEdit && blocks.every((b) => b.clipId && b.loc && parseFilmDocLoc(b.loc) != null) ? <FadeSection t={t} blocks={blocks} fades={fades} commit={commit} /> : null}
       {look ? (
         <>
           <AppearanceSection look={look} t={t} radius />
@@ -1958,7 +1960,6 @@ function MultiClipPanel({
           <AdjustSection look={look} t={t} />
         </>
       ) : null}
-      {onEdit && blocks.every((b) => b.clipId && b.loc && parseFilmDocLoc(b.loc) != null) ? <FadeSection t={t} blocks={blocks} fades={fades} commit={commit} /> : null}
       {volumeAll ? (
         <Section id="sound" title={t('inspector.sound')}>
           <VolumeField value={volume} t={t} onCommit={(apply) => commit(volumeEdits(blocks, apply))} />
