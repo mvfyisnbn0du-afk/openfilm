@@ -541,37 +541,35 @@ export function MediaPool({
   };
 
   /* the bar at the pane's width (the whole pane is measured: the bar's own padding changes with it) */
-  const rootRef = React.useRef<HTMLDivElement>(null);
+  /* a callback ref: watched from when the element is there, however late it comes */
+  const [rootEl, setRootEl] = React.useState<HTMLDivElement | null>(null);
   const [paneWidth, setPaneWidth] = React.useState(0);
   React.useEffect(() => {
-    const el = rootRef.current;
-    if (!el || typeof ResizeObserver === 'undefined') return undefined;
+    if (!rootEl || typeof ResizeObserver === 'undefined') return undefined;
     const ro = new ResizeObserver(([entry]) => setPaneWidth(Math.round(entry?.contentRect.width ?? 0)));
-    ro.observe(el);
+    ro.observe(rootEl);
     return () => ro.disconnect();
-  }, []);
+  }, [rootEl]);
   /* what the bar's words measure in this language and font (again once the fonts have loaded) */
   const [fontsTick, setFontsTick] = React.useState(0);
   React.useEffect(() => { void document.fonts?.ready.then(() => setFontsTick((n) => n + 1)); }, []);
-  const hint = t('media.search');
-  const shortHint = t('media.searchShort');
+  const hint = t('media.searchShort');
   const uploadWord = t('media.upload');
   const words = React.useMemo((): BarWords | null => {
-    const el = rootRef.current;
     const ctx = typeof document === 'undefined' ? null : document.createElement('canvas').getContext('2d');
-    if (!el || !ctx) return null;
-    const family = getComputedStyle(el).fontFamily;
+    if (!rootEl || !ctx) return null;
+    const family = getComputedStyle(rootEl).fontFamily;
     const measure = (text: string, weight: number) => { ctx.font = `${weight} 12.5px ${family}`; return ctx.measureText(text).width; };
-    return { hint: measure(hint, 400), shortHint: measure(shortHint, 400), upload: measure(uploadWord, 500) };
-  }, [hint, shortHint, uploadWord, fontsTick, paneWidth > 0]); // eslint-disable-line react-hooks/exhaustive-deps
+    return { hint: measure(hint, 400), upload: measure(uploadWord, 500) };
+  }, [hint, uploadWord, fontsTick, rootEl]);
   /* the fullest bar that fits (lib/media-bar); before the pane is measured, the full one */
   const bar = paneWidth > 0 && words
     ? barLayout(paneWidth, words, 4 + (onClose ? 1 : 0), Boolean(query))
-    : { field: true, wholeHint: true, uploadWord: true, tight: false };
+    : { field: true, uploadWord: true, tight: false, cramped: false };
   const tight = bar.tight;
   const [searchOpen, setSearchOpen] = React.useState(false);
-  /* a search typed stays open */
-  const searching = tight && (searchOpen || Boolean(query));
+  /* a search opened (from the button, or a field too short to type in) is over the bar; one typed stays open */
+  const searching = bar.cramped && (searchOpen || Boolean(query));
 
   const crumbs = at ? at.split('/') : [];
   const flat = Boolean(query.trim()) || view.filter !== 'all';
@@ -620,7 +618,7 @@ export function MediaPool({
 
   return (
     <div
-      ref={rootRef}
+      ref={setRootEl}
       className="relative flex h-full min-h-0 flex-col"
       /* the pane's keys, while they are its own (the timeline's Delete is the timeline's): Delete (or Backspace) asks to
          delete what is picked, as an editor's project panel does; Enter puts the one file picked on the timeline, as
@@ -660,50 +658,53 @@ export function MediaPool({
         void importFiles([...e.dataTransfer.files]);
       }}
     >
-      {/* the fullest bar the pane has room for (lib/media-bar): the hint shortens, then Upload is its icon, then the
-          search a button that opens over the bar */}
-      <div className={`flex shrink-0 items-center pb-1.5 pt-2.5 ${tight ? 'gap-0.5 px-2' : 'gap-1 px-2.5'}`}>
-        {searching ? (
-          <label className="flex h-7 min-w-0 flex-1 items-center gap-1.5 rounded-md bg-[var(--bg-hover)] px-2 text-[12.5px] text-[var(--text-muted)]">
+      {/* the bar at the pane's width (lib/media-bar): the search field fills the room left; narrowing, Upload is its
+          icon first, then the field shortens, then the search is a button that opens over the bar */}
+      <div className={`relative flex shrink-0 items-center pb-1.5 pt-2.5 ${tight ? 'gap-0.5 px-2' : 'gap-1 px-2.5'}`}>
+        {/* one field throughout: opened over the bar it is restyled, not made again, so it keeps the focus; there, its
+            see-through fill is laid on the pane's own, so the buttons under it do not show */}
+        {bar.field || searching ? (
+          <label className={`flex h-7 min-w-0 items-center gap-1.5 rounded-md bg-[var(--bg-hover)] px-2 text-[12.5px] text-[var(--text-muted)] ${searching ? `absolute top-2.5 z-10 ${tight ? 'inset-x-2' : 'inset-x-2.5'} [background:linear-gradient(var(--bg-hover),var(--bg-hover)),var(--dock-pane)]` : 'flex-1'}`}>
             <Search size={13} className="shrink-0" />
-            <input autoFocus value={query} onChange={(e) => setQuery(e.target.value)} placeholder={t('media.search')}
-              onKeyDown={(e) => { if (e.key === 'Escape') { setQuery(''); setSearchOpen(false); } }}
+            <input autoFocus={!bar.field} value={query} onChange={(e) => setQuery(e.target.value)} placeholder={hint}
+              onFocus={() => { if (bar.cramped) setSearchOpen(true); }}
               onBlur={() => { if (!query) setSearchOpen(false); }}
+              onKeyDown={(e) => { if (e.key === 'Escape' && searching) { setQuery(''); setSearchOpen(false); e.currentTarget.blur(); } }}
               className="min-w-0 flex-1 bg-transparent text-[var(--text)] outline-none placeholder:text-[var(--text-faint)]" />
-            <button type="button" aria-label={t('media.clearSearch')} onMouseDown={(e) => e.preventDefault()} onClick={() => { setQuery(''); setSearchOpen(false); }} className="shrink-0 hover:text-[var(--text)]"><X size={12} /></button>
+            {query || searching ? (
+              <button type="button" aria-label={t('media.clearSearch')} onMouseDown={(e) => e.preventDefault()}
+                onClick={() => { setQuery(''); setSearchOpen(false); }} className="shrink-0 hover:text-[var(--text)]"><X size={12} /></button>
+            ) : null}
           </label>
-        ) : <>
-          {tight ? (
-            <BarButton label={t('media.search')} onClick={() => setSearchOpen(true)}><Search size={14} /></BarButton>
-          ) : (
-            <label className="flex h-7 min-w-0 flex-1 items-center gap-1.5 rounded-md bg-[var(--bg-hover)] px-2 text-[12.5px] text-[var(--text-muted)]">
-              <Search size={13} className="shrink-0" />
-              <input value={query} onChange={(e) => setQuery(e.target.value)} placeholder={bar.wholeHint ? hint : shortHint}
-                className="min-w-0 flex-1 bg-transparent text-[var(--text)] outline-none placeholder:text-[var(--text-faint)]" />
-              {query ? <button type="button" aria-label={t('media.clearSearch')} onClick={() => setQuery('')} className="shrink-0 hover:text-[var(--text)]"><X size={12} /></button> : null}
-            </label>
-          )}
-          {/* bringing media in is what this pane is for: the one labeled button, right after the search */}
-          <Tooltip label={t('media.import')} side="bottom">
-            <button type="button" aria-label={t('media.import')} onClick={() => inputRef.current?.click()}
-              className={`flex h-7 shrink-0 items-center justify-center gap-1.5 rounded-md bg-[var(--bg-active)] text-[12.5px] font-medium text-[var(--text)] transition hover:bg-[var(--border-strong)] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--border-strong)] ${bar.uploadWord ? 'px-2.5' : 'w-7'}`}>
-              <Upload size={13} strokeWidth={2.2} />
-              {bar.uploadWord ? uploadWord : null}
+        ) : null}
+        {bar.field ? null : (
+          /* the field down to its icon, still filling the room: clicked, it opens over the bar */
+          <Tooltip label={t('media.search')} side="bottom">
+            <button type="button" aria-label={t('media.search')} onClick={() => setSearchOpen(true)}
+              className="flex h-7 min-w-7 flex-1 items-center justify-center rounded-md bg-[var(--bg-hover)] text-[var(--text-muted)] transition hover:text-[var(--text)]">
+              <Search size={13} />
             </button>
           </Tooltip>
-          {tight ? <span className="min-w-0 flex-1" /> : null}
-          <BarButton label={t(rows ? 'media.viewGrid' : 'media.viewList')} onClick={() => setView((v) => ({ ...v, layout: rows ? 'grid' : 'list' }))}>
-            {rows ? <LayoutGrid size={14} /> : <List size={14} />}
-          </BarButton>
-          <BarButton label={t('media.filter')} on={view.filter !== 'all'} onClick={(e) => barMenu(e, FILTERS.map((f) => ({
-            id: f, label: `${t(`media.filter_${f}`)}  ${counts[f]}`, checked: view.filter === f, onSelect: () => setView((v) => ({ ...v, filter: f })),
-          })))}><ListFilter size={14} /></BarButton>
-          <BarButton label={t('media.sort')} onClick={(e) => barMenu(e, SORTS.map((key) => ({
-            id: key, label: t(`media.sort_${key}`), checked: view.sort === key, onSelect: () => setView((v) => ({ ...v, sort: key })),
-          })))}><ArrowUpDown size={14} /></BarButton>
-          <BarButton label={t('assets.newFolder')} onClick={() => { setQuery(''); setView((v) => ({ ...v, filter: 'all' })); setCreating(true); }}><FolderPlus size={14} /></BarButton>
-          {onClose ? <BarButton label={t('media.close')} onClick={onClose}><X size={14} /></BarButton> : null}
-        </>}
+        )}
+        {/* bringing media in is what this pane is for: the one labeled button, right after the search */}
+        <Tooltip label={t('media.import')} side="bottom">
+          <button type="button" aria-label={t('media.import')} onClick={() => inputRef.current?.click()}
+            className={`flex h-7 shrink-0 items-center justify-center gap-1.5 rounded-md bg-[var(--bg-active)] text-[12.5px] font-medium text-[var(--text)] transition hover:bg-[var(--border-strong)] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--border-strong)] ${bar.uploadWord ? 'px-2.5' : 'w-7'}`}>
+            <Upload size={13} strokeWidth={2.2} />
+            {bar.uploadWord ? uploadWord : null}
+          </button>
+        </Tooltip>
+        <BarButton label={t(rows ? 'media.viewGrid' : 'media.viewList')} onClick={() => setView((v) => ({ ...v, layout: rows ? 'grid' : 'list' }))}>
+          {rows ? <LayoutGrid size={14} /> : <List size={14} />}
+        </BarButton>
+        <BarButton label={t('media.filter')} on={view.filter !== 'all'} onClick={(e) => barMenu(e, FILTERS.map((f) => ({
+          id: f, label: `${t(`media.filter_${f}`)}  ${counts[f]}`, checked: view.filter === f, onSelect: () => setView((v) => ({ ...v, filter: f })),
+        })))}><ListFilter size={14} /></BarButton>
+        <BarButton label={t('media.sort')} onClick={(e) => barMenu(e, SORTS.map((key) => ({
+          id: key, label: t(`media.sort_${key}`), checked: view.sort === key, onSelect: () => setView((v) => ({ ...v, sort: key })),
+        })))}><ArrowUpDown size={14} /></BarButton>
+        <BarButton label={t('assets.newFolder')} onClick={() => { setQuery(''); setView((v) => ({ ...v, filter: 'all' })); setCreating(true); }}><FolderPlus size={14} /></BarButton>
+        {onClose ? <BarButton label={t('media.close')} onClick={onClose}><X size={14} /></BarButton> : null}
         {/* any kind of file: what Studio cannot play is still the project's material */}
         <input ref={inputRef} type="file" multiple className="hidden"
           onChange={(e) => { const list = [...(e.target.files ?? [])]; e.target.value = ''; void importFiles(list); }} />
