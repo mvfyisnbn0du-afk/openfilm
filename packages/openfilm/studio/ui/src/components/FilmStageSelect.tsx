@@ -62,7 +62,7 @@ import {
   positionOf, roundOf, transformOfVisible, visibleFrame, type CropAspect, type Rect,
 } from '@/lib/stage-crop';
 import {
-  alignShift, HANDLE_AT, insideBox, insideFrame, movedOffset, pivotCenter, resizedFrame, sameClientRect, sameGuides,
+  alignShift, groupDragged, HANDLE_AT, insideBox, insideFrame, movedOffset, pivotCenter, resizedFrame, sameClientRect, sameGuides,
   sameLayerGeometry, scaledLayer, turnedLayer, unionRect, type AlignEdge, type ClientBox, type FramePivot,
   type LayerGeometry, type StageFrame,
 } from '@/lib/stage-gesture';
@@ -143,6 +143,7 @@ export interface StageLayer {
 
 /** A whole clip dragged with others: where it was, and its picture's own size. */
 interface ClipsDragItem { loc: string; id: string; t0: MgTransform; box: MgBox }
+
 
 /** A clip as the film's stage tells it: where its picture is drawn (stage px), and whether it shows now. */
 interface StageClipBox { id: string; visible: boolean; x: number; y: number; w: number; h: number }
@@ -630,7 +631,11 @@ function FilmStageSelectImpl({
   type MultiDragItem = MultiItem & { base: LayerGeometry; scale: number; now: LayerGeometry };
   const multiDrag = React.useRef<{ x: number; y: number; moved: boolean; rect0: ClientBox; items: MultiDragItem[] } | null>(null);
   /* several whole clips selected (on the timeline, or by a marquee): a press on one of them drags them all */
-  const clipsDrag = React.useRef<{ x: number; y: number; moved: boolean; items: ClipsDragItem[]; dx: number; dy: number } | null>(null);
+  const clipsDrag = React.useRef<{
+    kind: 'move' | 'scale'; x: number; y: number; moved: boolean; items: ClipsDragItem[];
+    /* scaling: the corner that stays (stage px) and where the one pulled was; the factor so far */
+    anchor: { x: number; y: number }; from: { x: number; y: number }; dx: number; dy: number; k: number;
+  } | null>(null);
   /** Where the clips being dragged are drawn now (their outlines follow the hand; film.html is written at the release). */
   const [clipsMoved, setClipsMoved] = React.useState<readonly LinkedMark[] | null>(null);
   const multiItemsNow = (): MultiDragItem[] => {
@@ -2010,7 +2015,7 @@ function FilmStageSelectImpl({
         });
         return;
       }
-      const moved = cd.items.map((it) => ({ ...it, t: { ...it.t0, x: it.t0.x + cd.dx, y: it.t0.y + cd.dy } }));
+      const moved = cd.items.map((it) => ({ ...it, t: groupDragged(cd, it.t0) }));
       /* the outlines stay where they were let go (film.html follows a moment later) */
       setLinkedMarks((marks) => marks.map((m) => moved.find((it) => it.loc === m.loc) ? { ...m, t: moved.find((it) => it.loc === m.loc)!.t } : m));
       setClipsMoved(null);
@@ -2410,16 +2415,25 @@ function FilmStageSelectImpl({
         /* several clips selected: a press on one of them drags them all, as Figma moves a selection (Shift: a marquee
            that adds to them instead) */
         const linkedNow = linkedLocs ?? [];
-        if (linkedNow.length > 1 && onEditClip && !e.shiftKey && !linkedNow.some((loc) => lockedClip(loc))) {
+        const groupHit = target?.closest('[data-group-kind]') as HTMLElement | null;
+        if (linkedNow.length > 1 && groupBox && onEditClip && !e.shiftKey && !linkedNow.some((loc) => lockedClip(loc))
+          && (groupHit || insideBox(groupBox, stagePt.x, stagePt.y))) {
           const items = linkedNow.flatMap((loc) => {
             const info = infoOf(loc);
-            return info?.box ? [{ loc, id: info.id, t0: info.t, box: info.box, crop: info.crop }] : [];
+            return info?.box ? [{ loc, id: info.id, t0: info.t, box: info.box }] : [];
           });
-          if (items.some((it) => insideFrame(visibleFrame(it.t0, it.box, it.crop), stagePt.x, stagePt.y))) {
-            clipsDrag.current = { x: p.x, y: p.y, moved: false, items: items.map(({ crop: _, ...it }) => it), dx: 0, dy: 0 };
-            currentTarget.setPointerCapture(pointerId);
-            return;
-          }
+          const corner = groupHit?.getAttribute('data-group-kind') === 'scale' ? groupHit.getAttribute('data-group-handle') : null;
+          const g = groupBox;
+          const at = (c: string, far: boolean) => ({
+            x: g.left + (c.includes('e') !== far ? g.width : 0),
+            y: g.top + (c.includes('s') !== far ? g.height : 0),
+          });
+          clipsDrag.current = {
+            kind: corner ? 'scale' : 'move', x: p.x, y: p.y, moved: false, items, dx: 0, dy: 0, k: 1,
+            anchor: corner ? at(corner, true) : { x: 0, y: 0 }, from: corner ? at(corner, false) : { x: 0, y: 0 },
+          };
+          currentTarget.setPointerCapture(pointerId);
+          return;
         }
         /* several selected: a press inside their box drags them all (Shift adds / takes away instead) */
         const many = multiRef.current;
@@ -2538,9 +2552,16 @@ function FilmStageSelectImpl({
           const vs = viewScaleNow();
           if (!d.moved && Math.hypot(p.x - d.x, p.y - d.y) < 4) return;
           if (!d.moved) { d.moved = true; setDragging(true); setHover(null); }
-          d.dx = (p.x - d.x) / vs;
-          d.dy = (p.y - d.y) / vs;
-          const moved = d.items.map((it) => ({ loc: it.loc, box: it.box, t: { ...it.t0, x: it.t0.x + d.dx, y: it.t0.y + d.dy } }));
+          if (d.kind === 'move') {
+            d.dx = (p.x - d.x) / vs;
+            d.dy = (p.y - d.y) / vs;
+          } else {
+            /* the pulled corner along the frame's diagonal, from the corner that stays: all of them in proportion */
+            const ax = d.anchor.x, ay = d.anchor.y;
+            const ux = d.from.x - ax, uy = d.from.y - ay;
+            d.k = Math.max(0.02, ((p.x / vs - ax) * ux + (p.y / vs - ay) * uy) / Math.max(1e-6, ux * ux + uy * uy));
+          }
+          const moved = d.items.map((it) => ({ loc: it.loc, box: it.box, t: groupDragged(d, it.t0) }));
           setClipsMoved(moved);
           clipsPlace.push(d.items.map((it, i) => ({ clip: it.id, box: compactBox(moved[i]!.t, it.box) })));
           return;
@@ -2603,7 +2624,16 @@ function FilmStageSelectImpl({
         {/* the clips selected elsewhere, under the selection: what is being moved is always on top */}
         {linkedShown.map((mark) => <MgOutline key={mark.loc} t={mark.t} box={mark.box} viewScale={vsNow} />)}
         {clipsMoved?.map((mark) => <MgOutline key={mark.loc} t={mark.t} box={mark.box} viewScale={vsNow} />)}
-        {groupBox ? <Box rect={scaleBox(groupBox, vsNow)} tone="hover" /> : null}
+        {groupBox ? (
+          <StageTransformFrame
+            frame={{ cx: (groupBox.left + groupBox.width / 2) * vsNow, cy: (groupBox.top + groupBox.height / 2) * vsNow, w: groupBox.width * vsNow, h: groupBox.height * vsNow, r: 0 }}
+            scope="group"
+            rotate={false}
+            moving={dragging}
+            label={`${Math.round(groupBox.width)} × ${Math.round(groupBox.height)}`}
+            bounds={stageBounds}
+          />
+        ) : null}
         {/* the menu is drawn on body, but React events bubble through the component tree: a press on an item must not
             reach the stage as a press on the picture */}
         {menu ? (

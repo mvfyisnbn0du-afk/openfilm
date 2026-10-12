@@ -199,3 +199,16 @@ export function alignShift(edge: AlignEdge, rect: ClientBox, union: ClientBox): 
         : edge === 'vcenter' ? union.top + union.height / 2 - (rect.top + rect.height / 2) : 0,
   };
 }
+
+/** How several whole clips are being dragged together: moved by (dx, dy), or scaled by k about the corner that stays. */
+export interface GroupDrag { kind: 'move' | 'scale'; dx: number; dy: number; k: number; anchor: { x: number; y: number } }
+
+/**
+ * Where one of several clips dragged together is now (`t0`: where it was, stage px): moved with the others, or scaled
+ * with them in proportion about the group's corner that stays, so the gaps between them scale too (Figma).
+ */
+export function groupDragged<T extends { x: number; y: number; scaleX: number; scaleY: number }>(d: GroupDrag, t0: T): T {
+  if (d.kind === 'move') return { ...t0, x: t0.x + d.dx, y: t0.y + d.dy };
+  const { k, anchor: a } = d;
+  return { ...t0, x: a.x + (t0.x - a.x) * k, y: a.y + (t0.y - a.y) * k, scaleX: t0.scaleX * k, scaleY: t0.scaleY * k };
+}

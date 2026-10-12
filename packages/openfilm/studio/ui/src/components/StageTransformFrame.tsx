@@ -9,9 +9,9 @@
  *
  * Geometry is the frame's own center, size and angle, not its bounding box: a turned thing has a turned frame.
  *
- * Three sets of data attributes: a whole clip's (`data-mg-kind` / `data-mg-handle`), a layer's (`data-layer-kind` /
- * `data-layer-handle`) and a crop's in crop mode (`data-crop-kind` / `data-crop-handle`); one pointer press is routed
- * by the set it lands on.
+ * Four sets of data attributes: a whole clip's (`data-mg-kind` / `data-mg-handle`), a layer's (`data-layer-kind` /
+ * `data-layer-handle`), a crop's in crop mode (`data-crop-kind` / `data-crop-handle`) and several clips' together
+ * (`data-group-kind` / `data-group-handle`); one pointer press is routed by the set it lands on.
  */
 /** The stage's "this one" blue: the frame, picked layers and linked outlines are drawn in it. */
 export const FRAME_BLUE = '#0d99ff';
@@ -84,8 +84,11 @@ export function StageTransformFrame({
   bounds,
 }: {
   frame: FrameGeometry;
-  /** Which set of handle attributes (see the file head): `mg` for a whole clip, `layer` for a layer, `crop` for a crop. */
-  scope: 'mg' | 'layer' | 'crop';
+  /**
+   * Which set of handle attributes (see the file head): `mg` for a whole clip, `layer` for a layer, `crop` for a crop,
+   * `group` for several clips selected together.
+   */
+  scope: 'mg' | 'layer' | 'crop' | 'group';
   corners?: 'scale' | 'none';
   edges?: boolean;
   rotate?: boolean;
