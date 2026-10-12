@@ -141,6 +141,12 @@ export interface StageLayer {
   };
 }
 
+/** A whole clip dragged with others: where it was, and its picture's own size. */
+interface ClipsDragItem { loc: string; id: string; t0: MgTransform; box: MgBox }
+
+/** A clip as the film's stage tells it: where its picture is drawn (stage px), and whether it shows now. */
+interface StageClipBox { id: string; visible: boolean; x: number; y: number; w: number; h: number }
+
 /** Just where a hovered layer is; a whole clip hovered (a page's empty part, a video, a still) has its id. */
 interface StageOutline {
   handle: number;
@@ -525,6 +531,23 @@ function FilmStageSelectImpl({
     const live = lookLiveRef.current;
     return clipInfo(docRef.current, spansRef.current, stage, loc, live?.clipLoc === loc ? live : null);
   };
+  /**
+   * The clips a marquee `area` goes around (stage px), by the part of each on the canvas (a part past its edge cannot
+   * be boxed), as Figma takes the frames a box goes around.
+   */
+  const clipsInside = (list: readonly StageClipBox[], area: Rect): { id: string; loc: string }[] => {
+    const onCanvas = (r: Rect): Rect => {
+      const x = Math.max(0, r.x), y = Math.max(0, r.y);
+      return { x, y, w: Math.min(stage.w, r.x + r.w) - x, h: Math.min(stage.h, r.y + r.h) - y };
+    };
+    return list.flatMap((c) => {
+      const shown = onCanvas(shownBoxOf(c));
+      const loc = c.visible && shown.w > 0 && shown.h > 0 && rectInside(shown, area) ? clipLocOf(docRef.current, c.id) : undefined;
+      return loc ? [{ id: c.id, loc }] : [];
+    });
+  };
+  const clipsInsideRef = React.useRef(clipsInside);
+  clipsInsideRef.current = clipsInside;
   /** A whole clip's outline for the hover: the part of it that shows, turned with it. */
   const clipOutline = (id: string): StageOutline | null => {
     const loc = clipLocOf(docRef.current, id);
@@ -606,6 +629,10 @@ function FilmStageSelectImpl({
   /* ── several layers moved together ── */
   type MultiDragItem = MultiItem & { base: LayerGeometry; scale: number; now: LayerGeometry };
   const multiDrag = React.useRef<{ x: number; y: number; moved: boolean; rect0: ClientBox; items: MultiDragItem[] } | null>(null);
+  /* several whole clips selected (on the timeline, or by a marquee): a press on one of them drags them all */
+  const clipsDrag = React.useRef<{ x: number; y: number; moved: boolean; items: ClipsDragItem[]; dx: number; dy: number } | null>(null);
+  /** Where the clips being dragged are drawn now (their outlines follow the hand; film.html is written at the release). */
+  const [clipsMoved, setClipsMoved] = React.useState<readonly LinkedMark[] | null>(null);
   const multiItemsNow = (): MultiDragItem[] => {
     const vs = viewScaleNow();
     return (multiRef.current ?? []).map((it) => ({ ...it, base: it.layer.geo.g, now: it.layer.geo.g, scale: it.layer.geo.k * vs }));
@@ -1291,6 +1318,23 @@ function FilmStageSelectImpl({
       ? (cur && cur.handle === found.handle && cur.clip === found.clip && sameClientRect(cur.rect, found.rect) ? cur : found)
       : (cur ? null : cur)));
   }), [ask]);
+  /* while a marquee is drawn: what letting go would select, outlined as it goes (Figma) — the clips it goes around,
+     else the layers wholly inside it. The clips are asked once, at the press */
+  const marqueeClips = React.useRef<Promise<StageClipBox[] | null> | null>(null);
+  const [marqueeHits, setMarqueeHits] = React.useState<readonly StageOutline[]>([]);
+  const marqueeQueue = React.useMemo(() => new Latest<Rect | null>(async (area) => {
+    if (!area) { setMarqueeHits([]); return; }
+    const clips = clipsInsideRef.current((await marqueeClips.current) ?? [], area);
+    if (!draftRef.current) return;
+    if (clips.length) {
+      setMarqueeHits(clips.flatMap((c) => clipOutlineRef.current(c.id) ?? []));
+      return;
+    }
+    const layers = await ask<StageLayer[]>('box', area) ?? [];
+    if (!draftRef.current) return;
+    setMarqueeHits(layers.map((l) => ({ handle: l.handle, rect: l.rect, ...(l.frame.r ? { frame: l.frame } : {}) })));
+  }), [ask]);
+  React.useEffect(() => { if (!draft) { marqueeQueue.push(null); marqueeClips.current = null; } }, [draft, marqueeQueue]);
   /* a layer pointed at from the Layers panel: outlined where it is drawn, until the pointer leaves the row */
   const pointClip = pointLayer?.clipId;
   const pointLoc = pointLayer?.loc;
@@ -1323,6 +1367,9 @@ function FilmStageSelectImpl({
 
   /* ── a whole clip in hand: moved, scaled, turned ── */
   const clipPlace = React.useMemo(() => new Latest<{ clip: string; box: FilmBox | null }>(async (a) => { await ask('place', a); }), [ask]);
+  const clipsPlace = React.useMemo(() => new Latest<{ clip: string; box: FilmBox | null }[]>(async (list) => {
+    await Promise.all(list.map((a) => ask('place', a)));
+  }), [ask]);
   const applyMgGesture = (stagePt: { x: number; y: number }, shift: boolean, alt: boolean) => {
     const g = gestureRef.current;
     if (!g) return;
@@ -1807,8 +1854,10 @@ function FilmStageSelectImpl({
       return;
     }
     if (draftRef.current) {
-      draftRef.current = { ...draftRef.current, x2: x, y2: y };
-      setDraft(draftRef.current);
+      const d = draftRef.current = { ...draftRef.current, x2: x, y2: y };
+      setDraft(d);
+      const area = { x: Math.min(d.x1, d.x2) / vs, y: Math.min(d.y1, d.y2) / vs, w: Math.abs(d.x2 - d.x1) / vs, h: Math.abs(d.y2 - d.y1) / vs };
+      marqueeQueue.push(area.w >= MARQUEE_MIN_PX && area.h >= MARQUEE_MIN_PX ? area : null);
       return;
     }
     /* with a clip in hand too: what is in it and around it is still found (its own outline is its frame) */
@@ -1944,6 +1993,34 @@ function FilmStageSelectImpl({
       if (box) void pointAt(box);
       return;
     }
+    const cd = clipsDrag.current;
+    if (cd) {
+      clipsDrag.current = null;
+      e.stopPropagation();
+      setDragging(false);
+      if (!cd.moved) {
+        /* not pulled: a click on one of them takes that one alone */
+        const p = local(e);
+        const token = ++pressSeq.current;
+        void ask<string>('clipAt', { x: p.x / vs, y: p.y / vs }).then((id) => {
+          if (token !== pressSeq.current) return;
+          const loc = id ? clipLocOf(docRef.current, id) : undefined;
+          const info = loc ? infoOf(loc) : null;
+          if (info) commitHit(describeClip(info, stage));
+        });
+        return;
+      }
+      const moved = cd.items.map((it) => ({ ...it, t: { ...it.t0, x: it.t0.x + cd.dx, y: it.t0.y + cd.dy } }));
+      /* the outlines stay where they were let go (film.html follows a moment later) */
+      setLinkedMarks((marks) => marks.map((m) => moved.find((it) => it.loc === m.loc) ? { ...m, t: moved.find((it) => it.loc === m.loc)!.t } : m));
+      setClipsMoved(null);
+      void clipsPlace.idle().then(() => onEditClip?.(moved.map((it) => ({ loc: it.loc, prop: 'box' as const, value: compactBox(it.t, it.box) })))).then((failed) => {
+        if (!failed) return;
+        clipsPlace.push(cd.items.map((it) => ({ clip: it.id, box: null })));
+        setLinkedMarks((marks) => marks.map((m) => cd.items.find((it) => it.loc === m.loc) ? { ...m, t: cd.items.find((it) => it.loc === m.loc)!.t0 } : m));
+      });
+      return;
+    }
     const md = multiDrag.current;
     if (md) {
       multiDrag.current = null;
@@ -2043,18 +2120,9 @@ function FilmStageSelectImpl({
         const area = { x: box.left / vs, y: box.top / vs, w: box.width / vs, h: box.height / vs };
         /* clips wholly inside (a page, a video, a still, by the part on the canvas) are selected whole, as Figma takes
            a frame the box goes around; Shift adds them to the clips selected */
-        const clips = onSelectClips ? await ask<{ id: string; visible: boolean; x: number; y: number; w: number; h: number }[]>('clips') ?? [] : [];
+        const clips = onSelectClips ? await (marqueeClips.current ?? ask<StageClipBox[]>('clips')) ?? [] : [];
         if (token !== pressSeq.current) return;
-        /* by what shows on the canvas: a part past its edge cannot be boxed */
-        const onCanvas = (r: Rect): Rect => {
-          const x = Math.max(0, r.x), y = Math.max(0, r.y);
-          return { x, y, w: Math.min(stage.w, r.x + r.w) - x, h: Math.min(stage.h, r.y + r.h) - y };
-        };
-        const around = clips.filter((c) => {
-          const shown = onCanvas(shownBoxOf(c));
-          return c.visible && shown.w > 0 && shown.h > 0 && rectInside(shown, area);
-        })
-          .map((c) => clipLocOf(docRef.current, c.id)).filter((loc): loc is string => Boolean(loc));
+        const around = clipsInside(clips, area).map((c) => c.loc);
         if (around.length) {
           const locs = [...new Set([...(shift ? linkedLocs ?? [] : []), ...around])];
           setHover(null);
@@ -2112,6 +2180,9 @@ function FilmStageSelectImpl({
     ? { left: Math.min(draft.x1, draft.x2), top: Math.min(draft.y1, draft.y2), width: Math.abs(draft.x2 - draft.x1), height: Math.abs(draft.y2 - draft.y1) }
     : null;
   const linkedShown = linkedOutlines(linkedMarks, picked?.element?.clipLoc, dragging);
+  /* several clips selected: one frame around them all, as Figma draws a selection (it moves with them) */
+  const groupMarks = clipsMoved ?? (linkedShown.length > 1 ? linkedShown : null);
+  const groupBox = groupMarks ? unionRect(groupMarks.map((m) => clientOf(frameAabb(visibleFrame(m.t, m.box, infoOf(m.loc)?.crop ?? NO_CROP))))) : null;
   /* the clip of a pill hovered in the app's chat, where it is drawn now */
   const chatClip = chat?.clipLoc ? clipInfo(doc, spans, stage, chat.clipLoc) : null;
 
@@ -2336,6 +2407,20 @@ function FilmStageSelectImpl({
           });
           return;
         }
+        /* several clips selected: a press on one of them drags them all, as Figma moves a selection (Shift: a marquee
+           that adds to them instead) */
+        const linkedNow = linkedLocs ?? [];
+        if (linkedNow.length > 1 && onEditClip && !e.shiftKey && !linkedNow.some((loc) => lockedClip(loc))) {
+          const items = linkedNow.flatMap((loc) => {
+            const info = infoOf(loc);
+            return info?.box ? [{ loc, id: info.id, t0: info.t, box: info.box, crop: info.crop }] : [];
+          });
+          if (items.some((it) => insideFrame(visibleFrame(it.t0, it.box, it.crop), stagePt.x, stagePt.y))) {
+            clipsDrag.current = { x: p.x, y: p.y, moved: false, items: items.map(({ crop: _, ...it }) => it), dx: 0, dy: 0 };
+            currentTarget.setPointerCapture(pointerId);
+            return;
+          }
+        }
         /* several selected: a press inside their box drags them all (Shift adds / takes away instead) */
         const many = multiRef.current;
         const held0 = pickedRef.current;
@@ -2420,6 +2505,7 @@ function FilmStageSelectImpl({
         }
         /* a click or a marquee is decided at the release */
         currentTarget.setPointerCapture(pointerId);
+        marqueeClips.current = onSelectClips ? ask<StageClipBox[]>('clips') : null;
         draftRef.current = { x1: p.x, y1: p.y, x2: p.x, y2: p.y };
         setDraft(draftRef.current);
       }}
@@ -2446,6 +2532,19 @@ function FilmStageSelectImpl({
           return;
         }
         if (altHeld.current) measureAt(null);
+        if (clipsDrag.current) {
+          const d = clipsDrag.current;
+          const p = local(e);
+          const vs = viewScaleNow();
+          if (!d.moved && Math.hypot(p.x - d.x, p.y - d.y) < 4) return;
+          if (!d.moved) { d.moved = true; setDragging(true); setHover(null); }
+          d.dx = (p.x - d.x) / vs;
+          d.dy = (p.y - d.y) / vs;
+          const moved = d.items.map((it) => ({ loc: it.loc, box: it.box, t: { ...it.t0, x: it.t0.x + d.dx, y: it.t0.y + d.dy } }));
+          setClipsMoved(moved);
+          clipsPlace.push(d.items.map((it, i) => ({ clip: it.id, box: compactBox(moved[i]!.t, it.box) })));
+          return;
+        }
         if (multiDrag.current) {
           const d = multiDrag.current;
           const p = local(e);
@@ -2503,6 +2602,8 @@ function FilmStageSelectImpl({
       >
         {/* the clips selected elsewhere, under the selection: what is being moved is always on top */}
         {linkedShown.map((mark) => <MgOutline key={mark.loc} t={mark.t} box={mark.box} viewScale={vsNow} />)}
+        {clipsMoved?.map((mark) => <MgOutline key={mark.loc} t={mark.t} box={mark.box} viewScale={vsNow} />)}
+        {groupBox ? <Box rect={scaleBox(groupBox, vsNow)} tone="hover" /> : null}
         {/* the menu is drawn on body, but React events bubble through the component tree: a press on an item must not
             reach the stage as a press on the picture */}
         {menu ? (
@@ -2523,6 +2624,9 @@ function FilmStageSelectImpl({
           && !(picked && (hover.clip ? picked.element?.isMgOuter && hover.clip === picked.element.clipId : hover.handle === picked.layer?.handle)) ? (
           <Box rect={scaleBox(hover.rect, vsNow)} frame={hover.frame && scaleFrame(hover.frame, vsNow)} tone="hover" />
         ) : null}
+        {draftRect ? marqueeHits.map((h, i) => (
+          <Box key={h.clip ?? `${h.handle}:${i}`} rect={scaleBox(h.rect, vsNow)} frame={h.frame && scaleFrame(h.frame, vsNow)} tone="hover" />
+        )) : null}
         {draftRect ? <Box rect={draftRect} tone="draft" /> : null}
         {regionDraft ? <Box rect={boxOfDrag(regionDraft)} tone="region" /> : null}
         {flash ? <Box rect={scaleBox({ left: flash.box.x, top: flash.box.y, width: flash.box.w, height: flash.box.h }, vsNow)} tone="region" fading={flash.fading} /> : null}
