@@ -1396,9 +1396,8 @@ function FrameField({ value, fill, current, stage, onChange, onFill, t }: {
             </button>
           );
         })}
+        <CustomFrame chip value={resolved} onPick={(f) => onChange(f === current ? 'current' : f)} />
       </div>
-      <CustomFrame value={resolved} onPick={(f) => onChange(f === current ? 'current' : f)}
-        className="-mx-2 max-w-[260px] rounded-lg" />
       {differs && (
         <Segmented
           value={fill}
