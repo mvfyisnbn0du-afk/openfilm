@@ -1,30 +1,10 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { readClaudeUsage, readCodexUsage } from './agent-usage.mjs';
+import { agentUsage, readCodexUsage } from './agent-usage.mjs';
 
-test('Claude Code\'s /usage as windows: those with a share used, their reset as a time, the plan', () => {
-  const usage = readClaudeUsage({
-    subscription_type: 'team',
-    rate_limits_available: true,
-    rate_limits: {
-      five_hour: { utilization: 12.5, resets_at: null },
-      seven_day: { utilization: 0, resets_at: '2026-10-19T07:00:00+00:00' },
-      seven_day_opus: null,
-      seven_day_sonnet: { utilization: 140, resets_at: 'not a date' },
-      tangelo: { utilization: 50 },
-    },
-  });
-  assert.deepEqual(usage, {
-    plan: 'team',
-    windows: [
-      { kind: 'five_hour', minutes: 300, usedPercent: 12.5, resetsAt: null },
-      { kind: 'seven_day', minutes: 10_080, usedPercent: 0, resetsAt: Date.parse('2026-10-19T07:00:00+00:00') },
-      { kind: 'seven_day_sonnet', minutes: 10_080, usedPercent: 100, resetsAt: null },
-    ],
-  });
-  assert.equal(readClaudeUsage({ rate_limits_available: false, rate_limits: null }), null, 'an API key has no plan to show');
-  assert.equal(readClaudeUsage(null), null, 'no answer, no usage');
-  assert.equal(readClaudeUsage({ rate_limits_available: true, rate_limits: { five_hour: null } }), null);
+test('Claude Code\'s usage is not asked: its own report is wrong for Team accounts', async () => {
+  assert.equal(await agentUsage('claude'), null);
+  assert.equal(await agentUsage('gemini'), null);
 });
 
 test('Codex\'s rate limits as windows, each as long as it says; its account\'s email and plan', () => {

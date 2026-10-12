@@ -1460,7 +1460,6 @@ export const en = {
       usageLoading: 'Reading what is left of the plan…',
       usageFiveHour: '5 hours',
       usageWeek: 'This week',
-      usageWeekModel: 'Week · {model}',
       usageWindow: '{hours} hours',
       usageUsed: '{percent}% used',
       usageResets: 'resets {time}',

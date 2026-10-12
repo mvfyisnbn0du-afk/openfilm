@@ -1459,7 +1459,6 @@ export const ja: Words = {
       usageLoading: '残りの利用枠を読み込み中…',
       usageFiveHour: '5 時間',
       usageWeek: '今週',
-      usageWeekModel: '今週 · {model}',
       usageWindow: '{hours} 時間',
       usageUsed: '{percent}% 使用',
       usageResets: '{time}にリセット',

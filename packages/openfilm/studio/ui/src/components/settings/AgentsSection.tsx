@@ -5,7 +5,7 @@
  * Codex, Claude Code, Gemini CLI and the others are the person's own programs, on the account signed in on the
  * computer: connecting opens their own sign-in only when they are signed out (the app waits for it), disconnecting
  * only stops the app using them, and connecting again uses the account signed in then (switched in the agent itself).
- * Claude Code's and Codex's rows say whose account it is and what is left of the plan. Codex and Claude Code
+ * Claude Code's and Codex's rows say whose account it is, and Codex's what is left of its plan. Codex and Claude Code
  * are always listed under the person's agents, with the person's own key; the others there once switched on (connecting
  * one does), else under "More agents", with where to get them when they are not installed. The person's own key is on a service of theirs, with a model that reads pictures (the agent looks at its own frames).
  *
@@ -17,8 +17,8 @@ import { Check, Copy, Download, KeyRound, Loader2 } from 'lucide-react';
 import { useLanguage, useT } from '@/i18n';
 import { studioHost, type HostAgent, type HostAgentDiagnosis, type HostAgentId, type HostAgentUsage, type HostByokFormat } from '@/lib/host';
 
-/** Whose account, and what is left of the plan: what Claude Code and Codex can say (the app's agent-usage.mjs). */
-const PLAN_AGENTS: readonly HostAgentId[] = ['claude', 'codex'];
+/** What is left of the plan: what Codex can say (the app's agent-usage.mjs; Claude Code's own report is wrong for Team accounts). */
+const PLAN_AGENTS: readonly HostAgentId[] = ['codex'];
 import { ProviderMark } from './ProviderMark';
 import { agentMark } from '@/lib/provider-marks';
 import { SettingsSelect } from './SettingsSelect';
@@ -48,8 +48,8 @@ function AgentMark({ id }: { id: HostAgentId }) {
 }
 
 /**
- * What is left of Claude Code's and Codex's plans, for the ones ready: asked as they become ready and when the window
- * comes back into focus (the app keeps an answer a minute). `undefined`: being asked; null: they can't say.
+ * What is left of Codex's plan, when it is ready: asked as it becomes ready and when the window comes back into focus
+ * (the app keeps an answer a minute). `undefined`: being asked; null: it can't say.
  */
 function useAgentUsage(agents: HostAgent[] | null): Partial<Record<HostAgentId, HostAgentUsage | null | undefined>> {
   const [usage, setUsage] = React.useState<Partial<Record<HostAgentId, HostAgentUsage | null | undefined>>>({});
@@ -76,8 +76,6 @@ function UsageBar({ window: w }: { window: HostAgentUsage['windows'][number] }) 
   const language = useLanguage();
   const label = w.kind === 'five_hour' ? t('settings.agents.usageFiveHour')
     : w.kind === 'seven_day' ? t('settings.agents.usageWeek')
-    : w.kind === 'seven_day_opus' ? t('settings.agents.usageWeekModel').replace('{model}', 'Opus')
-    : w.kind === 'seven_day_sonnet' ? t('settings.agents.usageWeekModel').replace('{model}', 'Sonnet')
     : t('settings.agents.usageWindow').replace('{hours}', String(Math.round((w.minutes ?? 0) / 60)));
   const used = Math.round(w.usedPercent);
   const resets = (() => {

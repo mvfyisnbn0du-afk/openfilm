@@ -1458,7 +1458,6 @@ export const ko: Words = {
       usageLoading: '남은 사용량을 읽는 중…',
       usageFiveHour: '5시간',
       usageWeek: '이번 주',
-      usageWeekModel: '이번 주 · {model}',
       usageWindow: '{hours}시간',
       usageUsed: '{percent}% 사용',
       usageResets: '{time} 초기화',

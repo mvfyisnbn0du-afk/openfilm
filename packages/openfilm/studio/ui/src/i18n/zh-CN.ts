@@ -1460,7 +1460,6 @@ export const zhCN: Words = {
       usageLoading: '正在读取剩余额度…',
       usageFiveHour: '5 小时',
       usageWeek: '本周',
-      usageWeekModel: '本周 · {model}',
       usageWindow: '{hours} 小时',
       usageUsed: '已用 {percent}%',
       usageResets: '{time}重置',

@@ -1459,7 +1459,6 @@ export const es: Words = {
       usageLoading: 'Leyendo lo que queda del plan…',
       usageFiveHour: '5 horas',
       usageWeek: 'Esta semana',
-      usageWeekModel: 'Semana · {model}',
       usageWindow: '{hours} horas',
       usageUsed: '{percent}% usado',
       usageResets: 'se renueva {time}',

@@ -69,7 +69,7 @@ export interface StudioHost {
     list: () => Promise<HostAgent[]>;
     connect: (id: HostAgentId) => Promise<{ ok: boolean; error?: string }>;
     disconnect: (id: HostAgentId) => Promise<unknown>;
-    /** Claude Code and Codex: what is left of their plan, as they say for the account signed in (null: they can't say) */
+    /** Codex: what is left of its plan, as it says for the account signed in (null: it can't say; other agents, null) */
     usage?: (id: HostAgentId, fresh?: boolean) => Promise<HostAgentUsage | null>;
     setShown: (id: HostAgentId, shown: boolean) => Promise<unknown>;
     locate?: (id: HostAgentId, words?: { title?: string; button?: string }) => Promise<{ ok: boolean; error?: string; code?: 'not-a-program' | 'did-not-start' | string }>;
@@ -176,12 +176,12 @@ export interface HostAgent {
 
 /**
  * What is left of an agent's plan: each window's share used (0–100), how long it is (minutes) and when it resets (ms);
- * `kind`: five_hour · seven_day · seven_day_opus · seven_day_sonnet (a model's own week) · window (another length).
+ * `kind`: five_hour · seven_day · window (another length).
  * `account`: whose it is, when the program says it here (Codex's email and plan).
  */
 export interface HostAgentUsage {
   plan: string | null;
-  windows: Array<{ kind: 'five_hour' | 'seven_day' | 'seven_day_opus' | 'seven_day_sonnet' | 'window'; minutes: number | null; usedPercent: number; resetsAt: number | null }>;
+  windows: Array<{ kind: 'five_hour' | 'seven_day' | 'window'; minutes: number | null; usedPercent: number; resetsAt: number | null }>;
   account?: { email?: string; plan?: string };
 }
 
