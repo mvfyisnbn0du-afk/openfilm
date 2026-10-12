@@ -121,8 +121,6 @@ export const es: Words = {
     previewFailed: 'No se pudo leer este archivo',
   },
   composer: {
-    agentConnect: 'Conectar',
-    agentConnectFailed: 'No se pudo conectar. Inténtalo de nuevo en Configuración → Agentes.',
     agentLoading: 'Cargando…',
     agentNone: 'Agente',
     agentNoneShown: 'No hay ningún agente activado para el chat.',

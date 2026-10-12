@@ -121,8 +121,6 @@ export const ko: Words = {
     previewFailed: '이 파일을 읽을 수 없습니다',
   },
   composer: {
-    agentConnect: '연결',
-    agentConnectFailed: '연결하지 못했습니다. 설정 → 에이전트에서 다시 시도하세요.',
     agentLoading: '불러오는 중…',
     agentNone: '에이전트',
     agentNoneShown: '채팅에 켜 둔 에이전트가 없습니다.',

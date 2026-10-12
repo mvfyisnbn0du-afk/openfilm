@@ -56,7 +56,6 @@ export function ModelPopover({ placement = 'bottom', align = 'start' }: { placem
   const [open, setOpen] = React.useState(false);
   /** the option whose side menu is open */
   const [side, setSide] = React.useState<string | null>(null);
-  const [note, setNote] = React.useState<string | null>(null);
   /** how far the card has slid left to make room for a side menu: it only grows while the menu is open */
   const [cardShift, setCardShift] = React.useState(0);
   const [sideStyle, setSideStyle] = React.useState<React.CSSProperties | null>(null);
@@ -67,7 +66,7 @@ export function ModelPopover({ placement = 'bottom', align = 'start' }: { placem
   const stopTimer = () => { if (closeTimer.current) { window.clearTimeout(closeTimer.current); closeTimer.current = null; } };
   const showSide = (id: string) => { stopTimer(); setSide(id); };
   const hideSideSoon = () => { stopTimer(); closeTimer.current = window.setTimeout(() => setSide(null), SIDE_CLOSE_MS); };
-  React.useEffect(() => { if (!open) { stopTimer(); setSide(null); setNote(null); setCardShift(0); } }, [open]);
+  React.useEffect(() => { if (!open) { stopTimer(); setSide(null); setCardShift(0); } }, [open]);
   React.useEffect(() => stopTimer, []);
   /* the window's width while open: the card and the side menu share it */
   const [windowW, setWindowW] = React.useState(() => window.innerWidth);
@@ -109,20 +108,14 @@ export function ModelPopover({ placement = 'bottom', align = 'start' }: { placem
     if (a.status === 'ready') return null;
     if (a.status === 'checking') return t('composer.agentLoading');
     if (a.status === 'missing') return t('composer.agentNotFound');
-    if (a.status === 'sign-in' || a.status === 'off') return t('composer.agentConnect');
     if (a.status === 'waiting') return t('composer.agentWaiting');
     return t('composer.agentSetUp');
   };
   const chooseAgent = (a: RosterAgent) => {
-    setNote(null);
     setSide(null);
     if (a.status === 'ready') { la.pick(a.id); return; }
-    if (a.status === 'sign-in' || a.status === 'off') {
-      la.pick(a.id);
-      void desktopBridge()?.agents?.connect(a.id).then((r) => { if (!r.ok) setNote(r.error ?? t('composer.agentConnectFailed')); });
-      return;
-    }
     if (a.status === 'checking' || a.status === 'waiting') return;
+    /* not connected, signed out, not found, no key: set up in Settings → Agents, where connecting and signing in are */
     setOpen(false);
     desktopBridge()?.openSettings?.('agents');
   };
@@ -223,7 +216,6 @@ export function ModelPopover({ placement = 'bottom', align = 'start' }: { placem
                     </button>
                   );
                 })}
-                {note ? <p className="px-2.5 pb-1 pt-0.5 text-[11.5px] leading-relaxed text-[var(--text-muted)]">{note}</p> : null}
                 <div className="mx-1 my-1 h-px bg-[var(--border)]" />
               </>
             ) : null}

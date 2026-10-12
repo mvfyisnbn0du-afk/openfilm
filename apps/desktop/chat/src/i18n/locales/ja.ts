@@ -121,8 +121,6 @@ export const ja: Words = {
     previewFailed: 'このファイルを読み込めませんでした',
   },
   composer: {
-    agentConnect: '接続',
-    agentConnectFailed: '接続できませんでした。設定 → エージェントでもう一度お試しください。',
     agentLoading: '読み込み中…',
     agentNone: 'エージェント',
     agentNoneShown: 'チャットで使えるエージェントがオンになっていません。',

@@ -121,8 +121,6 @@ export const zhCN: Words = {
     previewFailed: '无法读取此文件',
   },
   composer: {
-    agentConnect: '连接',
-    agentConnectFailed: '连接失败。请在设置 → 智能体中重试。',
     agentLoading: '正在加载…',
     agentNone: '智能体',
     agentNoneShown: '对话中尚未开启任何智能体。',

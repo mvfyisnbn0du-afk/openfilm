@@ -120,8 +120,6 @@ export const enUS = {
     previewFailed: 'This file could not be read',
   },
   composer: {
-    agentConnect: 'Connect',
-    agentConnectFailed: 'It could not connect. Try again in Settings → Agents.',
     agentLoading: 'Loading…',
     agentNone: 'Agent',
     agentNoneShown: 'No agent is switched on for the chat.',
