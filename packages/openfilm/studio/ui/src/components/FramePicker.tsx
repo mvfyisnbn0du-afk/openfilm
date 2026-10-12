@@ -1,9 +1,8 @@
 /**
  * The aspect ratio button beside the picture: the film's canvas (its stage in film.html). Picking a shape changes the
- * canvas itself (`onCanvas`), as an image editor's canvas size: it grows around the film, which stays as it is,
- * centered, until the agent lays it out again. A delivery frame (bars or a crop around the film) is the export's.
- *
- * Each item draws its shape rather than only a ratio: a row of small boxes tells landscape from portrait at a glance.
+ * canvas itself (`onCanvas`), as CapCut's does: the film is scaled whole into it, centered, until the agent lays it
+ * out again. A delivery frame (bars or a crop around the film) is the export's. Any other size is typed in the
+ * inspector.
  */
 import * as React from 'react';
 import { Check, Proportions } from 'lucide-react';
@@ -11,27 +10,24 @@ import { useT } from '@/i18n';
 import { customFilmFrame, filmFrameRatio, type FilmFrameId } from '@/lib/film-frame';
 import { Tooltip } from './Tooltip';
 
-/**
- * The shapes a canvas is offered in, as CapCut lists them: landscape, then portrait (`hint`: a word after the ratio,
- * from viewer.ratioHint).
- */
-export const CANVAS_RATIOS: { group: 'wide' | 'tall'; id: FilmFrameId; hint?: string }[] = [
-  { group: 'wide', id: '16:9', hint: 'wide' },
+/** The shapes a canvas is offered in, as CapCut lists them (and 21:9): landscape, then portrait. */
+export const CANVAS_RATIOS: { group: 'wide' | 'tall'; id: FilmFrameId; phone?: true }[] = [
+  { group: 'wide', id: '16:9' },
+  { group: 'wide', id: '21:9' },
   { group: 'wide', id: '4:3' },
   { group: 'wide', id: '2.35:1' },
   { group: 'wide', id: '2:1' },
   { group: 'wide', id: '1.85:1' },
-  { group: 'tall', id: '9:16', hint: 'tall' },
+  { group: 'tall', id: '9:16' },
   { group: 'tall', id: '3:4' },
-  { group: 'tall', id: '9:19.5', hint: 'phone' },
+  { group: 'tall', id: '9:19.5', phone: true },
   { group: 'tall', id: '1:1' },
   { group: 'tall', id: '1:2' },
 ];
 
-/** A ratio's name in the menu: "9:16 (TikTok)", "5.8″ phone". */
-export function canvasRatioLabel(t: (key: string) => string, item: { id: FilmFrameId; hint?: string }): string {
-  if (item.hint === 'phone') return t('viewer.ratioPhone');
-  return item.hint ? `${item.id} ${t(`viewer.ratioHint.${item.hint}`)}` : item.id;
+/** A ratio's name in the menu: "9:16", or "5.8″ phone" for a phone's screen. */
+export function canvasRatioLabel(t: (key: string) => string, item: { id: FilmFrameId; phone?: true }): string {
+  return item.phone ? t('viewer.ratioPhone') : item.id;
 }
 
 /** Whether the stage has this ratio (to a hundredth). */
@@ -41,7 +37,7 @@ export function FramePicker({
   stage, original, busy, onCanvas,
 }: {
   stage: { w: number; h: number };
-  /** The first picture's own size: "Fit (original)" takes its shape. None: nothing to fit to yet. */
+  /** The first picture's own size: "Original" takes its shape. None: nothing to fit to yet. */
   original?: { w: number; h: number } | null;
   /** The canvas change is being written: no second one meanwhile (two requests would race for one file). */
   busy?: boolean;
@@ -50,14 +46,13 @@ export function FramePicker({
 }): React.ReactElement {
   const t = useT();
   const [open, setOpen] = React.useState(false);
-  const [custom, setCustom] = React.useState(false);
   const box = React.useRef<HTMLDivElement | null>(null);
   const fit = original ? customFilmFrame(original.w, original.h) : null;
   const preset = CANVAS_RATIOS.find((r) => shaped(stage, filmFrameRatio(r.id, stage)));
   const isFit = Boolean(original && shaped(stage, original.w / original.h));
 
   React.useEffect(() => {
-    if (!open) { setCustom(false); return undefined; }
+    if (!open) return undefined;
     const away = (e: MouseEvent): void => {
       if (!box.current?.contains(e.target as Node)) setOpen(false);
     };
@@ -72,7 +67,6 @@ export function FramePicker({
     <button key={r.id} type="button" disabled={busy} onClick={() => pick(r.id)} onMouseDown={(e) => e.preventDefault()} className={row}>
       {tick(!isFit && preset?.id === r.id)}
       <span className="flex-1">{canvasRatioLabel(t, r)}</span>
-      <ShapeChip ratio={filmFrameRatio(r.id, stage)} />
     </button>
   );
 
@@ -96,17 +90,11 @@ export function FramePicker({
         </button>
       </Tooltip>
       {open ? (
-        <div className="absolute bottom-[28px] right-0 z-50 max-h-[min(520px,75vh)] w-[220px] overflow-y-auto rounded-[8px] border border-[var(--border)] bg-[var(--surface)] p-1 shadow-[var(--shadow-lg)]">
+        <div className="absolute bottom-[28px] right-0 z-50 max-h-[min(520px,75vh)] w-[180px] overflow-y-auto rounded-[8px] border border-[var(--border)] bg-[var(--surface)] p-1 shadow-[var(--shadow-lg)]">
           <button type="button" disabled={busy || !fit} onClick={() => fit && pick(fit)} onMouseDown={(e) => e.preventDefault()} className={row}>
             {tick(isFit)}
             <span className="flex-1">{t('viewer.ratioOriginal')}</span>
           </button>
-          <button type="button" disabled={busy} onClick={() => setCustom((v) => !v)} onMouseDown={(e) => e.preventDefault()} className={row}>
-            {tick(!isFit && !preset)}
-            <span className="flex-1">{t('viewer.frameCustom')}</span>
-            {!preset ? <span className="text-[11px] tabular-nums text-[var(--text-faint)]">{`${stage.w}×${stage.h}`}</span> : null}
-          </button>
-          {custom ? <CustomFrame value={preset?.id ?? 'native'} disabled={busy} onPick={pick} /> : null}
           <div className="mx-1 my-1 h-px bg-[var(--border)]" />
           {CANVAS_RATIOS.filter((r) => r.group === 'wide').map(item)}
           <div className="mx-1 my-1 h-px bg-[var(--border)]" />
@@ -148,19 +136,5 @@ export function CustomFrame({ value, disabled, onPick, className = '' }: {
         <Check size={13} />
       </button>
     </div>
-  );
-}
-
-/** A small box drawn to the ratio: the long side 16px, the short side follows. */
-function ShapeChip({ ratio }: { ratio: number }) {
-  const w = ratio >= 1 ? 16 : 16 * ratio;
-  const h = ratio >= 1 ? 16 / ratio : 16;
-  return (
-    <span className="flex h-4 w-4 shrink-0 items-center justify-center">
-      <span
-        className="rounded-[2px] border-[1.5px] border-current opacity-60"
-        style={{ width: Math.max(4, w), height: Math.max(4, h) }}
-      />
-    </span>
   );
 }

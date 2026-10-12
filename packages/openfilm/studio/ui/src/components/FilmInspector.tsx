@@ -400,7 +400,6 @@ function FilmPanel({
           <NumField label={t('inspector.width')} prefix="W" value={stage.w} unit="px" min={2} max={8192} disabled={!canvas} onCommit={(w) => setSize(w, stage.h)} />
           <NumField label={t('inspector.height')} prefix="H" value={stage.h} unit="px" min={2} max={8192} disabled={!canvas} onCommit={(h) => setSize(stage.w, h)} />
         </Row>
-        <p className="text-[10.5px] leading-[15px] text-[var(--text-faint)]">{t(placed ? 'inspector.stageFixed' : 'viewer.canvasNote')}</p>
         {/* with clips: the words that ask the agent to lay the film out again for this canvas */}
         {placed ? <RedesignHint t={t} stage={stage} /> : null}
       </Section>

@@ -551,12 +551,12 @@ export function ProjectView({ projectId, onProject, onLeave }: {
   const [assetsPaneOpen, setAssetsPaneOpen] = useKeptFlag('openfilm.project.assets');
   const [assetsWidth, setAssetsWidth] = React.useState(280);
   /* the Layers panel (components/LayersPanel), left of the picture, after the assets */
-  const [layersPaneOpen, setLayersPaneOpen] = useKeptFlag('openfilm.project.layers');
+  const [layersPaneOpen, setLayersPaneOpen] = useKeptFlag('openfilm.project.layers', false);
   const [layersWidth, setLayersWidth] = React.useState(240);
   const layersPaneRef = React.useRef<HTMLDivElement | null>(null);
   const [timelineOpen, setTimelineOpen] = useKeptFlag('openfilm.project.timeline');
   /* closed until it has something to show (a selection opens it), or the person opens it */
-  const [inspectorOpen, persistInspector, setInspectorOpen] = useKeptFlag('openfilm.project.inspector', false);
+  const [inspectorOpen, persistInspector, setInspectorOpen] = useKeptFlag('openfilm.project.inspector', true);
   const closeInspector = React.useCallback(() => persistInspector(false), [persistInspector]);
   const [rowWidth, setRowWidth] = React.useState(0);
   const [colHeight, setColHeight] = React.useState(0);
