@@ -30,8 +30,8 @@ export function canvasRatioLabel(t: (key: string) => string, item: { id: FilmFra
   return item.phone ? t('viewer.ratioPhone') : item.id;
 }
 
-/** Whether the stage has this ratio (to a hundredth). */
-const shaped = (stage: { w: number; h: number }, ratio: number) => Math.abs(stage.w / Math.max(1, stage.h) - ratio) < 0.01;
+/** Whether the stage has this ratio: its width within 2 px of it (a size made from a ratio is rounded to even px). */
+export const shaped = (stage: { w: number; h: number }, ratio: number) => Math.abs(stage.w - stage.h * ratio) <= 2;
 
 export function FramePicker({
   stage, original, busy, onCanvas,

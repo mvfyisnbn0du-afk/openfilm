@@ -2387,6 +2387,7 @@ export function ProjectView({ projectId, onProject, onLeave }: {
                       film={filmSummary}
                       onCanvas={changeCanvas}
                       onCanvasPreview={previewCanvas}
+                      canvasDraft={canvasDraft}
                       onEditLayers={editStageOverrides}
                       locked={inspectorLocked}
                       rate={frameRate}

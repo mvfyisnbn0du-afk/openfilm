@@ -1,12 +1,14 @@
 /**
- * A film's canvas changing shape, as an editor's (CapCut's) does: the canvas takes the new shape with its short side
- * kept (a 1920×1080 film made 3:4 is 1080×1440), and what the film shows is scaled whole into it, centered, as large
- * as fits: the part of the old canvas its pictures cover is fitted to the new canvas, so at least one side of it meets
- * the canvas's edge. It is worked out from where the pictures are, not from the old canvas, so shapes picked one after
- * another never shrink the film further. Nothing is cut. What a picture is drawn as (film-doc's pictureRect) is
- * written as its box, so a video that filled the old canvas (no box of its own) keeps that place rather than filling
- * the new one. A page that sets no size of its own is laid out at the canvas's: it is given the old canvas as its
- * `size`, so it is scaled as a video is rather than laid out again in the new shape.
+ * A film's canvas changing shape, as CapCut's does: the canvas takes the new shape with its short side kept (a
+ * 1920×1080 film made 3:4 is 1080×1440), and each picture is fitted to it on its own. A picture's place is read as
+ * CapCut keeps it: its size as a share of the size that fits it whole in the canvas (1: it meets the canvas's edges
+ * one way), and its center as a share of the canvas from the canvas's center. Both are kept, so a full-frame video
+ * stays full-frame in any shape, a portrait photo on another clip fits by its own height, a title halfway up stays
+ * halfway up, and shapes picked one after another never shrink anything.
+ *
+ * A video or still without a box is the canvas whatever its shape (its picture fitted inside by CSS): it is left
+ * without one. A page is written its box. A page that sets no size of its own is laid out at the canvas's: it is
+ * given the old canvas as its `size`, so it is scaled as a video is rather than laid out again in the new shape.
  */
 import { pictureRect } from '../../../../src/film-doc.mjs';
 import { frameRatioOf, type FilmFrameId } from './film-frame.ts';
@@ -34,47 +36,39 @@ export interface CanvasClip { id: string; kind: FilmSrcKind | null; own?: Size |
 /** A clip on the new canvas: its box, and for a page laid out at the old canvas, that size. */
 export interface CanvasFit { id: string; box: FilmBox; size?: Size }
 
-type Rect = { x: number; y: number; w: number; h: number; r: number };
-
-/** The upright rectangle around a picture as drawn (turned about its center by `r` degrees). */
-function bounds(at: Rect) {
-  const t = (at.r * Math.PI) / 180;
-  const w = Math.abs(at.w * Math.cos(t)) + Math.abs(at.h * Math.sin(t));
-  const h = Math.abs(at.w * Math.sin(t)) + Math.abs(at.h * Math.cos(t));
-  const cx = at.x + at.w / 2, cy = at.y + at.h / 2;
-  return { x0: cx - w / 2, y0: cy - h / 2, x1: cx + w / 2, y1: cy + h / 2 };
-}
+/** The size of a picture shaped `ratio` (width / height) that fits whole in `canvas`, meeting its edges one way. */
+const fitted = (ratio: number, canvas: Size): Size => (
+  canvas.w / canvas.h > ratio ? { w: canvas.h * ratio, h: canvas.h } : { w: canvas.w, h: canvas.w / ratio }
+);
 
 /**
- * Each picture clip's box on the new canvas `to` (the old one is `from`): what the pictures cover of the old canvas
- * (the canvas itself when they cover none of it) is scaled to fit `to` whole and centered in it. Sounds have no
- * picture and are left out.
+ * Each picture clip's box on the new canvas `to` (the old one is `from`), as CapCut fits each clip: the same share of
+ * its fitted size, its center the same share of the canvas from the canvas's center. Sounds, and videos and stills
+ * without a box (they are the canvas), are left out.
  */
 export function fitToCanvas(clips: readonly CanvasClip[], from: Size, to: Size): CanvasFit[] {
-  const drawn = clips.flatMap((clip) => {
-    if (!clip.kind || clip.kind === 'sound') return [];
+  const out: CanvasFit[] = [];
+  for (const clip of clips) {
+    if (!clip.kind || clip.kind === 'sound') continue;
+    if (clip.kind !== 'page' && !clip.box) continue;
     const own = clip.own && clip.own.w > 0 && clip.own.h > 0 ? clip.own : from;
-    return [{ clip, at: pictureRect(clip.kind, own, from, clip.box ?? undefined) as Rect }];
-  });
-  /* what the film shows: its pictures' extent, as far as the old canvas shows it */
-  let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
-  for (const { at } of drawn) {
-    const b = bounds(at);
-    x0 = Math.min(x0, b.x0); y0 = Math.min(y0, b.y0); x1 = Math.max(x1, b.x1); y1 = Math.max(y1, b.y1);
-  }
-  x0 = Math.max(0, x0); y0 = Math.max(0, y0); x1 = Math.min(from.w, x1); y1 = Math.min(from.h, y1);
-  if (!(x1 - x0 >= 1 && y1 - y0 >= 1)) { x0 = 0; y0 = 0; x1 = from.w; y1 = from.h; }
-  const k = Math.min(to.w / (x1 - x0), to.h / (y1 - y0));
-  const mx = (x0 + x1) / 2, my = (y0 + y1) / 2;
-  return drawn.map(({ clip, at }) => {
-    const w = at.w * k, h = at.h * k;
-    const cx = (at.x + at.w / 2 - mx) * k + to.w / 2;
-    const cy = (at.y + at.h / 2 - my) * k + to.h / 2;
+    const at = pictureRect(clip.kind, own, from, clip.box ?? undefined);
+    if (!(at.w > 0 && at.h > 0)) continue;
+    /* the box's shape; its picture's own when they differ only by rounding (a box written in whole px), so shapes
+       picked one after another do not drift */
+    const ownRatio = own.w / own.h;
+    const ratio = Math.abs(at.w / at.h / ownRatio - 1) < 0.01 ? ownRatio : at.w / at.h;
+    const share = at.w / fitted(ratio, from).w;
+    const fit = fitted(ratio, to);
+    const w = fit.w * share, h = fit.h * share;
+    const cx = to.w / 2 + ((at.x + at.w / 2 - from.w / 2) / from.w) * to.w;
+    const cy = to.h / 2 + ((at.y + at.h / 2 - from.h / 2) / from.h) * to.h;
     /* whole px; an edge within 2 px of the canvas's meets it, so rounding never leaves a hairline of black */
     const near = (v: number, edge: number) => (Math.abs(v - edge) <= 2 ? edge : Math.round(v));
     const left = near(cx - w / 2, 0), top = near(cy - h / 2, 0);
     const box: FilmBox = { x: left, y: top, w: near(cx + w / 2, to.w) - left, h: near(cy + h / 2, to.h) - top };
     if (at.r) box.r = at.r;
-    return clip.kind === 'page' && clip.reflows && !clip.size ? { id: clip.id, box, size: { w: from.w, h: from.h } } : { id: clip.id, box };
-  });
+    out.push(clip.kind === 'page' && clip.reflows && !clip.size ? { id: clip.id, box, size: { w: from.w, h: from.h } } : { id: clip.id, box });
+  }
+  return out;
 }

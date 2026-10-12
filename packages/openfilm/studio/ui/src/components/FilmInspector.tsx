@@ -41,7 +41,7 @@ import { useTimelinePrefs } from '@/lib/timeline-prefs';
 import { formatTimecode, FRAME_RATES, timecodeFps, useTimecodeFps } from '@/lib/timecode';
 import { MenuSelect } from './MenuSelect';
 import { filmFrameOf, filmFrameRatio, type FilmFrameId } from '@/lib/film-frame';
-import { CANVAS_RATIOS, canvasRatioLabel } from './FramePicker';
+import { CANVAS_RATIOS, canvasRatioLabel, shaped } from './FramePicker';
 import { declared, withDeclarations, type ClipLook } from '@/lib/clip-look';
 import { PANE_BAR, PANE_BTN, PANE_ICON, PANE_TITLE } from './dock-pane-bar';
 import { Tooltip } from './Tooltip';
@@ -156,6 +156,7 @@ export const FilmInspector = React.memo(function FilmInspector({
   film,
   onCanvas,
   onCanvasPreview,
+  canvasDraft,
   layers,
   onEditLayers,
   locked = false,
@@ -213,6 +214,8 @@ export const FilmInspector = React.memo(function FilmInspector({
   onCanvas?: (next: FilmFrameId, size?: { w: number; h: number }) => void;
   /** Show the canvas at a size not kept yet, as its width or height is dragged (null: as it is again). */
   onCanvasPreview?: (size: { w: number; h: number } | null) => void;
+  /** That size, while it is shown. */
+  canvasDraft?: { w: number; h: number } | null;
   /** Several layers selected on the picture, and how to write them at once. */
   layers?: readonly StageElement[];
   onEditLayers?: (list: LayerEdit[]) => Promise<string | null>;
@@ -304,7 +307,7 @@ export const FilmInspector = React.memo(function FilmInspector({
         ) : geometry?.kind === 'group' && geometry.group ? (
           <GroupPanel geometry={geometry} group={geometry.group} layers={layers} onEditLayers={onEditLayers} t={t} />
         ) : (
-          <FilmPanel t={t} stage={stageSize} film={film ?? null} onCanvas={onCanvas} onCanvasPreview={onCanvasPreview} rate={rate ?? null} />
+          <FilmPanel t={t} stage={stageSize} draft={canvasDraft} film={film ?? null} onCanvas={onCanvas} onCanvasPreview={onCanvasPreview} rate={rate ?? null} />
         )}
       </div>
       </fieldset>
@@ -357,21 +360,25 @@ function RedesignHint({ t, stage }: { t: T; stage: { w: number; h: number } }) {
  * (what is on it stays as it is, centered); laying the film out again for it is the agent's (RedesignHint).
  */
 function FilmPanel({
-  t, stage, film, onCanvas, onCanvasPreview, rate,
+  t, stage: kept, draft, film, onCanvas, onCanvasPreview, rate,
 }: {
   t: T;
   stage: { w: number; h: number };
+  /** The canvas size shown while W or H is dragged, not kept yet. */
+  draft?: { w: number; h: number } | null;
   film: FilmSummary | null;
   onCanvas?: (next: FilmFrameId, size?: { w: number; h: number }) => void;
   onCanvasPreview?: (size: { w: number; h: number } | null) => void;
   rate: { fps: number; fromFootage: boolean; onChange: (fps: number) => void } | null;
 }) {
   const canvas = Boolean(onCanvas);
+  /* what the picture shows: the size being dragged, else the film's */
+  const stage = draft ?? kept;
   const placed = Boolean(film && !film.empty);
-  const preset = CANVAS_RATIOS.find((r) => Math.abs(stage.w / Math.max(1, stage.h) - filmFrameRatio(r.id, stage)) < 0.01);
+  const preset = CANVAS_RATIOS.find((r) => shaped(stage, filmFrameRatio(r.id, stage)));
   const setSize = (w: number, h: number) => {
     const size = { w: even(w), h: even(h) };
-    if (size.w === stage.w && size.h === stage.h) return;
+    if (size.w === kept.w && size.h === kept.h) { onCanvasPreview?.(null); return; }
     onCanvas?.(filmFrameOf(size), size);
   };
   const info = (label: string, value: string) => (
@@ -393,7 +400,7 @@ function FilmPanel({
             label={t('inspector.stageShape')}
             value={preset?.id ?? 'custom'}
             groups={[
-              { choices: preset ? [] : [{ value: 'custom', label: `${t('viewer.frameCustom')} · ${stage.w}×${stage.h}` }] },
+              { choices: preset ? [] : [{ value: 'custom', label: t('viewer.frameCustom') }] },
               { choices: CANVAS_RATIOS.filter((r) => r.group === 'wide').map((r) => ({ value: r.id, label: canvasRatioLabel(t, r) })) },
               { choices: CANVAS_RATIOS.filter((r) => r.group === 'tall').map((r) => ({ value: r.id, label: canvasRatioLabel(t, r) })) },
             ].filter((g) => g.choices.length)}
@@ -402,10 +409,10 @@ function FilmPanel({
         ) : null}
         <Row>
           {/* dragged, the canvas changes on the picture as the mark moves; kept when it is let go */}
-          <NumField label={t('inspector.width')} prefix="W" value={stage.w} unit="px" min={2} max={8192} disabled={!canvas} onCommit={(w) => setSize(w, stage.h)}
-            onPreview={(w) => onCanvasPreview?.({ w: even(w), h: stage.h })} onRevert={() => onCanvasPreview?.(null)} />
-          <NumField label={t('inspector.height')} prefix="H" value={stage.h} unit="px" min={2} max={8192} disabled={!canvas} onCommit={(h) => setSize(stage.w, h)}
-            onPreview={(h) => onCanvasPreview?.({ w: stage.w, h: even(h) })} onRevert={() => onCanvasPreview?.(null)} />
+          <NumField label={t('inspector.width')} prefix="W" value={stage.w} unit="px" step={8} min={2} max={8192} disabled={!canvas} onCommit={(w) => setSize(w, kept.h)}
+            onPreview={(w) => onCanvasPreview?.({ w: even(w), h: kept.h })} onRevert={() => onCanvasPreview?.(null)} />
+          <NumField label={t('inspector.height')} prefix="H" value={stage.h} unit="px" step={8} min={2} max={8192} disabled={!canvas} onCommit={(h) => setSize(kept.w, h)}
+            onPreview={(h) => onCanvasPreview?.({ w: kept.w, h: even(h) })} onRevert={() => onCanvasPreview?.(null)} />
         </Row>
         {/* with clips: the words that ask the agent to lay the film out again for this canvas */}
         {placed ? <RedesignHint t={t} stage={stage} /> : null}
