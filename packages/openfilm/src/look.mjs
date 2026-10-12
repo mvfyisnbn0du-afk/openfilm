@@ -4,7 +4,7 @@ import { spawnSync } from 'node:child_process';
 import { existsSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { basename, dirname, extname, join, resolve } from 'node:path';
 import { FrameError, launch } from './host.mjs';
-import { blockDiff, cutText, fileOf, ffmpeg, filmSound, fmt, hash, homeFor, mix, open, outDir, parseTarget, SAME_LIMIT, shown, shuffled, spread, UsageError } from './shared.mjs';
+import { blockDiff, checkSound, cutText, fileOf, ffmpeg, filmSound, fmt, hash, homeFor, mix, open, outDir, parseTarget, SAME_LIMIT, shown, shuffled, spread, UsageError } from './shared.mjs';
 
 const MEDIA = /\.(mp4|mov|m4v|webm|mkv|avi|png|jpe?g|webp|gif|mp3|wav|m4a|aac|ogg|flac)$/i;
 
@@ -218,6 +218,7 @@ function joinPieces(list = []) {
 function listSounds(s, m, [a, b], warnings) {
   const lines = [];
   for (const c of joinPieces(m.sounds)) {
+    checkSound(c);
     const file = c?.src ? fileOf(s.root, s.entry, c.src) : '';
     if (!c?.src || !existsSync(file)) continue;
     const at = c.at ?? 0;

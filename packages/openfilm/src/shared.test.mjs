@@ -4,7 +4,8 @@ import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { spawnSync } from 'node:child_process';
-import { fadeFilter, ffmpeg, mix } from './shared.mjs';
+import { audioClips, checkSound, fadeFilter, ffmpeg, fileOf, mix } from './shared.mjs';
+import { mkdirSync, symlinkSync, writeFileSync } from 'node:fs';
 
 test('an ffmpeg that does not end is stopped, and says what did not finish', { timeout: 20_000 }, async () => {
   /* an endless silent source, written nowhere: it never ends by itself */
@@ -78,4 +79,34 @@ test('fadeFilter: the ramps as a per-sample expression, nothing without fades', 
   assert.equal(fadeFilter({ in: 0, out: 0, length: 3, skip: 0 }), '');
   assert.equal(fadeFilter({ in: 0.5, out: 0, length: 3, skip: 0 }), "aeval='val(ch)*clip(min(1,t/0.5),0,1)':c=same");
   assert.equal(fadeFilter({ in: 0, out: 1, length: 3, skip: 0.25 }), "aeval='val(ch)*clip(min(1,(3-(t+0.25))/1),0,1)':c=same");
+});
+
+test('fileOf: a sound stays inside the film\'s folder, however its path is written', () => {
+  const root = mkdtempSync(join(tmpdir(), 'openfilm-fileof-'));
+  try {
+    const ws = join(root, 'ws');
+    mkdirSync(join(ws, 'assets'), { recursive: true });
+    writeFileSync(join(ws, 'assets', 'a.mp3'), 'inside');
+    writeFileSync(join(root, 'outside.mp3'), 'outside');
+    assert.equal(fileOf(ws, 'film.html', 'assets/a.mp3'), join(ws, 'assets', 'a.mp3'));
+    assert.equal(fileOf(ws, 'scenes/one.html', '../assets/a.mp3'), join(ws, 'assets', 'a.mp3'));
+    /* the URL resolves `..` above the root to the root: still inside */
+    assert.equal(fileOf(ws, 'film.html', '../../outside.mp3'), join(ws, 'outside.mp3'));
+    /* a slash hidden as %2F is decoded after the URL resolved its `..`: the join must not walk out */
+    assert.throws(() => fileOf(ws, 'film.html', 'x%2F..%2F..%2Foutside.mp3'), /outside the film's folder/);
+    assert.throws(() => fileOf(ws, 'film.html', '%2E%2E%2Foutside.mp3'), /outside the film's folder/);
+    /* a link inside the folder that leads out of it */
+    symlinkSync(join(root, 'outside.mp3'), join(ws, 'assets', 'link.mp3'));
+    assert.throws(() => fileOf(ws, 'film.html', 'assets/link.mp3'), /link out of the film's folder/);
+  } finally { rmSync(root, { recursive: true, force: true }); }
+});
+
+test('checkSound: a sound\'s numbers are numbers before they reach ffmpeg', () => {
+  const sound = { clip: 'bed', src: 'assets/a.mp3', at: 0, from: 0, to: 6, volume: 1, speed: 1 };
+  assert.equal(checkSound(sound), sound);
+  assert.throws(() => checkSound({ ...sound, volume: '1,amovie=/etc/passwd' }), /volume must be a number/);
+  assert.throws(() => checkSound({ ...sound, to: NaN }), /to must be a number/);
+  assert.throws(() => checkSound({ ...sound, fade: [0.5] }), /fade must be two numbers/);
+  assert.throws(() => checkSound({ ...sound, src: 7 }), /src must be a path/);
+  assert.throws(() => audioClips('/nowhere', 'film.html', [{ ...sound, speed: 'fast' }]), /speed must be a number/);
 });
