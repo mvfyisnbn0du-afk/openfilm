@@ -685,6 +685,7 @@ export interface TimelineCommands {
   unlink: () => void;
   /** The switches (see lib/timeline-prefs). */
   toggleMagnet: () => void;
+  toggleLinkage: () => void;
   toggleSnap: () => void;
   /**
    * ⌘B: split the selected clips at the playhead; with nothing selected, the clip under it on the targeted track (the
@@ -3069,6 +3070,7 @@ export const Timeline = React.memo(function Timeline({
       link: () => linkBlocks(picked()),
       unlink: () => unlinkBlocks(picked()),
       toggleMagnet: () => togglePref('magnet'),
+      toggleLinkage: () => togglePref('linkage'),
       toggleSnap: () => togglePref('snap'),
       split: () => {
         const atMs = timeMsRef.current;

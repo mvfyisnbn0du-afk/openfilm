@@ -1,7 +1,8 @@
 /** The player bar's two parts: the seek bar and the round icon button. */
 import React from 'react';
 import { useT } from '@/i18n';
-import { secondFrames, stepFrames } from '@/lib/timecode';
+import { stepFrames } from '@/lib/timecode';
+import { JUMP_FRAMES } from '@/lib/timeline-keys';
 
 /** The played part and the knob. */
 const SEEK_COLOR = '#f03';
@@ -105,7 +106,7 @@ export function TransportSeekBar({
         event.stopPropagation();
         /* a frame, ⇧ a second: the arrows step the same everywhere in Studio */
         const next = event.key === 'Home' ? 0 : event.key === 'End' ? totalMs
-          : Math.max(0, Math.min(totalMs, stepFrames(timeMs, (event.key === 'ArrowRight' ? 1 : -1) * (event.shiftKey ? secondFrames() : 1))));
+          : Math.max(0, Math.min(totalMs, stepFrames(timeMs, (event.key === 'ArrowRight' ? 1 : -1) * (event.shiftKey ? JUMP_FRAMES : 1))));
         onPreview(next);
         onCommit(next);
       }}

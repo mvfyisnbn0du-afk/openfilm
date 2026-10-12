@@ -457,7 +457,7 @@ function ShortcutsSection() {
   /* a key as this platform writes it: ⌘⇧B on a Mac, Ctrl+Shift+B elsewhere; ⌫ is Backspace off a Mac */
   const keyText = (key: ShortcutKey): string => {
     const name = !mac && key.key === '⌫' ? 'Backspace' : key.key;
-    const mods = [key.mod ? (mac ? '⌘' : 'Ctrl') : '', key.alt ? alt : '', key.shift ? (mac ? '⇧' : 'Shift') : ''].filter(Boolean);
+    const mods = [key.ctrl ? (mac ? '⌃' : 'Ctrl') : '', key.mod ? (mac ? '⌘' : 'Ctrl') : '', key.alt ? alt : '', key.shift ? (mac ? '⇧' : 'Shift') : ''].filter(Boolean);
     return mac ? `${mods.join('')}${name}` : [...mods, name].filter(Boolean).join('+');
   };
 

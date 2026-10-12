@@ -7,7 +7,7 @@
  * are written one at a time (see editor/use-film.ts); the agent's writes come in through the folder's events.
  */
 import * as React from 'react';
-import { GalleryVerticalEnd, Layers, LibraryBig, MessageSquarePlus, MonitorDown, Settings2, TriangleAlert } from 'lucide-react';
+import { ClipboardCopy, ClipboardPaste, GalleryVerticalEnd, Layers, LibraryBig, MessageSquarePlus, MonitorDown, Settings2, TriangleAlert } from 'lucide-react';
 import { applyOps } from '../../../server/ops.mjs';
 import { api, ApiError, PREFS_EVENT, projectEvents, type Clip, type Film, type Listing, type Op, type ProjectFilm, type ProjectSettings } from '@/api';
 import { useT } from '@/i18n';
@@ -17,8 +17,9 @@ import { Preview, type FilmInfo, type PreviewHandle } from '@/editor/Preview';
 import { filmShape, type MediaFacts } from '@/lib/film-shape';
 import { layoutTracks, type TimelineBlock, type TimelineTrack } from '@/lib/timeline-layout';
 import { filmClipKind, filmSrcIsPage, filmSrcKind, filmTrackBadges, parseFilmDocLoc, type FilmBox, type FilmDoc } from '@/lib/film';
-import { footageFps, secondFrames, setTimecodeFps, snapToFrame, stepFrames } from '@/lib/timecode';
-import { keyCommandOf, loopBack, playStart, shuttleRate } from '@/lib/timeline-keys';
+import { footageFps, setTimecodeFps, snapToFrame, stepFrames } from '@/lib/timecode';
+import { JUMP_FRAMES, keyCommandOf, loopBack, playStart, shuttleRate } from '@/lib/timeline-keys';
+import { attrsOf, pasteAttrs, type AttrGroup, type CopiedAttrs } from '@/lib/clip-attrs';
 import { cutPoints, namedTrack, nextCut, trackNamesOf } from '@/lib/timeline-nav';
 import { anyLocked, lockedEdits } from '@/lib/track-lock';
 import { placeMedia, type SourceRange } from '@/lib/media-place';
@@ -85,6 +86,7 @@ import { LiveTime, type PlaybackClock } from './LiveTime';
 import { Toast, useToast } from './Toast';
 import { SpendAsks } from './SpendAsks';
 import { ExportCenter } from './export/ExportCenter';
+import { PasteAttrsDialog } from './PasteAttrsDialog';
 import { ExportTray, type ExportTrayHandle } from './export/ExportTray';
 import { FilmStageSelect, type FilmStageControl, type LayerGeometry, type StageClipEdit, type StagePick } from './FilmStageSelect';
 import { openSection } from './inspector-fields';
@@ -699,6 +701,32 @@ export function ProjectView({ projectId, onProject, onLeave }: {
   }, [edit, t]);
   /** An edit the timeline planned (lib/timeline-edit), as it planned it: one write, one undo step. */
   const editOps = React.useCallback((ops: Op[], label: string) => edit(ops, label), [edit]);
+
+  /* ── a clip's attributes copied onto others (lib/clip-attrs, ⌘⇧C / ⌘⇧V, as CapCut's) ── */
+  const [copiedAttrs, setCopiedAttrs] = React.useState<CopiedAttrs | null>(null);
+  const [pasteAttrsOpen, setPasteAttrsOpen] = React.useState(false);
+  const filmClipOf = React.useCallback((id: string) => filmRef.current?.tracks.flatMap((tr) => tr.clips).find((c) => c.id === id) ?? null, []);
+  const copyAttrs = React.useCallback((blocks: readonly TimelineBlock[]) => {
+    const clip = blocks.map((b) => (b.clipId ? filmClipOf(b.clipId) : null)).find(Boolean);
+    if (!clip) { toast.show(t('clipAttrs.selectFirst')); return; }
+    setCopiedAttrs(attrsOf(clip));
+    toast.show(t('clipAttrs.copied'));
+  }, [filmClipOf, toast, t]);
+  const askPasteAttrs = React.useCallback((blocks: readonly TimelineBlock[]) => {
+    if (!copiedAttrs) { toast.show(t('clipAttrs.nothing')); return; }
+    if (!blocks.some((b) => b.clipId && b.loc)) { toast.show(t('clipAttrs.selectFirst')); return; }
+    setPasteAttrsOpen(true);
+  }, [copiedAttrs, toast, t]);
+  const doPasteAttrs = React.useCallback((groups: ReadonlySet<AttrGroup>) => {
+    setPasteAttrsOpen(false);
+    if (!copiedAttrs) return;
+    const targets = selectedBlocks.flatMap((b) => {
+      const clip = b.clipId && b.loc ? filmClipOf(b.clipId) : null;
+      return clip ? [{ loc: b.loc!, clip, lengthS: (b.endMs - b.startMs) / 1000 }] : [];
+    });
+    const edits = pasteAttrs(copiedAttrs, groups, targets);
+    if (edits.length) void editBlocks(edits).then((err) => { if (err) toast.showError(err); });
+  }, [copiedAttrs, selectedBlocks, filmClipOf, editBlocks, toast]);
 
   /* ── fades and transitions: each clip's fades (its `overrides`' own entry), and the transitions they make ── */
   const clipFades = React.useMemo(() => new Map<string, FadeMs>((film.film?.tracks ?? []).flatMap((tr) => tr.clips.flatMap((c) => {
@@ -1441,7 +1469,12 @@ export function ProjectView({ projectId, onProject, onLeave }: {
   }, [stageMenuFor, t]);
   /** Two groups of menu entries, a line between them when both have some. */
   const menuGroups = (a: ContextMenuEntry[], b: ContextMenuEntry[]): ContextMenuEntry[] => (a.length && b.length ? [...a, { id: 'tools-sep', separator: true }, ...b] : [...a, ...b]);
-  const timelineMenuExtra = React.useCallback((blocks: readonly TimelineBlock[]) => (blocks.length ? menuGroups(referEntry(() => blocks.map(refOfBlock)), tools.menuExtra(blocks)) : []), [t, tools.menuExtra]); // eslint-disable-line react-hooks/exhaustive-deps
+  /* copy and paste attributes, as CapCut's clip menu has them */
+  const attrsEntries = (blocks: readonly TimelineBlock[]): ContextMenuEntry[] => [
+    { id: 'copy-attrs', label: t('clipAttrs.copy'), icon: <ClipboardCopy size={14} />, shortcut: shortcutHint('C', { mod: true, shift: true }), disabled: blocks.length !== 1, onSelect: () => copyAttrs(blocks) },
+    { id: 'paste-attrs', label: t('clipAttrs.pasteMenu'), icon: <ClipboardPaste size={14} />, shortcut: shortcutHint('V', { mod: true, shift: true }), disabled: !copiedAttrs, hint: t('clipAttrs.nothing'), onSelect: () => askPasteAttrs(blocks) },
+  ];
+  const timelineMenuExtra = React.useCallback((blocks: readonly TimelineBlock[]) => (blocks.length ? menuGroups(menuGroups(referEntry(() => blocks.map(refOfBlock)), tools.menuExtra(blocks)), attrsEntries(blocks)) : []), [t, tools.menuExtra, copiedAttrs, copyAttrs, askPasteAttrs]); // eslint-disable-line react-hooks/exhaustive-deps
   const trackMenuExtra = React.useCallback((track: TimelineTrack) => {
     const docIndex = track.docIndex;
     const refer = docIndex == null || !studioHost?.refer ? [] : referEntry(() => { const ref = trackRef(tracksRef.current, docIndex); return ref ? [ref] : []; }, false);
@@ -2008,11 +2041,11 @@ export function ProjectView({ projectId, onProject, onLeave }: {
         if (!once) return;
         if (markedRange) playRange(markedRange); else toggle();
         return;
-      case 'frame-back': case 'frame-forward': case 'second-back': case 'second-forward': case 'start': case 'end': {
+      case 'frame-back': case 'frame-forward': case 'jump-back': case 'jump-forward': case 'start': case 'end': {
         if (!(totalMs > 0)) return;
         take();
-        /* a frame (or a second) on from the frame the playhead is on, so stepping never drifts */
-        const frames = (cmd.endsWith('back') ? -1 : 1) * (cmd.startsWith('second') ? secondFrames() : 1);
+        /* a frame (or ten, ⇧) on from the frame the playhead is on, so stepping never drifts */
+        const frames = (cmd.endsWith('back') ? -1 : 1) * (cmd.startsWith('jump') ? JUMP_FRAMES : 1);
         const next = cmd === 'start' ? 0 : cmd === 'end' ? totalMs : stepFrames(now, frames);
         pause();
         seek(Math.max(0, Math.min(totalMs, next)));
@@ -2039,6 +2072,32 @@ export function ProjectView({ projectId, onProject, onLeave }: {
       case 'insert-source': case 'overwrite-source':
         /* the source viewer's keys (it takes them first while it is up) */
         return;
+      case 'range-clip': {
+        /* ⇧X: the range is the selected clips' span (CapCut's 以片段选定区域) */
+        if (!selectedBlocks.length) return;
+        take();
+        setMarkedRange({ startMs: Math.min(...selectedBlocks.map((b) => b.startMs)), endMs: Math.max(...selectedBlocks.map((b) => b.endMs)) });
+        return;
+      }
+      case 'copy-attrs': if (!selectedBlocks.length) return; take(); if (once) copyAttrs(selectedBlocks); return;
+      case 'paste-attrs': if (!selectedBlocks.length) return; take(); if (once) askPasteAttrs(selectedBlocks); return;
+      case 'speed': {
+        /* ⌘R: the selected clip's speed, in the inspector (CapCut's 变速 panel) */
+        if (selectedBlocks.length !== 1 || !once) return;
+        take();
+        setInspectorContent('selection');
+        setInspectorOpen(true);
+        window.setTimeout(() => document.querySelector<HTMLInputElement>(`input[aria-label="${t('inspector.speed')}"]`)?.focus(), 80);
+        return;
+      }
+      case 'detach-audio': {
+        /* ⇧⌃S: the selected video's sound on a track of its own (CapCut's 分离音频) */
+        const video = selectedBlocks.find((b) => b.kind === 'video' && b.clipId);
+        if (!video || !once) return;
+        take();
+        void detachAudio(video).then((err) => { if (err) toast.showError(err); });
+        return;
+      }
       default:
         break;
     }
@@ -2055,12 +2114,12 @@ export function ProjectView({ projectId, onProject, onLeave }: {
       case 'zoom-fit': take(); commands.zoomFit(); return;
       case 'ripple-start': take(); if (once) commands.rippleTrimStart(); return;
       case 'ripple-end': take(); if (once) commands.rippleTrimEnd(); return;
-      case 'toggle-snap': case 'toggle-magnet': {
+      case 'toggle-snap': case 'toggle-magnet': case 'toggle-linkage': {
         take();
         if (!once) return;
-        const pref = cmd === 'toggle-snap' ? 'snap' : 'magnet';
+        const pref = cmd === 'toggle-snap' ? 'snap' : cmd === 'toggle-magnet' ? 'magnet' : 'linkage';
         const on = !readTimelinePrefs()[pref];
-        if (pref === 'snap') commands.toggleSnap(); else commands.toggleMagnet();
+        if (pref === 'snap') commands.toggleSnap(); else if (pref === 'magnet') commands.toggleMagnet(); else commands.toggleLinkage();
         toast.show(`${t(`timeline.${pref}`)} · ${t(`timeline.${pref}${on ? 'On' : 'Off'}`)}`);
         return;
       }
@@ -2643,6 +2702,7 @@ export function ProjectView({ projectId, onProject, onLeave }: {
         projectFps={projectFps}
         missingFiles={[...mediaTrouble].flatMap(([src, why]) => (why === 'missing' ? [src] : []))}
       />
+      <PasteAttrsDialog attrs={pasteAttrsOpen ? copiedAttrs : null} onPaste={doPasteAttrs} onCancel={() => setPasteAttrsOpen(false)} />
       <ExportTray ref={exportTrayRef} projectId={projectId} onError={toast.showError} inset={hostPanel?.open ? hostPanel.width : 0} />
       <SpendAsks projectId={projectId} />
       <Toast toast={toast.current} />

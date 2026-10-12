@@ -26,7 +26,7 @@ test('the keys, as Premiere and CapCut have them', () => {
   assert.equal(mac('ArrowUp'), 'prev-cut');
   assert.equal(mac('ArrowDown'), 'next-cut');
   assert.equal(mac('ArrowLeft'), 'frame-back');
-  assert.equal(mac('ArrowRight', { shiftKey: true }), 'second-forward');
+  assert.equal(mac('ArrowRight', { shiftKey: true }), 'jump-forward');
   assert.equal(mac('ArrowLeft', { altKey: true }), 'nudge-back');
   assert.equal(mac('ArrowRight', { altKey: true }), 'nudge-forward');
   assert.equal(mac('Z', { shiftKey: true }), 'zoom-fit');
@@ -46,7 +46,20 @@ test('M adds a marker, ⇧M and ⌥M go to the next and the one before (⌥M typ
   assert.equal(keyCommandOf({ ...press('µ', { altKey: true }), code: 'KeyM' }, true), 'prev-marker');
   assert.equal(win('m', { altKey: true }), 'prev-marker');
   assert.equal(mac('m', { metaKey: true }), null);
-  assert.equal(mac('m', { altKey: true, shiftKey: true }), null);
+  assert.equal(mac('m', { altKey: true, shiftKey: true }), 'prev-marker', '⌥⇧M too, as CapCut\'s');
+});
+
+test('CapCut\'s keys (its Final Cut Pro X set on a Mac): P, ~, ⇧X, ⌥X, ⌘R, ⇧⌃S, ⌘⇧C, ⌘⇧V', () => {
+  assert.equal(mac('p'), 'toggle-magnet');
+  assert.equal(keyCommandOf({ ...press('`'), code: 'Backquote' }, true), 'toggle-linkage');
+  assert.equal(keyCommandOf({ ...press('~', { shiftKey: true }), code: 'Backquote' }, true), 'toggle-linkage');
+  assert.equal(mac('X', { shiftKey: true }), 'range-clip');
+  assert.equal(keyCommandOf({ ...press('≈', { altKey: true }), code: 'KeyX' }, true), 'clear-range');
+  assert.equal(mac('r', { metaKey: true }), 'speed');
+  assert.equal(mac('S', { ctrlKey: true, shiftKey: true }), 'detach-audio');
+  assert.equal(win('S', { ctrlKey: true, shiftKey: true }), 'detach-audio');
+  assert.equal(mac('C', { metaKey: true, shiftKey: true }), 'copy-attrs');
+  assert.equal(mac('V', { metaKey: true, shiftKey: true }), 'paste-attrs');
 });
 
 test('keys that are not the editor\'s stay the browser\'s, and Ctrl is the modifier off a Mac', () => {

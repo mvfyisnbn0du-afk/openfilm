@@ -1,6 +1,7 @@
 /**
- * The editor's keys, as Premiere and CapCut have them: which key does what (`keyCommandOf`), the list Settings shows
- * (`SHORTCUTS`), J / K / L shuttle (`shuttleRate`) and looping a range (`loopBack`, `playStart`).
+ * The editor's keys, as CapCut (剪映) has them on a Mac — its keys there are its Final Cut Pro X set — with Premiere's
+ * where CapCut has none: which key does what (`keyCommandOf`), the list Settings shows (`SHORTCUTS`), J / K / L shuttle
+ * (`shuttleRate`) and looping a range (`loopBack`, `playStart`).
  *
  * Plain letters are read by the letter they type, so they follow the keyboard's layout; on a layout without Latin
  * letters (Korean, Russian…) by where the key is on a US keyboard.
@@ -12,10 +13,11 @@ export type KeyCommand =
   | 'loop' | 'play-range'
   | 'split' | 'split-all' | 'cut' | 'duplicate'
   | 'prev-cut' | 'next-cut'
-  | 'frame-back' | 'frame-forward' | 'second-back' | 'second-forward'
+  | 'frame-back' | 'frame-forward' | 'jump-back' | 'jump-forward'
   | 'nudge-back' | 'nudge-forward'
   | 'start' | 'end'
-  | 'zoom-fit' | 'toggle-snap' | 'toggle-magnet'
+  | 'zoom-fit' | 'toggle-snap' | 'toggle-magnet' | 'toggle-linkage'
+  | 'range-clip' | 'speed' | 'detach-audio' | 'copy-attrs' | 'paste-attrs'
   | 'ripple-start' | 'ripple-end'
   | 'insert-source' | 'overwrite-source'
   | 'add-marker' | 'next-marker' | 'prev-marker';
@@ -37,27 +39,36 @@ export function letterOf(e: Pick<KeyPress, 'key' | 'code'>): string {
   return code ? code.toLowerCase() : key;
 }
 
+/** How many frames ⇧← / ⇧→ move the playhead (CapCut's "大幅移动"). */
+export const JUMP_FRAMES = 10;
+
 /**
- * The command a key press is, or null. `mac`: ⌘ is the modifier there (Ctrl elsewhere). Arrows: ← / → a frame (⇧ a
- * second), ⌥ ← / → move the selected clips a frame, ↑ / ↓ the previous / next cut.
+ * The command a key press is, or null. `mac`: ⌘ is the modifier there (Ctrl elsewhere). Arrows: ← / → a frame (⇧ ten
+ * frames), ⌥ ← / → move the selected clips a frame, ↑ / ↓ the previous / next cut.
  */
 export function keyCommandOf(e: KeyPress, mac: boolean): KeyCommand | null {
   const mod = mac ? e.metaKey : e.ctrlKey;
+  const k = letterOf(e);
+  /* ⇧⌃S detaches a video's sound, as CapCut's (on a Mac Ctrl itself, elsewhere Ctrl the modifier) */
+  if (k === 's' && e.shiftKey && e.ctrlKey && !e.metaKey && !e.altKey) return 'detach-audio';
   /* the other platform's modifier (Ctrl on a Mac) is no shortcut here */
   const other = mac ? e.ctrlKey : e.metaKey;
   if (other) return null;
-  const k = letterOf(e);
   if (mod) {
     if (e.altKey) return null;
     if (k === 'b') return e.shiftKey ? 'split-all' : 'split';
+    /* ⌘⇧C / ⌘⇧V copy a clip's look, place and sound onto others (CapCut's 复制属性 / 粘贴属性) */
+    if (k === 'c' && e.shiftKey) return 'copy-attrs';
+    if (k === 'v' && e.shiftKey) return 'paste-attrs';
+    if (k === 'r' && !e.shiftKey) return 'speed';
     if (k === 'k' && !e.shiftKey) return 'split-all';
     if (k === 'x' && !e.shiftKey) return 'cut';
     if (k === 'd' && !e.shiftKey) return 'duplicate';
     return null;
   }
   switch (e.key) {
-    case 'ArrowLeft': return e.altKey ? (e.shiftKey ? null : 'nudge-back') : e.shiftKey ? 'second-back' : 'frame-back';
-    case 'ArrowRight': return e.altKey ? (e.shiftKey ? null : 'nudge-forward') : e.shiftKey ? 'second-forward' : 'frame-forward';
+    case 'ArrowLeft': return e.altKey ? (e.shiftKey ? null : 'nudge-back') : e.shiftKey ? 'jump-back' : 'frame-back';
+    case 'ArrowRight': return e.altKey ? (e.shiftKey ? null : 'nudge-forward') : e.shiftKey ? 'jump-forward' : 'frame-forward';
     case 'ArrowUp': return e.altKey || e.shiftKey ? null : 'prev-cut';
     case 'ArrowDown': return e.altKey || e.shiftKey ? null : 'next-cut';
     case 'Home': return e.altKey ? null : 'start';
@@ -67,8 +78,10 @@ export function keyCommandOf(e: KeyPress, mac: boolean): KeyCommand | null {
     case '.': return e.altKey || e.shiftKey ? null : 'overwrite-source';
     default: break;
   }
-  /* ⌥M: the marker before (on a Mac ⌥M types µ: read by where the key is) */
-  if (e.altKey) return !e.shiftKey && k === 'm' ? 'prev-marker' : null;
+  /* ~ (the key left of 1, with ⇧ or without): linkage on / off, as CapCut's */
+  if (e.code === 'Backquote' || e.key === '`' || e.key === '~') return e.altKey ? null : 'toggle-linkage';
+  /* ⌥M / ⌥⇧M: the marker before; ⌥X: the range cleared (on a Mac ⌥ types another letter: read by where the key is) */
+  if (e.altKey) return k === 'm' ? 'prev-marker' : k === 'x' && !e.shiftKey ? 'clear-range' : null;
   if (e.shiftKey) {
     switch (k) {
       case 'i': return 'go-in';
@@ -77,6 +90,8 @@ export function keyCommandOf(e: KeyPress, mac: boolean): KeyCommand | null {
       case 'z': return 'zoom-fit';
       case 'n': return 'toggle-magnet';
       case 'm': return 'next-marker';
+      /* ⇧X: the range is the selected clips' (CapCut's 以片段选定区域) */
+      case 'x': return 'range-clip';
       default: return null;
     }
   }
@@ -88,6 +103,7 @@ export function keyCommandOf(e: KeyPress, mac: boolean): KeyCommand | null {
     case 'o': return 'mark-out';
     case 'x': return 'clear-range';
     case 'n': return 'toggle-snap';
+    case 'p': return 'toggle-magnet';
     case 'q': return 'ripple-start';
     case 'w': return 'ripple-end';
     case 'm': return 'add-marker';
@@ -97,9 +113,10 @@ export function keyCommandOf(e: KeyPress, mac: boolean): KeyCommand | null {
 
 /**
  * Settings' list of keys, in groups: each row's words (a key of settings.shortcuts) and its keys, as `mod` (⌘ / Ctrl),
- * `shift` (⇧), `alt` (⌥) and the key. Kept here beside keyCommandOf, so the list says what the keys do.
+ * `ctrl` (⌃, Ctrl itself), `shift` (⇧), `alt` (⌥) and the key. Kept here beside keyCommandOf, so the list says what the
+ * keys do.
  */
-export type ShortcutKey = { key: string; mod?: boolean; shift?: boolean; alt?: boolean };
+export type ShortcutKey = { key: string; mod?: boolean; ctrl?: boolean; shift?: boolean; alt?: boolean };
 export type ShortcutRow = { label: string; keys: ShortcutKey[] };
 
 const k = (key: string, mods: Omit<ShortcutKey, 'key'> = {}): ShortcutKey => ({ key, ...mods });
@@ -112,7 +129,7 @@ export const SHORTCUTS: { group: 'groupPlayback' | 'groupMarks' | 'groupEdit' | 
       { label: 'shuttle', keys: [k('J'), k('K'), k('L')] },
       { label: 'shuttleFrame', keys: [k('K+J'), k('K+L')] },
       { label: 'frameStep', keys: [k('←'), k('→')] },
-      { label: 'secondStep', keys: [k('←', { shift: true }), k('→', { shift: true })] },
+      { label: 'jumpStep', keys: [k('←', { shift: true }), k('→', { shift: true })] },
       { label: 'cutStep', keys: [k('↑'), k('↓')] },
       { label: 'seekEnds', keys: [k('Home'), k('End')] },
     ],
@@ -122,7 +139,8 @@ export const SHORTCUTS: { group: 'groupPlayback' | 'groupMarks' | 'groupEdit' | 
     rows: [
       { label: 'markIn', keys: [k('I')] },
       { label: 'markOut', keys: [k('O')] },
-      { label: 'clearMarks', keys: [k('X')] },
+      { label: 'clearMarks', keys: [k('X'), k('X', { alt: true })] },
+      { label: 'rangeClip', keys: [k('X', { shift: true })] },
       { label: 'goInOut', keys: [k('I', { shift: true }), k('O', { shift: true })] },
       { label: 'playRange', keys: [k('Space', { shift: true })] },
       { label: 'loop', keys: [k('L', { shift: true })] },
@@ -130,7 +148,7 @@ export const SHORTCUTS: { group: 'groupPlayback' | 'groupMarks' | 'groupEdit' | 
       { label: 'overwriteSource', keys: [k('.')] },
       { label: 'addMedia', keys: [k('Enter')] },
       { label: 'addMarker', keys: [k('M')] },
-      { label: 'markerStep', keys: [k('M', { shift: true }), k('M', { alt: true })] },
+      { label: 'markerStep', keys: [k('M', { shift: true }), k('M', { alt: true, shift: true })] },
     ],
   },
   {
@@ -146,6 +164,10 @@ export const SHORTCUTS: { group: 'groupPlayback' | 'groupMarks' | 'groupEdit' | 
       { label: 'cut', keys: [k('X', { mod: true })] },
       { label: 'paste', keys: [k('V', { mod: true })] },
       { label: 'duplicate', keys: [k('D', { mod: true })] },
+      { label: 'copyAttrs', keys: [k('C', { mod: true, shift: true })] },
+      { label: 'pasteAttrs', keys: [k('V', { mod: true, shift: true })] },
+      { label: 'speedPanel', keys: [k('R', { mod: true })] },
+      { label: 'detachAudio', keys: [k('S', { ctrl: true, shift: true })] },
       { label: 'remove', keys: [k('⌫'), k('Delete')] },
       { label: 'rippleDelete', keys: [k('⌫', { shift: true }), k('Delete', { shift: true })] },
       { label: 'nudgeClip', keys: [k('←', { alt: true }), k('→', { alt: true })] },
@@ -154,8 +176,9 @@ export const SHORTCUTS: { group: 'groupPlayback' | 'groupMarks' | 'groupEdit' | 
       { label: 'selectMode', keys: [k('A'), k('V')] },
       { label: 'splitMode', keys: [k('B')] },
       { label: 'splitModeAll', keys: [k('', { shift: true })] },
-      { label: 'toggleMagnet', keys: [k('N', { shift: true })] },
+      { label: 'toggleMagnet', keys: [k('P'), k('N', { shift: true })] },
       { label: 'toggleSnap', keys: [k('N')] },
+      { label: 'toggleLinkage', keys: [k('~')] },
       { label: 'editModeSwap', keys: [k('', { alt: true })] },
       { label: 'copyDrag', keys: [k('', { alt: true })] },
     ],
