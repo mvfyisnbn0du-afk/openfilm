@@ -1,7 +1,6 @@
 /**
  * How much of their plan Claude Code and Codex have left, for Settings → Agents: asked of the programs themselves, on
- * the sign-in OpenFilm uses (Claude Code's own for OpenFilm, agents.mjs agentHomeEnv; the computer's Codex), so the
- * person does not open Claude Code or Codex to see it.
+ * the account signed in on the computer, so the person does not open Claude Code or Codex to see it.
  *
  *   · Claude Code: the data behind its /usage, through its maker's SDK (the one the Claude Code adapter carries):
  *     each window's share used and when it resets (five hours, seven days, per model), and the plan. The SDK calls
@@ -21,7 +20,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { PATH_SEP, childEnvironment, loginShellEnvironment } from './environment.mjs';
-import { agentHomeEnv, resolveAgentCli } from './agents.mjs';
+import { resolveAgentCli } from './agents.mjs';
 
 const require = createRequire(import.meta.url);
 
@@ -100,7 +99,7 @@ async function claudeUsage(cli) {
     options: {
       pathToClaudeCodeExecutable: cli,
       cwd: mkdtempSync(join(tmpdir(), 'openfilm-usage-')),
-      env: childEnvironment({ shell, extra: agentHomeEnv('claude') }),
+      env: childEnvironment({ shell }),
     },
   });
   try {
@@ -114,7 +113,7 @@ async function claudeUsage(cli) {
 /** Codex's usage, on OpenFilm's sign-in: its app server asked twice, then stopped. @param {string} cli */
 async function codexUsage(cli) {
   const shell = await loginShellEnvironment();
-  const child = spawn(cli, ['app-server'], { env: childEnvironment({ shell, extra: agentHomeEnv('codex') }), stdio: ['pipe', 'pipe', 'ignore'] });
+  const child = spawn(cli, ['app-server'], { env: childEnvironment({ shell }), stdio: ['pipe', 'pipe', 'ignore'] });
   child.once('error', () => {});
   /** @type {Map<number, (message: any) => void>} */
   const waiting = new Map();

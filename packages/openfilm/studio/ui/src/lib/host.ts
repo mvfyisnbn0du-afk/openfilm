@@ -68,11 +68,8 @@ export interface StudioHost {
   agents?: {
     list: () => Promise<HostAgent[]>;
     connect: (id: HostAgentId) => Promise<{ ok: boolean; error?: string }>;
-    /** Claude Code and Codex: OpenFilm's own sign-in is signed out (the person's own stays); others only stop */
     disconnect: (id: HostAgentId) => Promise<unknown>;
-    /** Claude Code and Codex: OpenFilm's sign-in out, then its sign-in opened again, for another account */
-    switchAccount?: (id: HostAgentId) => Promise<{ ok: boolean; error?: string }>;
-    /** Claude Code and Codex: what is left of their plan, as they say on OpenFilm's sign-in (null: they can't say) */
+    /** Claude Code and Codex: what is left of their plan, as they say for the account signed in (null: they can't say) */
     usage?: (id: HostAgentId, fresh?: boolean) => Promise<HostAgentUsage | null>;
     setShown: (id: HostAgentId, shown: boolean) => Promise<unknown>;
     locate?: (id: HostAgentId, words?: { title?: string; button?: string }) => Promise<{ ok: boolean; error?: string; code?: 'not-a-program' | 'did-not-start' | string }>;
@@ -156,10 +153,10 @@ export interface HostAgentDiagnosis { found: string | null; program?: string; hi
 export type HostByokFormat = 'responses' | 'chat' | 'anthropic';
 
 /**
- * One agent as the app has it. `status`: ready · off (disconnected in the app: Claude Code's and Codex's sign-in for
- * OpenFilm signed out, the others' own kept) · sign-in (its sign-in is needed) · waiting (signing in, in Terminal) ·
- * missing (not installed: `install` says where from) · key (no key set up) · unavailable (not offered yet) · checking.
- * `account`: whose sign-in it uses, as the program says (no key or token).
+ * One agent as the app has it. `status`: ready · off (disconnected in the app; its own sign-in is kept) · sign-in (its
+ * own sign-in is needed) · waiting (signing in, in Terminal) · missing (not installed: `install` says where from) ·
+ * key (no key set up) · unavailable (not offered yet) · checking. `account`: whose sign-in it uses, as the program says
+ * (no key or token).
  */
 export interface HostAgent {
   id: HostAgentId;

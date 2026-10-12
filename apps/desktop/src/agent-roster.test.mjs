@@ -158,42 +158,23 @@ test('a kept path for something that is not one of the agents is dropped', () =>
   assert.deepEqual(readChoices(dir).paths, { codex: '/opt/codex' });
 });
 
-test('disconnecting Claude Code or Codex signs OpenFilm out; one not signed out stays connected, with why', async () => {
+test('disconnecting only stops OpenFilm using an agent; connecting again uses the account signed in then', async () => {
   const dir = mkdtempSync(join(tmpdir(), 'of-roster-'));
-  const signedOut = [];
-  let signOut = async (id) => { signedOut.push(id); return { ok: true }; };
+  let account = { method: 'claude.ai', email: 'a@b.test' };
+  const closed = [];
   const r = roster(dir, undefined, {
-    localAgents: async () => [{ id: 'claude', cli: { path: '/bin/claude' }, signedIn: true, account: { method: 'claude.ai', email: 'a@b.test' }, install: null, setupRequired: null }],
-    signOut: (id) => signOut(id),
+    localAgents: async () => [{ id: 'claude', cli: { path: '/bin/claude' }, signedIn: true, account, install: null, setupRequired: null }],
+    closeSessions: (id) => closed.push(id),
   });
   await r.refresh();
   assert.deepEqual(r.list().find((a) => a.id === 'claude').account, { method: 'claude.ai', email: 'a@b.test' });
-  assert.deepEqual(await r.disconnect('claude'), { ok: true });
-  assert.deepEqual(signedOut, ['claude']);
+  r.disconnect('claude');
   assert.equal(r.list().find((a) => a.id === 'claude').status, 'off');
-  await r.connect('claude');
-  signOut = async () => ({ ok: false, error: 'keychain locked' });
-  assert.deepEqual(await r.disconnect('claude'), { ok: false, error: 'keychain locked' });
+  /* the account switched in Claude Code itself */
+  account = { method: 'claude.ai', email: 'c@d.test' };
+  assert.deepEqual(await r.connect('claude'), { ok: true });
   const claude = r.list().find((a) => a.id === 'claude');
-  assert.equal(claude.status, 'ready', 'not signed out: still connected');
-  assert.equal(claude.error, 'keychain locked');
-});
-
-test('switching account: OpenFilm\'s sign-in out, then its sign-in opened again', async () => {
-  const dir = mkdtempSync(join(tmpdir(), 'of-roster-'));
-  const done = [];
-  let signedIn = true;
-  const r = roster(dir, undefined, {
-    localAgents: async () => [{ id: 'claude', cli: { path: '/bin/claude' }, signedIn, install: null, setupRequired: null }],
-    signOut: async (id) => { done.push(`out:${id}`); signedIn = false; return { ok: true }; },
-    openSignIn: async (id) => { done.push(`in:${id}`); return { ok: true }; },
-  });
-  await r.refresh();
-  assert.deepEqual(await r.switchAccount('claude'), { ok: true });
-  assert.deepEqual(done, ['out:claude', 'in:claude']);
-  assert.equal(r.list().find((a) => a.id === 'claude').status, 'waiting');
-  /* signed in with the other account: the wait ends at the next look */
-  signedIn = true;
-  await new Promise((done) => setTimeout(done, 3500));
-  assert.equal(r.list().find((a) => a.id === 'claude').status, 'ready');
+  assert.equal(claude.status, 'ready');
+  assert.equal(claude.account.email, 'c@d.test');
+  assert.deepEqual(closed, ['claude', 'claude'], 'its sessions closed both times: none goes on with the old account');
 });

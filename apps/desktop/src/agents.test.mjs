@@ -1,9 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { existsSync, mkdtempSync } from 'node:fs';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
-import { agentHomeEnv, allowOption, legacyOptions, readAgentStatus, setAgentHomes, signInScript } from './agents.mjs';
+import { allowOption, legacyOptions, readAgentStatus } from './agents.mjs';
 
 test('an agent that asks: yes for good where it offers that, else yes this once; nothing to say yes with is null', () => {
   const options = [
@@ -25,26 +22,6 @@ test("the older model and mode lists (Gemini CLI's) read as the config options t
   assert.deepEqual(options.map((o) => [o.id, o.category, o.currentValue]), [['model', 'model', 'auto'], ['mode', 'mode', 'yolo']]);
   assert.deepEqual(options[0].options[1], { value: 'pro', name: 'Pro', description: 'slow' });
   assert.deepEqual(legacyOptions({}), []);
-});
-
-test('Claude Code gets OpenFilm\'s own sign-in folder; Codex and the others use the computer\'s', () => {
-  const dir = mkdtempSync(join(tmpdir(), 'of-homes-'));
-  setAgentHomes(dir);
-  try {
-    assert.deepEqual(agentHomeEnv('claude'), { CLAUDE_CONFIG_DIR: join(dir, 'claude') });
-    assert.deepEqual(agentHomeEnv('codex'), {}, "Codex: the computer's own sign-in");
-    assert.ok(existsSync(join(dir, 'claude')), 'made when given');
-    assert.deepEqual(agentHomeEnv('gemini'), {});
-  } finally {
-    setAgentHomes(null);
-  }
-  assert.deepEqual(agentHomeEnv('claude'), {}, 'none until the app sets where');
-});
-
-test('a sign-in in Terminal is for OpenFilm\'s folder: the variable set on the command, quoted', () => {
-  const script = signInScript('/Applications/Claude Code/claude', ['auth', 'login'], { CLAUDE_CONFIG_DIR: "/Users/a/Library/Application Support/OpenFilm/agents/claude" });
-  assert.match(script, /do script "env CLAUDE_CONFIG_DIR='\/Users\/a\/Library\/Application Support\/OpenFilm\/agents\/claude' '\/Applications\/Claude Code\/claude' 'auth' 'login'"/);
-  assert.match(signInScript('/bin/codex', ['login']), /do script "'\/bin\/codex' 'login'"/, 'no variables: the command alone');
 });
 
 test('whose sign-in it is, as each program says it, never a key', () => {

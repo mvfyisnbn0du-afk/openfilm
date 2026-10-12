@@ -15,10 +15,8 @@
  *     else hold or pass on their credentials. The app runs their own program, sign-in is its own (`claude auth login`,
  *     `codex login`, in Terminal, or a command window on Windows), and the app never sees a token.
  *
- * Claude Code is signed in for OpenFilm on its own (`home`: CLAUDE_CONFIG_DIR, a folder in the app's data folder,
- * setAgentHomes): the person's own sign-in, in their terminal and the Claude app, is never used or touched, and
- * disconnecting signs OpenFilm's out (`logout`), so another account can be signed in. Codex uses the computer's own
- * sign-in as it is: an account switched in Codex is the one used once Codex is connected again.
+ * Each uses the account signed in on the computer, as it is: one switched in the agent (or its maker's app) is the
+ * one used once the agent is connected again here.
  *
  * The agent works the way it would in a terminal: in the project's folder, with the `openfilm` command on its PATH
  * (this app's copy, so its Studio is the one in the window) and a few lines saying where it is (INSTRUCTIONS).
@@ -26,7 +24,7 @@
  * Reads no Electron module, so `node --test` can use it.
  */
 import { execFile, spawn } from 'node:child_process';
-import { existsSync, mkdirSync, mkdtempSync, readFileSync } from 'node:fs';
+import { existsSync, mkdtempSync, readFileSync } from 'node:fs';
 import { arch, homedir, release, tmpdir } from 'node:os';
 import { createRequire } from 'node:module';
 import { dirname, isAbsolute, join } from 'node:path';
@@ -54,10 +52,8 @@ export const AGENTS = Object.freeze({
     label: 'Claude Code',
     adapter: '@agentclientprotocol/claude-agent-acp',
     env: (path) => ({ CLAUDE_CODE_EXECUTABLE: path }),
-    home: 'CLAUDE_CONFIG_DIR',
     auth: ['auth', 'status'],
     login: ['auth', 'login'],
-    logout: ['auth', 'logout'],
     systemPrompt: true,
   },
   codex: {
@@ -116,22 +112,6 @@ export function ownAgentPrompt() {
   const prompt = readFileSync(new URL('./agent-prompt.md', import.meta.url), 'utf8').trim();
   const manual = readFileSync(join(dirname(require.resolve('openfilm/package.json')), 'MANUAL.md'), 'utf8').replaceAll('npx openfilm', 'openfilm').trim();
   return `${prompt}\n\n## Where you are\n\n${INSTRUCTIONS}\n\n${WEB_INSTRUCTIONS}\n\n<manual>\n${manual}\n</manual>`;
-}
-
-/** Where OpenFilm's own sign-ins are kept: a folder an agent with a `home` is given (`<dir>/<id>`); none until set. */
-let homesDir = null;
-export function setAgentHomes(dir) { homesDir = dir || null; }
-
-/**
- * The environment that gives an agent OpenFilm's own sign-in and settings (`{ CLAUDE_CONFIG_DIR: … }`), its folder
- * made; `{}` for one that has none (its sign-in is the person's own).
- */
-export function agentHomeEnv(id) {
-  const key = AGENTS[id]?.home;
-  if (!key || !homesDir) return {};
-  const dir = join(homesDir, id);
-  mkdirSync(dir, { recursive: true });
-  return { [key]: dir };
 }
 
 /** The programs the person chose for their agents (Settings → Agents → Locate, agent-roster.mjs), by agent. */
@@ -289,8 +269,8 @@ export async function agentSignedIn(id, cliPath) {
 }
 
 /**
- * Signed in, and as whom, asked of the program with OpenFilm's own sign-in (agentHomeEnv): `account` is what it says
- * of it (Claude Code: email, organization, plan; Codex: how, ChatGPT or an API key), never a key or a token.
+ * Signed in, and as whom, asked of the program: `account` is what it says of its sign-in (Claude Code: email,
+ * organization, plan; Codex: how, ChatGPT or an API key), never a key or a token.
  * @returns {Promise<{ signedIn: boolean | null, account: AgentAccount | null }>}
  */
 export async function agentStatus(id, cliPath) {
@@ -298,7 +278,7 @@ export async function agentStatus(id, cliPath) {
   if (!spec || !cliPath) return { signedIn: null, account: null };
   if (!spec.auth) return { signedIn: await acpSignedIn(id), account: null };
   const how = starting(cliPath, spec.auth);
-  const r = await run(how.cmd, how.args, 10_000, { env: childEnvironment({ shell: await loginShellEnvironment(), extra: { ...how.env, ...agentHomeEnv(id) } }), options: how.options });
+  const r = await run(how.cmd, how.args, 10_000, { env: childEnvironment({ shell: await loginShellEnvironment(), extra: how.env }), options: how.options });
   return readAgentStatus(id, r.stdout, r.out);
 }
 
@@ -364,17 +344,13 @@ function noteSignedOut(id) {
 
 const shq = (s) => `'${String(s).replace(/'/g, `'\\''`)}'`;
 
-/** The AppleScript that has Terminal run one command in a new window, with `env` set for it. */
-export function signInScript(cliPath, args, env = {}) {
-  const vars = Object.entries(env).map(([k, v]) => `${k}=${shq(v)}`);
-  const command = [...(vars.length ? ['env', ...vars] : []), ...[cliPath, ...args].map(shq)].join(' ');
+/** The AppleScript that has Terminal run one command in a new window. */
+export function signInScript(cliPath, args) {
+  const command = [cliPath, ...args].map(shq).join(' ');
   return `tell application "Terminal"\nactivate\ndo script "${command.replace(/\\/g, '\\\\').replace(/"/g, '\\"')}"\nend tell`;
 }
 
-/**
- * Sign in: Terminal runs the program's own sign-in, which opens the maker's own page; for OpenFilm's own sign-in when
- * the agent has one (agentHomeEnv). The app touches nothing.
- */
+/** Sign in: Terminal runs the program's own sign-in, which opens the maker's own page. The app touches nothing. */
 export async function openAgentSignIn(id) {
   const spec = AGENTS[id];
   const pathDirs = (await loginShellEnvironment()).PATH.split(PATH_SEP);
@@ -386,29 +362,13 @@ export async function openAgentSignIn(id) {
     const how = /\.(?:cmd|bat)$/i.test(cli.path) ? { cmd: cli.path, args: spec.login, env: {} } : starting(cli.path, spec.login);
     try {
       spawn('cmd.exe', ['/d', '/c', 'start', `${spec.label} sign-in`, 'cmd.exe', '/k', how.cmd, ...how.args], {
-        detached: true, stdio: 'ignore', windowsHide: false, env: childEnvironment({ shell: await loginShellEnvironment(), extra: { ...how.env, ...agentHomeEnv(id) } }),
+        detached: true, stdio: 'ignore', windowsHide: false, env: childEnvironment({ shell: await loginShellEnvironment(), extra: how.env }),
       }).unref();
       return { ok: true };
     } catch (e) { return { ok: false, error: e instanceof Error ? e.message : String(e) }; }
   }
-  const r = await run('/usr/bin/osascript', ['-e', signInScript(cli.path, spec.login, agentHomeEnv(id))], 15_000);
+  const r = await run('/usr/bin/osascript', ['-e', signInScript(cli.path, spec.login)], 15_000);
   return r.ok ? { ok: true } : { ok: false, error: r.out.trim() || 'Terminal did not open.' };
-}
-
-/**
- * Sign OpenFilm's own sign-in out (an agent with a `home`): the program's own logout, on OpenFilm's folder only, so
- * the person's own sign-in stays. `{ ok: true }` for one that has none (nothing of it is OpenFilm's).
- */
-export async function signOutAgent(id) {
-  const spec = AGENTS[id];
-  if (!spec?.home || !spec.logout || !homesDir) return { ok: true };
-  const pathDirs = (await loginShellEnvironment()).PATH.split(PATH_SEP);
-  const cli = resolveAgentCli(id, { pathDirs });
-  if (!cli) return { ok: true };
-  asked.delete(id);
-  const how = starting(cli.path, spec.logout);
-  const r = await run(how.cmd, how.args, 20_000, { env: childEnvironment({ shell: await loginShellEnvironment(), extra: { ...how.env, ...agentHomeEnv(id) } }), options: how.options });
-  return r.ok ? { ok: true } : { ok: false, error: r.out.trim().slice(0, 400) || 'It could not sign out.' };
 }
 
 /**
@@ -592,7 +552,7 @@ export class AgentSession {
     };
     /* an agent that speaks ACP itself: its own program, started as the registry starts it */
     const native = cli && !this.spec.adapter ? starting(cli.path, this.spec.args) : null;
-    const env = childEnvironment({ shell: { ...shell, PATH: path }, extra: { ...this.opts.env, ...(native ? native.env : node.env), ...(cli && this.spec.env ? this.spec.env(cli.path) : {}), ...(harness ? {} : agentHomeEnv(this.opts.agent)), ...own } });
+    const env = childEnvironment({ shell: { ...shell, PATH: path }, extra: { ...this.opts.env, ...(native ? native.env : node.env), ...(cli && this.spec.env ? this.spec.env(cli.path) : {}), ...own } });
     const claude = this.spec.adapter === AGENTS.claude.adapter;
     if (this.spec.adapter === AGENTS.codex.adapter) env.CODEX_CONFIG = JSON.stringify({ developer_instructions: instructions });
     /* the others have no place for it: the session's first message carries it */

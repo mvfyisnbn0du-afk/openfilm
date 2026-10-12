@@ -2,11 +2,10 @@
  * Settings → Agents, inside an app that has a chat (lib/host.ts `agents`): the agents its chat can use, each connected
  * or not and shown in the chat's menu or not.
  *
- * Codex, Claude Code, Gemini CLI and the others are the person's own programs. Claude Code signs in for OpenFilm on
- * its own: connecting opens its sign-in when OpenFilm's is not there (the app waits for it), disconnecting signs
- * OpenFilm's out (the person's own sign-in stays) and Switch account signs in another. The others, Codex among them,
- * use the computer's own sign-in as it is: disconnecting only stops the app using them, and connecting again uses the
- * account signed in then. Claude Code's and Codex's rows say whose account it is and what is left of the plan. Codex and Claude Code
+ * Codex, Claude Code, Gemini CLI and the others are the person's own programs, on the account signed in on the
+ * computer: connecting opens their own sign-in only when they are signed out (the app waits for it), disconnecting
+ * only stops the app using them, and connecting again uses the account signed in then (switched in the agent itself).
+ * Claude Code's and Codex's rows say whose account it is and what is left of the plan. Codex and Claude Code
  * are always listed under the person's agents, with the person's own key; the others there once switched on (connecting
  * one does), else under "More agents", with where to get them when they are not installed. The person's own key is on a service of theirs, with a model that reads pictures (the agent looks at its own frames).
  *
@@ -18,8 +17,6 @@ import { Check, Copy, Download, KeyRound, Loader2 } from 'lucide-react';
 import { useLanguage, useT } from '@/i18n';
 import { studioHost, type HostAgent, type HostAgentDiagnosis, type HostAgentId, type HostAgentUsage, type HostByokFormat } from '@/lib/host';
 
-/** Claude Code: signed in for OpenFilm on its own (the app's agents.mjs `home`); the others use the computer's sign-in. */
-const OWN_SIGN_IN: readonly HostAgentId[] = ['claude'];
 /** Whose account, and what is left of the plan: what Claude Code and Codex can say (the app's agent-usage.mjs). */
 const PLAN_AGENTS: readonly HostAgentId[] = ['claude', 'codex'];
 import { ProviderMark } from './ProviderMark';
@@ -158,7 +155,7 @@ export function AgentsSection() {
   const statusLine = (agent: HostAgent) => {
     switch (agent.status) {
       case 'off': return t('settings.agents.off');
-      case 'sign-in': return OWN_SIGN_IN.includes(agent.id) ? t('settings.agents.signInOwn') : t('settings.agents.signedOut');
+      case 'sign-in': return t('settings.agents.signedOut');
       case 'waiting': return t('settings.agents.waiting');
       case 'missing': return agent.setupRequired === 'code-tab' ? t('settings.agents.claudeSetup') : t('settings.agents.missing');
       case 'key': return t('settings.agents.needsKey');
@@ -185,18 +182,11 @@ export function AgentsSection() {
   const action = (agent: HostAgent, chosen = true) => {
     const working = busy === agent.id;
     if (agent.status === 'ready' && chosen) {
-      const own = OWN_SIGN_IN.includes(agent.id);
       return (
-        <>
-          {own && host.switchAccount ? (
-            <SettingsButton variant="quiet" disabled={working} onClick={() => act(agent.id, () => host.switchAccount!(agent.id))}>{t('settings.agents.switchAccount')}</SettingsButton>
-          ) : null}
-          <SettingsButton variant="quiet" disabled={working} title={own ? t('settings.agents.disconnectHint') : agent.id === 'codex' ? t('settings.agents.disconnectHintShared') : undefined}
-            onClick={() => act(agent.id, () => host.disconnect(agent.id))}>
-            {working ? <Loader2 size={16} className="animate-spin" aria-hidden /> : null}
-            {t('settings.agents.disconnect')}
-          </SettingsButton>
-        </>
+        <SettingsButton variant="quiet" disabled={working} title={agent.id === 'byok' ? undefined : t('settings.agents.disconnectHint').replaceAll('{name}', agent.name)}
+          onClick={() => act(agent.id, () => host.disconnect(agent.id))}>
+          {t('settings.agents.disconnect')}
+        </SettingsButton>
       );
     }
     if (agent.status === 'missing') {

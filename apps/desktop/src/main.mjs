@@ -21,7 +21,7 @@ import { applicationMenu } from './menu.mjs';
 import { registerLocalAgentIpc } from './local-agents-ipc.mjs';
 import { registerChatIpc } from './chat-ipc.mjs';
 import { createRoster } from './agent-roster.mjs';
-import { checkAgentProgram, diagnoseAgent, listAgents, openAgentSignIn, setAgentHomes, setChosenPaths, signOutAgent } from './agents.mjs';
+import { checkAgentProgram, diagnoseAgent, listAgents, openAgentSignIn, setChosenPaths } from './agents.mjs';
 import { agentUsage, forgetAgentUsage } from './agent-usage.mjs';
 import { installOpenfilmCommand } from './openfilm-command.mjs';
 import { startUpdates } from './updates.mjs';
@@ -307,15 +307,11 @@ async function start() {
     env: { OPENFILM_HOME: env.OPENFILM_HOME, ...(env.OPENFILM_LIBRARY ? { OPENFILM_LIBRARY: env.OPENFILM_LIBRARY } : {}), ...browsers },
     harness: async (id) => roster?.harness(id) ?? null,
   });
-  /* Settings → Agents (in Studio's page) and the chat's agent menu: one roster, both told of every change. Claude Code
-     is signed in for OpenFilm in a folder of its own (agents/claude), apart from the person's own; Codex uses the
-     computer's own sign-in */
-  setAgentHomes(join(DATA, 'agents'));
+  /* Settings → Agents (in Studio's page) and the chat's agent menu: one roster, both told of every change */
   roster = createRoster({
     dataDir: DATA,
     localAgents: listAgents,
-    openSignIn: (id) => { forgetAgentUsage(id); return openAgentSignIn(id); },
-    signOut: (id) => { forgetAgentUsage(id); return signOutAgent(id); },
+    openSignIn: openAgentSignIn,
     /* sessions closed on connecting and disconnecting: the next look at its usage is for whichever account is used now */
     closeSessions: (id) => { forgetAgentUsage(id); localAgents?.closeAgent(id); },
     seal,
@@ -336,8 +332,7 @@ async function start() {
   });
   agentHandle('desktop:agents:list', () => { void roster.refresh(); return roster.list(); });
   agentHandle('desktop:agents:connect', ({ id }) => roster.connect(String(id)));
-  agentHandle('desktop:agents:disconnect', ({ id }) => roster.disconnect(String(id)));
-  agentHandle('desktop:agents:switch', ({ id }) => roster.switchAccount(String(id)));
+  agentHandle('desktop:agents:disconnect', ({ id }) => { roster.disconnect(String(id)); return { ok: true }; });
   /* what is left of Claude Code's and Codex's plan, on OpenFilm's sign-in (agent-usage.mjs); null when it can't say */
   agentHandle('desktop:agents:usage', ({ id, fresh }) => agentUsage(String(id), { fresh: fresh === true }));
   agentHandle('desktop:agents:locate', ({ id, words }) => roster.locate(String(id), words));
