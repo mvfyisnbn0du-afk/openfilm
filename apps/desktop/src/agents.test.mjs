@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { allowOption, legacyOptions, readAgentStatus } from './agents.mjs';
+import { allowOption, codexDeveloperInstructions, legacyOptions, readAgentStatus } from './agents.mjs';
 
 test('an agent that asks: yes for good where it offers that, else yes this once; nothing to say yes with is null', () => {
   const options = [
@@ -35,4 +35,14 @@ test('whose sign-in it is, as each program says it, never a key', () => {
   assert.deepEqual(read, { signedIn: true, account: { method: 'api-key' } });
   assert.ok(!JSON.stringify(read).includes('sk-'), 'no part of a key');
   assert.deepEqual(readAgentStatus('codex', 'Not logged in\n', 'Not logged in\n'), { signedIn: false, account: null });
+});
+
+test("the person's own developer_instructions in Codex's config, read as TOML writes them; a profile's is not theirs at the top", () => {
+  assert.equal(codexDeveloperInstructions('model = "gpt"\ndeveloper_instructions = "Be brief.\\nSay \\"why\\"."\n'), 'Be brief.\nSay "why".');
+  assert.equal(codexDeveloperInstructions("developer_instructions = 'C:\\no\\escapes'"), 'C:\\no\\escapes');
+  assert.equal(codexDeveloperInstructions('developer_instructions = """\nLine one.\nLine two.\n"""\n[profiles.x]\n'), 'Line one.\nLine two.');
+  assert.equal(codexDeveloperInstructions("developer_instructions = '''\nAs is: \\n\n'''"), 'As is: \\n');
+  assert.equal(codexDeveloperInstructions('[profiles.work]\ndeveloper_instructions = "not at the top"\n'), null);
+  assert.equal(codexDeveloperInstructions('model = "gpt"\n'), null);
+  assert.equal(codexDeveloperInstructions(''), null);
 });

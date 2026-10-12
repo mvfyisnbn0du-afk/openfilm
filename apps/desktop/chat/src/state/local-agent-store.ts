@@ -191,10 +191,10 @@ const AGENT_FORCED_PREFS: Partial<Record<LocalAgentId, Record<string, unknown>>>
 
 /**
  * The options in effect for an agent: the person's picks, then the ones the app sets. The own key on the Anthropic API
- * runs Claude Code, whose options are Claude Code's (`roster` says which). With the agent's `options` known, an effort
- * the person never picked is High, for every model that has one.
+ * runs Claude Code, whose options are Claude Code's (`roster` says which). What the person never picked here is the
+ * agent's own, as their config has it: the same model and effort as in their terminal.
  */
-export function effectivePrefs(prefs: Persisted['prefs'], agent: LocalAgentId, roster?: RosterAgent[] | null, options?: ConfigOptions): Record<string, unknown> {
+export function effectivePrefs(prefs: Persisted['prefs'], agent: LocalAgentId, roster?: RosterAgent[] | null): Record<string, unknown> {
   const claudeHarness = agent === 'byok' && roster?.find((a) => a.id === 'byok')?.byok?.format === 'anthropic';
   /* "default" was a row the menu no longer offers (the agents name their default for what it is): the agent's own
      current value stands instead */
@@ -202,9 +202,7 @@ export function effectivePrefs(prefs: Persisted['prefs'], agent: LocalAgentId, r
   const models = agent === 'byok' ? byokModels(roster ?? null) : null;
   const kept = Object.fromEntries(Object.entries(prefs[agent] ?? {})
     .filter(([id, value]) => value !== 'default' && !(models && id === 'model' && !models.includes(String(value)))));
-  const effort = options?.find((o) => o.category === 'thought_level');
-  const high = effort && !(effort.id in kept) && effort.options?.some((o) => o.value === 'high') ? { [effort.id]: 'high' } : {};
-  return { ...high, ...kept, ...(AGENT_FORCED_PREFS[claudeHarness ? 'claude' : agent] ?? {}) };
+  return { ...kept, ...(AGENT_FORCED_PREFS[claudeHarness ? 'claude' : agent] ?? {}) };
 }
 
 /** An option's current value (the person's pick first, else the value the session reports). */

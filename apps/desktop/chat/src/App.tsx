@@ -404,7 +404,7 @@ function ChatPane({ project, banners, selection, assetsOpen }: { project: Projec
     const turn = createLocalAgentTurn(id, agent, ordered.length);
     const agentStore = useLocalAgents.getState();
     const options = agentOptions(agentStore, agent);
-    const prefs = effectivePrefs(agentStore.prefs, agent, agentStore.roster, options);
+    const prefs = effectivePrefs(agentStore.prefs, agent, agentStore.roster);
     const summary = agentModelSummary(options, prefs);
     /* how hard it thinks, as the menu offers it */
     const effortOption = options?.find((o) => o.category === 'thought_level');

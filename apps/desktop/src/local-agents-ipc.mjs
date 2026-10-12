@@ -55,10 +55,10 @@ function imageBlocks(images) {
  * `harness(id)` gives the app's own agent ('byok') what it runs with (agent-roster.mjs), resolved as
  * each session starts.
  * `onWorking` hears the folders agents are working in (a turn running there) each time they change.
- * @param {{ trusted: (event: any) => boolean, binDir?: string | null, env?: Record<string, string>,
+ * @param {{ trusted: (event: any) => boolean, binDir?: string | null, fallbackDir?: string | null, env?: Record<string, string>,
  *           harness?: (id: string) => Promise<any>, onWorking?: (folders: string[]) => void }} opts
  */
-export function registerLocalAgentIpc(ipcMain, { trusted, binDir = null, env = {}, harness = async () => null, log = () => {}, onWorking = () => {} }) {
+export function registerLocalAgentIpc(ipcMain, { trusted, binDir = null, fallbackDir = null, env = {}, harness = async () => null, log = () => {}, onWorking = () => {} }) {
   const harnessFor = async (agent) => (HARNESS_AGENTS.includes(agent) ? harness(agent) : undefined);
   /** @type {Map<string, { session: AgentSession, sender: import('electron').WebContents, pending: Map<string, (answer: any) => void>, agent: string, cwd: string, turn: any }>} */
   const sessions = new Map();
@@ -113,7 +113,7 @@ export function registerLocalAgentIpc(ipcMain, { trusted, binDir = null, env = {
     if (!isChatAgent(agent)) return { ok: false, error: `Unknown agent: ${String(agent)}` };
     let session;
     try {
-      session = new AgentSession({ agent, cwd: homedir(), binDir, env, harness: await harnessFor(agent) });
+      session = new AgentSession({ agent, cwd: homedir(), binDir, fallbackDir, env, harness: await harnessFor(agent) });
       return { ok: true, info: await session.start() };
     } catch (e) {
       return { ok: false, error: e instanceof Error ? e.message : String(e), ...(e?.code ? { code: String(e.code) } : {}) };
@@ -135,6 +135,7 @@ export function registerLocalAgentIpc(ipcMain, { trusted, binDir = null, env = {
         agent,
         cwd,
         binDir,
+        fallbackDir,
         env,
         harness: await harnessFor(agent),
         onUpdate: (update) => send(entry, key, { kind: 'update', update }),

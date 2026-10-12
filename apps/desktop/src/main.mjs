@@ -213,10 +213,10 @@ async function start() {
   });
 
 
-  /* what the installer brings (scripts/release.mjs): ffmpeg and ffprobe, first on the PATH of Studio and the agents,
-     and the headless browser Studio and `openfilm` draw pages in. A build without them (from source): no ffmpeg on
-     this computer, the app's own goes first on the PATH and is downloaded once the window is up (they find it the
-     moment it lands); the browser, Studio downloads the first time (studio-process.mjs) */
+  /* what the installer brings (scripts/release.mjs): ffmpeg and ffprobe, first on the PATH of Studio and of the
+     agents' `openfilm` command, and the headless browser Studio and `openfilm` draw pages in. A build without them
+     (from source): no ffmpeg on this computer, the app's own goes first on the PATH and is downloaded once the window
+     is up (they find it the moment it lands); the browser, Studio downloads the first time (studio-process.mjs) */
   const runtime = app.isPackaged ? join(process.resourcesPath, 'runtime') : null;
   const ownFfmpeg = runtime && ffmpegIn(join(runtime, 'ffmpeg')) ? join(runtime, 'ffmpeg') : null;
   const needFfmpeg = !ownFfmpeg && !ffmpegOnPath(env.PATH) && ffmpegDownloadable();
@@ -302,9 +302,11 @@ async function start() {
     log,
     /* Studio refuses to delete a project an agent is working in */
     onWorking: tellWorking,
-    /* the `openfilm` command, and the app's ffmpeg (several folders, PATH-joined) */
-    binDir: [installOpenfilmCommand(DATA), ...(ffmpegHere ? [ffmpegHere] : [])].join(PATH_SEP),
-    env: { OPENFILM_HOME: env.OPENFILM_HOME, ...(env.OPENFILM_LIBRARY ? { OPENFILM_LIBRARY: env.OPENFILM_LIBRARY } : {}), ...browsers },
+    /* the `openfilm` command first (with the app's ffmpeg and browser in it); the app's ffmpeg last, for a computer
+       that has none of its own: the person's own ffmpeg and browsers are what the agent's commands use */
+    binDir: installOpenfilmCommand(DATA, { ffmpeg: ffmpegHere, env: browsers }),
+    fallbackDir: ffmpegHere,
+    env: { OPENFILM_HOME: env.OPENFILM_HOME, ...(env.OPENFILM_LIBRARY ? { OPENFILM_LIBRARY: env.OPENFILM_LIBRARY } : {}) },
     harness: async (id) => roster?.harness(id) ?? null,
   });
   /* Settings → Agents (in Studio's page) and the chat's agent menu: one roster, both told of every change */

@@ -16,7 +16,9 @@ import { spawn } from 'node:child_process';
 import { homedir, userInfo } from 'node:os';
 import { isAbsolute, join } from 'node:path';
 
-const OS_KEYS = ['HOME', 'USER', 'LOGNAME', 'SHELL', 'TMPDIR', 'LANG', 'TZ'];
+/* what the system gives every program the person starts, a terminal included: SSH_AUTH_SOCK (their keys' agent, for git
+   over ssh) comes from it, not from the shell's files */
+const OS_KEYS = ['HOME', 'USER', 'LOGNAME', 'SHELL', 'TMPDIR', 'LANG', 'TZ', 'SSH_AUTH_SOCK'];
 /** what a Windows program needs to find its system, its profile and its temporary folder */
 const WIN_KEYS = ['SystemRoot', 'SystemDrive', 'windir', 'ComSpec', 'PATHEXT', 'TEMP', 'TMP', 'USERPROFILE', 'USERNAME', 'USERDOMAIN',
   'HOMEDRIVE', 'HOMEPATH', 'APPDATA', 'LOCALAPPDATA', 'ProgramData', 'ProgramFiles', 'ProgramFiles(x86)', 'ProgramW6432',
@@ -27,6 +29,15 @@ const BASE_PATH = '/usr/bin:/bin:/usr/sbin:/sbin';
 const PROXY_KEYS = ['HTTPS_PROXY', 'HTTP_PROXY', 'ALL_PROXY', 'NO_PROXY', 'https_proxy', 'http_proxy', 'all_proxy', 'no_proxy'];
 /** where each agent keeps its sign-in; only meaningful when the person set it in their shell */
 const AGENT_HOME_KEYS = ['CLAUDE_CONFIG_DIR', 'CODEX_HOME'];
+/**
+ * What a shell sets for itself and its terminal, not for the programs it starts as the person's settings: left out of
+ * what the agents are given. Anything else the person's shell exports is theirs (keys, gateways, an MCP server's token,
+ * certificates), and their agent has it here as it has it in their terminal.
+ */
+const SESSION_KEYS = new Set(['PWD', 'OLDPWD', 'SHLVL', '_', 'TERM', 'TERM_PROGRAM', 'TERM_PROGRAM_VERSION', 'TERM_SESSION_ID',
+  'COLORTERM', 'ITERM_SESSION_ID', 'ITERM_PROFILE', 'LC_TERMINAL', 'LC_TERMINAL_VERSION', 'TMUX', 'TMUX_PANE', 'STY', 'WINDOWID',
+  'SECURITYSESSIONID', 'XPC_SERVICE_NAME', 'XPC_FLAGS', 'PS1', 'PS2', 'PROMPT']);
+const SESSION_PREFIXES = ['__CF', 'ELECTRON_', 'VSCODE_', 'OPENFILM_'];
 const ENV_MARKER = '__OPENFILM_LOGIN_ENV__';
 
 function accountShell() {
@@ -85,6 +96,17 @@ export function shellSubset(dump, home = homedir()) {
   for (const [key, value] of Object.entries(dump ?? {})) {
     if (typeof value !== 'string' || !value) continue;
     if (PROXY_KEYS.includes(key) || AGENT_HOME_KEYS.includes(key) || key === 'LANG' || isLocaleKey(key)) env[key] = value;
+  }
+  env.PATH = mergePath(dump?.PATH, home);
+  return env;
+}
+
+/** All a login shell's environment the person set (SESSION_KEYS left out), with PATH as shellSubset has it. */
+export function shellVariables(dump, home = homedir()) {
+  const env = {};
+  for (const [key, value] of Object.entries(dump ?? {})) {
+    if (typeof value !== 'string' || SESSION_KEYS.has(key) || SESSION_PREFIXES.some((p) => key.startsWith(p))) continue;
+    env[key] = value;
   }
   env.PATH = mergePath(dump?.PATH, home);
   return env;
@@ -171,7 +193,7 @@ export function environmentCache(read, { forMs, fallback, now = Date.now }) {
   let at = -Infinity;
   let value = null;
   let reading = false;
-  return ({ maxAgeMs = forMs } = {}) => {
+  return ({ maxAgeMs = forMs, staleOk = false } = {}) => {
     if (value && (reading || now() - at <= Math.min(maxAgeMs, forMs))) return value;
     const last = value;
     at = now();
@@ -179,7 +201,8 @@ export function environmentCache(read, { forMs, fallback, now = Date.now }) {
     value = Promise.resolve().then(read).catch(() => null)
       .then(async (env) => env ?? (last ? await last : fallback()))
       .finally(() => { reading = false; });
-    return value;
+    /* `staleOk`: an old one now, the new one for whoever asks next (an agent starts without waiting on the shell) */
+    return staleOk && last ? last : value;
   };
 }
 
@@ -188,26 +211,28 @@ async function readRegistry(source, timeoutMs) {
   const [machine, user] = await Promise.all([regQuery(REG_MACHINE, timeoutMs), regQuery(REG_USER, timeoutMs)]);
   if (!machine && !user) return null;
   pathSource = 'registry';
-  /* the person's own variables (proxies, CODEX_HOME) as they are now, over the system's */
-  return shellSubset({ ...machine, ...user, PATH: windowsFreshPath({ machine: machine ?? {}, user: user ?? {}, source }) }, homedir());
+  /* the person's own variables as they are now, over the system's */
+  return shellVariables({ ...machine, ...user, PATH: windowsFreshPath({ machine: machine ?? {}, user: user ?? {}, source }) }, homedir());
 }
 
-/** The login shell's subset: null when it gave no PATH (it failed, or took too long). */
+/** The login shell's variables (shellVariables): null when it gave no PATH (it failed, or took too long). */
 async function readLoginShell(source, timeoutMs) {
   const base = osEnvironment(source);
   const parsed = parseEnvDump(base.SHELL ? await captureLoginShell(base.SHELL, { ...base, PATH: BASE_PATH }, timeoutMs) : null);
   if (!parsed.PATH) return null;
   pathSource = 'login shell';
-  return shellSubset(parsed, base.HOME);
+  return shellVariables(parsed, base.HOME);
 }
 
 let shellCache = null;
 /**
- * The login shell's subset (`shellSubset`); on Windows, the registry's. Read again after a minute (Windows: a few
- * seconds), or sooner for a caller that asks (`maxAgeMs`: the agents' list, which is looked at again as the person
- * comes back from installing one). Never rejects: on failure, the last one read, else the fallback PATH.
+ * Everything the person's login shell sets (`shellVariables`); on Windows, the registry's. Read again after a minute
+ * (Windows: a few seconds), or sooner for a caller that asks (`maxAgeMs`: the agents' list, which is looked at again
+ * as the person comes back from installing one; `staleOk`, the last one read while a new one is read for next time).
+ * Never rejects: on failure, the last one read, else the fallback PATH.
+ * What the agents are given, so they run with what they have in the person's terminal.
  */
-export function loginShellEnvironment({ source = process.env, timeoutMs = 5000, maxAgeMs } = {}) {
+export function loginShellVariables({ source = process.env, timeoutMs = 5000, maxAgeMs, staleOk = false } = {}) {
   shellCache ??= environmentCache(() => (windows ? readRegistry(source, timeoutMs) : readLoginShell(source, timeoutMs)), {
     forMs: windows ? 5000 : 60_000,
     fallback: () => {
@@ -215,7 +240,12 @@ export function loginShellEnvironment({ source = process.env, timeoutMs = 5000, 
       return { PATH: mergePath(windows ? pathOf(source) : '', homedir()) };
     },
   });
-  return shellCache(maxAgeMs === undefined ? {} : { maxAgeMs });
+  return shellCache({ ...(maxAgeMs === undefined ? {} : { maxAgeMs }), staleOk });
+}
+
+/** The part of it Studio and the app's other programs are given (`shellSubset`): PATH, proxies, locale. */
+export async function loginShellEnvironment(options = {}) {
+  return shellSubset(await loginShellVariables(options));
 }
 
 /** What scripts/start.mjs passes on to Electron besides the OS identity: this app's own switches. */

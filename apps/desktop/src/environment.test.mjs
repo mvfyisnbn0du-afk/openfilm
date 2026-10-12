@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { environmentCache, expandWindowsVars, parseRegQuery, windowsFreshPath } from './environment.mjs';
+import { environmentCache, expandWindowsVars, parseRegQuery, shellSubset, shellVariables, windowsFreshPath } from './environment.mjs';
 
 const PROFILE = ['C:', 'Users', 'someone'].join('\\');
 
@@ -68,4 +68,26 @@ test('reads going on at once are one read', async () => {
   assert.equal(first, second);
   await Promise.all([first, second]);
   assert.equal(count, 1);
+});
+
+test('an old one can be taken at once, the new one read for whoever asks next', async () => {
+  let clock = 0;
+  let next = { PATH: '/a' };
+  const cache = environmentCache(async () => next, { forMs: 60_000, fallback: () => ({}), now: () => clock });
+  await cache();
+  next = { PATH: '/b' };
+  clock = 100_000;
+  assert.deepEqual(await cache({ staleOk: true }), { PATH: '/a' });
+  assert.deepEqual(await cache(), { PATH: '/b' });
+});
+
+test("the agents get all the person's shell sets, but what the shell and its terminal set for themselves; Studio a part", () => {
+  const dump = {
+    PATH: '/opt/homebrew/bin:/usr/bin', ANTHROPIC_BASE_URL: 'https://gateway.example', GITHUB_TOKEN: 't', NODE_EXTRA_CA_CERTS: '/ca.pem',
+    HTTPS_PROXY: 'http://proxy', PWD: '/x', SHLVL: '2', _: '/usr/bin/env', TERM_PROGRAM: 'iTerm.app', ELECTRON_RUN_AS_NODE: '1', OPENFILM_HOME: '/o',
+  };
+  const all = shellVariables(dump, '/home/me');
+  assert.deepEqual(Object.keys(all).sort(), ['ANTHROPIC_BASE_URL', 'GITHUB_TOKEN', 'HTTPS_PROXY', 'NODE_EXTRA_CA_CERTS', 'PATH']);
+  assert.ok(all.PATH.startsWith('/opt/homebrew/bin:/usr/bin'));
+  assert.deepEqual(Object.keys(shellSubset(all, '/home/me')).sort(), ['HTTPS_PROXY', 'PATH']);
 });

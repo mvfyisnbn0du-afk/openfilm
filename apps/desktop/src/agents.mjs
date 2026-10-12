@@ -31,7 +31,7 @@ import { dirname, isAbsolute, join } from 'node:path';
 import { Readable, Writable } from 'node:stream';
 import { fileURLToPath } from 'node:url';
 import * as acp from '@agentclientprotocol/sdk';
-import { PATH_SEP, childEnvironment, lastPathSource, loginShellEnvironment } from './environment.mjs';
+import { PATH_SEP, childEnvironment, lastPathSource, loginShellEnvironment, loginShellVariables } from './environment.mjs';
 import { AGENT_PROGRAMS, HOME_BIN_CANDIDATES, chosenProgram, detectAgentInstallation, searchReport } from './agent-installation.mjs';
 import { nodeBinary } from './node-runtime.mjs';
 import { outOfBalance } from './pi-config.mjs';
@@ -114,6 +114,34 @@ export function ownAgentPrompt() {
   return `${prompt}\n\n## Where you are\n\n${INSTRUCTIONS}\n\n${WEB_INSTRUCTIONS}\n\n<manual>\n${manual}\n</manual>`;
 }
 
+/**
+ * The person's own `developer_instructions` in Codex's config.toml (top level), or null: the app's instructions go to
+ * Codex in the same place, which would otherwise take the place of theirs, so theirs come first. Read for the basic
+ * and literal strings TOML has, on one line or several; anything else (a profile's, a key it cannot read) is left.
+ */
+export function codexDeveloperInstructions(toml) {
+  const top = String(toml ?? '').split(/^\s*\[/m)[0];
+  const m = /^[ \t]*developer_instructions[ \t]*=[ \t]*("""|'''|"|')/m.exec(top);
+  if (!m) return null;
+  const quote = m[1];
+  const rest = top.slice(m.index + m[0].length);
+  /* a basic string on one line ends at its first quote not escaped; the others at their closing quotes */
+  const end = quote === '"' ? (/^(?:[^"\\\n]|\\.)*"/.exec(rest)?.[0].length ?? 0) - 1 : rest.indexOf(quote);
+  if (end < 0) return null;
+  let text = rest.slice(0, end);
+  if (quote.length === 3) text = text.replace(/^\r?\n/, '');
+  if (quote.startsWith('"')) {
+    text = text.replace(/\\(?:u([0-9a-fA-F]{4})|(.))/g, (_, hex, c) => (hex ? String.fromCharCode(parseInt(hex, 16))
+      : ({ n: '\n', t: '\t', r: '\r', '"': '"', '\\': '\\' })[c] ?? c));
+  }
+  return text.trim() || null;
+}
+
+/** Codex's config.toml: in CODEX_HOME when the person's shell sets it, else ~/.codex. */
+function codexConfigText(shell) {
+  try { return readFileSync(join(shell.CODEX_HOME || join(homedir(), '.codex'), 'config.toml'), 'utf8'); } catch { return ''; }
+}
+
 /** The programs the person chose for their agents (Settings → Agents → Locate, agent-roster.mjs), by agent. */
 let chosenPaths = {};
 export function setChosenPaths(paths) {
@@ -185,12 +213,15 @@ function run(cmd, args, timeoutMs = 10_000, { cwd, env, options } = {}) {
 /* one word of a cmd.exe command line: quoted when it has to be */
 const winArg = (a) => (/^[\w.:\\/=+@-]+$/.test(a) ? a : `"${String(a).replace(/"/g, '""')}"`);
 
+/** The app's own Node running a script, through as-node.mjs: what the script starts does not run Electron as Node. */
+const AS_NODE = fileURLToPath(new URL('./as-node.mjs', import.meta.url));
+
 /**
  * How to start a program found for an agent: itself, a script with the app's own Node (an npm install on Windows), or
  * a `.cmd` shim whose target could not be told, through cmd.exe. `options` go to spawn.
  */
 function starting(cliPath, args) {
-  if (/\.(?:c|m)?js$/i.test(cliPath)) return { cmd: nodeBinary(), args: [cliPath, ...args], env: { ELECTRON_RUN_AS_NODE: '1' }, options: {} };
+  if (/\.(?:c|m)?js$/i.test(cliPath)) return { cmd: nodeBinary(), args: [AS_NODE, cliPath, ...args], env: { ELECTRON_RUN_AS_NODE: '1' }, options: {} };
   if (windows && /\.(?:cmd|bat)$/i.test(cliPath)) {
     return { cmd: process.env.ComSpec || 'cmd.exe', args: ['/d', '/s', '/c', `"${[cliPath, ...args].map(winArg).join(' ')}"`], env: {}, options: { windowsVerbatimArguments: true } };
   }
@@ -207,7 +238,7 @@ export async function checkAgentProgram(id, path) {
   const cli = chosenProgram(path, { names: AGENT_PROGRAMS[id]?.names ?? [id] });
   if (!cli) return { ok: false, error: 'That is not a program this computer can start.', code: 'not-a-program' };
   const how = starting(cli, ['--version']);
-  const r = await run(how.cmd, how.args, 20_000, { env: childEnvironment({ shell: await loginShellEnvironment(), extra: how.env }), options: how.options });
+  const r = await run(how.cmd, how.args, 20_000, { env: childEnvironment({ shell: await loginShellVariables(), extra: how.env }), options: how.options });
   if (!r.ok) return { ok: false, error: r.out.trim().slice(0, 400), code: 'did-not-start' };
   return { ok: true, path: cli, version: r.stdout.trim().split(/\r?\n/)[0] ?? '' };
 }
@@ -278,7 +309,7 @@ export async function agentStatus(id, cliPath) {
   if (!spec || !cliPath) return { signedIn: null, account: null };
   if (!spec.auth) return { signedIn: await acpSignedIn(id), account: null };
   const how = starting(cliPath, spec.auth);
-  const r = await run(how.cmd, how.args, 10_000, { env: childEnvironment({ shell: await loginShellEnvironment(), extra: how.env }), options: how.options });
+  const r = await run(how.cmd, how.args, 10_000, { env: childEnvironment({ shell: await loginShellVariables(), extra: how.env }), options: how.options });
   return readAgentStatus(id, r.stdout, r.out);
 }
 
@@ -362,7 +393,7 @@ export async function openAgentSignIn(id) {
     const how = /\.(?:cmd|bat)$/i.test(cli.path) ? { cmd: cli.path, args: spec.login, env: {} } : starting(cli.path, spec.login);
     try {
       spawn('cmd.exe', ['/d', '/c', 'start', `${spec.label} sign-in`, 'cmd.exe', '/k', how.cmd, ...how.args], {
-        detached: true, stdio: 'ignore', windowsHide: false, env: childEnvironment({ shell: await loginShellEnvironment(), extra: how.env }),
+        detached: true, stdio: 'ignore', windowsHide: false, env: childEnvironment({ shell: await loginShellVariables(), extra: how.env }),
       }).unref();
       return { ok: true };
     } catch (e) { return { ok: false, error: e instanceof Error ? e.message : String(e) }; }
@@ -514,7 +545,7 @@ export function legacyOptions(session) {
 export class AgentSession {
   /**
    * `harness` (for 'byok'): agent-roster.mjs's `harness(id)`, Pi's folder, its service and its model.
-   * @param {{ agent: string, cwd: string, resume?: string | null, binDir?: string | null,
+   * @param {{ agent: string, cwd: string, resume?: string | null, binDir?: string | null, fallbackDir?: string | null,
    *           harness?: any,
    *           env?: Record<string, string>,
    *           onUpdate?: (update: any) => void, onPermission?: (params: any) => Promise<string | null>,
@@ -534,14 +565,18 @@ export class AgentSession {
     this.replaying = false;
   }
 
-  /** Start the adapter, shake hands, open (or resume) the session. */
+  /**
+   * Start the adapter, shake hands, open (or resume) the session. The agent gets all the person's login shell sets
+   * (their keys, gateways, tokens), as in their terminal, and the app's `openfilm` first on its PATH; the app's ffmpeg
+   * (`fallbackDir`) last, for a computer that has none of its own.
+   */
   async start() {
-    const shell = await loginShellEnvironment();
+    const shell = await loginShellVariables({ staleOk: true });
     const harness = this.opts.harness ?? null;
     const cli = harness ? null : resolveAgentCli(this.opts.agent, { pathDirs: shell.PATH.split(PATH_SEP) });
     if (!harness && !cli) throw Object.assign(new Error(`${this.spec.label} is not installed on this computer.`), { code: 'not-installed' });
     const node = nodeRuntime();
-    const path = [this.opts.binDir, shell.PATH].filter(Boolean).join(PATH_SEP);
+    const path = [this.opts.binDir, shell.PATH, this.opts.fallbackDir].filter(Boolean).join(PATH_SEP);
     const instructions = INSTRUCTIONS;
     /* the app's own agent: what Pi runs with (its whole system prompt is ours), and the web search of `openfilm get`
        (OPENFILM_GET_WEB lists it) */
@@ -554,14 +589,17 @@ export class AgentSession {
     const native = cli && !this.spec.adapter ? starting(cli.path, this.spec.args) : null;
     const env = childEnvironment({ shell: { ...shell, PATH: path }, extra: { ...this.opts.env, ...(native ? native.env : node.env), ...(cli && this.spec.env ? this.spec.env(cli.path) : {}), ...own } });
     const claude = this.spec.adapter === AGENTS.claude.adapter;
-    if (this.spec.adapter === AGENTS.codex.adapter) env.CODEX_CONFIG = JSON.stringify({ developer_instructions: instructions });
+    if (this.spec.adapter === AGENTS.codex.adapter) {
+      const theirs = codexDeveloperInstructions(codexConfigText(shell));
+      env.CODEX_CONFIG = JSON.stringify({ developer_instructions: theirs ? `${theirs}\n\n${instructions}` : instructions });
+    }
     /* the others have no place for it: the session's first message carries it */
     this.instructions = harness || this.spec.systemPrompt ? null : instructions;
 
     const script = harness ? fileURLToPath(new URL('./pi-agent.mjs', import.meta.url)) : native ? null : adapterScript(this.spec.adapter);
     this.child = native
       ? spawn(native.cmd, native.args, { ...native.options, cwd: this.opts.cwd, env, stdio: ['pipe', 'pipe', 'pipe'] })
-      : spawn(node.command, [script], { cwd: this.opts.cwd, env, stdio: ['pipe', 'pipe', 'pipe'] });
+      : spawn(node.command, [...(node.env.ELECTRON_RUN_AS_NODE ? [AS_NODE] : []), script], { cwd: this.opts.cwd, env, stdio: ['pipe', 'pipe', 'pipe'] });
     this.child.stderr.on('data', (d) => { this.stderr = (this.stderr + String(d)).slice(-16_000); });
     this.child.once('exit', (code) => this.opts.onExit?.({ code, stderr: this.stderr }));
     this.child.once('error', () => {});
