@@ -21,14 +21,14 @@ export const RELEASES: readonly ReleaseNotes[] = [
     notes: {
       en: [
         { kind: 'new', text: 'Export › Editing project makes a CapCut draft: your timeline opens on its home screen, ready to keep cutting. Premiere Pro and DaVinci Resolve get the XML.' },
-        { kind: 'new', text: "Claude Code and Codex sign in to OpenFilm on their own. Settings › Agents shows whose account each uses and what is left of its plan; Switch account and Disconnect leave your own sign-in alone." },
+        { kind: 'new', text: 'Settings › Agents shows whose account Claude Code and Codex use and what is left of each plan. Claude Code signs in to OpenFilm on its own, so switching its account here leaves your own sign-in alone; Codex uses the account signed in on this computer.' },
         { kind: 'improved', text: 'Settings › About checks for updates by itself, shows the download, and restarts to update.' },
         { kind: 'fixed', text: 'A 16:9 export is exactly 1920 × 1080 (or 3840 × 2160), whatever the film’s own shape.' },
         { kind: 'fixed', text: 'Choosing where exports go opens the folder dialog in front, and it stays open.' },
       ],
       'zh-CN': [
         { kind: 'new', text: '导出 › 剪辑工程可以生成剪映草稿：时间线直接出现在剪映首页，接着剪；Premiere Pro 和 DaVinci Resolve 仍用 XML。' },
-        { kind: 'new', text: 'Claude Code 和 Codex 在 OpenFilm 里单独登录。设置 › 智能体 显示当前账号和剩余额度；切换账号、断开连接都不影响你自己的登录。' },
+        { kind: 'new', text: '设置 › 智能体 显示 Claude Code 和 Codex 当前的账号和剩余额度。Claude Code 在 OpenFilm 里单独登录，在这里切换账号不影响你自己的登录；Codex 直接使用这台电脑上已登录的账号。' },
         { kind: 'new', text: '中文界面的社交平台导出新增哔哩哔哩、抖音、快手、视频号和小红书。' },
         { kind: 'improved', text: '设置 › 关于 会自动检查更新，显示下载进度，下载好后点一下即可重启更新。' },
         { kind: 'fixed', text: '16:9 导出准确为 1920 × 1080（4K 为 3840 × 2160），不再受影片自身画幅影响。' },
@@ -36,21 +36,21 @@ export const RELEASES: readonly ReleaseNotes[] = [
       ],
       ja: [
         { kind: 'new', text: '書き出し › 編集プロジェクトで CapCut の下書きを作れます。タイムラインがホーム画面に表示され、そのまま編集を続けられます。Premiere Pro と DaVinci Resolve には XML を書き出します。' },
-        { kind: 'new', text: 'Claude Code と Codex は OpenFilm 用に別にサインインします。設定 › エージェントで使用中のアカウントと残りの利用枠を確認でき、アカウントの切り替えや接続解除をしてもあなた自身のサインインはそのままです。' },
+        { kind: 'new', text: '設定 › エージェントで Claude Code と Codex が使うアカウントと残りの利用枠を確認できます。Claude Code は OpenFilm 用に別にサインインするので、ここでアカウントを切り替えてもあなた自身のサインインはそのままです。Codex はこのコンピューターでサインイン中のアカウントを使います。' },
         { kind: 'improved', text: '設定 › 情報 でアップデートを自動で確認し、ダウンロードの進み具合を表示します。準備ができたら再起動で更新できます。' },
         { kind: 'fixed', text: '16:9 の書き出しは、映像自体の比率にかかわらず正確に 1920 × 1080（または 3840 × 2160）になります。' },
         { kind: 'fixed', text: '書き出し先を選ぶフォルダーのダイアログが手前に開き、すぐに閉じなくなりました。' },
       ],
       ko: [
         { kind: 'new', text: '내보내기 › 편집 프로젝트에서 CapCut 초안을 만들 수 있습니다. 타임라인이 홈 화면에 바로 나타나 이어서 편집할 수 있습니다. Premiere Pro와 DaVinci Resolve는 XML로 내보냅니다.' },
-        { kind: 'new', text: 'Claude Code와 Codex는 OpenFilm에서 따로 로그인합니다. 설정 › 에이전트에서 사용 중인 계정과 남은 사용량을 볼 수 있고, 계정 전환이나 연결 해제를 해도 내 로그인은 그대로입니다.' },
+        { kind: 'new', text: '설정 › 에이전트에서 Claude Code와 Codex가 사용하는 계정과 남은 사용량을 볼 수 있습니다. Claude Code는 OpenFilm에서 따로 로그인하므로 여기서 계정을 바꿔도 내 로그인은 그대로이고, Codex는 이 컴퓨터에 로그인된 계정을 사용합니다.' },
         { kind: 'improved', text: '설정 › 정보에서 업데이트를 자동으로 확인하고 다운로드 진행 상황을 보여 줍니다. 준비되면 다시 시작해 업데이트하세요.' },
         { kind: 'fixed', text: '16:9 내보내기는 영상 자체의 비율과 관계없이 정확히 1920 × 1080(또는 3840 × 2160)입니다.' },
         { kind: 'fixed', text: '내보낼 위치를 고르는 폴더 대화상자가 앞에 열리고, 바로 닫히지 않습니다.' },
       ],
       es: [
         { kind: 'new', text: 'Exportar › Proyecto de edición crea un borrador de CapCut: tu línea de tiempo aparece en su pantalla de inicio, lista para seguir editando. Premiere Pro y DaVinci Resolve reciben el XML.' },
-        { kind: 'new', text: 'Claude Code y Codex inician sesión en OpenFilm por separado. Ajustes › Agentes muestra qué cuenta usa cada uno y cuánto le queda del plan; cambiar de cuenta o desconectar no toca tu propia sesión.' },
+        { kind: 'new', text: 'Ajustes › Agentes muestra qué cuenta usan Claude Code y Codex y cuánto le queda a cada plan. Claude Code inicia sesión en OpenFilm por separado, así que cambiar su cuenta aquí no toca tu propia sesión; Codex usa la cuenta con la que este equipo inició sesión.' },
         { kind: 'improved', text: 'Ajustes › Acerca de busca actualizaciones por sí solo, muestra la descarga y se reinicia para actualizar.' },
         { kind: 'fixed', text: 'Una exportación 16:9 mide exactamente 1920 × 1080 (o 3840 × 2160), sea cual sea la forma de la película.' },
         { kind: 'fixed', text: 'Al elegir dónde exportar, el diálogo de carpetas se abre delante y no se cierra solo.' },

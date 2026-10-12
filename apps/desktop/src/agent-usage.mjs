@@ -1,6 +1,7 @@
 /**
  * How much of their plan Claude Code and Codex have left, for Settings → Agents: asked of the programs themselves, on
- * OpenFilm's own sign-in (agents.mjs agentHomeEnv), so the person does not open Claude Code or Codex to see it.
+ * the sign-in OpenFilm uses (Claude Code's own for OpenFilm, agents.mjs agentHomeEnv; the computer's Codex), so the
+ * person does not open Claude Code or Codex to see it.
  *
  *   · Claude Code: the data behind its /usage, through its maker's SDK (the one the Claude Code adapter carries):
  *     each window's share used and when it resets (five hours, seven days, per model), and the plan. The SDK calls

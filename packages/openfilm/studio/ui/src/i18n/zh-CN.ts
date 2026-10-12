@@ -1415,7 +1415,7 @@ export const zhCN: Words = {
       appFailed: '更新没能完成，请稍后再试。',
     },
     agents: {
-      intro: '对话可以使用的智能体。Claude Code 和 Codex 在 OpenFilm 里单独登录：不会使用也不会影响你在终端和它们自己应用里的登录；断开连接就是退出 OpenFilm 里的这份登录，方便换别的账号重新登录。其他智能体使用它们自己的登录；自有密钥运行在你自己的服务上。',
+      intro: '对话可以使用的智能体。Claude Code 在 OpenFilm 里单独登录：不会使用也不会影响你在终端和 Claude 应用里的登录，断开连接就是退出 OpenFilm 里的这份登录，方便换别的账号。Codex 和其他智能体直接使用这台电脑上已登录的账号：在 Codex 里换了账号后，在这里断开再连接即可。自有密钥运行在你自己的服务上。',
       byokName: '自有密钥',
       groupYours: '你的智能体',
       groupMore: '还可以接入的智能体',
@@ -1454,6 +1454,7 @@ export const zhCN: Words = {
       disconnect: '断开连接',
       switchAccount: '切换账号',
       disconnectHint: '退出 OpenFilm 里的登录。你在终端和它自己应用里的登录保持不变。',
+      disconnectHintShared: '停止在 OpenFilm 中使用。想用别的账号，先在 Codex 里切换账号，再回来重新连接。',
       signInOwn: '需要为 OpenFilm 登录一次，不影响你在其他地方的登录。',
       accountChatgpt: 'ChatGPT 账号',
       accountApiKey: 'API 密钥',

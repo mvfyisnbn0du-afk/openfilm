@@ -27,13 +27,13 @@ test("the older model and mode lists (Gemini CLI's) read as the config options t
   assert.deepEqual(legacyOptions({}), []);
 });
 
-test('Claude Code and Codex get OpenFilm\'s own sign-in folder; the others none', () => {
+test('Claude Code gets OpenFilm\'s own sign-in folder; Codex and the others use the computer\'s', () => {
   const dir = mkdtempSync(join(tmpdir(), 'of-homes-'));
   setAgentHomes(dir);
   try {
     assert.deepEqual(agentHomeEnv('claude'), { CLAUDE_CONFIG_DIR: join(dir, 'claude') });
-    assert.deepEqual(agentHomeEnv('codex'), { CODEX_HOME: join(dir, 'codex') });
-    assert.ok(existsSync(join(dir, 'claude')) && existsSync(join(dir, 'codex')), 'made when given');
+    assert.deepEqual(agentHomeEnv('codex'), {}, "Codex: the computer's own sign-in");
+    assert.ok(existsSync(join(dir, 'claude')), 'made when given');
     assert.deepEqual(agentHomeEnv('gemini'), {});
   } finally {
     setAgentHomes(null);

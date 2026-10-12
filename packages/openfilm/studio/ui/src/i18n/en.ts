@@ -1415,7 +1415,7 @@ export const en = {
       appFailed: 'Could not complete the update. Try again later.',
     },
     agents: {
-      intro: 'The agents the chat can use. Claude Code and Codex sign in to OpenFilm on their own: your sign-in in your terminal and their apps is never used or touched, and disconnecting signs OpenFilm out, so you can sign in with another account. The others use their own sign-in; your own key runs on a service of yours.',
+      intro: 'The agents the chat can use. Claude Code signs in to OpenFilm on its own: your sign-in in your terminal and the Claude app is never used or touched, and disconnecting signs OpenFilm out, so you can sign in with another account. Codex and the others use the account signed in on this computer: switch accounts in Codex, then disconnect and connect it again here. Your own key runs on a service of yours.',
       byokName: 'Your own key',
       groupYours: 'Your agents',
       groupMore: 'More agents you can use',
@@ -1454,6 +1454,7 @@ export const en = {
       disconnect: 'Disconnect',
       switchAccount: 'Switch account',
       disconnectHint: 'Signs OpenFilm out of it. Your own sign-in, in your terminal and its app, stays.',
+      disconnectHintShared: 'Stops OpenFilm using it. To use another account, switch accounts in Codex, then connect it again.',
       signInOwn: 'Sign in once for OpenFilm. Your own sign-in elsewhere is not affected.',
       accountChatgpt: 'ChatGPT account',
       accountApiKey: 'API key',

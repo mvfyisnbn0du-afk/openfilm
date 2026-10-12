@@ -1414,7 +1414,7 @@ export const ja: Words = {
       appFailed: 'アップデートを完了できませんでした。しばらくしてからお試しください。',
     },
     agents: {
-      intro: 'チャットで使えるエージェントです。Claude Code と Codex は OpenFilm 用に別にサインインします。ターミナルや各アプリでのあなたのサインインは使わず、変更もしません。接続を解除すると OpenFilm のサインインがサインアウトされ、別のアカウントでサインインし直せます。その他のエージェントはそれぞれのサインインを使います。自分のキーはあなたのサービスで動きます。',
+      intro: 'チャットで使えるエージェントです。Claude Code は OpenFilm 用に別にサインインします。ターミナルや Claude アプリでのサインインは使わず変更もせず、接続を解除すると OpenFilm のサインインがサインアウトされ、別のアカウントでサインインし直せます。Codex とその他のエージェントは、このコンピューターでサインイン中のアカウントを使います。Codex でアカウントを切り替えたら、ここで接続を解除してもう一度接続してください。自分のキーはあなたのサービスで動きます。',
       byokName: '自分のキー',
       groupYours: 'あなたのエージェント',
       groupMore: 'ほかに使えるエージェント',
@@ -1453,6 +1453,7 @@ export const ja: Words = {
       disconnect: '接続を解除',
       switchAccount: 'アカウントを切り替え',
       disconnectHint: 'OpenFilm のサインインをサインアウトします。ターミナルやアプリでのあなたのサインインはそのままです。',
+      disconnectHintShared: 'OpenFilm での利用を止めます。別のアカウントを使うには、Codex でアカウントを切り替えてからもう一度接続してください。',
       signInOwn: 'OpenFilm 用に一度サインインしてください。ほかの場所でのサインインには影響しません。',
       accountChatgpt: 'ChatGPT アカウント',
       accountApiKey: 'API キー',

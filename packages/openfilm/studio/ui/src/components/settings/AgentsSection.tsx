@@ -2,10 +2,11 @@
  * Settings → Agents, inside an app that has a chat (lib/host.ts `agents`): the agents its chat can use, each connected
  * or not and shown in the chat's menu or not.
  *
- * Codex, Claude Code, Gemini CLI and the others are the person's own programs. Claude Code and Codex sign in for
- * OpenFilm on their own: connecting opens their sign-in when OpenFilm's is not there (the app waits for it), the row
- * says whose account it is, disconnecting signs OpenFilm's out (the person's own sign-in stays) and Switch account signs
- * in another. The others use their own sign-in as it is; disconnecting only stops the app using them. Codex and Claude Code
+ * Codex, Claude Code, Gemini CLI and the others are the person's own programs. Claude Code signs in for OpenFilm on
+ * its own: connecting opens its sign-in when OpenFilm's is not there (the app waits for it), disconnecting signs
+ * OpenFilm's out (the person's own sign-in stays) and Switch account signs in another. The others, Codex among them,
+ * use the computer's own sign-in as it is: disconnecting only stops the app using them, and connecting again uses the
+ * account signed in then. Claude Code's and Codex's rows say whose account it is and what is left of the plan. Codex and Claude Code
  * are always listed under the person's agents, with the person's own key; the others there once switched on (connecting
  * one does), else under "More agents", with where to get them when they are not installed. The person's own key is on a service of theirs, with a model that reads pictures (the agent looks at its own frames).
  *
@@ -17,8 +18,10 @@ import { Check, Copy, Download, KeyRound, Loader2 } from 'lucide-react';
 import { useLanguage, useT } from '@/i18n';
 import { studioHost, type HostAgent, type HostAgentDiagnosis, type HostAgentId, type HostAgentUsage, type HostByokFormat } from '@/lib/host';
 
-/** Claude Code and Codex: signed in for OpenFilm on their own (the app's agents.mjs `home`). */
-const OWN_SIGN_IN: readonly HostAgentId[] = ['claude', 'codex'];
+/** Claude Code: signed in for OpenFilm on its own (the app's agents.mjs `home`); the others use the computer's sign-in. */
+const OWN_SIGN_IN: readonly HostAgentId[] = ['claude'];
+/** Whose account, and what is left of the plan: what Claude Code and Codex can say (the app's agent-usage.mjs). */
+const PLAN_AGENTS: readonly HostAgentId[] = ['claude', 'codex'];
 import { ProviderMark } from './ProviderMark';
 import { agentMark } from '@/lib/provider-marks';
 import { SettingsSelect } from './SettingsSelect';
@@ -53,7 +56,7 @@ function AgentMark({ id }: { id: HostAgentId }) {
  */
 function useAgentUsage(agents: HostAgent[] | null): Partial<Record<HostAgentId, HostAgentUsage | null | undefined>> {
   const [usage, setUsage] = React.useState<Partial<Record<HostAgentId, HostAgentUsage | null | undefined>>>({});
-  const ready = (agents ?? []).filter((a) => OWN_SIGN_IN.includes(a.id) && a.status === 'ready').map((a) => a.id).join(',');
+  const ready = (agents ?? []).filter((a) => PLAN_AGENTS.includes(a.id) && a.status === 'ready').map((a) => a.id).join(',');
   React.useEffect(() => {
     const ask = studioHost?.agents?.usage;
     if (!ask || !ready) return undefined;
@@ -188,7 +191,7 @@ export function AgentsSection() {
           {own && host.switchAccount ? (
             <SettingsButton variant="quiet" disabled={working} onClick={() => act(agent.id, () => host.switchAccount!(agent.id))}>{t('settings.agents.switchAccount')}</SettingsButton>
           ) : null}
-          <SettingsButton variant="quiet" disabled={working} title={own ? t('settings.agents.disconnectHint') : undefined}
+          <SettingsButton variant="quiet" disabled={working} title={own ? t('settings.agents.disconnectHint') : agent.id === 'codex' ? t('settings.agents.disconnectHintShared') : undefined}
             onClick={() => act(agent.id, () => host.disconnect(agent.id))}>
             {working ? <Loader2 size={16} className="animate-spin" aria-hidden /> : null}
             {t('settings.agents.disconnect')}
@@ -231,7 +234,7 @@ export function AgentsSection() {
     const diag = diagnosis?.id === agent.id ? diagnosis : null;
     /* what is left of its plan: while being asked, and once told (an agent that can't say shows nothing) */
     const plan = usage[agent.id];
-    const meter = chosen && agent.status === 'ready' && OWN_SIGN_IN.includes(agent.id) && Boolean(host.usage) && (plan === undefined || Boolean(plan?.windows.length));
+    const meter = chosen && agent.status === 'ready' && PLAN_AGENTS.includes(agent.id) && Boolean(host.usage) && (plan === undefined || Boolean(plan?.windows.length));
     const hint = diag?.report ? hintOf(diag.report) : null;
     return (
       <SettingsItem

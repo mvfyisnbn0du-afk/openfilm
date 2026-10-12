@@ -2,13 +2,13 @@
  * The agents the chat can use, as Settings → Agents shows them, and the person's choices about them:
  *
  *   · codex, claude, gemini, copilot, cursor, opencode, codebuddy, qwen, kimi — the person's own agents (agents.mjs):
- *     Codex, Claude Code, Gemini CLI, GitHub Copilot, Cursor, OpenCode, CodeBuddy, Qwen Code and Kimi. Claude Code and
- *     Codex are signed in for OpenFilm on their own (agents.mjs agentHomeEnv): connecting opens Terminal for their own
- *     sign-in command when OpenFilm's is not there, disconnecting signs OpenFilm's out (`signOut`) so another account can
- *     be signed in, and the person's own sign-in, in their terminal and the makers' apps, is never touched; `account`
- *     says whose it is. The others use the person's own sign-in as it is, and disconnecting only stops OpenFilm using
- *     them. Codex and Claude Code are shown in the chat's menu from the start; the others once the person connects one
- *     or switches it on.
+ *     Codex, Claude Code, Gemini CLI, GitHub Copilot, Cursor, OpenCode, CodeBuddy, Qwen Code and Kimi. Claude Code is
+ *     signed in for OpenFilm on its own (agents.mjs agentHomeEnv): connecting opens Terminal for its sign-in command
+ *     when OpenFilm's is not there, disconnecting signs OpenFilm's out (`signOut`) so another account can be signed in,
+ *     and the person's own sign-in is never touched. The others, Codex among them, use the computer's own sign-in as it
+ *     is: disconnecting only stops OpenFilm using them, and connecting again uses whichever account is signed in then.
+ *     `account` says whose it is. Codex and Claude Code are shown in the chat's menu from the start; the others once
+ *     the person connects one or switches it on.
  *   · byok — the app's own agent (Pi, pi-agent.mjs) on the person's own key, on a standard API in one of three formats: the OpenAI
  *     Responses API (…/v1/responses), the OpenAI Chat Completions API (…/v1/chat/completions) or the Anthropic Messages
  *     API (…/v1/messages); Pi speaks each. It may name several models (the chat's menu switches between them, the first

@@ -184,16 +184,16 @@ test('switching account: OpenFilm\'s sign-in out, then its sign-in opened again'
   const done = [];
   let signedIn = true;
   const r = roster(dir, undefined, {
-    localAgents: async () => [{ id: 'codex', cli: { path: '/bin/codex' }, signedIn, install: null, setupRequired: null }],
+    localAgents: async () => [{ id: 'claude', cli: { path: '/bin/claude' }, signedIn, install: null, setupRequired: null }],
     signOut: async (id) => { done.push(`out:${id}`); signedIn = false; return { ok: true }; },
     openSignIn: async (id) => { done.push(`in:${id}`); return { ok: true }; },
   });
   await r.refresh();
-  assert.deepEqual(await r.switchAccount('codex'), { ok: true });
-  assert.deepEqual(done, ['out:codex', 'in:codex']);
-  assert.equal(r.list().find((a) => a.id === 'codex').status, 'waiting');
+  assert.deepEqual(await r.switchAccount('claude'), { ok: true });
+  assert.deepEqual(done, ['out:claude', 'in:claude']);
+  assert.equal(r.list().find((a) => a.id === 'claude').status, 'waiting');
   /* signed in with the other account: the wait ends at the next look */
   signedIn = true;
   await new Promise((done) => setTimeout(done, 3500));
-  assert.equal(r.list().find((a) => a.id === 'codex').status, 'ready');
+  assert.equal(r.list().find((a) => a.id === 'claude').status, 'ready');
 });

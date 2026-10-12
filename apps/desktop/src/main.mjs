@@ -308,14 +308,16 @@ async function start() {
     harness: async (id) => roster?.harness(id) ?? null,
   });
   /* Settings → Agents (in Studio's page) and the chat's agent menu: one roster, both told of every change. Claude Code
-     and Codex are signed in for OpenFilm in its own folders (agents/claude, agents/codex), apart from the person's own */
+     is signed in for OpenFilm in a folder of its own (agents/claude), apart from the person's own; Codex uses the
+     computer's own sign-in */
   setAgentHomes(join(DATA, 'agents'));
   roster = createRoster({
     dataDir: DATA,
     localAgents: listAgents,
     openSignIn: (id) => { forgetAgentUsage(id); return openAgentSignIn(id); },
     signOut: (id) => { forgetAgentUsage(id); return signOutAgent(id); },
-    closeSessions: (id) => localAgents?.closeAgent(id),
+    /* sessions closed on connecting and disconnecting: the next look at its usage is for whichever account is used now */
+    closeSessions: (id) => { forgetAgentUsage(id); localAgents?.closeAgent(id); },
     seal,
     unseal,
     onChange: (list) => view?.webContents.send('desktop:agents', list),

@@ -1413,7 +1413,7 @@ export const ko: Words = {
       appFailed: '업데이트를 완료하지 못했습니다. 나중에 다시 시도하세요.',
     },
     agents: {
-      intro: '채팅에서 쓸 수 있는 에이전트입니다. Claude Code와 Codex는 OpenFilm에서 따로 로그인합니다. 터미널과 각 앱에서의 로그인은 사용하거나 건드리지 않으며, 연결을 해제하면 OpenFilm의 로그인만 로그아웃되어 다른 계정으로 다시 로그인할 수 있습니다. 다른 에이전트는 각자의 로그인을 사용하고, 내 키는 내 서비스에서 실행됩니다.',
+      intro: '채팅에서 쓸 수 있는 에이전트입니다. Claude Code는 OpenFilm에서 따로 로그인합니다. 터미널과 Claude 앱의 로그인은 사용하거나 건드리지 않으며, 연결을 해제하면 OpenFilm의 로그인만 로그아웃되어 다른 계정으로 로그인할 수 있습니다. Codex와 다른 에이전트는 이 컴퓨터에 로그인된 계정을 사용합니다. Codex에서 계정을 바꾼 뒤 여기서 연결을 해제했다가 다시 연결하세요. 내 키는 내 서비스에서 실행됩니다.',
       byokName: '내 키',
       groupYours: '내 에이전트',
       groupMore: '그 밖에 쓸 수 있는 에이전트',
@@ -1452,6 +1452,7 @@ export const ko: Words = {
       disconnect: '연결 해제',
       switchAccount: '계정 전환',
       disconnectHint: 'OpenFilm의 로그인을 로그아웃합니다. 터미널과 앱에서의 내 로그인은 그대로입니다.',
+      disconnectHintShared: 'OpenFilm에서 사용을 멈춥니다. 다른 계정을 쓰려면 Codex에서 계정을 바꾼 뒤 다시 연결하세요.',
       signInOwn: 'OpenFilm용으로 한 번 로그인하세요. 다른 곳의 로그인에는 영향이 없습니다.',
       accountChatgpt: 'ChatGPT 계정',
       accountApiKey: 'API 키',

@@ -15,9 +15,10 @@
  *     else hold or pass on their credentials. The app runs their own program, sign-in is its own (`claude auth login`,
  *     `codex login`, in Terminal, or a command window on Windows), and the app never sees a token.
  *
- * Claude Code and Codex are signed in for OpenFilm on their own (`home`: CLAUDE_CONFIG_DIR, CODEX_HOME, a folder in
- * the app's data folder, setAgentHomes): the person's own sign-in, in their terminal and the makers' apps, is never
- * used or touched. Disconnecting signs OpenFilm's out (`logout`), so another account can be signed in.
+ * Claude Code is signed in for OpenFilm on its own (`home`: CLAUDE_CONFIG_DIR, a folder in the app's data folder,
+ * setAgentHomes): the person's own sign-in, in their terminal and the Claude app, is never used or touched, and
+ * disconnecting signs OpenFilm's out (`logout`), so another account can be signed in. Codex uses the computer's own
+ * sign-in as it is: an account switched in Codex is the one used once Codex is connected again.
  *
  * The agent works the way it would in a terminal: in the project's folder, with the `openfilm` command on its PATH
  * (this app's copy, so its Studio is the one in the window) and a few lines saying where it is (INSTRUCTIONS).
@@ -63,10 +64,8 @@ export const AGENTS = Object.freeze({
     label: 'Codex',
     adapter: '@agentclientprotocol/codex-acp',
     env: (path) => ({ CODEX_PATH: path }),
-    home: 'CODEX_HOME',
     auth: ['login', 'status'],
     login: ['login'],
-    logout: ['logout'],
     systemPrompt: true,
   },
   gemini: { label: 'Gemini CLI', args: ['--acp', '--approval-mode', 'yolo'], login: [], approve: true },

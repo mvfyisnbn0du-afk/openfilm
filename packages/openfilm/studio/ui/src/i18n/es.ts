@@ -1414,7 +1414,7 @@ export const es: Words = {
       appFailed: 'No se pudo completar la actualización. Inténtalo más tarde.',
     },
     agents: {
-      intro: 'Los agentes que puede usar el chat. Claude Code y Codex inician sesión en OpenFilm por separado: tu sesión en la terminal y en sus apps nunca se usa ni se toca, y al desconectar se cierra la sesión de OpenFilm para que puedas entrar con otra cuenta. Los demás usan su propia sesión; tu propia clave funciona en un servicio tuyo.',
+      intro: 'Los agentes que puede usar el chat. Claude Code inicia sesión en OpenFilm por separado: tu sesión en la terminal y en la app de Claude nunca se usa ni se toca, y al desconectar se cierra la sesión de OpenFilm para que puedas entrar con otra cuenta. Codex y los demás usan la cuenta con la que este equipo inició sesión: cambia de cuenta en Codex y luego desconéctalo y vuelve a conectarlo aquí. Tu propia clave funciona en un servicio tuyo.',
       byokName: 'Tu propia clave',
       groupYours: 'Tus agentes',
       groupMore: 'Otros agentes que puedes usar',
@@ -1453,6 +1453,7 @@ export const es: Words = {
       disconnect: 'Desconectar',
       switchAccount: 'Cambiar de cuenta',
       disconnectHint: 'Cierra la sesión de OpenFilm. Tu propia sesión, en la terminal y en su app, se mantiene.',
+      disconnectHintShared: 'Deja de usarlo en OpenFilm. Para usar otra cuenta, cambia de cuenta en Codex y vuelve a conectarlo.',
       signInOwn: 'Inicia sesión una vez para OpenFilm. Tu sesión en otros lugares no cambia.',
       accountChatgpt: 'Cuenta de ChatGPT',
       accountApiKey: 'Clave de API',
