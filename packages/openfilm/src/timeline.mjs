@@ -155,14 +155,27 @@ function override(c, list = []) {
       }
       if (o.text != null) {
         const saved = (touch(el, 'translate'), c.touched.get(el));
-        const parts = [...el.childNodes].filter((n) => n.nodeType === 3 && n.data.trim());
-        saved.texts ??= el.childElementCount === 0 ? el.textContent : parts.map((n) => [n, n.data]);
-        /* a heading with inline parts (`Quiet<br><em>you</em>`): its own words change, the parts stay */
-        if (el.childElementCount === 0) { if (el.textContent !== o.text) el.textContent = o.text; }
-        else parts.forEach((n, k) => { n.data = k ? '' : o.text; });
+        if ([...el.children].every((ch) => ch.localName === 'br')) {
+          /* words alone, or lines between <br>s: all of them change, a <br> at each line break (SPEC §1) */
+          saved.nodes ??= [...el.childNodes];
+          if (linesOf(el) !== o.text) {
+            const doc = el.ownerDocument;
+            el.replaceChildren(...o.text.split('\n').flatMap((line, k) => (k ? [doc.createElement('br'), doc.createTextNode(line)] : [doc.createTextNode(line)])));
+          }
+        } else {
+          const parts = [...el.childNodes].filter((n) => n.nodeType === 3 && n.data.trim());
+          saved.texts ??= parts.map((n) => [n, n.data]);
+          /* a heading with other inline parts (`Quiet<br><em>you</em>`): its own words change, the parts stay */
+          parts.forEach((n, k) => { n.data = k ? '' : o.text; });
+        }
       }
     }
   }
+}
+
+/** An element's words with a line break for each <br>, as a `text` override writes them. */
+function linesOf(el) {
+  return [...el.childNodes].map((n) => (n.nodeType === 3 ? n.data : n.localName === 'br' ? '\n' : '')).join('');
 }
 
 /** Put back what a clip's tweaks changed (before a changed list is applied, or when it is taken away). */
@@ -171,7 +184,7 @@ function restore(c) {
     for (const [prop, [value, priority]] of saved.props) {
       if (value) el.style.setProperty(prop, value, priority); else el.style.removeProperty(prop);
     }
-    if (typeof saved.texts === 'string') el.textContent = saved.texts;
+    if (saved.nodes) el.replaceChildren(...saved.nodes);
     else if (saved.texts) for (const [node, data] of saved.texts) node.data = data;
   }
   c.touched = new Map();

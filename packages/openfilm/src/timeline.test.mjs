@@ -440,6 +440,31 @@ test('another stage size changes the film in place: the body, the film\'s size a
   }
 });
 
+test('a text override with line breaks: all the words of an element of <br>s, a <br> at each break; taken away, it is as it was', { timeout: 60_000 }, async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'of-lines-'));
+  writeFileSync(join(dir, 'title.html'), `<!doctype html><body style="margin:0"><h1 id="a">Start here,<br>make your film.</h1><p id="b">One line</p><p id="c">Quiet <em>you</em></p>
+<script>window.film={duration:2,frame(){}}</script></body>`);
+  const film = { stage: { w: 320, h: 180 }, tracks: [{ clips: [{ id: 'title', src: 'title.html', overrides: [
+    { at: '#a', text: 'From here,\nyour own\nfilm.' }, { at: '#b', text: 'Two\nlines' }, { at: '#c', text: 'Loud' },
+  ] }] }] };
+  writeFileSync(join(dir, 'film.html'), filmHtml(film));
+  const s = await open(dir);
+  const html = () => s.film.page.evaluate(() => {
+    const doc = document.querySelector('iframe').contentDocument;
+    return ['a', 'b', 'c'].map((id) => doc.getElementById(id).innerHTML);
+  });
+  try {
+    await s.film.seek(1);
+    assert.deepEqual(await html(), ['From here,<br>your own<br>film.', 'Two<br>lines', 'Loud<em>you</em>']);
+    film.tracks[0].clips[0].overrides = [];
+    assert.equal(await s.film.page.evaluate((v) => window.__filmEditor.update(v), film), true);
+    await s.film.seek(1);
+    assert.deepEqual(await html(), ['Start here,<br>make your film.', 'One line', 'Quiet <em>you</em>']);
+  } finally {
+    await s.close();
+  }
+});
+
 test('a host waits for a film as long as it keeps loading; a page that never gets further fails in time', { timeout: 60_000 }, async () => {
   const dir = mkdtempSync(join(tmpdir(), 'of-progress-'));
   /* five pages ready one after another, 0.5 s apart: 2.5 s in all, longer than the host waits without news */

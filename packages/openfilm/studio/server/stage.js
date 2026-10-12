@@ -149,8 +149,10 @@
   /* an icon beside the words (a badge's ✓, a button's arrow) does not stop them being the element's text: its own
      words are typed in place, and the icon stays (a text override changes the element's own words only) */
   const ICON = new Set(['svg', 'img']);
+  /** Words alone, or lines between <br>s: a `text` override changes all of them, a <br> at each line break. */
+  const onlyBreaks = (el) => [...el.children].every((ch) => ch.localName === 'br');
   const textOf = (el) => {
-    if (el.childElementCount === 0) return stageText(el);
+    if (onlyBreaks(el)) return stageText(el);
     if (![...el.children].every((c) => INLINE.has(c.tagName) || ICON.has(c.localName))) return '';
     return ownWords(el);
   };
@@ -717,7 +719,7 @@
     if (kept) draft(c, edit.target, { text: value });
     post({ type: 'stage-event', event: 'text', handle: edit.handle, commit: Boolean(kept), ...(kept ? { value, before: edit.before } : {}) });
   };
-  const startText = ({ handle, multiline }) => {
+  const startText = ({ handle }) => {
     const el = nodeOf(handle);
     const c = el && clipOfNode(el);
     if (!el || !c || editing) return false;
@@ -726,7 +728,8 @@
     const walker = doc.createTreeWalker(el, 4);
     for (let n = walker.nextNode(); n; n = walker.nextNode()) data.set(n, n.data);
     const attrs = { contentEditable: el.getAttribute('contenteditable'), style: el.getAttribute('style'), spellcheck: el.getAttribute('spellcheck') };
-    const overlay = isSvgText(el) || el.childElementCount > 0;
+    /* typed in place, lines and all, where it can be: the line keeps its own width and wraps as it does */
+    const overlay = isSvgText(el) || !onlyBreaks(el);
     const host = overlay ? openOverlay(el) : el;
     if (overlay) el.style.setProperty('visibility', 'hidden', 'important');
     try { host.contentEditable = 'plaintext-only'; } catch { host.contentEditable = 'true'; }
@@ -735,11 +738,12 @@
     for (const [name, value] of [['user-select', 'text'], ['-webkit-user-select', 'text'], ['cursor', 'text'], ['outline', 'none'], ['pointer-events', 'auto'], ['caret-color', BLUE]]) {
       host.style.setProperty(name, value, 'important');
     }
-    const lines = Boolean(multiline) && !overlay;
+    /* Shift+Enter breaks the line (where the words can hold one); Enter keeps them, Esc gives them up */
+    const lines = !overlay;
     const onKey = (e) => {
       e.stopPropagation();
       if (e.key === 'Escape') { e.preventDefault(); finishText(false); }
-      else if (e.key === 'Enter' && (e.metaKey || e.ctrlKey || !lines)) { e.preventDefault(); finishText(true); }
+      else if (e.key === 'Enter' && !(lines && e.shiftKey)) { e.preventDefault(); finishText(true); }
     };
     const onBlur = () => finishText(true);
     host.addEventListener('keydown', onKey);

@@ -994,7 +994,7 @@ function FilmStageSelectImpl({
     setEditingText(element.loc);
     setHover(null);
     previewRef.current?.focus?.();
-    void ask<boolean>('textStart', { handle: layer.handle, multiline: element.text.shape === 'children' }).then((started) => {
+    void ask<boolean>('textStart', { handle: layer.handle }).then((started) => {
       if (started || textEdit.current?.layer.handle !== layer.handle) return;
       textEdit.current = null;
       setEditingText(null);
