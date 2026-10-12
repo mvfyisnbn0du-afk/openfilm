@@ -9,8 +9,8 @@ import { planRoom, type EditMode, type EditModel } from './timeline-edit.ts';
 import { snapToFrame } from './timecode.ts';
 import type { TimelineBlock } from './timeline-layout';
 
-/** How long a freeze frame lasts. */
-export const FREEZE_MS = 2000;
+/** How long a freeze frame lasts: 3 s, as CapCut's. */
+export const FREEZE_MS = 3000;
 
 /** The moment of the clip's file the playhead is on (ms), or null when the playhead is not on the clip. */
 export function freezeSourceMs(block: Pick<TimelineBlock, 'startMs' | 'endMs' | 'inMs' | 'speed'>, atMs: number): number | null {

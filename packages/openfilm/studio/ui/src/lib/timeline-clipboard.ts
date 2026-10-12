@@ -12,7 +12,7 @@ import type { Op } from '../api.ts';
 import { FILM_DOC_FILE } from './film.ts';
 
 import { newTrackSide } from './timeline-drag.ts';
-import { freshLink, freeTrackFor, mainTrackOf, planRoom, type EditMode, type EditModel, type Follow, type TrackDest } from './timeline-edit.ts';
+import { freshLink, freeTrackFor, mainTrackOf, planRoom, TOUCH_MS, type EditMode, type EditModel, type Follow, type TrackDest } from './timeline-edit.ts';
 import type { TimelineBlock, TimelineTrack } from './timeline-layout';
 
 export type TimelineClipboardItem = {
@@ -246,9 +246,10 @@ export function copyLinks(clipIds: readonly string[], model: EditModel): Map<str
  * A paste as an edit in the timeline's mode: copied from one track, the copies go onto the track pointed at
  * (`forceLane`) if any; from several, each back onto its own. The group's earliest clip lands at `atMs`, the rest
  * keep their spacing. An insert makes room there (pushing what follows on, with sync lock on every unlocked track);
- * an overwrite takes that time off the tracks. With the magnet given (as CapCut's): an insert on the main track, and
- * off it a copy whose time is taken goes to a free track or a new one. The copies go in first, so a clip pasted over
- * itself is copied whole before it is cut. Null when a track it goes onto is locked or gone.
+ * an overwrite takes that time off the tracks. With the magnet given (as CapCut's): nothing is covered or pushed — a
+ * copy whose time is taken goes to a free track or a new one, and onto the main track only past its end. The copies
+ * go in first, so a clip pasted over itself is copied whole before it is cut. Null when a track it goes onto is locked
+ * or gone.
  */
 export function pasteEdit(
   clipboard: readonly TimelineClipboardItem[],
@@ -269,7 +270,7 @@ export function pasteEdit(
   });
   if (spans.some((s) => s.track == null || s.locked)) return null;
   const links = copyLinks(clipboard.map((item) => item.clipId), model);
-  const insertOf = (s: (typeof spans)[number], track: TrackDest): Op => ({
+  const insertOf = (s: Pick<(typeof spans)[number], 'item' | 'startMs'>, track: TrackDest): Op => ({
     op: 'insert',
     from: s.item.clipId,
     at: s.startMs / 1000,
@@ -281,33 +282,25 @@ export function pasteEdit(
     const room = planRoom(model, spans.map((s) => ({ track: s.track!, startMs: s.startMs, endMs: s.endMs })), { mode, sync: opts.sync, linkage: opts.linkage });
     return [...spans.map((s) => insertOf(s, s.track!)), ...room.ops];
   }
-  /* the magnet, as CapCut's: onto the main track an insert (what follows moves on); off it nothing is covered — a
-     copy whose time is taken goes to a free track, else a new one */
+  /* the magnet, as CapCut's: a paste covers nothing and pushes nothing — a copy whose time is taken goes to a free
+     track, else a new one (above the main track for a copy from it). On the main track only past its end, closed up */
   const main = mainTrackOf(model);
-  const onMain = spans.filter((s) => s.track === main);
-  const room = planRoom(model, onMain.map((s) => ({ track: s.track!, startMs: s.startMs, endMs: s.endMs })), { mode: 'insert', sync: opts.sync, linkage: opts.linkage });
-  /* the tracks as the insert left them */
-  const after: EditModel = model.map((t) => ({
-    ...t,
-    clips: t.clips.flatMap((c) => {
-      if (!room.placed.has(c.id)) return [c];
-      const at = room.placed.get(c.id);
-      return at && at.track === t.index ? [{ ...c, startMs: at.startMs, endMs: at.endMs }] : [];
-    }),
-  }));
+  const mainEnd = Math.max(0, ...(model.find((t) => t.index === main)?.clips ?? []).map((c) => c.endMs));
   const taken: { track: number; startMs: number; endMs: number }[] = [];
   const placed = spans.map((s) => {
-    if (s.track === main) return { s, track: s.track as TrackDest };
-    const track = freeTrackFor(after, s.track!, s, taken);
+    if (s.track === main && s.startMs >= mainEnd - TOUCH_MS) {
+      const at = { ...s, startMs: mainEnd, endMs: mainEnd + s.item.durMs };
+      return { s: at, track: main as TrackDest };
+    }
+    const track = freeTrackFor(model, s.track!, s, taken);
     if (typeof track === 'number') taken.push({ track, startMs: s.startMs, endMs: s.endMs });
     return { s, track };
   });
   /* new tracks last, the lowest place first, so the places of the others hold while they open */
   const opened = placed.filter((p) => typeof p.track === 'object')
-    .sort((a, b) => (b.track as { insert: number }).insert - (a.track as { insert: number }).insert);
+    .sort((x, y) => (y.track as { insert: number }).insert - (x.track as { insert: number }).insert);
   return [
     ...placed.filter((p) => typeof p.track === 'number').map((p) => insertOf(p.s, p.track)),
-    ...room.ops,
     ...opened.map((p) => insertOf(p.s, p.track)),
   ];
 }

@@ -6,6 +6,7 @@ import {
   editModelOf,
   freshLink,
   gapAt,
+  gapsOf,
   insertPointOn,
   hostOf,
   linkedIds,
@@ -13,6 +14,7 @@ import {
   mainTrackOf,
   planCloseGap,
   planCloseMainGaps,
+  planCloseTrackGaps,
   planEdges,
   planLink,
   planMove,
@@ -321,6 +323,13 @@ test('turning the magnet on closes up the main track, before its first clip too,
   assert.deepEqual(after(m, plan), [[['t', 3, 4]], [['a', 0, 2], ['b', 2, 5]], [['bed', 0, 9]]]);
   assert.deepEqual(planCloseMainGaps(film([], [['a', 0, 2], ['b', 2, 4]]), LINK).ops, [], 'closed up already');
   assert.deepEqual(planCloseMainGaps(model({ role: 'video', locked: true, clips: [['a', 1, 2]] }), LINK).ops, [], 'locked');
+});
+
+test('all the gaps on a track closed at once; on a title track only that track moves', () => {
+  const m = film([['t1', 1, 2], ['t2', 4, 5]], [['a', 0, 3], ['b', 3, 6]]);
+  assert.deepEqual(gapsOf(m, 0), [{ startMs: 0, endMs: 1000 }, { startMs: 2000, endMs: 4000 }]);
+  assert.deepEqual(after(m, planCloseTrackGaps(m, 0, LINK)), [[['t1', 0, 1], ['t2', 1, 2]], [['a', 0, 3], ['b', 3, 6]]]);
+  assert.deepEqual(planCloseTrackGaps(m, 1, LINK).ops, [], 'no gap on the main track');
 });
 
 test('with linkage a slower main-track clip pushes what comes after on every track', () => {

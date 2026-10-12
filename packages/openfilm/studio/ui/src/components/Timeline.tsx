@@ -89,12 +89,14 @@ import {
 import {
   editModelOf,
   gapAt,
+  gapsOf,
   insertPointOn,
   linkedIds,
   magnetOn,
   mainTrackOf,
   planCloseGap,
   planCloseMainGaps,
+  planCloseTrackGaps,
   planLink,
   planRemove,
   planRippleTrimTo,
@@ -3153,6 +3155,17 @@ export const Timeline = React.memo(function Timeline({
           icon: <BetweenHorizontalStart size={14} />,
           shortcut: '⌫',
           onSelect: () => closeGapOn(found),
+        });
+      }
+      /* every gap on this track at once (CapCut's 批量闭合空隙) */
+      const row = tracks.find((tr) => tr.lane === menu.lane);
+      if (onEditOps && row?.docIndex != null && !laneLocked && gapsOf(modelRef.current, row.docIndex).length) {
+        const doc = row.docIndex;
+        entries.push({
+          id: 'close-gaps',
+          label: t('timeline.menuCloseGaps'),
+          icon: <BetweenHorizontalStart size={14} />,
+          onSelect: () => { void runPlan(planCloseTrackGaps(modelRef.current, doc, followOf(prefsRef.current)), 'history.stepGapsClosed'); },
         });
       }
       return entries;

@@ -23,20 +23,20 @@ test('the playhead\'s moment of the clip\'s file: its in point plus the time int
   assert.equal(freezeSourceMs({ startMs: 10_000, endMs: 14_000 }, 14_000), null);
 });
 
-test('with the magnet the video is cut at the playhead, the still goes in, and the rest moves on 2 s', () => {
+test('with the magnet the video is cut at the playhead, the still goes in, and the rest moves on 3 s', () => {
   const m = model();
   const ops = planFreeze(m, { clip: shot as never, track: 0, atMs: 3000, still: 'assets/shot-frame-3s.png', mode: 'insert', sync: true })!;
   const [picture, sound] = run(m, ops);
-  assert.deepEqual(picture, ['shot.mp4@0#0,3.graded', 'assets/shot-frame-3s.png@3#0,2.graded', 'shot.mp4@5#3,6.graded', 'next.mp4@8#0,2']);
+  assert.deepEqual(picture, ['shot.mp4@0#0,3.graded', 'assets/shot-frame-3s.png@3#0,3.graded', 'shot.mp4@6#3,6.graded', 'next.mp4@9#0,2']);
   /* a sound already playing at the playhead is not cut (as any insert there, see planRoom) */
   assert.deepEqual(sound, ['vo.mp3@1#0,8']);
 });
 
-test('without it the still covers 2 s of the video after the playhead; nothing else moves', () => {
+test('without it the still covers 3 s of the video after the playhead; nothing else moves', () => {
   const m = model();
   const ops = planFreeze(m, { clip: shot as never, track: 0, atMs: 3000, still: 'f.png', mode: 'overwrite', sync: true })!;
   const [picture, sound] = run(m, ops);
-  assert.deepEqual(picture, ['shot.mp4@0#0,3.graded', 'f.png@3#0,2.graded', 'shot.mp4@5#5,6.graded', 'next.mp4@6#0,2']);
+  assert.deepEqual(picture, ['shot.mp4@0#0,3.graded', 'f.png@3#0,3.graded', 'next.mp4@6#0,2']);
   assert.deepEqual(sound, ['vo.mp3@1#0,8']);
 });
 

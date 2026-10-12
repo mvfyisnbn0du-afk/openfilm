@@ -666,24 +666,33 @@ export function planCloseGap(
   return { ...planOf(alone), alone: true };
 }
 
-/**
- * The main track closed up, as CapCut does when its magnet is turned on: every gap on it, before its first clip too,
- * closes, carrying what follows as a ripple does (sync lock, linkage). Nothing on a locked main track.
- */
-export function planCloseMainGaps(model: EditModel, opts: Follow): EditPlan {
-  const main = mainTrackOf(model);
-  const track = model.find((t) => t.index === main);
-  if (main == null || !track || track.locked) return emptyPlan();
+/** The gaps on a track: before its first clip and between clips (not after the last). */
+export function gapsOf(model: EditModel, track: number): { startMs: number; endMs: number }[] {
   const spans: { startMs: number; endMs: number }[] = [];
   let end = 0;
-  for (const c of [...track.clips].sort((a, b) => a.startMs - b.startMs)) {
+  for (const c of [...(model.find((t) => t.index === track)?.clips ?? [])].sort((x, y) => x.startMs - y.startMs)) {
     if (c.startMs - end > TOUCH_MS) spans.push({ startMs: end, endMs: c.startMs });
     end = Math.max(end, c.endMs);
   }
-  if (!spans.length) return emptyPlan();
+  return spans;
+}
+
+/**
+ * Every gap on a track closed (CapCut's "批量闭合空隙"), carrying what follows as a ripple does (sync lock, linkage on
+ * the main track). Nothing on a locked track.
+ */
+export function planCloseTrackGaps(model: EditModel, track: number, opts: Follow): EditPlan {
+  const spans = gapsOf(model, track);
+  if (!spans.length || model.find((t) => t.index === track)?.locked) return emptyPlan();
   const d = draftOf(model);
-  closeSpans(d, new Map([[main, spans]]), opts);
+  closeSpans(d, new Map([[track, spans]]), opts);
   return planOf(d);
+}
+
+/** The main track closed up, as CapCut does when its magnet is turned on (planCloseTrackGaps on the main track). */
+export function planCloseMainGaps(model: EditModel, opts: Follow): EditPlan {
+  const main = mainTrackOf(model);
+  return main == null ? emptyPlan() : planCloseTrackGaps(model, main, opts);
 }
 
 /* ── delete ── */
