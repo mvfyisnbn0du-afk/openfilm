@@ -75,7 +75,7 @@ async function call<T>(path: string, init: RequestInit & { json?: unknown } = {}
 const p = (id: string) => `projects/${encodeURIComponent(id)}`;
 
 /** Studio's own preferences, the same for every project (studio/server/prefs.mjs). */
-export interface StudioPrefs { proxies: { on: boolean; height: 540 | 720 | 1080 } }
+export interface StudioPrefs { proxies: { on: boolean; height: 540 | 720 | 1080 }; seenVersion: string | null }
 /** Said on the window when they change, for what plays by them (the preview's proxies). */
 export const PREFS_EVENT = 'openfilm:prefs';
 
@@ -84,7 +84,7 @@ export const api = {
   version: (check = false) => call<StudioVersion>(`version${check ? '?check=1' : ''}`),
   projects: () => call<{ projects: Project[] }>('projects').then((r) => r.projects),
   prefs: () => call<StudioPrefs>('prefs'),
-  setPrefs: (patch: { proxies?: Partial<StudioPrefs['proxies']> }) => call<StudioPrefs>('prefs', { method: 'PATCH', json: patch }).then((prefs) => {
+  setPrefs: (patch: { proxies?: Partial<StudioPrefs['proxies']>; seenVersion?: string }) => call<StudioPrefs>('prefs', { method: 'PATCH', json: patch }).then((prefs) => {
     window.dispatchEvent(new Event(PREFS_EVENT));
     return prefs;
   }),

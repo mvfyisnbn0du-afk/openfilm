@@ -11,6 +11,7 @@ import { ProjectView } from './components/ProjectView';
 import { BrandLoadingScreen } from './components/BrandLoadingScreen';
 import { ProjectsPopover } from './components/ProjectsLibrary';
 import { studioHost } from './lib/host';
+import { WhatsNew } from './components/WhatsNew';
 
 /**
  * `to` with this page's key in its address (the server puts it there): the address bar is what a person copies, and
@@ -63,7 +64,7 @@ export function App() {
           <ProjectsPopover open currentProjectId="" onOpen={(next) => go(`/projects/${next}`)} onCurrentRemoved={() => {}} />
         </div>
       );
-  return <>{page}<ConnectionNotice /></>;
+  return <>{page}<ConnectionNotice /><WhatsNew /></>;
 }
 
 /**

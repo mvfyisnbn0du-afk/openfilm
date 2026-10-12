@@ -19,6 +19,18 @@ export const zhCN: Words = {
     installFailed: 'OpenFilm {version} 暂时无法安装。退出 OpenFilm 后重新打开即可安装。',
     installing: '正在重启…',
   },
+  whatsNew: {
+    eyebrow: '已更新',
+    title: 'OpenFilm {version} 有哪些新内容',
+    close: '关闭',
+    changelog: '完整更新日志',
+    ok: '知道了',
+    kind: {
+      new: '新功能',
+      improved: '改进',
+      fixed: '修复',
+    },
+  },
   host: {
     refer: '在对话中引用',
     regionHint: '拖出一个框，在对话中引用',
@@ -1381,6 +1393,7 @@ export const zhCN: Words = {
       appDownloading: '正在下载 OpenFilm {version}…',
       appStaging: '正在准备 OpenFilm {version}…',
       appRetry: '重试',
+      whatsNew: '查看本次更新内容',
       appOffline: '连不上更新服务，请检查网络。',
       appUnavailable: '更新服务暂时不可用，请稍后再试。',
       appFailed: '更新没能完成，请稍后再试。',
@@ -1462,6 +1475,10 @@ export const zhCN: Words = {
       logs: '显示每一轮的日志',
       logsHint: '打开后，对话里每一轮都有“日志”按钮：提示词和所在会话、每次工具调用的输入和输出、每个提问和回答、这一轮怎么结束的，都按 agent 发来的原样显示。每条回复下面还会列出这一轮对 film.html 的改动，逐行对比。',
       where: '不论是否打开，每一轮都会记录在项目的 .film/logs 文件夹里，只保存在这台电脑上。',
+      releaseGroup: '发版',
+      previewWhatsNew: '更新内容弹窗',
+      previewWhatsNewHint: '按用户更新后看到的样子，显示 {version} 的更新内容。',
+      preview: '预览',
     },
     shortcuts: {
       groupMarks: "入点和出点",

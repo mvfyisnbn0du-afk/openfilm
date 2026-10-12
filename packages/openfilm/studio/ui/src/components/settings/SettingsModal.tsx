@@ -12,6 +12,8 @@ import { LANGUAGES, phrasesUnder, useLanguage, useLanguageChoice, useT, type Lan
 import { shortcutHint } from '@/lib/shortcut-hint';
 import { SHORTCUTS, type ShortcutKey } from '@/lib/timeline-keys';
 import { studioHost, type HostUpdateState } from '@/lib/host';
+import { showWhatsNew } from '@/lib/whats-new';
+import { hasNotes, newestVersion } from '../WhatsNew';
 import { api, type StudioPrefs, type StudioVersion } from '@/api';
 import { AgentsSection } from './AgentsSection';
 import { ModelsSection } from './ModelsSection';
@@ -251,7 +253,7 @@ function PlaybackGroup() {
   React.useEffect(() => { void api.prefs().then(setPrefs).catch(() => {}); }, []);
   if (!prefs) return null;
   const change = (proxies: Partial<StudioPrefs['proxies']>) => {
-    setPrefs({ proxies: { ...prefs.proxies, ...proxies } });
+    setPrefs({ ...prefs, proxies: { ...prefs.proxies, ...proxies } });
     void api.setPrefs({ proxies }).then(setPrefs).catch(() => {});
   };
   return (
@@ -312,7 +314,9 @@ function AboutGroup() {
         control={inApp || !info?.checking ? null : (
           <SettingsButton disabled={state === 'checking'} onClick={check}>{t('settings.about.check')}</SettingsButton>
         )}
-      />
+      >
+        {hasNotes(info?.version) ? <WhatsNewLink version={info!.version} /> : null}
+      </SettingsItem>
       {!inApp && !info?.source && info?.newer ? (
         <SettingsItem
           title={t('settings.about.howTitle')}
@@ -321,6 +325,17 @@ function AboutGroup() {
         />
       ) : null}
     </SettingsGroup>
+  );
+}
+
+/** This release's notes again (components/WhatsNew). */
+function WhatsNewLink({ version }: { version: string }) {
+  const t = useT();
+  return (
+    <button type="button" onClick={() => showWhatsNew([version])}
+      className="mb-2 text-[13.5px] text-[var(--text-muted)] underline underline-offset-2 transition hover:text-[var(--text)]">
+      {t('settings.about.whatsNew')}
+    </button>
   );
 }
 
@@ -386,6 +401,7 @@ function AppAboutGroup() {
         description={description}
         control={control}
       >
+        {hasNotes(s?.version) ? <WhatsNewLink version={s!.version} /> : null}
         {s?.status === 'downloading' ? (
           <div className="h-1 overflow-hidden rounded-full bg-[var(--fill-tsp)]" role="progressbar" aria-valuenow={Math.round(s.progress)} aria-valuemin={0} aria-valuemax={100}>
             <div className="h-full rounded-full bg-[var(--text)] transition-[width]" style={{ width: `${Math.max(2, s.progress)}%` }} />
@@ -416,6 +432,15 @@ function DeveloperSection() {
           control={<SettingsSwitch checked={on === true} disabled={on === null} label={t('settings.developer.logs')} onChange={(next) => { setOn(next); void developer.set(next); }} />}
         />
       </SettingsGroup>
+      {newestVersion() ? (
+        <SettingsGroup title={t('settings.developer.releaseGroup')}>
+          <SettingsItem
+            title={t('settings.developer.previewWhatsNew')}
+            description={t('settings.developer.previewWhatsNewHint').replace('{version}', newestVersion()!)}
+            control={<SettingsButton onClick={() => showWhatsNew([newestVersion()!])}>{t('settings.developer.preview')}</SettingsButton>}
+          />
+        </SettingsGroup>
+      ) : null}
     </SettingsPage>
   );
 }

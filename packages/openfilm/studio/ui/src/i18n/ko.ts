@@ -18,6 +18,18 @@ export const ko: Words = {
     installFailed: 'OpenFilm {version}을(를) 설치하지 못했습니다. OpenFilm을 종료했다가 다시 열면 설치됩니다.',
     installing: '재시작하는 중…',
   },
+  whatsNew: {
+    eyebrow: '업데이트됨',
+    title: 'OpenFilm {version}의 새로운 기능',
+    close: '닫기',
+    changelog: '전체 변경 내역',
+    ok: '확인',
+    kind: {
+      new: '새 기능',
+      improved: '개선',
+      fixed: '수정',
+    },
+  },
   host: {
     refer: '채팅에서 참조',
     regionHint: '상자를 드래그해 채팅에서 참조',
@@ -1379,6 +1391,7 @@ export const ko: Words = {
       appDownloading: 'OpenFilm {version} 다운로드 중…',
       appStaging: 'OpenFilm {version} 준비 중…',
       appRetry: '다시 시도',
+      whatsNew: '이번 버전의 새로운 기능',
       appOffline: '업데이트 서비스에 연결할 수 없습니다. 연결을 확인하세요.',
       appUnavailable: '지금은 업데이트를 사용할 수 없습니다. 나중에 다시 시도하세요.',
       appFailed: '업데이트를 완료하지 못했습니다. 나중에 다시 시도하세요.',
@@ -1460,6 +1473,10 @@ export const ko: Words = {
       logs: '각 턴의 로그 보기',
       logsHint: '채팅의 모든 턴에 로그 버튼이 생깁니다. 프롬프트와 실행된 세션, 각 도구 호출의 입력과 출력, 모든 질문과 답변, 끝난 방식을 에이전트가 보낸 그대로 볼 수 있습니다. 각 답변 아래에는 이번 턴에서 film.html이 바뀐 부분도 줄 단위 비교로 보여 줍니다.',
       where: '이 설정과 관계없이 모든 턴은 프로젝트의 .film/logs 폴더에 기록됩니다(이 컴퓨터에만).',
+      releaseGroup: '릴리스',
+      previewWhatsNew: '새로운 기능 안내',
+      previewWhatsNewHint: '업데이트 후 보이는 그대로 {version}의 안내를 보여 줍니다.',
+      preview: '미리 보기',
     },
     shortcuts: {
       groupMarks: "시작점과 끝점",

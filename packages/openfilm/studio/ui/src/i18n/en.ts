@@ -19,6 +19,18 @@ export const en = {
     installFailed: 'OpenFilm {version} could not install. Quit OpenFilm and open it again to install it.',
     installing: 'Restarting…',
   },
+  whatsNew: {
+    eyebrow: 'Updated',
+    title: 'What’s new in OpenFilm {version}',
+    close: 'Close',
+    changelog: 'Full changelog',
+    ok: 'Got it',
+    kind: {
+      new: 'New',
+      improved: 'Improved',
+      fixed: 'Fixed',
+    },
+  },
   host: {
     refer: 'Reference in chat',
     regionHint: 'Drag a box to reference it in chat',
@@ -1381,6 +1393,7 @@ export const en = {
       appDownloading: 'Downloading OpenFilm {version}…',
       appStaging: 'Preparing OpenFilm {version}…',
       appRetry: 'Try again',
+      whatsNew: 'What’s new in this version',
       appOffline: 'Could not reach the update service. Check your connection.',
       appUnavailable: 'Updates are unavailable right now. Try again later.',
       appFailed: 'Could not complete the update. Try again later.',
@@ -1462,6 +1475,10 @@ export const en = {
       logs: 'Show each turn’s log',
       logsHint: 'In the chat, every turn gets a Log button: the prompt and the session it ran in, each tool call with its input and output, every question and answer, and how it ended, as the agent sent them. Under each reply, what the turn changed in film.html, line by line as a diff.',
       where: 'Every turn is logged whether or not this is on, in the project’s .film/logs folder, on this computer only.',
+      releaseGroup: 'Releases',
+      previewWhatsNew: 'What’s new',
+      previewWhatsNewHint: 'Shows the notes of {version} as people see them after updating.',
+      preview: 'Preview',
     },
     shortcuts: {
       groupMarks: "In and out",

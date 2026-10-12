@@ -18,6 +18,18 @@ export const ja: Words = {
     installFailed: 'OpenFilm {version} をインストールできませんでした。OpenFilm を終了してもう一度開くとインストールされます。',
     installing: '再起動しています…',
   },
+  whatsNew: {
+    eyebrow: 'アップデート済み',
+    title: 'OpenFilm {version} の新機能',
+    close: '閉じる',
+    changelog: 'すべての変更履歴',
+    ok: 'OK',
+    kind: {
+      new: '新機能',
+      improved: '改善',
+      fixed: '修正',
+    },
+  },
   host: {
     refer: 'チャットで参照',
     regionHint: '枠をドラッグしてチャットで参照',
@@ -1380,6 +1392,7 @@ export const ja: Words = {
       appDownloading: 'OpenFilm {version} をダウンロード中…',
       appStaging: 'OpenFilm {version} を準備中…',
       appRetry: 'もう一度',
+      whatsNew: 'このバージョンの新機能',
       appOffline: 'アップデートサービスに接続できません。接続を確認してください。',
       appUnavailable: '現在アップデートを利用できません。しばらくしてからお試しください。',
       appFailed: 'アップデートを完了できませんでした。しばらくしてからお試しください。',
@@ -1461,6 +1474,10 @@ export const ja: Words = {
       logs: '各ターンのログを表示',
       logsHint: 'チャットの各ターンに「ログ」ボタンが付きます。プロンプトと実行したセッション、各ツール呼び出しの入力と出力、すべての質問と回答、終わり方を、エージェントが送ったとおりに確認できます。各返信の下には、そのターンで film.html が変わった箇所も行ごとの差分で表示されます。',
       where: 'この設定に関係なく、すべてのターンはプロジェクトの .film/logs フォルダに記録されます（このコンピュータ内のみ）。',
+      releaseGroup: 'リリース',
+      previewWhatsNew: '新機能のお知らせ',
+      previewWhatsNewHint: 'アップデート後に表示されるとおりに {version} のお知らせを表示します。',
+      preview: 'プレビュー',
     },
     shortcuts: {
       groupMarks: "イン点とアウト点",

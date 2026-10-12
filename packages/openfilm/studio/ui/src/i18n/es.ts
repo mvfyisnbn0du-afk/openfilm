@@ -18,6 +18,18 @@ export const es: Words = {
     installFailed: 'No se pudo instalar OpenFilm {version}. Sal de OpenFilm y vuelve a abrirlo para instalarlo.',
     installing: 'Reiniciando…',
   },
+  whatsNew: {
+    eyebrow: 'Actualizado',
+    title: 'Novedades de OpenFilm {version}',
+    close: 'Cerrar',
+    changelog: 'Registro completo de cambios',
+    ok: 'Entendido',
+    kind: {
+      new: 'Nuevo',
+      improved: 'Mejorado',
+      fixed: 'Corregido',
+    },
+  },
   host: {
     refer: 'Mencionar en el chat',
     regionHint: 'Arrastra un recuadro para mencionarlo en el chat',
@@ -1380,6 +1392,7 @@ export const es: Words = {
       appDownloading: 'Descargando OpenFilm {version}…',
       appStaging: 'Preparando OpenFilm {version}…',
       appRetry: 'Reintentar',
+      whatsNew: 'Novedades de esta versión',
       appOffline: 'No se pudo conectar con el servicio de actualizaciones. Revisa tu conexión.',
       appUnavailable: 'Las actualizaciones no están disponibles ahora. Inténtalo más tarde.',
       appFailed: 'No se pudo completar la actualización. Inténtalo más tarde.',
@@ -1461,6 +1474,10 @@ export const es: Words = {
       logs: 'Mostrar el registro de cada turno',
       logsHint: 'En el chat, cada turno tiene un botón Registro: la petición y la sesión en que se ejecutó, cada herramienta con su entrada y su salida, cada pregunta y respuesta, y cómo terminó, tal como lo envió el agente. Bajo cada respuesta, lo que el turno cambió en film.html, línea por línea como un diff.',
       where: 'Cada turno se registra esté o no activado, en la carpeta .film/logs del proyecto, solo en este ordenador.',
+      releaseGroup: 'Versiones',
+      previewWhatsNew: 'Novedades',
+      previewWhatsNewHint: 'Muestra las notas de {version} tal como se ven tras actualizar.',
+      preview: 'Vista previa',
     },
     shortcuts: {
       groupMarks: "Entrada y salida",
