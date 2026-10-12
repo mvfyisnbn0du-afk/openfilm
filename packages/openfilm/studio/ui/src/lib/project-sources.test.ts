@@ -1,8 +1,8 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  SourceError, examplesCollapsed, fetchErrorKey, followFetch, formatBytes, formatSeconds, looksLikeRepoUrl, pathCrumbs,
-  setExamplesCollapsed, type FetchJob,
+  SourceError, createSpeedMeter, examplesCollapsed, fetchErrorKey, followFetch, formatBytes, formatSeconds, looksLikeRepoUrl,
+  pathCrumbs, secondsLeft, setExamplesCollapsed, type FetchJob,
 } from './project-sources.ts';
 
 test('what looks like a repository address enables "Get"', () => {
@@ -23,6 +23,22 @@ test('sizes and lengths as people read them', () => {
   assert.equal(formatSeconds(5.6), '0:06');
 });
 
+test('a download\'s speed is what came over the last few seconds; the time left follows from it', () => {
+  const speed = createSpeedMeter(5000);
+  assert.equal(speed(0, 0), null, 'nothing to go on yet');
+  assert.equal(speed(500_000, 500), null, 'under a second');
+  assert.equal(speed(1_000_000, 1000), 1_000_000);
+  for (let s = 2; s <= 10; s++) speed(1_000_000 * s, s * 1000);
+  /* it stalls: within the window the speed falls, it does not keep the old average */
+  assert.equal(speed(10_000_000, 14_000), 1_000_000 * 1 / 5);
+  assert.equal(speed(10_000_000, 16_000), 0);
+  /* fewer bytes: another download, measured afresh */
+  assert.equal(speed(0, 17_000), null);
+  assert.equal(secondsLeft(2_000_000, 10_000_000, 1_000_000), 8);
+  assert.equal(secondsLeft(2_000_000, null, 1_000_000), null, 'no total');
+  assert.equal(secondsLeft(2_000_000, 10_000_000, 0), null, 'nothing coming');
+});
+
 test('breadcrumbs from the home folder, on macOS, Linux and Windows paths', () => {
   assert.deepEqual(pathCrumbs('/Volumes/work/Movies/Films', '/Volumes/work'), [
     { name: '~', path: '/Volumes/work' }, { name: 'Movies', path: '/Volumes/work/Movies' }, { name: 'Films', path: '/Volumes/work/Movies/Films' },
@@ -41,7 +57,7 @@ test('each failure code has its own words; others say the server\'s message', ()
   assert.equal(fetchErrorKey(undefined), null);
 });
 
-const job = (over: Partial<FetchJob> = {}): FetchJob => ({ id: 'j', url: 'u', label: 'o/r', state: 'running', phase: 'lookup', percent: null, bytes: 0, ...over });
+const job = (over: Partial<FetchJob> = {}): FetchJob => ({ id: 'j', url: 'u', label: 'o/r', state: 'running', phase: 'lookup', percent: null, bytes: 0, total: null, ...over });
 const now = () => Promise.resolve();
 
 test('a fetch is followed until it is done, each state told', async () => {

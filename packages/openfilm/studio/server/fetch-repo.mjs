@@ -1,12 +1,13 @@
 // @ts-check
 /**
  * A film from GitHub (or GitLab): a repository, or a folder in one, copied into the projects library as the person's
- * own project. git fetches it shallow (`--depth 1`); for a folder, a partial clone with a sparse checkout, so only
- * that folder's files download. The fetched `.git` is left behind: the copy has no tie to where it came from.
+ * own project. A public GitHub repository comes over https (fetch-github.mjs), its size known before it starts;
+ * otherwise git fetches it shallow (`--depth 1`); for a folder, a partial clone with a sparse checkout, so only that
+ * folder's files download. No `.git` is kept: the copy has no tie to where it came from.
  *
  * Only https addresses of github.com and gitlab.com are taken, and git always runs through execFile with its
- * arguments as a list (never a shell), with the ref and the folder checked first. A fetch stops when it takes too
- * long or grows too big, and says so.
+ * arguments as a list (never a shell), with the ref and the folder checked first. A fetch stops when nothing comes
+ * for a while or it grows too big, and says so.
  */
 import { spawn } from 'node:child_process';
 import { randomBytes } from 'node:crypto';
@@ -14,24 +15,15 @@ import { existsSync } from 'node:fs';
 import { lstat, mkdir, readdir, rename, rm, stat, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { FILM_FILE } from '../../src/film-doc.mjs';
+import { FetchError } from './fetch-error.mjs';
+import { downloadFiles, listFiles, resolveCommit } from './fetch-github.mjs';
 
-export class FetchError extends Error {
-  /**
-   * `code`, for the editor's own words: url, host, ref, access, network, git, no-folder, no-film, too-big, timeout,
-   * cancelled, failed.
-   * @param {string} message @param {number} [status] @param {string} [code]
-   */
-  constructor(message, status = 400, code = 'failed') {
-    super(message);
-    this.status = status;
-    this.code = code;
-  }
-}
+export { FetchError };
 
 /** Biggest fetch, unless OPENFILM_FETCH_MAX_MB says otherwise. */
 export const MAX_BYTES = (Number(process.env.OPENFILM_FETCH_MAX_MB) || 500) * 1024 * 1024;
-/** Longest fetch. */
-export const TIMEOUT_MS = 10 * 60 * 1000;
+/** Longest wait for anything to come: a fetch that gets nothing for this long is stopped. */
+export const TIMEOUT_MS = 2 * 60 * 1000;
 
 const HOSTS = /** @type {Record<string, 'github' | 'gitlab'>} */ ({ 'github.com': 'github', 'www.github.com': 'github', 'gitlab.com': 'gitlab' });
 /* a name in an owner/repo path; a folder's name, less what a sparse-checkout pattern would read as a wildcard */
@@ -39,9 +31,11 @@ const NAME = /^[\w.-]+$/;
 const SEGMENT = /^[^\u0000-\u001f\u007f*?[\]\\]+$/;
 
 /**
- * @typedef {{ host: 'github' | 'gitlab', web: string, cloneUrl: string, name: string, tree: string[] | null, blob: boolean }} RepoSource
+ * @typedef {{ host: 'github' | 'gitlab', web: string, cloneUrl: string, name: string, tree: string[] | null, blob: boolean,
+ *   github?: { owner: string, repo: string } | null }} RepoSource
  *   `tree`: what follows `/tree/` (or `/blob/`) in the address: a branch or tag, then a folder (which part is which is
- *   known only from the repository's refs, see resolveRef); null: the whole repository, its default branch.
+ *   known only from the repository's refs, see resolveRef); null: the whole repository, its default branch. `github`:
+ *   its owner and name on GitHub, fetched over https (fetch-github.mjs); none: through git.
  */
 
 /**
@@ -80,7 +74,8 @@ export function parseRepoUrl(input) {
   }
   const origin = host === 'github' ? 'https://github.com' : 'https://gitlab.com';
   const path = repoParts.join('/');
-  return { host, web: `${origin}/${path}`, cloneUrl: `${origin}/${path}.git`, name: repoParts[repoParts.length - 1], tree, blob };
+  const github = host === 'github' ? { owner: repoParts[0], repo: repoParts[1] } : null;
+  return { host, web: `${origin}/${path}`, cloneUrl: `${origin}/${path}.git`, name: repoParts[repoParts.length - 1], tree, blob, github };
 }
 
 /**
@@ -191,8 +186,9 @@ async function folderSize(dir) {
 
 /**
  * How a fetch is going: `phase` ('lookup': asking the host about the repository, 'download', 'checkout': writing the
- * files, 'copy': putting them in the library), git's percent for the phase when it says one, and the bytes on disk so far.
- * @typedef {{ phase: 'lookup' | 'download' | 'checkout' | 'copy', percent: number | null, bytes: number }} FetchProgress
+ * files, 'copy': putting them in the library); `bytes` downloaded so far, of `total` when that is known (GitHub's API
+ * says it; git does not), and the `percent` done: of the bytes, or git's own when only it knows.
+ * @typedef {{ phase: 'lookup' | 'download' | 'checkout' | 'copy', percent: number | null, bytes: number, total: number | null }} FetchProgress
  */
 
 /**
@@ -226,13 +222,15 @@ export async function cloneInto({ cloneUrl, ref, folder, dir, signal, onLine }) 
 /**
  * Fetch a film into `library`: the repository or folder `source` points at, as a folder of its own named after it
  * ("one-prompt", "one-prompt 2", …), without `.git`. Resolves to that folder. A folder that is missing, or has no
- * film.html, leaves nothing behind.
+ * film.html, leaves nothing behind. GitHub's public repositories come over https (fetch-github.mjs); the others, and
+ * any GitHub's API cannot list, through git.
  * @param {RepoSource} source
- * @param {{ library: string, onProgress?: (p: FetchProgress) => void, signal?: AbortSignal, maxBytes?: number, timeoutMs?: number }} options
+ * @param {{ library: string, onProgress?: (p: FetchProgress) => void, signal?: AbortSignal, maxBytes?: number, timeoutMs?: number,
+ *   hosts?: import('./fetch-github.mjs').GitHubHosts }} options
  */
-export async function fetchFilm(source, { library, onProgress = () => {}, signal, maxBytes = MAX_BYTES, timeoutMs = TIMEOUT_MS }) {
+export async function fetchFilm(source, { library, onProgress = () => {}, signal, maxBytes = MAX_BYTES, timeoutMs = TIMEOUT_MS, hosts }) {
   const where = source.host === 'github' ? 'GitHub' : 'GitLab';
-  /* why it stopped, when it was stopped here (too long, too big) or by the caller */
+  /* why it stopped, when it was stopped here (nothing coming, too big) or by the caller */
   /** @type {FetchError | null} */
   let stopped = null;
   const control = new AbortController();
@@ -240,69 +238,110 @@ export async function fetchFilm(source, { library, onProgress = () => {}, signal
   const onAbort = () => stop(new FetchError('Cancelled.', 499, 'cancelled'));
   if (signal?.aborted) onAbort();
   signal?.addEventListener('abort', onAbort, { once: true });
-  const timer = setTimeout(() => stop(new FetchError(`It took longer than ${Math.round(timeoutMs / 60000) || 1} minutes, so it was stopped.`, 504, 'timeout')), timeoutMs);
+  /* stopped when nothing has come for a while: a big film on a slow line still gets there */
+  /** @type {ReturnType<typeof setTimeout> | undefined} */
+  let timer;
+  const minutes = Math.max(1, Math.round(timeoutMs / 60000));
+  const waited = () => {
+    clearTimeout(timer);
+    timer = setTimeout(() => stop(new FetchError(`Nothing came for ${minutes} minute${minutes === 1 ? '' : 's'}, so it was stopped.`, 504, 'timeout')), timeoutMs);
+  };
+  waited();
 
   const tooBig = () => new FetchError(`It is bigger than ${Math.max(1, Math.round(maxBytes / 1024 / 1024))} MB, so it was stopped.`, 413, 'too-big');
   /** @type {FetchProgress} */
-  const progress = { phase: 'lookup', percent: null, bytes: 0 };
+  const progress = { phase: 'lookup', percent: null, bytes: 0, total: null };
   const tell = () => onProgress({ ...progress });
+  const grew = (/** @type {number} */ bytes) => {
+    if (bytes <= progress.bytes) return;
+    progress.bytes = bytes;
+    if (progress.total) progress.percent = Math.min(100, Math.floor((bytes / progress.total) * 100));
+    waited();
+    tell();
+    if (bytes > maxBytes) stop(tooBig());
+  };
   await mkdir(library, { recursive: true });
   const work = join(library, `.fetching-${randomBytes(6).toString('hex')}`);
-  /* the size on disk, read every half second: too big stops it */
-  const measure = setInterval(() => {
-    void folderSize(work).then((bytes) => {
-      if (bytes <= progress.bytes) return;
-      progress.bytes = bytes;
-      tell();
-      if (bytes > maxBytes) stop(tooBig());
-    });
-  }, 500);
-  const onLine = (/** @type {string} */ line) => {
-    /* only these two say how far the download and the writing are: the server's counting and compressing, and the
-       resolving after, each run 0 to 100 too */
-    const m = /^(Receiving objects|Updating files|Checking out files)[^:]*:\s+(\d+)%/.exec(line);
-    if (!m) return;
-    const phase = m[1] === 'Receiving objects' ? 'download' : 'checkout';
-    const percent = Number(m[2]);
-    if (phase === progress.phase && percent === progress.percent) return;
-    progress.phase = phase;
-    progress.percent = percent;
+
+  /** Over https: the list of files and their sizes first, so nothing is downloaded for a folder that is not a film. */
+  const overHttp = async (/** @type {{ owner: string, repo: string }} */ at) => {
+    const { commit, folder } = await resolveCommit(at, source.tree, source.blob, { signal: control.signal, hosts });
+    const files = await listFiles(at, commit, folder, { signal: control.signal, hosts });
+    if (!files.some((file) => file.path === FILM_FILE)) {
+      throw new FetchError(`There is no film.html in ${folder.length ? `“${folder.join('/')}”` : 'that repository'}: it is not an OpenFilm film.`, 422, 'no-film');
+    }
+    const total = files.reduce((sum, file) => sum + file.size, 0);
+    if (total > maxBytes) throw tooBig();
+    Object.assign(progress, { phase: 'download', total, percent: 0 });
     tell();
+    const dir = join(work, 'files');
+    await mkdir(dir, { recursive: true });
+    let got = 0;
+    await downloadFiles(at, commit, folder, files, { dir, signal: control.signal, hosts, onBytes: (n) => grew((got += n)) });
+    return { from: dir, folder };
   };
 
-  try {
-    tell();
+  /** Through git: how much has come is the size of what git keeps, read every half second. */
+  const overGit = async () => {
     let ref = null;
     /** @type {string[]} */
     let folder = [];
     if (source.tree) ({ ref, folder } = splitTree(source.tree, await remoteRefs(source.cloneUrl, control.signal), source.blob));
-    progress.phase = 'download';
-    progress.percent = null;
+    Object.assign(progress, { phase: 'download', total: null, percent: null });
     tell();
-    await cloneInto({ cloneUrl: source.cloneUrl, ref, folder, dir: work, signal: control.signal, onLine });
+    const clone = join(work, 'clone');
+    const kept = join(clone, '.git');
+    const measure = setInterval(() => { void folderSize(kept).then(grew); }, 500);
+    const onLine = (/** @type {string} */ line) => {
+      /* only these two say how far the download and the writing are: the server's counting and compressing, and the
+         resolving after, each run 0 to 100 too */
+      const m = /^(Receiving objects|Updating files|Checking out files)[^:]*:\s+(\d+)%/.exec(line);
+      if (!m) return;
+      const phase = m[1] === 'Receiving objects' ? 'download' : 'checkout';
+      const percent = Number(m[2]);
+      if (phase === progress.phase && percent === progress.percent) return;
+      progress.phase = phase;
+      progress.percent = percent;
+      waited();
+      tell();
+    };
+    try {
+      await cloneInto({ cloneUrl: source.cloneUrl, ref, folder, dir: clone, signal: control.signal, onLine });
+    } finally {
+      clearInterval(measure);
+    }
     if (stopped) throw stopped;
     /* done between two looks at its size: looked at once more */
-    progress.bytes = Math.max(progress.bytes, await folderSize(work));
+    grew(await folderSize(kept));
     if (progress.bytes > maxBytes) throw tooBig();
-    const from = join(work, ...folder);
+    const from = join(clone, ...folder);
     const kind = await stat(from).catch(() => null);
     if (!kind?.isDirectory()) throw new FetchError(`There is no folder “${folder.join('/')}” in that repository.`, 404, 'no-folder');
     if (!existsSync(join(from, FILM_FILE))) {
       throw new FetchError(`There is no film.html in ${folder.length ? `“${folder.join('/')}”` : 'that repository'}: it is not an OpenFilm film.`, 422, 'no-film');
     }
-    progress.phase = 'copy';
-    progress.percent = null;
-    tell();
     /* the copy is the person's own: no history of where it came from, no remote */
     await rm(join(from, '.git'), { recursive: true, force: true });
-    const to = freeName(library, folder.length ? folder[folder.length - 1] : source.name);
-    await rename(from, to);
+    return { from, folder };
+  };
+
+  try {
+    tell();
+    const github = source.github;
+    const got = (github ? await overHttp(github).catch((e) => {
+      if (e instanceof FetchError && e.code === 'use-git' && !stopped) return null;
+      throw e;
+    }) : null) ?? await overGit();
+    if (stopped) throw stopped;
+    Object.assign(progress, { phase: 'copy' });
+    tell();
+    const to = freeName(library, got.folder.length ? got.folder[got.folder.length - 1] : source.name);
+    await rename(got.from, to);
     return to;
   } catch (e) {
     throw stopped ?? explain(e, where);
   } finally {
     clearTimeout(timer);
-    clearInterval(measure);
     signal?.removeEventListener('abort', onAbort);
     await rm(work, { recursive: true, force: true, maxRetries: 3 }).catch(() => {});
   }
@@ -324,7 +363,7 @@ function freeName(/** @type {string} */ root, /** @type {string} */ name) {
 export function createFetches({ library, open, maxBytes, timeoutMs }) {
   /**
    * @typedef {{ id: string, url: string, label: string, state: 'running' | 'done' | 'failed', phase: FetchProgress['phase'],
-   *   percent: number | null, bytes: number, error?: string, code?: string, project?: { id: string } }} FetchJob
+   *   percent: number | null, bytes: number, total: number | null, error?: string, code?: string, project?: { id: string } }} FetchJob
    */
   /** @type {Map<string, { job: FetchJob, control: AbortController }>} */
   const jobs = new Map();
@@ -337,7 +376,7 @@ export function createFetches({ library, open, maxBytes, timeoutMs }) {
       const control = new AbortController();
       const label = [source.web.replace(/^https:\/\/[^/]+\//, ''), ...(source.tree ?? []).slice(1)].join(' / ');
       /** @type {FetchJob} */
-      const job = { id, url: String(url).trim(), label, state: 'running', phase: 'lookup', percent: null, bytes: 0 };
+      const job = { id, url: String(url).trim(), label, state: 'running', phase: 'lookup', percent: null, bytes: 0, total: null };
       jobs.set(id, { job, control });
       void fetchFilm(source, {
         library: library(), signal: control.signal, ...(maxBytes ? { maxBytes } : {}), ...(timeoutMs ? { timeoutMs } : {}),

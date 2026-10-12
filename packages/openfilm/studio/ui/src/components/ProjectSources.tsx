@@ -8,7 +8,8 @@ import { createPortal } from 'react-dom';
 import { ArrowUp, ChevronDown, ChevronRight, Clapperboard, Clock3, Folder, FolderOpen, Github, Loader2, X } from 'lucide-react';
 import { useT } from '@/i18n';
 import {
-  SourceError, fetchErrorKey, fetchPhaseKey, followFetch, formatBytes, formatSeconds, looksLikeRepoUrl, pathCrumbs, sourcesApi,
+  SourceError, createSpeedMeter, fetchErrorKey, fetchPhaseKey, followFetch, formatBytes, formatSeconds, looksLikeRepoUrl, pathCrumbs,
+  secondsLeft, sourcesApi,
   type BrowseListing, type Example, type FetchJob,
 } from '@/lib/project-sources';
 import { CardButton } from './Card';
@@ -18,11 +19,14 @@ function SourceDialog({
   label,
   width,
   onClose,
+  closeOnOutside = true,
   children,
 }: {
   label: string;
   width: number;
   onClose: () => void;
+  /** false: a click outside does nothing (a download running is not stopped by a stray click) */
+  closeOnOutside?: boolean;
   children: React.ReactNode;
 }) {
   React.useEffect(() => {
@@ -41,7 +45,7 @@ function SourceDialog({
       aria-modal
       aria-label={label}
       className="fixed inset-0 z-[10100] flex items-center justify-center bg-black/35 p-4 backdrop-blur-[2px]"
-      onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}
+      onMouseDown={(event) => { if (closeOnOutside && event.target === event.currentTarget) onClose(); }}
     >
       <div
         className="flex max-h-[calc(100vh-48px)] w-full flex-col overflow-hidden rounded-2xl border border-[var(--border)] bg-[var(--surface)] shadow-[var(--shadow-lg)]"
@@ -260,9 +264,53 @@ export function FolderBrowserDialog({
 }
 
 /**
+ * How a fetch is going, as a download looks: what it is doing, a bar, how much of how much has come, how fast, and
+ * how long is left. Before the first answer (`job` null): getting the list of files, the bar sweeping.
+ */
+function FetchProgress({ job }: { job: FetchJob | null }) {
+  const t = useT();
+  const meter = React.useRef(createSpeedMeter());
+  const [speed, setSpeed] = React.useState<number | null>(null);
+  const bytes = job?.bytes ?? 0;
+  React.useEffect(() => {
+    if (job?.phase === 'download') setSpeed(meter.current(bytes, Date.now()));
+  }, [job?.phase, bytes]);
+  const phase = job?.phase ?? 'lookup';
+  const total = job?.total ?? null;
+  const percent = phase === 'copy' ? 100 : phase === 'lookup' ? null : job?.percent ?? null;
+  const left = phase === 'download' ? secondsLeft(bytes, total, speed) : null;
+  return (
+    <div aria-live="polite">
+      <div className="flex items-baseline gap-3 text-[12.5px] text-[var(--text)]">
+        <span className="min-w-0 flex-1 truncate">{t(fetchPhaseKey(phase))}</span>
+        {percent != null && phase !== 'copy' ? <span className="shrink-0 tabular-nums text-[var(--text-muted)]">{percent}%</span> : null}
+      </div>
+      <div className="relative mt-2 h-1.5 overflow-hidden rounded-full bg-[var(--border)]">
+        {percent == null ? (
+          <div className="openfilm-loading-bar absolute inset-y-0 left-0 w-1/3 rounded-full bg-[var(--text)]/60" />
+        ) : (
+          <div className="h-full rounded-full bg-[var(--text)] transition-[width] duration-300 ease-out" style={{ width: `${percent}%` }} />
+        )}
+      </div>
+      <div className="mt-2 flex min-h-[16px] items-baseline gap-3 text-[11.5px] tabular-nums text-[var(--text-muted)]">
+        <span className="min-w-0 flex-1 truncate">
+          {phase === 'lookup' ? '' : total ? `${formatBytes(bytes)} / ${formatBytes(total)}` : formatBytes(bytes)}
+        </span>
+        {phase === 'download' && speed != null ? (
+          <span className="shrink-0">
+            {`${formatBytes(speed)}/s`}
+            {left != null ? ` · ${t('projects.fetch.left').replace('{time}', formatSeconds(left))}` : ''}
+          </span>
+        ) : null}
+      </div>
+    </div>
+  );
+}
+
+/**
  * "Get from GitHub": an address pasted (a repository, or a folder in one), fetched into the library by Studio, then
- * opened. While it runs: where it is and how much has come; a failure in plain words, with Try again. `url` and
- * `start`: an example's address, fetched at once.
+ * opened. An example (`url` and `start`) skips the address: it is a download, with its progress and Cancel only.
+ * Cancel stops it and leaves nothing (an example's dialog closes); a failure is said in plain words, with Try again.
  */
 export function GitHubDialog({
   url: initialUrl = '',
@@ -279,11 +327,16 @@ export function GitHubDialog({
   onClose: () => void;
 }) {
   const t = useT();
+  const example = start && !!initialUrl;
   const [url, setUrl] = React.useState(initialUrl);
   const [job, setJob] = React.useState<FetchJob | null>(null);
+  /* asked to start, no answer yet */
+  const [starting, setStarting] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
   const follow = React.useRef<ReturnType<typeof followFetch> | null>(null);
-  const running = job?.state === 'running';
+  /* which fetch is the current one: a cancelled one's late answers are let go */
+  const run = React.useRef(0);
+  const running = starting || job?.state === 'running';
 
   const say = React.useCallback((code: string | null | undefined, message: string) => {
     const key = fetchErrorKey(code);
@@ -291,89 +344,115 @@ export function GitHubDialog({
   }, [t]);
 
   const get = React.useCallback(async (address: string) => {
+    const mine = ++run.current;
+    const current = () => run.current === mine;
     setError(null);
     setJob(null);
+    setStarting(true);
     try {
       const first = await sourcesApi.startFetch(address);
-      follow.current = followFetch(first, setJob);
+      /* cancelled before Studio answered: stopped now */
+      if (!current()) { void sourcesApi.cancelFetch(first.id).catch(() => {}); return; }
+      follow.current = followFetch(first, (next) => { if (current()) setJob(next); });
+      setStarting(false);
       const last = await follow.current.done;
-      if (!last) return;
+      if (!last || !current()) return;
       if (last.state === 'done' && last.project) onDone(last.project.id);
-      else if (last.state === 'failed' && last.code !== 'cancelled') say(last.code, last.error ?? '');
-      if (last.state === 'failed') setJob(null);
+      else if (last.state === 'failed') {
+        if (last.code !== 'cancelled') say(last.code, last.error ?? '');
+        setJob(null);
+      }
     } catch (e) {
-      say(e instanceof SourceError ? e.code : null, e instanceof Error ? e.message : String(e));
+      if (current()) say(e instanceof SourceError ? e.code : null, e instanceof Error ? e.message : String(e));
+    } finally {
+      if (current()) setStarting(false);
     }
   }, [onDone, say]);
-
-  const started = React.useRef(false);
-  React.useEffect(() => {
-    if (start && initialUrl && !started.current) { started.current = true; void get(initialUrl); }
-  }, [start, initialUrl, get]);
 
   /* closed or gone while it runs: it is stopped (a half-fetched copy is never left) */
   const latest = React.useRef<FetchJob | null>(null);
   latest.current = job;
-  React.useEffect(() => () => {
+  const stop = React.useCallback(() => {
+    run.current += 1;
     follow.current?.stop();
     const current = latest.current;
     if (current?.state === 'running') void sourcesApi.cancelFetch(current.id).catch(() => {});
+    latest.current = null;
   }, []);
+  React.useEffect(() => stop, [stop]);
+  /* an example starts at once (`get` read from a ref: a new onDone each render does not start it again) */
+  const getLatest = React.useRef(get);
+  getLatest.current = get;
+  React.useEffect(() => {
+    if (!example) return undefined;
+    void getLatest.current(initialUrl);
+    return stop;
+  }, [example, initialUrl, stop]);
   const cancel = () => {
-    if (job?.state === 'running') void sourcesApi.cancelFetch(job.id).catch(() => {});
-    follow.current?.stop();
+    stop();
     setJob(null);
+    setStarting(false);
+    if (example) onClose();
   };
+  const close = () => { stop(); onClose(); };
 
   const ready = looksLikeRepoUrl(url) && !running;
+  const failed = error ? <p role="alert" className="text-[12.5px] leading-snug text-[var(--err)]">{error}</p> : null;
   return (
-    <SourceDialog label={t('projects.fetch.title')} width={520} onClose={onClose}>
-      <DialogHead title={title ?? t('projects.fetch.title')} onClose={onClose} />
-      <form
-        className="px-5 pb-5"
-        onSubmit={(event) => { event.preventDefault(); if (ready) void get(url.trim()); }}
-      >
-        <label className="block text-[12px] font-medium text-[var(--text-muted)]" htmlFor="openfilm-fetch-url">{t('projects.fetch.urlLabel')}</label>
-        <div className="mt-1.5 flex items-center gap-2">
-          <div className="relative min-w-0 flex-1">
-            <Github size={14} className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-[var(--text-faint)]" />
-            <input
-              id="openfilm-fetch-url"
-              autoFocus={!start}
-              value={url}
-              disabled={running}
-              onChange={(event) => { setUrl(event.target.value); setError(null); }}
-              placeholder={t('projects.fetch.placeholder')}
-              spellCheck={false}
-              autoComplete="off"
-              className="h-8 w-full rounded-lg bg-[var(--surface-2)] pl-8 pr-3 text-[12.5px] text-[var(--text)] outline-none placeholder:text-[var(--text-faint)] focus:ring-1 focus:ring-[var(--border-strong)] disabled:opacity-60"
-            />
+    <SourceDialog label={title ?? t('projects.fetch.title')} width={520} onClose={close} closeOnOutside={!running}>
+      <DialogHead title={title ?? t('projects.fetch.title')} onClose={close} />
+      {example ? (
+        <div className="px-5 pb-5">
+          {error ? failed : <FetchProgress job={job} />}
+          <div className="mt-4 flex justify-end gap-2">
+            {error ? (
+              <>
+                <CardButton key="close" weight="quiet" onClick={close}>{t('projects.fetch.close')}</CardButton>
+                <CardButton key="retry" weight="primary" onClick={() => void get(initialUrl)}>{t('projects.fetch.retry')}</CardButton>
+              </>
+            ) : (
+              <CardButton key="cancel" weight="secondary" onClick={cancel}>{t('projects.fetch.cancel')}</CardButton>
+            )}
           </div>
-          {running ? (
-            <CardButton weight="secondary" onClick={cancel}>{t('projects.fetch.cancel')}</CardButton>
-          ) : (
-            <CardButton type="submit" weight="primary" disabled={!ready}>{error ? t('projects.fetch.retry') : t('projects.fetch.get')}</CardButton>
-          )}
         </div>
-        <p className="mt-2 text-[12px] leading-relaxed text-[var(--text-faint)]">{t('projects.fetch.hint')}</p>
-        {running && job ? (
-          <div className="mt-4 rounded-xl border border-[var(--border-soft)] bg-[var(--surface-2)] px-3.5 py-3" aria-live="polite">
-            <div className="flex items-center gap-2 text-[12.5px] text-[var(--text)]">
-              <Loader2 size={13} className="shrink-0 animate-spin" />
-              <span className="min-w-0 flex-1 truncate">{t(fetchPhaseKey(job.phase))}</span>
-              <span className="shrink-0 tabular-nums text-[var(--text-muted)]">{t('projects.fetch.size').replace('{size}', formatBytes(job.bytes))}</span>
-            </div>
-            <div className="mt-2 h-1 overflow-hidden rounded-full bg-[var(--border)]">
-              <div
-                className={`h-full rounded-full bg-[var(--text)] transition-[width] duration-300 ${job.percent == null ? 'w-1/3 animate-pulse' : ''}`}
-                style={job.percent == null ? undefined : { width: `${Math.max(4, job.percent)}%` }}
+      ) : (
+        <form
+          className="px-5 pb-5"
+          onSubmit={(event) => { event.preventDefault(); if (ready) void get(url.trim()); }}
+        >
+          <label className="block text-[12px] font-medium text-[var(--text-muted)]" htmlFor="openfilm-fetch-url">{t('projects.fetch.urlLabel')}</label>
+          <div className="mt-1.5 flex items-center gap-2">
+            <div className="relative min-w-0 flex-1">
+              <Github size={14} className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-[var(--text-faint)]" />
+              <input
+                id="openfilm-fetch-url"
+                autoFocus
+                value={url}
+                disabled={running}
+                onChange={(event) => { setUrl(event.target.value); setError(null); }}
+                placeholder={t('projects.fetch.placeholder')}
+                spellCheck={false}
+                autoComplete="off"
+                className="h-8 w-full rounded-lg bg-[var(--surface-2)] pl-8 pr-3 text-[12.5px] text-[var(--text)] outline-none placeholder:text-[var(--text-faint)] focus:ring-1 focus:ring-[var(--border-strong)] disabled:opacity-60"
               />
             </div>
-            <p className="mt-1.5 truncate text-[11.5px] text-[var(--text-faint)]">{job.label}</p>
+            <CardButton key="get" type="submit" weight="primary" disabled={!ready}>
+              {running ? <Loader2 size={13} className="animate-spin" /> : null}
+              {error ? t('projects.fetch.retry') : t('projects.fetch.get')}
+            </CardButton>
           </div>
-        ) : null}
-        {error ? <p role="alert" className="mt-3 text-[12.5px] leading-snug text-[var(--err)]">{error}</p> : null}
-      </form>
+          <p className="mt-2 text-[12px] leading-relaxed text-[var(--text-faint)]">{t('projects.fetch.hint')}</p>
+          {running ? (
+            <div className="mt-4 rounded-xl border border-[var(--border-soft)] bg-[var(--surface-2)] px-3.5 py-3">
+              <FetchProgress job={job} />
+              <div className="mt-3 flex justify-end">
+                <CardButton key="cancel" weight="secondary" onClick={cancel}>{t('projects.fetch.cancel')}</CardButton>
+              </div>
+            </div>
+          ) : null}
+          {failed ? <div className="mt-3">{failed}</div> : null}
+        </form>
+      )}
     </SourceDialog>
   );
 }

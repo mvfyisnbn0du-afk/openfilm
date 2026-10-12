@@ -162,9 +162,10 @@ export const en = {
       get: 'Get',
       cancel: 'Cancel',
       retry: 'Try again',
-      size: '{size} so far',
+      left: 'About {time} left',
+      close: 'Close',
       phase: {
-        lookup: 'Looking up the repository…',
+        lookup: 'Getting the list of files…',
         download: 'Downloading…',
         checkout: 'Writing files…',
         copy: 'Opening…',
@@ -178,8 +179,8 @@ export const en = {
         noFolder: 'That folder isn’t in the repository.',
         noFilm: 'There’s no film.html in that folder, so it isn’t an OpenFilm film.',
         tooBig: 'It’s too big to get, so it was stopped.',
-        timeout: 'It took too long, so it was stopped.',
-        git: 'Studio needs git to get films. Install git, then try again.',
+        timeout: 'Nothing came for a while, so it was stopped. Check your internet connection, then try again.',
+        git: 'This one needs git: it is private, or not on GitHub. Install git, then try again.',
       },
     },
     examples: {

@@ -161,9 +161,10 @@ export const es: Words = {
       get: 'Obtener',
       cancel: 'Cancelar',
       retry: 'Reintentar',
-      size: '{size} hasta ahora',
+      left: 'Quedan unos {time}',
+      close: 'Cerrar',
       phase: {
-        lookup: 'Buscando el repositorio…',
+        lookup: 'Obteniendo la lista de archivos…',
         download: 'Descargando…',
         checkout: 'Escribiendo archivos…',
         copy: 'Abriendo…',
@@ -177,8 +178,8 @@ export const es: Words = {
         noFolder: 'Esa carpeta no está en el repositorio.',
         noFilm: 'No hay film.html en esa carpeta, así que no es una película de OpenFilm.',
         tooBig: 'Es demasiado grande, así que se detuvo.',
-        timeout: 'Tardó demasiado, así que se detuvo.',
-        git: 'Studio necesita git para obtener películas. Instala git y vuelve a intentarlo.',
+        timeout: 'No llegó nada durante un rato, así que se detuvo. Revisa tu conexión a internet y vuelve a intentarlo.',
+        git: 'Este necesita git: es privado o no está en GitHub. Instala git y vuelve a intentarlo.',
       },
     },
     examples: {

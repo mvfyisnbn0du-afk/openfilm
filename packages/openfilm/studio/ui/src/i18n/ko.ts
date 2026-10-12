@@ -161,9 +161,10 @@ export const ko: Words = {
       get: '가져오기',
       cancel: '취소',
       retry: '다시 시도',
-      size: '{size} 받음',
+      left: '약 {time} 남음',
+      close: '닫기',
       phase: {
-        lookup: '저장소를 확인하는 중…',
+        lookup: '파일 목록을 가져오는 중…',
         download: '다운로드하는 중…',
         checkout: '파일을 쓰는 중…',
         copy: '여는 중…',
@@ -177,8 +178,8 @@ export const ko: Words = {
         noFolder: '저장소에 그 폴더가 없습니다.',
         noFilm: '그 폴더에는 film.html이 없어서 OpenFilm 필름이 아닙니다.',
         tooBig: '너무 커서 가져오기를 멈췄습니다.',
-        timeout: '시간이 너무 오래 걸려 멈췄습니다.',
-        git: '필름을 가져오려면 git이 필요합니다. git을 설치한 뒤 다시 시도하세요.',
+        timeout: '한동안 아무것도 받지 못해 멈췄습니다. 인터넷 연결을 확인한 뒤 다시 시도하세요.',
+        git: '비공개이거나 GitHub에 없는 저장소라 git이 필요합니다. git을 설치한 뒤 다시 시도하세요.',
       },
     },
     examples: {

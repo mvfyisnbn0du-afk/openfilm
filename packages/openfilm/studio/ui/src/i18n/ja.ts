@@ -161,9 +161,10 @@ export const ja: Words = {
       get: '取得',
       cancel: 'キャンセル',
       retry: 'もう一度',
-      size: '{size} 取得済み',
+      left: '残り約 {time}',
+      close: '閉じる',
       phase: {
-        lookup: 'リポジトリを確認しています…',
+        lookup: 'ファイルの一覧を取得しています…',
         download: 'ダウンロードしています…',
         checkout: 'ファイルを書き出しています…',
         copy: '開いています…',
@@ -177,8 +178,8 @@ export const ja: Words = {
         noFolder: 'そのフォルダーはリポジトリにありません。',
         noFilm: 'そのフォルダーには film.html がないため、OpenFilm のフィルムではありません。',
         tooBig: '大きすぎるため、取得を止めました。',
-        timeout: '時間がかかりすぎたため、止めました。',
-        git: 'フィルムの取得には git が必要です。git をインストールしてから、もう一度お試しください。',
+        timeout: 'しばらく何も届かなかったため、止めました。インターネット接続を確認して、もう一度お試しください。',
+        git: 'これは非公開か GitHub 以外にあるため、git が必要です。git をインストールしてから、もう一度お試しください。',
       },
     },
     examples: {

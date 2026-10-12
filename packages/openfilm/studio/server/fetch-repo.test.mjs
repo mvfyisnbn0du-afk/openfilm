@@ -1,8 +1,9 @@
-import { test, before } from 'node:test';
+import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
 import { randomBytes } from 'node:crypto';
-import { existsSync, mkdirSync, mkdtempSync, readdirSync, writeFileSync } from 'node:fs';
+import { createReadStream, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, statSync, writeFileSync } from 'node:fs';
+import { createServer } from 'node:http';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
@@ -16,6 +17,7 @@ test('a repository address, with or without .git, a slash or the scheme', () => 
     assert.equal(source.cloneUrl, 'https://github.com/openfilm/examples.git', input);
     assert.equal(source.name, 'examples');
     assert.equal(source.tree, null);
+    assert.deepEqual(source.github, { owner: 'openfilm', repo: 'examples' }, 'GitHub: over https');
   }
 });
 
@@ -29,6 +31,7 @@ test('a folder\'s address: what follows /tree/ is the ref and the folder, told a
   assert.deepEqual(parseRepoUrl('https://github.com/o/r/tree/main/a%20b').tree, ['main', 'a b']);
   const lab = parseRepoUrl('https://gitlab.com/group/sub/film/-/tree/main/one');
   assert.equal(lab.cloneUrl, 'https://gitlab.com/group/sub/film.git');
+  assert.equal(lab.github, null, 'GitLab: through git');
   assert.deepEqual(lab.tree, ['main', 'one']);
 });
 
@@ -155,10 +158,132 @@ test('the job list: a wrong address is refused at once; a job says how it went',
   const fetches = createFetches({ library: () => join(scratch, 'jobs'), open: async () => ({ id: 'p' }) });
   assert.throws(() => fetches.start('https://example.com/o/r'), (e) => e.code === 'host');
   assert.throws(() => fetches.get('nope'), (e) => e.status === 404);
-  /* stopped at once, before git runs (no network): it reports how it ended */
+  /* stopped at once, before anything is asked (no network): it reports how it ended */
   const job = fetches.start('https://github.com/openfilm/examples/tree/main/x');
   assert.equal(job.state, 'running');
   fetches.cancel(job.id);
   for (let i = 0; i < 100 && fetches.get(job.id).state === 'running'; i++) await new Promise((r) => setTimeout(r, 20));
   assert.deepEqual([fetches.get(job.id).state, fetches.get(job.id).code], ['failed', 'cancelled']);
+});
+
+/* ── over https, against a GitHub of our own: its API and its raw files, read from the work tree ── */
+
+const COMMIT = 'c'.repeat(40);
+let github;
+/* what the fake GitHub was asked; a file named here drops its connection half way the first time it is asked */
+const asked = [];
+const dropOnce = new Set();
+const filesUnder = (dir, prefix = '') => readdirSync(dir, { withFileTypes: true }).flatMap((entry) => {
+  if (entry.name === '.git') return [];
+  const path = prefix ? `${prefix}/${entry.name}` : entry.name;
+  return entry.isDirectory() ? filesUnder(join(dir, entry.name), path) : [{ path, type: 'blob', mode: '100644', size: statSync(join(dir, entry.name)).size }];
+});
+before(async () => {
+  const work = join(scratch, 'work');
+  const server = createServer((req, res) => {
+    const url = new URL(req.url, 'http://x');
+    asked.push(url.pathname);
+    const parts = url.pathname.split('/').filter(Boolean).map(decodeURIComponent);
+    if (parts[0] === 'raw') {
+      /* raw/owner/repo/commit/…path */
+      const path = parts.slice(4).join('/');
+      if (parts[3] !== COMMIT || !existsSync(join(work, path))) { res.writeHead(404).end(); return; }
+      const body = readFileSync(join(work, path));
+      res.writeHead(200, { 'content-length': body.length });
+      if (dropOnce.delete(path)) { res.write(body.subarray(0, body.length >> 1)); setTimeout(() => res.destroy(), 20); return; }
+      res.end(body);
+      return;
+    }
+    /* repos/owner/repo/… */
+    if (parts[1] === 'private') { res.writeHead(404).end('{}'); return; }
+    if (parts[3] === 'commits') {
+      const ref = parts.slice(4).join('/');
+      if (['HEAD', 'main', 'feature/x'].includes(ref)) res.writeHead(200).end(COMMIT);
+      else res.writeHead(422).end('{}');
+      return;
+    }
+    if (parts[3] === 'git' && parts[4] === 'trees') {
+      const [commit, folder = ''] = parts.slice(5).join('/').split(':');
+      const dir = join(work, folder);
+      if (commit !== COMMIT || !existsSync(dir)) { res.writeHead(404).end('{}'); return; }
+      res.writeHead(200, { 'content-type': 'application/json' }).end(JSON.stringify({ truncated: false, tree: filesUnder(dir) }));
+      return;
+    }
+    res.writeHead(404).end('{}');
+  });
+  await new Promise((done) => server.listen(0, '127.0.0.1', done));
+  const at = `http://127.0.0.1:${server.address().port}`;
+  github = { server, hosts: { api: at, raw: `${at}/raw` } };
+});
+after(() => github?.server.close());
+
+const overHttp = (tree, blob = false, owner = 'o') => ({ ...source(tree, blob), github: { owner, repo: 'r' } });
+
+test('over https: the size is known before the first byte, and the bar only goes up, to 100', async () => {
+  const lib = library();
+  const seen = [];
+  const to = await fetchFilm(overHttp(['main', 'films', 'one']), { library: lib, hosts: github.hosts, onProgress: (p) => seen.push(p) });
+  assert.equal(to, join(lib, 'one'));
+  assert.equal(readFileSync(join(to, 'film.html'), 'utf8'), '<!doctype html><title>one</title>');
+  assert.equal(readFileSync(join(to, 'assets', 'a.txt'), 'utf8'), 'a');
+  assert.deepEqual(readdirSync(lib), ['one'], 'nothing else left behind');
+  assert.deepEqual([...new Set(seen.map((p) => p.phase))], ['lookup', 'download', 'copy']);
+  const downloads = seen.filter((p) => p.phase === 'download');
+  const total = statSync(join(to, 'film.html')).size + 1;
+  assert.ok(downloads.every((p) => p.total === total), 'the total from the start');
+  const percents = downloads.map((p) => p.percent);
+  assert.deepEqual(percents, [...percents].sort((a, b) => a - b));
+  assert.equal(percents.at(-1), 100);
+  assert.equal(seen.at(-1).bytes, total);
+});
+
+test('over https: a branch with a slash in its name; the whole repository; a file\'s address means its folder', async () => {
+  const lib = library();
+  assert.equal(await fetchFilm(overHttp(['feature', 'x', 'films', 'one']), { library: lib, hosts: github.hosts }), join(lib, 'one'));
+  const whole = await fetchFilm(overHttp(null), { library: lib, hosts: github.hosts });
+  assert.equal(whole, join(lib, 'origin'));
+  assert.ok(existsSync(join(whole, 'films', 'two', 'film.html')));
+  assert.ok(!existsSync(join(whole, '.git')));
+  assert.equal(await fetchFilm(overHttp(['main', 'films', 'two', 'film.html'], true), { library: lib, hosts: github.hosts }), join(lib, 'two'));
+});
+
+test('over https: no film, no folder, no branch, too big: said before anything downloads', async () => {
+  const lib = library();
+  const fails = async (src, code, options = {}) => {
+    asked.length = 0;
+    await assert.rejects(fetchFilm(src, { library: lib, hosts: github.hosts, ...options }), (e) => e instanceof FetchError && e.code === code);
+    assert.deepEqual(readdirSync(lib), [], `${code}: nothing left`);
+    assert.ok(!asked.some((path) => path.startsWith('/raw/')), `${code}: no file was downloaded`);
+  };
+  await fails(overHttp(['main', 'docs']), 'no-film');
+  await fails(overHttp(['main', 'films', 'three']), 'no-folder');
+  await fails(overHttp(['nope', 'films']), 'ref');
+  await fails(overHttp(null), 'too-big', { maxBytes: 64 * 1024 });
+});
+
+test('over https: a connection that drops is tried again, and its bytes are not counted twice', async () => {
+  const lib = library();
+  dropOnce.add('big.bin');
+  let last = null;
+  const to = await fetchFilm(overHttp(null), { library: lib, hosts: github.hosts, onProgress: (p) => { last = p; } });
+  assert.equal(dropOnce.size, 0, 'it did drop');
+  assert.ok(readFileSync(join(to, 'big.bin')).equals(readFileSync(join(scratch, 'work', 'big.bin'))));
+  assert.equal(last.bytes, last.total);
+});
+
+test('a repository GitHub\'s API cannot see (private) is fetched with git instead', async () => {
+  const lib = library();
+  const to = await fetchFilm(overHttp(['main', 'films', 'one'], false, 'private'), { library: lib, hosts: github.hosts });
+  assert.equal(to, join(lib, 'one'));
+  assert.ok(existsSync(join(to, 'film.html')));
+});
+
+test('over https: cancelled while downloading, it stops and leaves nothing', async () => {
+  const lib = library();
+  const control = new AbortController();
+  await assert.rejects(
+    fetchFilm(overHttp(null), { library: lib, hosts: github.hosts, signal: control.signal, onProgress: (p) => { if (p.phase === 'download') control.abort(); } }),
+    (e) => e.code === 'cancelled',
+  );
+  assert.deepEqual(readdirSync(lib), []);
 });

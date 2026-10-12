@@ -31,6 +31,8 @@ export type FetchJob = {
   phase: FetchPhase;
   percent: number | null;
   bytes: number;
+  /** the size of the whole, when it is known before it downloads (GitHub over https); null through git */
+  total: number | null;
   error?: string;
   code?: string;
   project?: { id: string };
@@ -78,6 +80,28 @@ export function formatBytes(bytes: number): string {
   if (!Number.isFinite(bytes) || bytes < 1024 * 1024) return `${Math.max(0, Math.round((bytes || 0) / 1024))} KB`;
   if (bytes < 1024 ** 3) return `${(bytes / 1024 ** 2).toFixed(1)} MB`;
   return `${(bytes / 1024 ** 3).toFixed(1)} GB`;
+}
+
+/**
+ * How fast a download goes, in bytes a second: what came over the last few seconds (`windowMs`), so a stall shows
+ * soon and a burst does not jump it. Null until it has a second to go on.
+ */
+export function createSpeedMeter(windowMs = 5000): (bytes: number, at: number) => number | null {
+  const samples: { at: number; bytes: number }[] = [];
+  return (bytes, at) => {
+    /* fewer bytes than before: a new download, measured afresh */
+    if (samples.length && bytes < samples[samples.length - 1].bytes) samples.length = 0;
+    samples.push({ at, bytes });
+    while (samples.length > 2 && at - samples[1].at >= windowMs) samples.shift();
+    const span = (at - samples[0].at) / 1000;
+    return span >= 1 ? Math.max(0, (bytes - samples[0].bytes) / span) : null;
+  };
+}
+
+/** Seconds a download has left at `speed`; null when that cannot be told (no total, or nothing coming). */
+export function secondsLeft(bytes: number, total: number | null, speed: number | null): number | null {
+  if (!total || !speed || speed <= 0) return null;
+  return Math.max(0, (total - bytes) / speed);
 }
 
 /** A length in seconds as m:ss. */

@@ -162,9 +162,10 @@ export const zhCN: Words = {
       get: '获取',
       cancel: '取消',
       retry: '重试',
-      size: '已下载 {size}',
+      left: '还剩约 {time}',
+      close: '关闭',
       phase: {
-        lookup: '正在查找仓库…',
+        lookup: '正在获取文件列表…',
         download: '正在下载…',
         checkout: '正在写入文件…',
         copy: '正在打开…',
@@ -178,8 +179,8 @@ export const zhCN: Words = {
         noFolder: '仓库中没有这个文件夹。',
         noFilm: '这个文件夹里没有 film.html，它不是 OpenFilm 影片。',
         tooBig: '内容太大，已停止获取。',
-        timeout: '用时太长，已停止。',
-        git: 'Studio 需要 git 才能获取影片。请安装 git 后重试。',
+        timeout: '一段时间内没有收到任何数据，已停止。请检查网络连接后重试。',
+        git: '这个仓库是私有的或不在 GitHub 上，需要 git。请安装 git 后重试。',
       },
     },
     examples: {
