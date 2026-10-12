@@ -46,6 +46,8 @@ export interface LocalAgentSessionInfo {
   resumed?: boolean;
   /** a message sent while it works can join the running turn (`steer`) */
   steering?: boolean;
+  /** its commands, as a session opened only to ask said them (`probe`): ACP's availableCommands */
+  commands?: unknown[];
   agentInfo: { name: string; title?: string; version?: string } | null;
   authMethods: Array<{ id: string; name: string; description?: string }>;
   /** Whether our MCP tools were handed over (not when the agent does not take HTTP). */
@@ -201,6 +203,8 @@ export interface DesktopBridge {
     ack?(key: string, turnId: string): Promise<{ ok: true }>;
     /** A message sent while a turn runs, into that turn; ok: false when it did not join it. Older shells lack it. */
     steer?(key: string, text: string, images?: PromptImage[]): Promise<{ ok: boolean; outcome: string }>;
+    /** What the agent does with nobody having written is the turn `turnId` (null: no longer), in its log. */
+    adopt?(key: string, turnId: string | null): Promise<{ ok: boolean }>;
     cancel(key: string): Promise<{ ok: true }>;
     setOption(key: string, configId: string, value: unknown): Promise<{ ok: boolean; error?: string }>;
     answerPermission(key: string, requestId: string, optionId: string | null): Promise<{ ok: boolean }>;

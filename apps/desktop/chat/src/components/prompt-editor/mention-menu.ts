@@ -29,6 +29,8 @@ export interface MentionItem {
   disabled?: boolean;
   /** Why it is not usable; a gray item without a reason looks broken. */
   disabledHint?: string;
+  /** The detail is a description (an agent's command): the label keeps its width, the detail is cut. */
+  describes?: boolean;
   /** Its own icon, instead of its kind's (an agent's command). */
   icon?: React.ComponentType<{ size?: number; className?: string }>;
   /**

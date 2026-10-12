@@ -122,6 +122,7 @@ export const ja: Words = {
   },
   composer: {
     commands: 'コマンド',
+    context: 'コンテキスト {percent}% 使用 · {used} / {size} トークン',
     mode: 'モード',
     planOn: '計画',
     agentLoading: '読み込み中…',
@@ -291,6 +292,7 @@ export const ja: Words = {
     tokens: '入力 {input}（キャッシュ {cached}）· 出力 {output}',
   },
   turnFrame: {
+    background: 'バックグラウンドのタスクが終わり、エージェントが続けました',
     balance: '{provider}：残高が不足しています',
     copied: 'コピーしました',
     copy: '返信をコピー',

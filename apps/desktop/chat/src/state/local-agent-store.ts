@@ -16,7 +16,7 @@ import {
   type LocalAgentSessionInfo,
   type RosterAgent,
 } from '@/lib/desktop-bridge';
-import { forgetLocalAgentSessions } from '@/lib/local-agent-run';
+import { forgetLocalAgentSessions, keepCommands, readCommands } from '@/lib/local-agent-run';
 
 export type AgentPick = LocalAgentId;
 
@@ -185,6 +185,7 @@ export const useLocalAgents = create<LocalAgentStore>((set, get) => ({
     set({ optionsError: { ...get().optionsError, [agent]: undefined } });
     try {
       const r = await api.probe(agent).catch((e: unknown) => ({ ok: false as const, error: e instanceof Error ? e.message : String(e) }));
+      if (r.ok && r.info.commands?.length) keepCommands(agent, readCommands({ availableCommands: r.info.commands }));
       if (r.ok && r.info.configOptions?.length) get().noteOptions(agent, r.info.configOptions);
       else set({ optionsError: { ...get().optionsError, [agent]: r.ok ? 'no options' : r.error } });
     } finally {

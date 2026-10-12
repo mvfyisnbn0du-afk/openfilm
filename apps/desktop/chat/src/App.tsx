@@ -13,6 +13,7 @@ import { ConversationSessionBar } from '@/components/ConversationSessionBar';
 import { ProjectConversation, primeStoredTranscript } from '@/components/ProjectConversation';
 import { ProjectStarters } from '@/components/ProjectStarters';
 import { ModelPopover } from '@/components/ModelPopover';
+import { ContextMeter } from '@/components/ContextMeter';
 import { CardActions, CardButton, ComposerCard } from '@/components/ComposerCard';
 import { LocalAgentQuestionCard } from '@/components/TurnQuestionCard';
 import { Tooltip } from '@/components/Tooltip';
@@ -33,6 +34,7 @@ import {
   loadLocalAgentTurns,
   localAgentTurn,
   makeLocalAgentTurnId,
+  onUnpromptedTurn,
   recoverLocalAgentTurns,
   registerRunningLocalTurn,
   runLocalAgentTurn,
@@ -40,11 +42,12 @@ import {
   saveLocalAgentTurn,
   steerLocalAgentTurn,
   useAgentCommands,
+  useAgentContext,
   useLocalAgentTurn,
   type LocalAgentTurn,
   type LocalTranscriptStore,
 } from '@/lib/local-agent-run';
-import type { LocalAgentTurnMeta, PromptImage } from '@/lib/desktop-bridge';
+import type { LocalAgentId, LocalAgentTurnMeta, PromptImage } from '@/lib/desktop-bridge';
 import { referencePictures } from '@/lib/ref-pictures';
 import type { TurnFileChanges } from '@/lib/file-changes';
 import { readBalance, type TurnBalance } from '@/lib/balance';
@@ -283,6 +286,8 @@ function ChatPane({ project, banners, selection, assetsOpen }: { project: Projec
     });
     return pills;
   }, []);
+  /* how full the agent's context is in this conversation */
+  const agentContext = useAgentContext(projectKey, sessionId, agent);
   /* the agent's own commands, a `/` at the start of the message, as in its own chat: they go as typed */
   const agentCommands = useAgentCommands(agent);
   const commandMenu = React.useMemo(() => (agentCommands.length ? {
@@ -295,9 +300,10 @@ function ChatPane({ project, banners, selection, assetsOpen }: { project: Projec
         kind: 'file' as const,
         icon: SquareSlash,
         label: `/${c.name}`,
-        /* what it does, in a few words (the menu's detail is one short line) */
-        ...(c.description ? { detail: c.description.length > 44 ? `${c.description.slice(0, 43).trimEnd()}…` : c.description } : {}),
-        keywords: [c.name, c.description],
+        /* what it does, cut to the row */
+        ...(c.description ? { detail: c.description, describes: true } : {}),
+        /* found by its name, as in the agent's own chat (its description would put a word in it first) */
+        keywords: [c.name],
         select: () => ({ text: `/${c.name}` }),
       })),
     }],
@@ -424,12 +430,34 @@ function ChatPane({ project, banners, selection, assetsOpen }: { project: Projec
   /** each open turn's way to settle (by turn id), and the agent's run each running turn belongs to */
   const settlers = React.useRef(new Map<string, (patch: Partial<Turn & TurnBalance>) => void>());
   const runs = React.useRef(new Map<string, Promise<unknown>>());
+  /** the conversation shown now (a turn opened in another is kept, not shown) */
+  const shownSession = React.useRef(sessionId);
+  shownSession.current = sessionId;
+
+  /* the agent working with nobody having written, in a conversation of this project: a background task of its own came
+     back, and it takes it up, as in its own chat. A turn of its own, under a line saying so */
+  const openTurnNow = React.useRef(openTurn);
+  openTurnNow.current = openTurn;
+  React.useEffect(() => onUnpromptedTurn(({ projectId, conversation, agent: by }) => {
+    if (projectId !== projectKey) return null;
+    const id = makeLocalAgentTurnId();
+    const opened = openTurnNow.current(id, '', null, [], { conversation, by, origin: 'background' });
+    return { turn: opened.turn, done: () => settlers.current.get(id)?.({ status: 'ready' }) };
+  }), [projectKey]);
 
   /**
    * One turn of the conversation: shown at once, kept, and settled by `settlers` when the agent is done with it. The
    * project's files are read as it opens (`ready`), so what it changed in them is shown under its reply.
    */
-  function openTurn(id: string, instruction: string, promptDisplay: Turn['promptDisplay'] | null, attachments: Turn['attachments'] = []): { turn: LocalAgentTurn; meta: LocalAgentTurnMeta; prefs: Record<string, unknown>; ready: Promise<boolean> } {
+  function openTurn(
+    id: string, instruction: string, promptDisplay: Turn['promptDisplay'] | null, attachments: Turn['attachments'] = [],
+    /* a turn the agent started by itself (a background task of its own came back): in its own conversation, maybe not
+       the one shown, by the agent of that session */
+    { conversation = sessionId, by = agent, origin }: { conversation?: string; by?: LocalAgentId; origin?: 'background' } = {},
+  ): { turn: LocalAgentTurn; meta: LocalAgentTurnMeta; prefs: Record<string, unknown>; ready: Promise<boolean> } {
+    const agent = by;
+    const sessionId = conversation;
+    const shown = conversation === shownSession.current;
     const turn = createLocalAgentTurn(id, agent, ordered.length);
     const agentStore = useLocalAgents.getState();
     const options = agentOptions(agentStore, agent);
@@ -444,8 +472,9 @@ function ChatPane({ project, banners, selection, assetsOpen }: { project: Projec
       ...(promptDisplay ? { promptDisplay } : {}),
       ...(attachments?.length ? { attachments } : {}),
       localAgent: { id: agent, model: modelLabel || null },
-    };
-    setTurns((list) => mergeAssetLists([started], list));
+      ...(origin ? { origin } : {}),
+    } as Turn;
+    if (shown) setTurns((list) => mergeAssetLists([started], list));
     /* the conversation is named by the words: a reference reads as its name there, not as "[1: name]" */
     const title = instruction.replace(/\[\d+: ([^\]]*)\]/g, '$1').replace(/\s+/g, ' ').trim().slice(0, 80);
     touchSession(sessionId, (s) => ({ title: s.title || title, turns: s.turns + 1 }));
@@ -708,6 +737,7 @@ function ChatPane({ project, banners, selection, assetsOpen }: { project: Projec
       <div className="flex items-center gap-0.5 px-0.5">
         <ModelPopover placement="top" align="start" />
         <div className="min-w-0 flex-1" />
+        <ContextMeter context={agentContext} />
         <input
           ref={attachInputRef}
           type="file"

@@ -44,6 +44,8 @@ export interface ProjectVersionEntry {
   settledAt?: string;
   /** What the turn changed in the project's files (lib/file-changes); none when nothing did. */
   fileChanges?: FileChange[];
+  /** 'background': the agent started it by itself, a background task of its own having come back (no message) */
+  origin?: 'background';
 }
 
 /** Longest believable turn: anything longer most likely means a later write touched updatedAt. */
@@ -105,6 +107,7 @@ export function deriveProjectTurns(
       current: asset.id === selectedId,
       ...frameOf(asset),
       ...(fileChanges ? { fileChanges } : {}),
+      ...((asset as Turn & { origin?: unknown }).origin === 'background' ? { origin: 'background' as const } : {}),
     };
   });
 }

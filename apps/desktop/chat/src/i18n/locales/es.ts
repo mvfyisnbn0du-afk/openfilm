@@ -122,6 +122,7 @@ export const es: Words = {
   },
   composer: {
     commands: 'Comandos',
+    context: 'Contexto al {percent}% · {used} de {size} tokens',
     mode: 'Modo',
     planOn: 'Plan',
     agentLoading: 'Cargando…',
@@ -291,6 +292,7 @@ export const es: Words = {
     tokens: 'entrada {input} (caché {cached}) · salida {output}',
   },
   turnFrame: {
+    background: 'Terminó una tarea en segundo plano; el agente siguió',
     balance: '{provider}: saldo insuficiente',
     copied: 'Copiado',
     copy: 'Copiar respuesta',

@@ -122,6 +122,7 @@ export const zhCN: Words = {
   },
   composer: {
     commands: '命令',
+    context: '上下文已用 {percent}% · {used} / {size} tokens',
     mode: '模式',
     planOn: '计划',
     agentLoading: '正在加载…',
@@ -291,6 +292,7 @@ export const zhCN: Words = {
     tokens: '输入 {input}（缓存 {cached}）· 输出 {output}',
   },
   turnFrame: {
+    background: '后台任务完成了，agent 接着处理',
     balance: '{provider}：余额不足',
     copied: '已复制',
     copy: '复制回复',

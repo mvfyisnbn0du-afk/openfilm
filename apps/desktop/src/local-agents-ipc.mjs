@@ -5,7 +5,8 @@
  *   desktop:local-agents:list        → [{ id, label, cli: { path, source } | null, signedIn, install, setupRequired }]
  *   desktop:local-agents:sign-in     { agent } → Terminal runs its own sign-in, which opens its own page
  *   desktop:local-agents:probe       { agent } → { ok, info }: a session opened and closed, only for its options
- *                                    (model, reasoning effort), so the menu shows them before the first message
+ *                                    (model, reasoning effort) and its commands (info.commands), so the menu and the
+ *                                    composer's / show them before the first message
  *   desktop:local-agents:start       { agent, cwd, resume? } → { ok, key, info } | { ok: false, error, code? }
  *                                    resume: the agent's own id of a conversation it had (info.sessionId of an earlier
  *                                    start), taken up where it stopped: the session still open here (a reloaded
@@ -16,6 +17,9 @@
  *                                    either way)
  *   desktop:local-agents:steer       { key, text, images? } → { ok, outcome }   a message sent while a turn runs,
  *                                    into that turn (ok: it joined it); the page sends it as a turn of its own if not
+ *   desktop:local-agents:adopt       { key, turnId | null }   what the agent does with nobody having written (a
+ *                                    background task of its own came back) is the page's turn `turnId`: written in its
+ *                                    log from the first of it (kept since the last turn), until null
  *   desktop:local-agents:cancel      { key }
  *   desktop:local-agents:set-option  { key, configId, value }
  *   desktop:local-agents:permission  { key, requestId, optionId | null }   the page answers a permission request
@@ -42,9 +46,13 @@ import { AgentSession, HARNESS_AGENTS, isAgentId, isChatAgent, listAgents, openA
 import { openLog } from './chat-store.mjs';
 
 const TURN_LOG_MAX = 5000;
+/** what the agent sends between turns, kept for a turn of its own the page may open for it */
+const BETWEEN_TURNS_MAX = 500;
 /** a session nobody has spoken in for this long closes; how often that is looked at */
 const IDLE_MS = 20 * 60_000;
 const IDLE_CHECK_MS = 60_000;
+/** how long a session opened for its options waits for the agent to say its commands */
+const PROBE_COMMANDS_MS = 1500;
 /** the pictures one message may carry, and how big each (base64 of a JPEG at most 1280 px wide) */
 const PROMPT_IMAGES_MAX = 8;
 const PROMPT_IMAGE_MAX_CHARS = 8 * 1024 * 1024;
@@ -80,7 +88,13 @@ export function registerLocalAgentIpc(ipcMain, { trusted, binDir = null, fallbac
   });
 
   const send = (entry, key, payload) => {
+    /* anything it says counts as use: a session working on its own is not idle */
+    entry.lastUsed = Date.now();
     if (entry.turn && !entry.turn.done) { const { kind, ...fields } = payload; entry.turn.file.write(kind, fields); }
+    else if (entry.adopted) { const { kind, ...fields } = payload; entry.adopted.write(kind, fields); }
+    else {
+      entry.between = [...(entry.between ?? []), payload].slice(-BETWEEN_TURNS_MAX);
+    }
     const log = entry.turn?.log;
     if (log && !entry.turn.done) {
       log.push(payload);
@@ -122,8 +136,15 @@ export function registerLocalAgentIpc(ipcMain, { trusted, binDir = null, fallbac
     if (!isChatAgent(agent)) return { ok: false, error: `Unknown agent: ${String(agent)}` };
     let session;
     try {
-      session = new AgentSession({ agent, cwd: homedir(), binDir, fallbackDir, env, harness: await harnessFor(agent) });
-      return { ok: true, info: await session.start() };
+      /* its commands too (the composer's / menu), which it says just after the session opens: waited for a moment */
+      let commands = null;
+      let said = () => {};
+      const heard = new Promise((done) => { said = done; });
+      session = new AgentSession({ agent, cwd: homedir(), binDir, fallbackDir, env, harness: await harnessFor(agent),
+        onUpdate: (update) => { if (update?.sessionUpdate === 'available_commands_update') { commands = update.availableCommands ?? null; said(); } } });
+      const info = await session.start();
+      await Promise.race([heard, new Promise((done) => setTimeout(done, PROBE_COMMANDS_MS))]);
+      return { ok: true, info: { ...info, ...(commands ? { commands } : {}) } };
     } catch (e) {
       return { ok: false, error: e instanceof Error ? e.message : String(e), ...(e?.code ? { code: String(e.code) } : {}) };
     } finally {
@@ -189,6 +210,7 @@ export function registerLocalAgentIpc(ipcMain, { trusted, binDir = null, fallbac
     const text = String(opts?.text ?? '');
     /* an agent that takes no pictures is given none: the text names each one's file, which it can open itself */
     const images = entry.info?.promptCapabilities?.image ? imageBlocks(opts?.images) : [];
+    entry.between = [];
     if (turn) {
       entry.turn = turn;
       file.write('prompt', { agent: entry.agent, cwd: entry.cwd, session: entry.info ?? null, meta, text, images: images.length });
@@ -245,6 +267,21 @@ export function registerLocalAgentIpc(ipcMain, { trusted, binDir = null, fallbac
     const outcome = await entry.session.steer([{ type: 'text', text }, ...images]);
     noted(opts, 'steer-answer', { outcome });
     return { ok: outcome === 'injected', outcome };
+  });
+
+  handle('desktop:local-agents:adopt', (_event, opts) => {
+    const entry = sessions.get(opts?.key);
+    if (!entry) return { ok: false };
+    entry.adopted?.write('done', { ok: true, unprompted: true });
+    entry.adopted?.end();
+    entry.adopted = null;
+    if (typeof opts?.turnId === 'string') {
+      entry.adopted = openLog(entry.cwd, opts.turnId, (e) => log(`turn log ${opts.turnId}: ${e.message}\n`));
+      entry.adopted.write('prompt', { agent: entry.agent, cwd: entry.cwd, session: entry.info ?? null, unprompted: true, text: '' });
+      for (const { kind, ...fields } of entry.between ?? []) entry.adopted.write(kind, fields);
+    }
+    entry.between = [];
+    return { ok: true };
   });
 
   handle('desktop:local-agents:cancel', async (_event, opts) => {

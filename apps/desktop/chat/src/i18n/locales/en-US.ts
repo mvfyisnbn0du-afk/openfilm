@@ -121,6 +121,7 @@ export const enUS = {
   },
   composer: {
     commands: 'Commands',
+    context: 'Context {percent}% full · {used} of {size} tokens',
     mode: 'Mode',
     planOn: 'Plan',
     agentLoading: 'Loading…',
@@ -291,6 +292,7 @@ export const enUS = {
     tokens: 'in {input} (cached {cached}) · out {output}',
   },
   turnFrame: {
+    background: 'A background task finished; the agent went on',
     balance: '{provider}: not enough balance',
     copied: 'Copied',
     copy: 'Copy reply',

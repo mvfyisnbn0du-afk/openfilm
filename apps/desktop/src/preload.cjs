@@ -50,6 +50,7 @@ contextBridge.exposeInMainWorld('openfilmNative', {
     running: () => ipcRenderer.invoke('desktop:local-agents:running'),
     ack: (key, turnId) => invoke('desktop:local-agents:ack')({ key, turnId }),
     steer: (key, text, images) => invoke('desktop:local-agents:steer')({ key, text, images }),
+    adopt: (key, turnId) => invoke('desktop:local-agents:adopt')({ key, turnId }),
     cancel: (key) => invoke('desktop:local-agents:cancel')({ key }),
     setOption: (key, configId, value) => invoke('desktop:local-agents:set-option')({ key, configId, value }),
     answerPermission: (key, requestId, optionId) => invoke('desktop:local-agents:permission')({ key, requestId, optionId }),

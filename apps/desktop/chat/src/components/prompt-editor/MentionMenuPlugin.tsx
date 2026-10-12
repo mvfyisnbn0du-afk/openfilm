@@ -335,12 +335,14 @@ function MentionMenu({
                   <Icon size={13} />
                 </span>
                 {/* A disabled item keeps its full name and the hint shrinks instead. */}
-                <span className={`truncate text-[var(--text)] ${item.disabled ? 'shrink-0' : 'min-w-0 flex-1'}`}>{item.label}</span>
+                <span className={`truncate text-[var(--text)] ${item.disabled || item.describes ? 'max-w-[60%] shrink-0' : 'min-w-0 flex-1'}`}>{item.label}</span>
                 {/* Disabled: why. Otherwise: the file size or timecode. */}
                 {item.disabled && item.disabledHint ? (
                   <span className="min-w-0 flex-1 truncate text-right text-[11px] text-[var(--text-faint)]" title={item.disabledHint}>
                     {item.disabledHint}
                   </span>
+                ) : item.detail && item.describes ? (
+                  <span className="min-w-0 flex-1 truncate text-[11.5px] text-[var(--text-faint)]" title={item.detail}>{item.detail}</span>
                 ) : item.detail ? (
                   <span className="shrink-0 tabular-nums text-[11.5px] text-[var(--text-faint)]">
                     {item.detail}

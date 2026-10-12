@@ -122,6 +122,7 @@ export const ko: Words = {
   },
   composer: {
     commands: '명령',
+    context: '컨텍스트 {percent}% 사용 · {used} / {size} 토큰',
     mode: '모드',
     planOn: '계획',
     agentLoading: '불러오는 중…',
@@ -291,6 +292,7 @@ export const ko: Words = {
     tokens: '입력 {input} (캐시 {cached}) · 출력 {output}',
   },
   turnFrame: {
+    background: '백그라운드 작업이 끝나 에이전트가 이어서 처리했습니다',
     balance: '{provider}: 잔액 부족',
     copied: '복사됨',
     copy: '답변 복사',

@@ -2,7 +2,7 @@
 
 import React from 'react';
 import type { PublicProgressSnapshot, TurnAttachment } from '@openfilm/shared';
-import { Check, ChevronRight, Copy, Play } from 'lucide-react';
+import { BellRing, Check, ChevronRight, Copy, Play } from 'lucide-react';
 import { AgentActivityList, formatWorkDuration, StatusLine, type AgentActivityItem } from './AgentActivityRow';
 import { AgentIcon, hasAgentIcon } from './AgentIcons';
 import { BrandLogo } from './BrandLogo';
@@ -341,6 +341,13 @@ const ConversationTurn = React.memo(function ConversationTurn({
           The border is a hairline: the background is already half a step off the panel, and the border only
           sharpens that edge so two close tones don't blur. Any heavier and it becomes a card, for what is
           only a sentence. */}
+      {/* A turn the agent started by itself (a background task of its own came back): no message, a line saying so */}
+      {entry.origin === 'background' ? (
+        <div className="flex items-center gap-2 text-[12px] text-[var(--chat-hint)]">
+          <BellRing size={12} aria-hidden className="shrink-0" />
+          <span>{t('turnFrame.background')}</span>
+        </div>
+      ) : (
       <div className="group/ask flex min-w-0 flex-col gap-1">
       <div className="flex justify-end">
         <div className="flex max-w-[88%] flex-col gap-1.5 rounded-[12px] border border-[var(--border)] bg-[var(--surface-2)] px-3 py-2">
@@ -360,6 +367,7 @@ const ConversationTurn = React.memo(function ConversationTurn({
       </div>
       <PromptFooter entry={entry} />
       </div>
+      )}
 
       {/* The agent's side is a block of its own: hovering it (not the whole turn) shows the line below */}
       <div className="group/reply flex min-w-0 flex-col gap-2 empty:hidden">
