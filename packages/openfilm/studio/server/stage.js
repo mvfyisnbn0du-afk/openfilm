@@ -526,6 +526,13 @@
     });
     return hits.sort((a, b) => a.area - b.area || b.order - a.order);
   };
+  /**
+   * A box that fills its whole page is the page's backdrop, as a frame's fill in Figma: a click there takes the clip
+   * (moving the picture), not the box (which would only move what is inside the page). It is selected in Layers, or
+   * with Alt, and once in hand a click on it keeps it.
+   */
+  const backdrop = (c, hit) => hit.kind === 'box' && !hit.frame.r
+    && hit.rect.left <= 1 && hit.rect.top <= 1 && hit.rect.right >= c.win.innerWidth - 1 && hit.rect.bottom >= c.win.innerHeight - 1;
   /** A layer inside a group is the group until the group is entered (a layer of it is in hand). */
   const liftToGroup = (hit, current) => {
     const groups = [];
@@ -949,7 +956,7 @@
       if (enter && current) current = current.firstElementChild;
       const cycle = nodeOf(cycleFrom);
       let hit;
-      if (!cycle || all.length < 2) hit = all[0] ? liftToGroup(all[0], current) : null;
+      if (!cycle || all.length < 2) hit = all[0] && (cycle || all[0].el === current || !backdrop(c, all[0])) ? liftToGroup(all[0], current) : null;
       else hit = all[(all.findIndex((h) => h.el === cycle) + 1) % all.length] ?? all[0];
       if (!hit) return null;
       if (detail) return describe(c, hit.el, hit.kind);
