@@ -1433,14 +1433,16 @@ export const Timeline = React.memo(function Timeline({
 
   /**
    * Send a plan (lib/timeline-edit) as one edit. A ripple that could not close all of its time (a clip on a track it
-   * reaches is in the way) says so: the clips stay in sync, and the person learns why a gap is left.
+   * reaches is in the way) says so: the clips stay in sync, and the person learns why a gap is left. `note`: what
+   * else the edit has to say once it is made.
    */
-  const runPlan = React.useCallback(async (plan: EditPlan | null, label: string): Promise<void> => {
+  const runPlan = React.useCallback(async (plan: EditPlan | null, label: string, note?: string): Promise<void> => {
     if (!onEditOps || !plan?.ops.length) return;
     const err = await onEditOps(plan.ops, label);
     if (err) setDropError(err);
     /* not an error: the edit was made, and this says why a gap was left (a warning's look, not an error's) */
     else if (plan.shortMs > 0) setNotice(t('timeline.rippleShort').replace('{s}', (plan.shortMs / 1000).toFixed(2)));
+    else if (note) setNotice(note);
   }, [onEditOps, t]);
 
   /** A gap picked on a track (a click between two clips, or before the first): drawn, and ⌫ closes it. */
@@ -1469,13 +1471,21 @@ export const Timeline = React.memo(function Timeline({
       return now && Math.abs(now.startMs - g.startMs) < TOUCH_MS && Math.abs(now.endMs - g.endMs) < TOUCH_MS ? g : null;
     });
   }, [model]);
-  /** Close the gap picked: what is after it moves back (with sync lock, on every unlocked track). */
+  /**
+   * Close a gap: what is after it moves back (with sync lock, on every unlocked track; on its own track alone when a
+   * synced track has no room, and a notice says so).
+   */
+  const closeGapOn = React.useCallback((g: { track: number; startMs: number; endMs: number }) => {
+    const plan = planCloseGap(modelRef.current, g.track, g, { sync: prefsRef.current.sync });
+    void runPlan(plan, 'history.stepGapClosed', plan.alone ? t('timeline.gapClosedAlone') : undefined);
+  }, [runPlan, t]);
+  /** Close the gap picked. */
   const closeGap = React.useCallback(() => {
     const g = gap;
     if (!g) return;
     setGap(null);
-    void runPlan(planCloseGap(modelRef.current, g.track, g, { sync: prefsRef.current.sync }), 'history.stepGapClosed');
-  }, [gap, runPlan]);
+    closeGapOn(g);
+  }, [gap, closeGapOn]);
 
   /** Clips inside the marquee are framed while it is drawn — "what does this box catch" is the whole question. */
   const framed = React.useMemo(
@@ -3121,7 +3131,7 @@ export const Timeline = React.memo(function Timeline({
           label: t('timeline.menuCloseGap'),
           icon: <BetweenHorizontalStart size={14} />,
           shortcut: '⌫',
-          onSelect: () => { void runPlan(planCloseGap(modelRef.current, found.track, found, { sync: prefsRef.current.sync }), 'history.stepGapClosed'); },
+          onSelect: () => closeGapOn(found),
         });
       }
       return entries;
@@ -3295,7 +3305,7 @@ export const Timeline = React.memo(function Timeline({
   }, [
     menu, t, onSplit, onDetachAudio, onRemove, onRemoveMany, onCopy, onPaste, onExportBlock, mediaTrouble, relinkCandidates,
     onRelink, hasClipboard, runSplit, removeMany, rippleRemove, onEditOps, tracks, blockMenuExtra, headEntries, withLinked,
-    runPlan, rippleTrimToPlayhead, linkBlocks, unlinkBlocks, transitions, onTransition, onPickTransition, transitionEntries,
+    runPlan, closeGapOn, rippleTrimToPlayhead, linkBlocks, unlinkBlocks, transitions, onTransition, onPickTransition, transitionEntries,
   ]);
 
   /* ── the bar beside the selection (SelectionToolbar): what was picked last, the clips, the range or a point ── */

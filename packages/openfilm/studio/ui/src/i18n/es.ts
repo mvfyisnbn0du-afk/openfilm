@@ -1131,6 +1131,7 @@ export const es: Words = {
     linkedOn: 'Activado: un video y su audio separado se seleccionan y editan juntos. Alt-clic elige uno',
     linkedOff: 'Desactivado: los clips vinculados se seleccionan y editan uno a uno',
     rippleShort: 'Había clips en otra pista: quedan {s} s abiertos para que todo siga sincronizado. Desactiva el bloqueo de sincronía para cerrarlo solo en esta pista.',
+    gapClosedAlone: 'Había clips en otras pistas, así que el hueco se cerró solo en esta pista.',
     menuCloseGap: 'Cerrar hueco',
     menuRippleStart: 'Recortar inicio hasta el cabezal y desplazar',
     menuRippleEnd: 'Recortar final hasta el cabezal y desplazar',

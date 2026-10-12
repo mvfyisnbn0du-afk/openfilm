@@ -1132,6 +1132,7 @@ export const zhCN: Words = {
     linkedOn: '开：视频和分离出的音频一起选中、一起编辑。按住 Alt 点击只选一个',
     linkedOff: '关：关联的片段逐个选中、逐个编辑',
     rippleShort: '其他轨道上有片段挡着：为保持同步，留下了 {s} 秒的空隙。关掉同步锁定即可只在本轨合上。',
+    gapClosedAlone: '其他轨道上有片段挡着，间隙只在本轨合上了。',
     menuCloseGap: '合拢间隙',
     menuRippleStart: '波纹裁剪开头到播放头',
     menuRippleEnd: '波纹裁剪结尾到播放头',

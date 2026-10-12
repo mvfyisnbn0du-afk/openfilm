@@ -150,6 +150,20 @@ test('closing a gap moves what is after it back, on every unlocked track with sy
   assert.deepEqual(planCloseGap(locked, 0, gap, { sync: true }).ops, []);
 });
 
+test('a gap a synced track has no room for still closes, on its own track alone', () => {
+  /* the gap before the first clip on the top track ends at 4.6 s, where a clip on the track below is playing and
+     the next starts right after it: a synced ripple could not move at all */
+  const m = model([['top', 4.6, 9.6]], [['title', 0, 5], ['cards', 5, 10]], [['bed', 0, 15]]);
+  const gap = gapAt(m, 0, 1000)!;
+  assert.deepEqual(gap, { startMs: 0, endMs: 4600 });
+  const plan = planCloseGap(m, 0, gap, { sync: true });
+  assert.equal(plan.alone, true);
+  assert.equal(plan.shortMs, 0);
+  assert.deepEqual(after(m, plan), [[['top', 0, 5]], [['title', 0, 5], ['cards', 5, 10]], [['bed', 0, 15]]]);
+  /* with room on every track, sync lock is kept */
+  assert.equal(planCloseGap(model([['a', 0, 2], ['b', 4, 5]], [['vo', 4, 6]]), 0, { startMs: 2000, endMs: 4000 }, { sync: true }).alone, undefined);
+});
+
 /* ── insert and overwrite ── */
 
 test('an insert goes before or after the clip under the hand, in a gap where it is put, past the end flush', () => {

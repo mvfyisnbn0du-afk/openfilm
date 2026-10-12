@@ -1132,6 +1132,7 @@ export const en = {
     linkedOn: 'On: a video and its detached sound are selected and edited together. Alt-click picks one',
     linkedOff: 'Off: linked clips are selected and edited one by one',
     rippleShort: "Clips on another track were in the way: {s} s left open so everything stays in sync. Turn off sync lock to close it on this track alone.",
+    gapClosedAlone: 'Clips on other tracks were in the way, so the gap closed on this track alone.',
     menuCloseGap: 'Close gap',
     menuRippleStart: 'Ripple trim start to playhead',
     menuRippleEnd: 'Ripple trim end to playhead',

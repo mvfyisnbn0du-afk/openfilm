@@ -452,12 +452,24 @@ export function gapAt(model: EditModel, track: number, ms: number): { startMs: n
   return endMs - startMs > TOUCH_MS ? { startMs, endMs } : null;
 }
 
-/** Close a gap: what comes after it moves back, on its track and, with sync lock, every unlocked track. */
-export function planCloseGap(model: EditModel, track: number, gap: { startMs: number; endMs: number }, opts: { sync: boolean }): EditPlan {
+/**
+ * Close a gap: what comes after it moves back, on its track and, with sync lock, every unlocked track. A gap picked
+ * is closed whole: when a synced track has no room for it (a clip there spans the gap's end), it closes on its own
+ * track alone, and `alone` says so.
+ */
+export function planCloseGap(
+  model: EditModel,
+  track: number,
+  gap: { startMs: number; endMs: number },
+  opts: { sync: boolean },
+): EditPlan & { alone?: boolean } {
   const d = draftOf(model);
   if (trackAt(d, track)?.locked) return emptyPlan();
   closeSpans(d, new Map([[track, [gap]]]), opts.sync);
-  return planOf(d);
+  if (!opts.sync || d.shortMs <= 0) return planOf(d);
+  const alone = draftOf(model);
+  closeSpans(alone, new Map([[track, [gap]]]), false);
+  return { ...planOf(alone), alone: true };
 }
 
 /* ── delete ── */

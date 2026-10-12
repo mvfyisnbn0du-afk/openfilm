@@ -1131,6 +1131,7 @@ export const ko: Words = {
     linkedOn: '켬: 비디오와 분리한 오디오를 함께 선택하고 편집합니다. Alt 클릭으로 하나만',
     linkedOff: '끔: 연결된 클립을 하나씩 선택하고 편집합니다',
     rippleShort: '다른 트랙의 클립이 막고 있습니다: 동기를 유지하려고 {s}초 간격이 남았습니다. 이 트랙만 메우려면 동기 잠금을 끄세요.',
+    gapClosedAlone: '다른 트랙의 클립이 막고 있어 이 트랙에서만 간격을 메웠습니다.',
     menuCloseGap: '간격 메우기',
     menuRippleStart: '재생 헤드까지 시작 리플 트림',
     menuRippleEnd: '재생 헤드부터 끝 리플 트림',
