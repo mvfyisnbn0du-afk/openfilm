@@ -17,7 +17,7 @@
  *                                    either way)
  *   desktop:local-agents:steer       { key, text, images? } → { ok, outcome }   a message sent while a turn runs,
  *                                    into that turn (ok: it joined it); the page sends it as a turn of its own if not
- *   desktop:local-agents:adopt       { key, turnId | null }   what the agent does with nobody having written (a
+ *   desktop:local-agents:adopt       { key, turnId | null, meta? }   what the agent does with nobody having written (a
  *                                    background task of its own came back) is the page's turn `turnId`: written in its
  *                                    log from the first of it (kept since the last turn), until null
  *   desktop:local-agents:cancel      { key }
@@ -277,7 +277,9 @@ export function registerLocalAgentIpc(ipcMain, { trusted, binDir = null, fallbac
     entry.adopted = null;
     if (typeof opts?.turnId === 'string') {
       entry.adopted = openLog(entry.cwd, opts.turnId, (e) => log(`turn log ${opts.turnId}: ${e.message}\n`));
-      entry.adopted.write('prompt', { agent: entry.agent, cwd: entry.cwd, session: entry.info ?? null, unprompted: true, text: '' });
+      /* `meta`: the page's turn, so a log found without a saved turn can be made a turn again (chat-store unsavedTurns) */
+      const meta = opts?.meta && typeof opts.meta === 'object' ? opts.meta : null;
+      entry.adopted.write('prompt', { agent: entry.agent, cwd: entry.cwd, session: entry.info ?? null, meta, unprompted: true, text: '' });
       for (const { kind, ...fields } of entry.between ?? []) entry.adopted.write(kind, fields);
     }
     entry.between = [];

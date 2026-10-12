@@ -7,6 +7,7 @@
  *   desktop:chat:log       { project, turnId, unless? } → { file, cut, size, callsSize, events, calls } | { same } | null
  *   desktop:chat:reveal    { project, turnId? }   the turn's log (or the logs folder) in the file manager
  *   desktop:chat:ref-image { project, turnId, n, bytes } → { path }   a reference's picture, kept for the agent
+ *   desktop:chat:unsaved   { project, except? } → [{ turnId, events }]   turns with a log and no saved record
  *   desktop:chat:snapshot  { project, turnId }     the project's files as a turn starts (file-changes.mjs), kept here
  *   desktop:chat:changes   { project, turnId } → { files, cut } | null   what the turn changed in them since
  *   desktop:prefs          → { developer, changes } and `desktop:prefs:set` either; told on `desktop:prefs`
@@ -16,7 +17,7 @@
  */
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
-import { chatDir, loadChat, readLog, saveRefImage, saveSessions, saveTurn } from './chat-store.mjs';
+import { chatDir, loadChat, readLog, saveRefImage, saveSessions, saveTurn, unsavedTurns } from './chat-store.mjs';
 import { changes, snapshot } from './file-changes.mjs';
 
 /** how many turns' snapshots are kept at once: one per running turn, and a few whose end was never asked about */
@@ -46,6 +47,9 @@ export function registerChatIpc(ipcMain, { trusted, projects, dataDir, reveal, t
   handle('desktop:chat:sessions', async ({ project: path, sessions, last }) => { saveSessions(await project(path), { sessions, last }); return { ok: true }; });
   handle('desktop:chat:turn', async ({ project: path, turn, items }) => { saveTurn(await project(path), { turn, items }); return { ok: true }; });
   handle('desktop:chat:ref-image', async ({ project: path, turnId, n, bytes }) => saveRefImage(await project(path), turnId, n, bytes));
+  handle('desktop:chat:unsaved', async ({ project: path, except }) => unsavedTurns(await project(path), {
+    except: Array.isArray(except) ? except.filter((id) => typeof id === 'string') : [],
+  }));
   handle('desktop:chat:log', async ({ project: path, turnId, unless }) => readLog(await project(path), turnId, {
     unless: unless && Number.isFinite(unless.size) && Number.isFinite(unless.callsSize) ? unless : null,
   }));

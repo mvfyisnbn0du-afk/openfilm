@@ -120,6 +120,35 @@ export function readLog(project, turnId, { unless = null } = {}) {
   return { file, cut, size, callsSize, events: lines(text), calls };
 }
 
+/** how many turns found only in the logs are read at once (the newest), and the most of each log that is read */
+const UNSAVED_MAX = 20;
+
+/**
+ * The turns that have a log and no saved record (`.film/chat/turns`): ones the app closed on, or crashed in, before it
+ * kept them. Each with its events, for the chat to make what it shows of it again; the newest first, at most
+ * UNSAVED_MAX. `except`: turn ids not to read (running now).
+ */
+export function unsavedTurns(project, { except = [] } = {}) {
+  let names = [];
+  try { names = readdirSync(logsDir(project)).filter((n) => n.endsWith('.jsonl') && !n.endsWith('.model.jsonl')); } catch { return []; }
+  const saved = new Set((() => { try { return readdirSync(join(chatDir(project), 'turns')); } catch { return []; } })());
+  const skip = new Set(except.map(fileOf));
+  const found = names
+    .map((name) => name.slice(0, -'.jsonl'.length))
+    .filter((base) => !saved.has(`${base}.json`) && !skip.has(base))
+    .map((base) => ({ base, at: statSync(join(logsDir(project), `${base}.jsonl`)).mtimeMs }))
+    .sort((a, b) => b.at - a.at)
+    .slice(0, UNSAVED_MAX);
+  const out = [];
+  for (const { base } of found) {
+    const events = readLog(project, base)?.events ?? [];
+    const prompt = events.find((e) => e.kind === 'prompt');
+    /* only a turn the chat started knows its own id and conversation (its `meta`) */
+    if (prompt?.meta?.turnId && typeof prompt.meta.turnId === 'string') out.push({ turnId: prompt.meta.turnId, events });
+  }
+  return out;
+}
+
 /**
  * A turn's log, written as it happens: `write(kind, fields)` adds a line `{ t, kind, …fields }`, `end()` closes it.
  * Never throws: a log that cannot be written does not stop the turn. `part` '.model': its model requests' log.

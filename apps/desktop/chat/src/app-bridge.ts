@@ -61,6 +61,8 @@ interface AppBridge {
     reveal(project: string, turnId?: string): Promise<unknown>;
     /** a picture a message's reference points at, kept for its agent: .film/refs/<turn>-<n>.jpg (its path in the project) */
     saveRefImage(project: string, turnId: string, n: number, bytes: ArrayBuffer): Promise<{ path: string }>;
+    /** the turns with a log and no saved record (src/chat-store.mjs unsavedTurns), but those of `except` */
+    unsaved?(project: string, except?: string[]): Promise<Array<{ turnId: string; events: TurnLog['events'] }>>;
     /** the project's files as a turn starts, kept by the app; then what the turn changed in them (src/file-changes.mjs) */
     snapshot(project: string, turnId: string): Promise<unknown>;
     changes(project: string, turnId: string): Promise<{ files: FileChange[]; cut: boolean } | null>;

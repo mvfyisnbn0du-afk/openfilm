@@ -204,7 +204,7 @@ export interface DesktopBridge {
     /** A message sent while a turn runs, into that turn; ok: false when it did not join it. Older shells lack it. */
     steer?(key: string, text: string, images?: PromptImage[]): Promise<{ ok: boolean; outcome: string }>;
     /** What the agent does with nobody having written is the turn `turnId` (null: no longer), in its log. */
-    adopt?(key: string, turnId: string | null): Promise<{ ok: boolean }>;
+    adopt?(key: string, turnId: string | null, meta?: LocalAgentTurnMeta): Promise<{ ok: boolean }>;
     cancel(key: string): Promise<{ ok: true }>;
     setOption(key: string, configId: string, value: unknown): Promise<{ ok: boolean; error?: string }>;
     answerPermission(key: string, requestId: string, optionId: string | null): Promise<{ ok: boolean }>;

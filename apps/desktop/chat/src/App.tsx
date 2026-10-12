@@ -39,6 +39,8 @@ import {
   registerRunningLocalTurn,
   runLocalAgentTurn,
   runningLocalTurns,
+  recoverLoggedTurns,
+  restingItems,
   saveLocalAgentTurn,
   steerLocalAgentTurn,
   useAgentCommands,
@@ -70,6 +72,9 @@ const NO_ITEMS: TranscriptItem[] = [];
 const EMPTY_STORE: LocalTranscriptStore = { get: () => NO_ITEMS, subscribe: () => () => {} };
 
 const isActive = (turn: Turn | undefined) => turn?.status === 'generating' || turn?.status === 'failing' || turn?.status === 'canceling';
+
+/** how often a running turn is kept, at most (it changes with every word) */
+const KEEP_RUNNING_MS = 1500;
 
 /** On a video's thumbnail: it plays, it is not a picture. */
 function PlayMark() {
@@ -203,6 +208,8 @@ function ChatPane({ project, banners, selection, assetsOpen }: { project: Projec
           }
         }).finally(() => { r.ack(); bump(); });
       }
+      /* then the turns only the logs have (the app closed on them before they were kept): made again, and shown */
+      return recoverLoggedTurns(projectKey).then((made) => { if (made) bump(); });
     });
     // settleLocalTurn only reads stable setters
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -444,7 +451,7 @@ function ChatPane({ project, banners, selection, assetsOpen }: { project: Projec
     if (projectId !== projectKey) return null;
     const id = makeLocalAgentTurnId();
     const opened = openTurnNow.current(id, '', null, [], { conversation, by, origin: 'background' });
-    return { turn: opened.turn, done: () => settlers.current.get(id)?.({ status: 'ready' }) };
+    return { turn: opened.turn, meta: opened.meta, done: () => settlers.current.get(id)?.({ status: 'ready' }) };
   }), [projectKey]);
 
   /**
@@ -489,8 +496,15 @@ function ChatPane({ project, banners, selection, assetsOpen }: { project: Projec
        what it changed in them is kept with it and shown under its reply. The turn settles first: comparing the files
        is not worth keeping the person waiting for */
     const ready = app.chat.snapshot(project.path, id).then(() => true, () => false);
+    /* kept as it goes, not only once it ends: the app closed (or crashed) on a turn, it is still there, read back as
+       interrupted, what it did so far shown and the next message going on from there */
+    let keeping: ReturnType<typeof setTimeout> | null = null;
+    const keep = () => { keeping = null; if (settlers.current.has(id)) saveLocalAgentTurn(meta.projectId, { ...started, updatedAt: new Date().toISOString() }, restingItems(turn.items)); };
+    const stopKeeping = turn.store.subscribe(() => { keeping ??= setTimeout(keep, KEEP_RUNNING_MS); });
     settlers.current.set(id, (patch) => {
       settlers.current.delete(id);
+      if (keeping) clearTimeout(keeping);
+      stopKeeping();
       const done = settleLocalTurn(meta, turn, patch);
       void ready.then(async (taken) => {
         const found = taken ? await app.chat.changes(project.path, id).catch(() => null) : null;
@@ -501,6 +515,7 @@ function ChatPane({ project, banners, selection, assetsOpen }: { project: Projec
         setTurns((list) => list.map((item) => (item.id === id ? { ...item, fileChanges } : item)));
       });
     });
+    keep();
     return { turn, meta, prefs, ready };
   }
 

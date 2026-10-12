@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { appendFileSync, mkdtempSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { chatDir, loadChat, logsDir, openLog, readLog, refsDir, saveRefImage, saveSessions, saveTurn } from './chat-store.mjs';
+import { chatDir, loadChat, logsDir, openLog, readLog, refsDir, saveRefImage, saveSessions, saveTurn, unsavedTurns } from './chat-store.mjs';
 
 const project = () => mkdtempSync(join(tmpdir(), 'of-chat-'));
 const turn = (id, createdAt) => ({ turn: { id, createdAt, sessionId: 's1', prompt: id }, items: [{ kind: 'text', text: id }] });
@@ -106,4 +106,18 @@ test('a log not grown since the sizes a reader has is not read again', async () 
   log.end();
   await new Promise((done) => setTimeout(done, 50));
   assert.deepEqual(readLog(dir, 't2', { unless: { size: first.size, callsSize: first.callsSize } }).events.map((e) => e.kind), ['prompt', 'done']);
+});
+
+test('a turn with a log and no saved record is found with its events; a saved one, one running, one with no meta are not', async () => {
+  const dir = project();
+  const write = (id, meta) => { const log = openLog(dir, id); log.write('prompt', { text: 'hi', ...(meta ? { meta } : {}) }); log.write('update', { update: { sessionUpdate: 'agent_message_chunk' } }); log.end(); };
+  write('local:lost1', { turnId: 'local:lost1', sessionId: 's1' });
+  write('local:kept1', { turnId: 'local:kept1', sessionId: 's1' });
+  write('local:busy1', { turnId: 'local:busy1', sessionId: 's1' });
+  write('local:bare1', null);
+  saveTurn(dir, turn('local:kept1', '2026-10-12T00:00:00Z'));
+  await new Promise((done) => setTimeout(done, 50));
+  const found = unsavedTurns(dir, { except: ['local:busy1'] });
+  assert.deepEqual(found.map((f) => f.turnId), ['local:lost1']);
+  assert.deepEqual(found[0].events.map((e) => e.kind), ['prompt', 'update']);
 });
