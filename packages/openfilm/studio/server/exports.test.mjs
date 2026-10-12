@@ -194,10 +194,17 @@ test('a cancelled export stops and leaves no file, and a bad ask is refused befo
 });
 
 test('the delivery frame: the same box as the editor, the short side asked, never past 4096', () => {
-  assert.deepEqual(frameBox({ w: 1920, h: 1080 }, '9:16', 'contain'), { w: 1920, h: 3414, scale: 1 });
+  assert.deepEqual(frameBox({ w: 1920, h: 1080 }, '9:16', 'contain'), { w: 1920, h: 3414, ratio: 9 / 16, scale: 1 });
   assert.deepEqual(dimsForShortEdge(frameBox({ w: 1920, h: 1080 }, '9:16', 'contain'), 1080), { w: 1080, h: 1920 });
   assert.deepEqual(dimsForShortEdge({ w: 1920, h: 1080 }, 2160), { w: 3840, h: 2160 });
   assert.deepEqual(dimsForShortEdge({ w: 2520, h: 1080 }, 2160), { w: 4096, h: 1756 });
+  /* the frame's own shape, not its rounded pixels': 16:9 around a 2:1 film is 2160 × 1216, and comes out 1920 × 1080 */
+  const wide = frameBox({ w: 2160, h: 1080 }, '16:9', 'contain');
+  assert.deepEqual([wide.w, wide.h], [2160, 1216]);
+  assert.deepEqual(dimsForShortEdge(wide, 1080), { w: 1920, h: 1080 });
+  assert.deepEqual(dimsForShortEdge(wide, 2160), { w: 3840, h: 2160 });
+  /* a frame drawn as a page (subtitles over it) keeps that shape */
+  assert.deepEqual(dimsForShortEdge(frameBox(wide, 'native', 'contain'), 1080), { w: 1920, h: 1080 });
 });
 
 test('a film in another frame is fitted with bars, or fills it and is cropped', ffmpeg, async () => {

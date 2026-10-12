@@ -57,3 +57,13 @@ test('a part of the film starts where clips start and ends where clips end, each
   });
   assert.deepEqual(rangeMarks([], 3000), { starts: [{ ms: 0, title: '' }], ends: [{ ms: 3000, title: '' }] });
 });
+
+test('a frame comes out in its own shape: 16:9 around a 2:1 film is 1920 × 1080, not its rounded pixels\' 1918', () => {
+  const wide = { w: 2160, h: 1080 };
+  assert.deepEqual(filmFrameBox(wide, '16:9'), { ...filmFrameBox(wide, '16:9'), w: 2160, h: 1216 });
+  assert.deepEqual(exportFramedDims(wide, '16:9', 'contain', 1080), { w: 1920, h: 1080 });
+  assert.deepEqual(exportFramedDims(wide, '16:9', 'contain', 2160), { w: 3840, h: 2160 });
+  assert.deepEqual(exportFramedDims(wide, '9:16', 'cover', 1080), { w: 1080, h: 1920 });
+  assert.deepEqual(exportFramedDims(wide, '4:5', 'contain', 1080), { w: 1080, h: 1350 });
+  assert.deepEqual(exportGifDims(filmFrameBox(wide, '16:9'), 640), { w: 640, h: 360 });
+});

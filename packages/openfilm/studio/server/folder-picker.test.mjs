@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { filePickerCommand, folderPickerCommand } from './folder-picker.mjs';
+import { cancelled, filePickerCommand, folderPickerCommand } from './folder-picker.mjs';
 
 test('macOS: the words and the folder are arguments of the script, never inside it', () => {
   const c = folderPickerCommand('darwin', { title: 'Save "here" end tell', at: '/Volumes/Films' });
@@ -37,4 +37,21 @@ test('files: several at once, a path a line; the words are arguments, never insi
   assert.match(win.args.at(-1), /Multiselect = \$true/);
   assert.ok(filePickerCommand('linux', { title: 'T' }, (n) => n === 'zenity').args.includes('--multiple'));
   assert.equal(filePickerCommand('linux', { title: 'T' }, () => false), null);
+});
+
+test('macOS: Finder opens the dialog, in front, and the app that was in front comes back', () => {
+  for (const c of [folderPickerCommand('darwin', { title: 'T' }), filePickerCommand('darwin', { title: 'T' })]) {
+    const lines = c.args.filter((a, i) => c.args[i - 1] === '-e');
+    assert.ok(lines.indexOf('tell application "Finder"') < lines.indexOf('activate'));
+    assert.equal(lines.filter((l) => l === 'tell application frontApp to activate').length, 2, 'after a pick and after a cancel');
+  }
+});
+
+test('only a real cancel is a cancel: osascript failing (Finder not allowed) is an error the page answers', () => {
+  const fail = (/** @type {number} */ code, /** @type {string} */ message) => Object.assign(new Error(message), { code });
+  assert.equal(cancelled('osascript', null), true);
+  assert.equal(cancelled('osascript', fail(1, 'execution error: User canceled. (-128)')), true);
+  assert.equal(cancelled('osascript', fail(1, 'execution error: Not authorized to send Apple events to Finder. (-1743)')), false);
+  assert.equal(cancelled('zenity', fail(1, '')), true);
+  assert.equal(cancelled('kdialog', fail(2, 'crashed')), false);
 });

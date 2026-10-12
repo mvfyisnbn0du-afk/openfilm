@@ -234,7 +234,7 @@ export const en = {
       slides: 'Slides & PDF',
       project: 'Project',
       alpha: 'Transparent assets',
-      nle: 'Editing software',
+      nle: 'Editing project',
     },
     destHint: {
       social: 'Presets for every platform',

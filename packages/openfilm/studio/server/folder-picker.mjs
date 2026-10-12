@@ -4,7 +4,10 @@
  * the export's "Save to", and the media pane's "Import" and "Link" (pickFiles). The desktop app opens its own folder
  * dialog instead (lib/host.ts `folders.pick`).
  *
- *   macOS     osascript, `choose folder` / `choose file`
+ *   macOS     osascript, `choose folder` / `choose file`, asked of Finder: a dialog of osascript's own opens behind
+ *             the browser (macOS lets no background program bring itself forward), so it seems nothing happened. The
+ *             first time, macOS asks once to let Studio's program control Finder; the app that was in front comes back
+ *             when the dialog closes.
  *   Windows   PowerShell, the Windows Forms folder / file dialog
  *   Linux     zenity, else kdialog
  *
@@ -16,6 +19,29 @@ import { existsSync } from 'node:fs';
 import { isAbsolute } from 'node:path';
 
 /**
+ * osascript's lines (`-e` each) for a dialog Finder opens in front, `lines` setting `picked`; the app that was in
+ * front is brought back after, picked or not. @param {string[]} lines
+ */
+function finderDialog(lines) {
+  return [
+    'on run argv',
+    'set frontApp to (path to frontmost application as text)',
+    'try',
+    'tell application "Finder"',
+    'activate',
+    ...lines,
+    'end tell',
+    'on error message number n',
+    'tell application frontApp to activate',
+    'error message number n',
+    'end try',
+    'tell application frontApp to activate',
+    'return picked',
+    'end run',
+  ].flatMap((line) => ['-e', line]);
+}
+
+/**
  * How to open the dialog here: the program, its arguments and the environment it adds; null when this system has none.
  * @param {NodeJS.Platform} platform @param {{ title: string, at?: string | null }} ask @param {(name: string) => boolean} [has]
  * @returns {{ cmd: string, args: string[], env?: Record<string, string> } | null}
@@ -25,16 +51,13 @@ export function folderPickerCommand(platform, { title, at }, has = () => true) {
   if (platform === 'darwin') {
     return {
       cmd: 'osascript',
-      args: [
-        '-e', 'on run argv',
-        '-e', 'activate',
-        '-e', 'if (item 2 of argv) is "" then',
-        '-e', 'return POSIX path of (choose folder with prompt (item 1 of argv))',
-        '-e', 'end if',
-        '-e', 'return POSIX path of (choose folder with prompt (item 1 of argv) default location (POSIX file (item 2 of argv)))',
-        '-e', 'end run',
-        title, start,
-      ],
+      args: [...finderDialog([
+        'if (item 2 of argv) is "" then',
+        'set picked to POSIX path of (choose folder with prompt (item 1 of argv))',
+        'else',
+        'set picked to POSIX path of (choose folder with prompt (item 1 of argv) default location (POSIX file (item 2 of argv)))',
+        'end if',
+      ]), title, start],
     };
   }
   if (platform === 'win32') {
@@ -67,22 +90,17 @@ export function filePickerCommand(platform, { title, at }, has = () => true) {
   if (platform === 'darwin') {
     return {
       cmd: 'osascript',
-      args: [
-        '-e', 'on run argv',
-        '-e', 'activate',
-        '-e', 'if (item 2 of argv) is "" then',
-        '-e', 'set picked to choose file with prompt (item 1 of argv) with multiple selections allowed',
-        '-e', 'else',
-        '-e', 'set picked to choose file with prompt (item 1 of argv) default location (POSIX file (item 2 of argv)) with multiple selections allowed',
-        '-e', 'end if',
-        '-e', 'set out to ""',
-        '-e', 'repeat with f in picked',
-        '-e', 'set out to out & POSIX path of f & linefeed',
-        '-e', 'end repeat',
-        '-e', 'return out',
-        '-e', 'end run',
-        title, start,
-      ],
+      args: [...finderDialog([
+        'if (item 2 of argv) is "" then',
+        'set chosen to choose file with prompt (item 1 of argv) with multiple selections allowed',
+        'else',
+        'set chosen to choose file with prompt (item 1 of argv) default location (POSIX file (item 2 of argv)) with multiple selections allowed',
+        'end if',
+        'set picked to ""',
+        'repeat with f in chosen',
+        'set picked to picked & POSIX path of f & linefeed',
+        'end repeat',
+      ]), title, start],
     };
   }
   if (platform === 'win32') {
@@ -104,6 +122,17 @@ export function filePickerCommand(platform, { title, at }, has = () => true) {
   return null;
 }
 
+/**
+ * Whether a dialog that gave nothing was cancelled: osascript says error -128 (any other error exits 1 too: Finder
+ * not allowed, -1743, is a failure, and the page lets the person type the path), zenity and kdialog exit 1, Windows
+ * prints nothing. @param {string} cmd @param {import('node:child_process').ExecFileException | null} error
+ */
+export function cancelled(cmd, error) {
+  if (!error) return true;
+  if (/-128\b|User canceled/i.test(String(error.message))) return true;
+  return cmd !== 'osascript' && error.code === 1;
+}
+
 /** Whether a program is on the PATH (Linux: which dialog there is). @param {string} name */
 const onPath = (name) => (process.env.PATH ?? '').split(':').some((dir) => dir && existsSync(`${dir}/${name}`));
 
@@ -119,8 +148,7 @@ export function pickFolder(ask) {
     execFile(command.cmd, command.args, { env: { ...process.env, ...command.env }, windowsHide: false, timeout: 15 * 60_000 }, (error, stdout) => {
       const path = String(stdout).trim().replace(/[\\/]+$/, '') || (String(stdout).trim() === '/' ? '/' : '');
       if (path) { resolve(path); return; }
-      /* cancelled: osascript says error -128, zenity and kdialog exit 1, Windows prints nothing */
-      if (!error || /-128|User canceled/i.test(String(error.message)) || error.code === 1) { resolve(null); return; }
+      if (cancelled(command.cmd, error)) { resolve(null); return; }
       if (/** @type {NodeJS.ErrnoException} */ (error).code === 'ENOENT') { reject(new Error('no folder dialog on this system')); return; }
       reject(error);
     });
@@ -139,7 +167,7 @@ export function pickFiles(ask) {
     execFile(command.cmd, command.args, { env: { ...process.env, ...command.env }, windowsHide: false, timeout: 15 * 60_000 }, (error, stdout) => {
       const paths = String(stdout).split(/\r?\n/).map((line) => line.trim()).filter((line) => line && isAbsolute(line));
       if (paths.length) { resolve(paths); return; }
-      if (!error || /-128|User canceled/i.test(String(error.message)) || error.code === 1) { resolve([]); return; }
+      if (cancelled(command.cmd, error)) { resolve([]); return; }
       if (/** @type {NodeJS.ErrnoException} */ (error).code === 'ENOENT') { reject(new Error('no file dialog on this system')); return; }
       reject(error);
     });

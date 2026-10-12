@@ -57,10 +57,10 @@ import { FILM_FRAME_IDS, filmFrameBox, filmFrameRatio, type FilmFrameFill, type 
 type Dest = 'social' | 'video' | 'alpha' | 'nle' | 'gif' | 'audio' | 'subtitles' | 'images' | 'slides' | 'project';
 
 const DESTS: readonly { id: Dest; icon: React.ReactNode }[] = [
-  { id: 'social', icon: <MonitorPlay size={16} /> },
   { id: 'video', icon: <Film size={16} /> },
-  { id: 'alpha', icon: <Layers size={16} /> },
   { id: 'nle', icon: <Clapperboard size={16} /> },
+  { id: 'social', icon: <MonitorPlay size={16} /> },
+  { id: 'alpha', icon: <Layers size={16} /> },
   { id: 'gif', icon: <Sparkles size={16} /> },
   { id: 'audio', icon: <AudioLines size={16} /> },
   { id: 'subtitles', icon: <Captions size={16} /> },
@@ -112,7 +112,7 @@ interface Settings {
 }
 
 const DEFAULTS: Settings = {
-  dest: 'social',
+  dest: 'video',
   presets: ['youtube'],
   socialQuality: 'high',
   socialSubs: 'auto',

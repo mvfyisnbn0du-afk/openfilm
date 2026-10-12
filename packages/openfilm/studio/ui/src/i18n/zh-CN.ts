@@ -234,7 +234,7 @@ export const zhCN: Words = {
       slides: '幻灯片与 PDF',
       project: '项目',
       alpha: '透明素材',
-      nle: '剪辑软件',
+      nle: '剪辑工程',
     },
     destHint: {
       social: '覆盖各平台的预设',

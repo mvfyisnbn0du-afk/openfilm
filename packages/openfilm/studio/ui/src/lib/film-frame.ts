@@ -58,6 +58,8 @@ export interface FilmFrameBox {
   /** The frame's pixel size (an export comes out this size). */
   w: number;
   h: number;
+  /** Its exact shape: the frame's own ratio, not its even-rounded pixels' (16:9 around a 2:1 film is 2160 × 1216). */
+  ratio: number;
   /** The film inside the frame, scaled. With `cover`, `left`/`top` go negative: the overflow is cut by the frame. */
   inner: { w: number; h: number; left: number; top: number; scale: number };
 }
@@ -75,7 +77,7 @@ export function filmFrameBox(
   const sh = Math.max(1, stage.h);
   const ratio = frame === 'native' ? null : frameRatioOf(frame);
   if (ratio == null) {
-    return { w: even(sw), h: even(sh), inner: { w: sw, h: sh, left: 0, top: 0, scale: 1 } };
+    return { w: even(sw), h: even(sh), ratio: sw / sh, inner: { w: sw, h: sh, left: 0, top: 0, scale: 1 } };
   }
   /* the frame must hold the film both ways: take the larger */
   const byWidth = { w: sw, h: sw / ratio };
@@ -91,6 +93,7 @@ export function filmFrameBox(
   return {
     w,
     h,
+    ratio,
     inner: { w: iw, h: ih, left: (w - iw) / 2, top: (h - ih) / 2, scale },
   };
 }

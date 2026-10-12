@@ -233,7 +233,7 @@ export const ja: Words = {
       slides: 'スライド・PDF',
       project: 'プロジェクト',
       alpha: '透過素材',
-      nle: '編集ソフト',
+      nle: '編集プロジェクト',
     },
     destHint: {
       social: '各プラットフォーム向けプリセット',

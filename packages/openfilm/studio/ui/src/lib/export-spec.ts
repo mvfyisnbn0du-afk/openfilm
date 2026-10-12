@@ -70,9 +70,12 @@ function even(n: number): number {
   return Math.max(2, Math.round(n / 2) * 2);
 }
 
-/** A picture's size with its short side at `shortEdge`, the box's shape kept; no side over 4096. */
-export function exportDimsForShortEdge(box: { w: number; h: number }, shortEdge: number): { w: number; h: number } {
-  const r = box.w / Math.max(1, box.h);
+/**
+ * A picture's size with its short side at `shortEdge`, the box's exact shape kept (`ratio`, when it has one: a 16:9
+ * frame at 1080 is 1920 × 1080); no side over 4096.
+ */
+export function exportDimsForShortEdge(box: { w: number; h: number; ratio?: number }, shortEdge: number): { w: number; h: number } {
+  const r = box.ratio ?? box.w / Math.max(1, box.h);
   let w: number;
   let h: number;
   if (r >= 1) {
@@ -91,8 +94,8 @@ export function exportDimsForShortEdge(box: { w: number; h: number }, shortEdge:
 }
 
 /** A GIF's size: its long side at `width`. */
-export function exportGifDims(box: { w: number; h: number }, width: number): { w: number; h: number } {
-  const r = box.w / Math.max(1, box.h);
+export function exportGifDims(box: { w: number; h: number; ratio?: number }, width: number): { w: number; h: number } {
+  const r = box.ratio ?? box.w / Math.max(1, box.h);
   return r >= 1 ? { w: even(width), h: even(width / r) } : { w: even(width * r), h: even(width) };
 }
 

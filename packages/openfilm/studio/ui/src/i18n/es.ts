@@ -233,7 +233,7 @@ export const es: Words = {
       slides: 'Diapositivas y PDF',
       project: 'Proyecto',
       alpha: 'Recursos con transparencia',
-      nle: 'Software de edición',
+      nle: 'Proyecto de edición',
     },
     destHint: {
       social: 'Ajustes preestablecidos para cada plataforma',

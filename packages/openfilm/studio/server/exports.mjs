@@ -152,21 +152,27 @@ const MAX_DIM = 4096;
 const even = (/** @type {number} */ n) => Math.max(2, Math.round(n / 2) * 2);
 
 /**
- * The film (`stage`) fitted into a delivery frame: the frame's size (its long side follows the film's) and the film's
- * scale inside it (`contain`: whole, with bars; `cover`: filling it, the overflow cut).
- * @param {{ w: number, h: number }} stage @param {string} frame @param {'contain' | 'cover'} fill
+ * The film (`stage`) fitted into a delivery frame: the frame's size (its long side follows the film's), its exact
+ * shape (`ratio`: the frame's own, not its even-rounded pixels'), and the film's scale inside it (`contain`: whole,
+ * with bars; `cover`: filling it, the overflow cut).
+ * @param {{ w: number, h: number, ratio?: number }} stage @param {string} frame @param {'contain' | 'cover'} fill
  */
 export function frameBox(stage, frame, fill) {
   const ratio = frame === 'native' ? null : frameRatio(frame);
-  if (ratio == null) return { w: even(stage.w), h: even(stage.h), scale: 1 };
+  /* native: the stage's own shape (a frame drawn as a page, with subtitles over it, keeps the frame's exact one) */
+  if (ratio == null) return { w: even(stage.w), h: even(stage.h), ratio: stage.ratio ?? stage.w / Math.max(1, stage.h), scale: 1 };
   const box = stage.w / ratio >= stage.h ? { w: stage.w, h: stage.w / ratio } : { w: stage.h * ratio, h: stage.h };
   const w = even(box.w), h = even(box.h);
-  return { w, h, scale: fill === 'cover' ? Math.max(w / stage.w, h / stage.h) : Math.min(w / stage.w, h / stage.h) };
+  return { w, h, ratio, scale: fill === 'cover' ? Math.max(w / stage.w, h / stage.h) : Math.min(w / stage.w, h / stage.h) };
 }
 
-/** A box's size with its short side at `shortEdge` (even, no side over 4096). @param {{ w: number, h: number }} box @param {number} shortEdge */
+/**
+ * A box's size with its short side at `shortEdge` (even, no side over 4096), in the box's exact shape: a 16:9 frame
+ * at 1080 is 1920 × 1080, whatever its rounded pixels around a 2:1 film.
+ * @param {{ w: number, h: number, ratio?: number }} box @param {number} shortEdge
+ */
 export function dimsForShortEdge(box, shortEdge) {
-  const r = box.w / Math.max(1, box.h);
+  const r = box.ratio ?? box.w / Math.max(1, box.h);
   let w, h;
   if (r >= 1) { h = even(shortEdge); w = even(h * r); } else { w = even(shortEdge); h = even(w / r); }
   if (w > MAX_DIM || h > MAX_DIM) {
@@ -176,9 +182,9 @@ export function dimsForShortEdge(box, shortEdge) {
   return { w, h };
 }
 
-/** A GIF's size: its long side at `width`. @param {{ w: number, h: number }} box @param {number} width */
+/** A GIF's size: its long side at `width`. @param {{ w: number, h: number, ratio?: number }} box @param {number} width */
 function gifDims(box, width) {
-  const r = box.w / Math.max(1, box.h);
+  const r = box.ratio ?? box.w / Math.max(1, box.h);
   return r >= 1 ? { w: even(width), h: even(width / r) } : { w: even(width * r), h: even(width) };
 }
 
@@ -936,8 +942,8 @@ export function createExports({ onChange = () => {}, captions = subtitlesForExpo
     const probe = await open(burn ? burn.dir : root, burn ? { root } : {}).catch(async (e) => { await burn?.remove(); throw e; });
     try {
       const meta = probe.film.meta;
-      const stage = { w: meta.width, h: meta.height };
       /* with subtitles, the frame is the page drawn */
+      const stage = burn ? burn.box : { w: meta.width, h: meta.height };
       const frame = burn ? 'native' : ask.frame ?? 'native', fill = ask.fill ?? 'contain';
       const box = frameBox(stage, frame, fill);
       const size = dimsForShortEdge(box, ask.shortEdge ?? Math.min(box.w, box.h));

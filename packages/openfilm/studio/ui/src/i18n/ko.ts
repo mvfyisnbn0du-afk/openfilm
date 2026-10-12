@@ -233,7 +233,7 @@ export const ko: Words = {
       slides: '슬라이드 및 PDF',
       project: '프로젝트',
       alpha: '투명 에셋',
-      nle: '편집 소프트웨어',
+      nle: '편집 프로젝트',
     },
     destHint: {
       social: '모든 플랫폼용 사전 설정',
