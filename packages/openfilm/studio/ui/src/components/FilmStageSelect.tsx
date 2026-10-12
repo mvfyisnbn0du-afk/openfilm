@@ -33,6 +33,7 @@
  * point winning. What is written is always film.html: a clip's `box`, a page's `overrides`, through the callbacks.
  */
 import * as React from 'react';
+import { isSelectAll as isSelectAllKey, type KeyLike } from '@/lib/select-all-key';
 import {
   AlignCenterHorizontal, AlignCenterVertical, AlignEndHorizontal, AlignEndVertical, AlignHorizontalDistributeCenter,
   AlignStartHorizontal, AlignStartVertical, AlignVerticalDistributeCenter, Crop as CropIcon, MessageSquarePlus,
@@ -98,6 +99,8 @@ const staleBucket = (timeMs: number): number => Math.round(timeMs / STALE_BUCKET
 const MAC = typeof navigator !== 'undefined' && /Mac|iPhone|iPad/.test(navigator.platform);
 const REGION_KEY = MAC ? 'Meta' : 'Control';
 const regionKeyHeld = (e: { metaKey: boolean; ctrlKey: boolean }) => (MAC ? e.metaKey : e.ctrlKey);
+/** ⌘A (Ctrl+A elsewhere): every layer on the picture, as Figma selects all. */
+const isSelectAll = (e: KeyLike) => isSelectAllKey(e, MAC);
 /** Arrow keys write what they moved this long after the last one (held down they come thirty a second). */
 const NUDGE_WRITE_MS = 350;
 const NO_CROP: Crop = [0, 0, 0, 0];
@@ -1080,13 +1083,37 @@ function FilmStageSelectImpl({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [dropPick, onSelectElement, picked]);
 
+  /* ⌘A: the outermost layers on the picture, as a marquee around the whole canvas; from the window when the keyboard
+     is not in a field, the timeline or another panel (the picture's own keys come from the film, below) */
+  const selectAll = async () => {
+    const all = await ask<StageLayer[]>('box', { x: 0, y: 0, w: stage.w, h: stage.h }) ?? [];
+    if (all.length) selectMany(all);
+  };
+  const selectAllRef = React.useRef(selectAll);
+  selectAllRef.current = selectAll;
+  React.useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (!isSelectAll(e) || textEdit.current || cropRef.current) return;
+      const el = e.target as HTMLElement | null;
+      if (el && el !== document.body && !el.closest('[data-viewer-pane]') && !el.closest('[data-film-select]')) return;
+      if (el?.closest('input, textarea, select, [contenteditable="true"]')) return;
+      e.preventDefault();
+      void selectAllRef.current();
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, []);
+
   /* the film's own events: an in-place edit ended, a key pressed in the picture, another load of the film shown */
   React.useEffect(() => {
     const preview = previewRef.current;
     if (!preview?.onStage) return undefined;
     return preview.onStage((e) => {
       if (e.event === 'text') onTextDoneRef.current(e);
-      else if (e.event === 'key') keyHandler.current?.(e.key);
+      else if (e.event === 'key') {
+        if (isSelectAll(e.key)) { if (!textEdit.current && !cropRef.current) void selectAllRef.current(); }
+        else keyHandler.current?.(e.key);
+      }
       else {
         if (textEdit.current) { textEdit.current = null; setEditingText(null); }
         syncFilmOffsetRef.current();
@@ -1947,7 +1974,8 @@ function FilmStageSelectImpl({
       e.stopPropagation();
       const p = local(e);
       if (gestureRef.current.pendingClick) {
-        /* a click on the clip in hand: the top clip under the pointer is taken in hand */
+        /* a click on the clip in hand (a drag moves it): the layer of a page under the pointer is taken in hand, as
+           a click in a selected frame selects what is in it (Figma); else the top clip there */
         const g = gestureRef.current;
         gestureRef.current = null;
         liveTRef.current = null;
@@ -1955,12 +1983,16 @@ function FilmStageSelectImpl({
         setLiveT(null);
         const at = g.hit ?? p;
         const token = ++pressSeq.current;
-        void ask<string>('clipAt', { x: at.x / vs, y: at.y / vs }).then((id) => {
+        void (async () => {
+          const layer = await ask<StageLayer>('hit', { x: at.x / vs, y: at.y / vs, detail: true });
+          if (token !== pressSeq.current) return;
+          if (layer) { setHover(null); commitHit(hitOf(layer)); return; }
+          const id = await ask<string>('clipAt', { x: at.x / vs, y: at.y / vs });
           if (token !== pressSeq.current) return;
           const loc = id ? clipLocOf(docRef.current, id) : undefined;
           const info = loc ? infoOf(loc) : null;
           commitHit(info ? describeClip(info, stage) : null);
-        });
+        })();
         return;
       }
       applyMgGesture({ x: p.x / vs, y: p.y / vs }, e.shiftKey, e.altKey);

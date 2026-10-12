@@ -767,7 +767,8 @@
     if (editing || typing(e.target)) return;
     const mod = e.metaKey || e.ctrlKey;
     const k = e.key.toLowerCase();
-    if ((EDITOR_KEYS.has(e.key) && !mod) || (mod && (k === 'z' || (e.shiftKey && (k === 'h' || k === 'l'))))) e.preventDefault();
+    /* ⌘A is the editor's select-all, not the page's text selected */
+    if ((EDITOR_KEYS.has(e.key) && !mod) || (mod && (k === 'z' || (k === 'a' && !e.shiftKey && !e.altKey) || (e.shiftKey && (k === 'h' || k === 'l'))))) e.preventDefault();
     post({ type: 'stage-event', event: 'key', key: e.key, code: e.code, repeat: e.repeat, metaKey: e.metaKey, ctrlKey: e.ctrlKey, shiftKey: e.shiftKey, altKey: e.altKey });
   };
   const listening = new WeakSet();
