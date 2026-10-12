@@ -776,6 +776,11 @@ function FilmStageSelectImpl({
   /* the playhead moved a bucket on: what is selected stays selected, only where it is changed. A layer whose clip is
      not on screen any more lets go: its box would stand over a picture it is not in */
   const stale = staleBucket(timeMs);
+  /** Whether the clip `id` is on screen at the playhead (unknown yet: taken as on). */
+  const shownNow = (id: string) => {
+    const span = spans.find((s) => s.id === id);
+    return !span || spanShows(span, timeMs);
+  };
   React.useEffect(() => {
     const held = pickedRef.current;
     if (!held) return;
@@ -1187,10 +1192,12 @@ function FilmStageSelectImpl({
     const next: LinkedMark[] = [];
     for (const loc of linkedLocs ?? []) {
       const info = clipInfo(doc, spans, stage, loc);
-      if (info?.box) next.push({ loc, t: info.t, box: info.box });
+      /* only a clip on screen now: one selected elsewhere in time has nothing here to outline */
+      if (info?.box && shownNow(info.id)) next.push({ loc, t: info.t, box: info.box });
     }
     setLinkedMarks((cur) => (sameLinkedMarks(cur, next) ? cur : next));
-  }, [doc, spans, stage, linkedLocs]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [doc, spans, stage, linkedLocs, stale]);
 
   /**
    * One block selected on the timeline is in hand here at once (a frame with handles, not an outline): selecting it
@@ -1206,8 +1213,10 @@ function FilmStageSelectImpl({
     }
     const only = locs[0]!;
     const held = pickedRef.current?.element;
-    if (held?.isMgOuter && held.clipLoc === only) return;
     const info = clipInfo(doc, spans, stage, only);
+    /* not on screen now (the playhead elsewhere): no frame over a picture it is not in; it comes back with it */
+    if (info && !shownNow(info.id)) { if (held?.isMgOuter) dropPick(); return; }
+    if (held?.isMgOuter && held.clipLoc === only) return;
     /* a sound has no picture: the handles of the clip held before go */
     if (!info) { if (pickedRef.current?.element?.isMgOuter) dropPick(); return; }
     /* the inspector's preview was of the clip held before */

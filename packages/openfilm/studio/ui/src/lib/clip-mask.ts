@@ -313,7 +313,8 @@ export function maskDefault(shape: MaskShape, box?: MaskBox | null, from?: Mask 
     w: sized ? from!.w : square.w,
     h: sized ? from!.h : square.h,
     rotate: from && MASK_FIELDS[from.shape].rotate ? from.rotate : 0,
-    feather: from && MASK_FIELDS[from.shape].feather ? from.feather : shape === 'rect' ? 0 : 10,
+    /* a hard edge until the person feathers it (CapCut's) */
+    feather: from && MASK_FIELDS[from.shape].feather ? from.feather : 0,
     radius: from?.radius ?? 0,
     invert: from?.invert ?? false,
   };

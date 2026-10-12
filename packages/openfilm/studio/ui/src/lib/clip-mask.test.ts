@@ -166,3 +166,7 @@ test('a new shape keeps the last one\'s place, and only what it has', () => {
   const square = maskDefault('ellipse', BOX);
   assert.ok(Math.abs((square.w / 100) * 1920 - (square.h / 100) * 1080) < 1, 'as wide as high on the picture');
 });
+
+test('a new mask has a hard edge, whatever its shape: feathering is the person\'s to add', () => {
+  for (const shape of MASK_SHAPES) assert.equal(maskDefault(shape, BOX).feather, 0, shape);
+});
