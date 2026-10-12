@@ -109,12 +109,16 @@ test('a folder is a partial clone: only its files download, and only it is check
 test('a fetched folder lands in the library under its own name, without .git; a second copy gets a new name', async () => {
   const lib = library();
   const progress = [];
-  const first = await fetchFilm(source(['main', 'films', 'one']), { library: lib, onProgress: (p) => progress.push(p.phase) });
+  const first = await fetchFilm(source(['main', 'films', 'one']), { library: lib, onProgress: (p) => progress.push(p) });
   assert.equal(first, join(lib, 'one'));
   assert.ok(existsSync(join(first, 'film.html')));
   assert.ok(existsSync(join(first, 'assets', 'a.txt')));
   assert.ok(!existsSync(join(first, '.git')));
-  assert.deepEqual([...new Set(progress)].filter((p) => p !== 'checkout'), ['lookup', 'download', 'copy']);
+  assert.deepEqual([...new Set(progress.map((p) => p.phase))].filter((p) => p !== 'checkout'), ['lookup', 'download', 'copy']);
+  /* the bar follows the download of the folder's files: up to 100 once, never back to the start */
+  const percents = progress.filter((p) => p.phase === 'download' && p.percent != null).map((p) => p.percent);
+  assert.ok(percents.length && percents.at(-1) === 100, `the download says how far it got: ${percents}`);
+  assert.deepEqual(percents, [...percents].sort((a, b) => a - b), `it only goes up: ${percents}`);
   const second = await fetchFilm(source(['feature', 'x', 'films', 'one']), { library: lib });
   assert.equal(second, join(lib, 'one 2'), 'a branch with a slash in its name');
   assert.deepEqual(readdirSync(lib).sort(), ['one', 'one 2'], 'nothing else left behind');

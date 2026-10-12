@@ -105,11 +105,12 @@ export function splitTree(tree, refs, blob) {
 
 /**
  * Run git, never through a shell, without asking anything in a terminal; `onLine` hears its progress (git writes it
- * on stderr, each step ending in \r). Resolves to stdout; a failure rejects with what git said.
- * @param {string[]} args @param {{ cwd?: string, signal?: AbortSignal, onLine?: (line: string) => void }} [options]
+ * on stderr, each step ending in \r); `input` is written to its stdin. Resolves to stdout; a failure rejects with what
+ * git said.
+ * @param {string[]} args @param {{ cwd?: string, signal?: AbortSignal, onLine?: (line: string) => void, input?: string }} [options]
  * @returns {Promise<string>}
  */
-function git(args, { cwd, signal, onLine } = {}) {
+function git(args, { cwd, signal, onLine, input } = {}) {
   return new Promise((done, fail) => {
     /* stopped before it began: git never runs */
     if (signal?.aborted) { fail(new Error('stopped')); return; }
@@ -117,8 +118,9 @@ function git(args, { cwd, signal, onLine } = {}) {
       cwd,
       windowsHide: true,
       env: { ...process.env, GIT_TERMINAL_PROMPT: '0', GCM_INTERACTIVE: 'never', GIT_PROGRESS_DELAY: '0' },
-      stdio: ['ignore', 'pipe', 'pipe'],
+      stdio: ['pipe', 'pipe', 'pipe'],
     });
+    child.stdin.on('error', () => {}).end(input ?? '');
     let out = '';
     let err = '';
     let partial = '';
@@ -195,7 +197,8 @@ async function folderSize(dir) {
 
 /**
  * Clone `cloneUrl` at `ref` (null: its default branch) into `dir`, shallow; with `folder`, a partial clone whose
- * checkout holds only that folder. Leaves `.git` in `dir` (the caller drops it).
+ * checkout holds only that folder. Leaves `.git` in `dir` (the caller drops it). `onLine` hears git's progress for the
+ * download of the files only: a folder's list of files comes first, unheard.
  * @param {{ cloneUrl: string, ref: string | null, folder: string[], dir: string, signal?: AbortSignal, onLine?: (line: string) => void }} options
  */
 export async function cloneInto({ cloneUrl, ref, folder, dir, signal, onLine }) {
@@ -205,9 +208,15 @@ export async function cloneInto({ cloneUrl, ref, folder, dir, signal, onLine }) 
     await git(['clone', '--depth=1', '--single-branch', '--no-tags', '--progress', ...branch, '--', cloneUrl, dir], { signal, onLine });
     return;
   }
-  await git(['clone', '--depth=1', '--single-branch', '--no-tags', '--progress', '--filter=blob:none', '--no-checkout', ...branch, '--', cloneUrl, dir], { signal, onLine });
+  await git(['clone', '--depth=1', '--single-branch', '--no-tags', '--filter=blob:none', '--no-checkout', ...branch, '--', cloneUrl, dir], { signal });
+  /* the folder's files, asked for by name: read-tree would fetch them too, but says nothing about how far it got */
+  const listed = await git(['ls-tree', '-r', '-z', 'HEAD', '--', folder.join('/')], { cwd: dir, signal });
+  const blobs = listed.split('\0').map((entry) => /^\d+ blob ([0-9a-f]+)\t/.exec(entry)?.[1]).filter(Boolean);
+  if (blobs.length) {
+    await git(['-c', 'fetch.negotiationAlgorithm=noop', 'fetch', '--progress', '--no-tags', '--no-write-fetch-head', '--recurse-submodules=no', '--stdin', 'origin'], { cwd: dir, signal, onLine, input: `${blobs.join('\n')}\n` });
+  }
   /* only the folder: a sparse checkout whose one pattern is the folder (anchored, so a same-named folder deeper down is
-     not taken too); read-tree then fetches just its files */
+     not taken too); read-tree then writes just its files */
   await git(['config', 'core.sparseCheckout', 'true'], { cwd: dir, signal });
   await mkdir(join(dir, '.git', 'info'), { recursive: true });
   await writeFile(join(dir, '.git', 'info', 'sparse-checkout'), `/${folder.join('/')}/\n`);
@@ -249,9 +258,11 @@ export async function fetchFilm(source, { library, onProgress = () => {}, signal
     });
   }, 500);
   const onLine = (/** @type {string} */ line) => {
-    const m = /^(?:remote: )?(Counting objects|Compressing objects|Receiving objects|Resolving deltas|Updating files|Checking out files)[^:]*:\s+(\d+)%/.exec(line);
+    /* only these two say how far the download and the writing are: the server's counting and compressing, and the
+       resolving after, each run 0 to 100 too */
+    const m = /^(Receiving objects|Updating files|Checking out files)[^:]*:\s+(\d+)%/.exec(line);
     if (!m) return;
-    const phase = /Updating files|Checking out files/.test(m[1]) ? 'checkout' : 'download';
+    const phase = m[1] === 'Receiving objects' ? 'download' : 'checkout';
     const percent = Number(m[2]);
     if (phase === progress.phase && percent === progress.percent) return;
     progress.phase = phase;
