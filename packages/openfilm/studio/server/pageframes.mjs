@@ -225,7 +225,8 @@ async function loadedFiles(/** @type {FilmPage} */ page, /** @type {string} */ b
 }
 
 /**
- * What a page says of itself, for the media pane: `{ duration (s), width, height }`, no duration when it has no end.
+ * What a page says of itself, for the media pane: `{ duration (s), width, height }`, no duration when it has no end;
+ * `reflows` when it sets no size of its own (then laid out at what it is given: its size here is 1920 × 1080).
  * Asked of the page kept open for its poster.
  * @param {string} root @param {string} base @param {string} rel
  */
@@ -236,7 +237,7 @@ export async function pageFacts(root, base, rel) {
   if (!info?.isFile()) throw new PageFrameError(`${rel} is not there`);
   return withPage(pageUrl(base, rel), POSTER_W, `${info.mtimeMs}:${info.size}`, async (page) => {
     const duration = lengthOf(page);
-    return { ...(duration != null ? { duration } : {}), width: page.meta.width, height: page.meta.height };
+    return { ...(duration != null ? { duration } : {}), width: page.meta.width, height: page.meta.height, ...(page.meta.sized ? {} : { reflows: true }) };
   });
 }
 

@@ -680,7 +680,6 @@ export const es: Words = {
   media: {
     insertSource: "Insertar en el cabezal",
     overwriteSource: "Sobrescribir en el cabezal",
-    addToTimeline: "Añadir a la línea de tiempo",
     close: 'Cerrar',
     results: 'Resultados',
     moveFailed: 'No se pudo mover ahí.',
@@ -695,6 +694,7 @@ export const es: Words = {
     cannotPreview: 'Este archivo no se puede previsualizar aquí.',
     scrub: 'Posición',
     search: 'Buscar medios',
+    searchShort: "Buscar",
     clearSearch: 'Borrar búsqueda',
     sort: 'Ordenar',
     import: 'Importar medios',

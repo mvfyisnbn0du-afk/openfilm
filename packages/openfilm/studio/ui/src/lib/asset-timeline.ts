@@ -76,22 +76,39 @@ export function assetFitBox(file: { w?: number | undefined; h?: number | undefin
 }
 
 /**
+ * A dropped page that sets no size of its own, on a canvas of another size: kept at the size it is shown at alone
+ * (`size`, 1920 × 1080), scaled whole into the canvas and centered, as a picture is. Left to itself it would be laid
+ * out again at the canvas's size, so a 16:9 page would turn 21:9 on a 21:9 canvas. Null on a canvas of its size.
+ */
+export function assetPageFit(
+  file: { reflows?: boolean | undefined; w?: number | undefined; h?: number | undefined },
+  stage: StageSize | null | undefined,
+): { size: StageSize; box: FilmBox } | null {
+  if (!file.reflows || !stage || !(stage.w > 0 && stage.h > 0) || !(file.w && file.w > 0 && file.h && file.h > 0)) return null;
+  if (file.w === stage.w && file.h === stage.h) return null;
+  const size = { w: file.w, h: file.h };
+  return { size, box: assetFitBox(size, stage) ?? { x: 0, y: 0, w: stage.w, h: stage.h } };
+}
+
+/**
  * The file as a film.html clip: `src` (its kind is the track it lands on, see assetDropInsert); a still, or a page
  * without a duration, also gets `time`, which is its length, not a trim. A video or still of another shape than the
- * canvas gets a box in its own shape (assetFitBox).
+ * canvas gets a box in its own shape (assetFitBox), a page without a size of its own its size and box (assetPageFit).
  */
 export function assetClipElement(
-  file: Pick<ResourceDragItem, 'path' | 'kind' | 'endless'> & { w?: number | undefined; h?: number | undefined },
+  file: Pick<ResourceDragItem, 'path' | 'kind' | 'endless' | 'reflows'> & { w?: number | undefined; h?: number | undefined },
   stage?: StageSize | null,
 ): Record<string, unknown> | null {
   const kind = assetClipKindOf(file);
   if (!kind) return null;
   const src = file.path;
   const box = kind === 'video' ? assetFitBox(file, stage) : null;
+  const page = kind === 'mg' ? assetPageFit(file, stage) : null;
   return {
     src,
     ...(isEndless(file) ? { time: [0, STILL_DROP_MS / 1000] } : {}),
     ...(box ? { box } : {}),
+    ...(page ? { box: page.box, size: page.size } : {}),
   };
 }
 
@@ -202,7 +219,7 @@ export type AssetDropPlan =
  * answer, no track is named and the insert finds one of the kind.
  */
 export function assetDropInsert(
-  file: Pick<ResourceDragItem, 'path' | 'kind' | 'endless' | 'w' | 'h'>,
+  file: Pick<ResourceDragItem, 'path' | 'kind' | 'endless' | 'reflows' | 'w' | 'h'>,
   tracks: readonly TimelineTrack[],
   target: AssetDropTarget,
   atMs: number,
@@ -232,7 +249,7 @@ export type AssetRunInsert = { element: Record<string, unknown>; at: number; dur
  * document) are left out; none left is `not-clip`.
  */
 export function assetRunInsert(
-  files: readonly Pick<ResourceDragItem, 'path' | 'kind' | 'durationMs' | 'endless' | 'w' | 'h'>[],
+  files: readonly Pick<ResourceDragItem, 'path' | 'kind' | 'durationMs' | 'endless' | 'reflows' | 'w' | 'h'>[],
   tracks: readonly TimelineTrack[],
   hit: AssetLaneHit | null,
   atMs: number,

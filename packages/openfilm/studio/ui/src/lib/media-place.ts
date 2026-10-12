@@ -13,7 +13,7 @@ import type { ResourceDragItem } from './resource-drag';
 import { planRoom, soundTrackFor, TOUCH_MS, type EditMode, type EditModel, type TrackDest } from './timeline-edit.ts';
 import { snapToFrame } from './timecode.ts';
 
-export type PlaceFile = Pick<ResourceDragItem, 'path' | 'kind' | 'durationMs' | 'endless' | 'w' | 'h'>;
+export type PlaceFile = Pick<ResourceDragItem, 'path' | 'kind' | 'durationMs' | 'endless' | 'reflows' | 'w' | 'h'>;
 
 /** A part of the file, in its own ms (the source viewer's in and out). */
 export type SourceRange = { inMs: number; outMs: number };

@@ -681,7 +681,6 @@ export const zhCN: Words = {
   media: {
     insertSource: "在播放头处插入",
     overwriteSource: "在播放头处覆盖",
-    addToTimeline: "加到时间线",
     close: '关闭',
     results: '结果',
     moveFailed: '无法移动到那里。',
@@ -696,6 +695,7 @@ export const zhCN: Words = {
     cannotPreview: '此文件无法在这里预览。',
     scrub: '位置',
     search: '搜索媒体',
+    searchShort: "搜索",
     clearSearch: '清除搜索',
     sort: '排序',
     import: '导入媒体',

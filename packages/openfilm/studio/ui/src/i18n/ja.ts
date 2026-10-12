@@ -680,7 +680,6 @@ export const ja: Words = {
   media: {
     insertSource: "再生ヘッドに挿入",
     overwriteSource: "再生ヘッドに上書き",
-    addToTimeline: "タイムラインに追加",
     close: '閉じる',
     results: '結果',
     moveFailed: 'そこへ移動できませんでした。',
@@ -695,6 +694,7 @@ export const ja: Words = {
     cannotPreview: 'このファイルはここではプレビューできません。',
     scrub: '位置',
     search: 'メディアを検索',
+    searchShort: "検索",
     clearSearch: '検索をクリア',
     sort: '並べ替え',
     import: 'メディアを読み込み',

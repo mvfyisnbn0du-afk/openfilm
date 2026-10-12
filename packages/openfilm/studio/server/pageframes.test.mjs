@@ -109,3 +109,12 @@ test('a page asked for by a path out of the project (`../`) is not there: never 
     assert.match((await res.json()).error, /is not there/);
   }
 });
+
+test('a page\'s facts: its own size, or none (reflows: shown alone at 1920 × 1080, in a film at what it is given)', async () => {
+  const { project } = await (await api('/api/projects', { method: 'POST', body: { path: join(scratch, 'Facts') } })).json();
+  writeFileSync(join(project.path, 'chart.html'), '<!doctype html><script>window.film = { width: 480, height: 320, frame() {} };</script>');
+  writeFileSync(join(project.path, 'cards.html'), '<!doctype html><script>window.film = { duration: 5, frame() {} };</script>');
+  const facts = async (path) => (await api(`/api/projects/${project.id}/media?what=probe&path=${path}`)).json();
+  assert.deepEqual(await facts('chart.html'), { width: 480, height: 320 });
+  assert.deepEqual(await facts('cards.html'), { duration: 5, width: 1920, height: 1080, reflows: true });
+});

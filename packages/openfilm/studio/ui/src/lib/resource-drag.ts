@@ -29,6 +29,8 @@ export interface ResourceDragItem {
   durationMs?: number;
   /** A web page without a duration (no end): written with a length of its own, as a still. */
   endless?: boolean;
+  /** A web page that sets no size of its own (its `w` × `h` is the size it is shown at alone). */
+  reflows?: boolean;
   w?: number;
   h?: number;
   fps?: number;
@@ -95,6 +97,7 @@ function normalizeResourceDragItem(value: unknown): ResourceDragItem | null {
     mtimeMs: typeof item.mtimeMs === 'number' && Number.isFinite(item.mtimeMs) ? item.mtimeMs : 0,
     ...(durationMs === undefined ? {} : { durationMs }),
     ...(item.endless === true ? { endless: true } : {}),
+    ...(item.reflows === true ? { reflows: true } : {}),
     ...(w === undefined ? {} : { w }),
     ...(h === undefined ? {} : { h }),
     ...(fps === undefined ? {} : { fps }),

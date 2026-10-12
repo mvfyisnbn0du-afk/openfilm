@@ -41,6 +41,7 @@ import { clearResourceDrag, setResourceDragData } from '@/lib/resource-drag';
 import { STUDIO_REF_TYPE, type StudioRef } from '@/lib/host';
 import {
   formatClipDuration,
+  formatFileSize,
   mediaNameMatches,
   renameChangesKind,
   renamedPath,
@@ -136,8 +137,8 @@ export interface MediaPoolProps {
   /** The file a pill hovered in the app's chat points at: its tile lit while it is. */
   litPath?: string | null;
   /**
-   * Put a file on the timeline, at the playhead on the targeted track or at the end of the main one (the tile's "+",
-   * Enter on the file picked). Without it there is no "+".
+   * Put a file on the timeline, at the playhead on the targeted track or at the end of the main one (Enter on the file
+   * picked; dragging it there is the usual way).
    */
   onAdd?: (file: WorkspaceResource) => void;
 }
@@ -204,6 +205,8 @@ export function MediaPool({
 
   const root = media?.dir ?? 'assets';
   const assetRel = React.useCallback((path: string) => (path.startsWith(`${root}/`) ? path.slice(root.length + 1) : path), [root]);
+  /** Under assets/ (not one of the project's own pages, which are shown at the top). */
+  const inMedia = React.useCallback((path: string) => path.startsWith(`${root}/`), [root]);
   const relDir = (rel: string) => (rel.includes('/') ? rel.slice(0, rel.lastIndexOf('/')) : '');
 
   const allFiles = React.useMemo(() => {
@@ -232,21 +235,22 @@ export function MediaPool({
         .filter((f) => (view.filter === 'all' || filterOf(f) === view.filter) && mediaNameMatches(f.name, q))
         .sort(order).map((file) => ({ type: 'file', file }));
     }
-    const here = allFiles.filter((f) => (f.kind === 'mg' ? at === '' : relDir(assetRel(f.path)) === at)).sort(order);
+    /* the project's pages are at the top; a page put in a folder is in its folder */
+    const here = allFiles.filter((f) => (inMedia(f.path) ? relDir(assetRel(f.path)) === at : at === '')).sort(order);
     const sub = folders
       .filter((dir) => relDir(dir) === at)
       .sort((a, b) => a.localeCompare(b, undefined, { numeric: true }))
       .map((rel) => ({
         type: 'folder' as const, rel, name: rel.split('/').pop()!,
-        count: allFiles.filter((f) => f.kind !== 'mg' && assetRel(f.path).startsWith(`${rel}/`)).length,
+        count: allFiles.filter((f) => inMedia(f.path) && assetRel(f.path).startsWith(`${rel}/`)).length,
         /* what the folder holds, on its cover: pictures first (they say the most), sounds after */
         covers: allFiles
-          .filter((f) => f.kind !== 'mg' && assetRel(f.path).startsWith(`${rel}/`))
+          .filter((f) => inMedia(f.path) && assetRel(f.path).startsWith(`${rel}/`))
           .sort((a, b) => Number(a.kind === 'audio') - Number(b.kind === 'audio') || a.name.localeCompare(b.name, undefined, { numeric: true }))
           .slice(0, 4),
       }));
     return [...sub, ...here.map((file) => ({ type: 'file' as const, file }))];
-  }, [allFiles, folders, at, query, view, assetRel]);
+  }, [allFiles, folders, at, query, view, assetRel, inMedia]);
 
   /* a file asked to be shown: its folder opened (pages are at the top), a search or a filter that hides it let go */
   const gridRef = React.useRef<HTMLDivElement>(null);
@@ -256,7 +260,7 @@ export function MediaPool({
     if (!file) return undefined;
     setQuery('');
     setView((v) => (v.filter === 'all' || v.filter === filterOf(file) ? v : { ...v, filter: 'all' }));
-    setAt(file.kind === 'mg' ? '' : relDir(assetRel(file.path)));
+    setAt(inMedia(file.path) ? relDir(assetRel(file.path)) : '');
     const frame = requestAnimationFrame(() => {
       gridRef.current?.querySelector(`[data-media-path="${CSS.escape(file.path)}"]`)?.scrollIntoView({ block: 'nearest' });
     });
@@ -437,7 +441,12 @@ export function MediaPool({
     { id: 'new-folder', label: t('assets.newFolder'), icon: <FolderPlus size={14} />, onSelect: () => setCreating(true) },
     { id: 'import', label: t('media.import'), icon: <Plus size={14} />, onSelect: () => inputRef.current?.click() },
   ];
-  const openMenuAt = (e: { clientX: number; clientY: number }, items: ContextMenuEntry[], dense?: boolean) => setMenu({ x: e.clientX, y: e.clientY, items, dense });
+  /** The bar button a menu hangs from: a press on it is not outside the menu, and a click on it closes the menu. */
+  const menuFrom = React.useRef<HTMLElement | null>(null);
+  const openMenuAt = (e: { clientX: number; clientY: number }, items: ContextMenuEntry[], dense?: boolean) => {
+    menuFrom.current = null;
+    setMenu({ x: e.clientX, y: e.clientY, items, dense });
+  };
 
   /* a click picks (lib/media-selection pickItem); the viewer shows the file clicked while it is picked, else the film */
   const press = (item: Item, e?: { metaKey: boolean; ctrlKey: boolean; shiftKey: boolean }) => {
@@ -522,8 +531,11 @@ export function MediaPool({
     window.addEventListener('pointerup', end);
     window.addEventListener('pointercancel', end);
   };
-  const barMenu = (e: React.MouseEvent, items: ContextMenuEntry[]) => {
-    const r = e.currentTarget.getBoundingClientRect();
+  const barMenu = (e: React.MouseEvent<HTMLElement>, items: ContextMenuEntry[]) => {
+    const from = e.currentTarget;
+    if (menu && menuFrom.current === from) { setMenu(null); menuFrom.current = null; return; }
+    menuFrom.current = from;
+    const r = from.getBoundingClientRect();
     setMenu({ x: r.left, y: r.bottom + 4, flipTo: r.top - 4, items, dense: true });
   };
 
@@ -650,7 +662,7 @@ export function MediaPool({
           ) : (
             <label className="flex h-7 min-w-0 flex-1 items-center gap-1.5 rounded-md bg-[var(--bg-hover)] px-2 text-[12.5px] text-[var(--text-muted)]">
               <Search size={13} className="shrink-0" />
-              <input value={query} onChange={(e) => setQuery(e.target.value)} placeholder={t('media.search')}
+              <input value={query} onChange={(e) => setQuery(e.target.value)} placeholder={t(room >= 390 ? 'media.search' : 'media.searchShort')}
                 className="min-w-0 flex-1 bg-transparent text-[var(--text)] outline-none placeholder:text-[var(--text-faint)]" />
               {query ? <button type="button" aria-label={t('media.clearSearch')} onClick={() => setQuery('')} className="shrink-0 hover:text-[var(--text)]"><X size={12} /></button> : null}
             </label>
@@ -754,8 +766,18 @@ export function MediaPool({
             </div>
           )
         ) : (
-          <div className={rows ? 'flex flex-col gap-px' : 'grid gap-x-2 gap-y-2.5'} style={rows ? undefined : { gridTemplateColumns: 'repeat(auto-fill, minmax(104px, 1fr))' }}
+          <div className={rows ? '@container flex flex-col gap-px' : 'grid gap-x-2 gap-y-2.5'} style={rows ? undefined : { gridTemplateColumns: 'repeat(auto-fill, minmax(104px, 1fr))' }}
             onContextMenu={(e) => { if (e.target === e.currentTarget) { e.preventDefault(); openMenuAt(e, blankMenu); } }}>
+            {rows ? (
+              <div className="flex h-6 shrink-0 select-none items-center gap-2 px-1.5 text-[11px] text-[var(--text-faint)]">
+                <span className="w-[46px] shrink-0" />
+                <span className="min-w-0 flex-1 truncate">{t('media.sort_name')}</span>
+                <span className={COL_TYPE}>{t('assets.propType')}</span>
+                <span className={COL_DIMS}>{t('assets.propDimensions')}</span>
+                <span className={COL_SIZE}>{t('assets.propSize')}</span>
+                <span className={COL_DUR}>{t('assets.propDuration')}</span>
+              </div>
+            ) : null}
             {creating ? <NewFolderTile row={rows} label={t('assets.newFolder')} onDone={(name) => void makeFolder(name)} onCancel={() => setCreating(false)} /> : null}
             {pendingFolder && !pendingListed ? <NewFolderTile row={rows} label={pendingFolder} /> : null}
             {(items ?? []).map((item) => item.type === 'folder' ? (
@@ -792,7 +814,7 @@ export function MediaPool({
                 {...(fileRef ? { studioRef: () => fileRef(item.file) } : {})}
                 moving={() => dragKeys(item.file.path)}
                 onPress={(e) => press(item, e)}
-                {...(onAdd && canAdd(item.file) ? { onAdd: () => onAdd(item.file), addLabel: t('media.addToTimeline') } : {})}
+                typeText={item.file.kind === 'mg' ? t('assets.kindPage') : extOf(item.file.name).toUpperCase()}
                 onMenu={(e) => menuFor(item, e)}
                 onRename={(name) => void rename(item.file.path, name, false)}
                 onCancelRename={() => setRenaming(null)}
@@ -808,7 +830,7 @@ export function MediaPool({
           {t('media.dropHint')}
         </div>
       ) : null}
-      {menu ? <ContextMenu x={menu.x} y={menu.y} flipTo={menu.flipTo} items={menu.items} onClose={() => setMenu(null)} dense={menu.dense} /> : null}
+      {menu ? <ContextMenu x={menu.x} y={menu.y} flipTo={menu.flipTo} items={menu.items} onClose={() => { setMenu(null); menuFrom.current = null; }} dense={menu.dense} trigger={menuFrom} /> : null}
       <ConfirmDialog
         open={moveAsk != null}
         title={t('media.moveAskTitle')}
@@ -870,6 +892,15 @@ const TILE_BOX = 'relative aspect-video overflow-hidden rounded-md ring-2 transi
 /** A row of the list view, and its small picture. */
 const ROW = 'group flex h-9 min-w-0 cursor-default select-none items-center gap-2 rounded-md px-1.5';
 const ROW_THUMB = 'relative aspect-video h-[26px] shrink-0 overflow-hidden rounded-[4px] bg-[var(--bg-hover)] ring-1 ring-[var(--border)]';
+/* the list's columns of facts, right of the name, as many as the pane is wide for (a container query on the list):
+   the length always (a folder's count there), the size, the kind and the picture's size as it widens */
+const COL = 'shrink-0 truncate text-right text-[11px] tabular-nums text-[var(--text-faint)]';
+const COL_TYPE = `${COL} hidden w-11 @min-[340px]:block`;
+const COL_DIMS = `${COL} hidden w-[76px] @min-[240px]:block`;
+const COL_SIZE = `${COL} hidden w-14 @min-[410px]:block`;
+const COL_DUR = `${COL} w-12`;
+/** A file name's ending, without the dot (`png`), or '' when it has none. */
+const extOf = (name: string) => /\.([^./\s]{1,8})$/.exec(name)?.[1] ?? '';
 
 /** Whether a file can be a clip (a video, a still, a sound, a page; not a document). */
 const canAdd = (file: WorkspaceResource) => file.kind === 'video' || file.kind === 'image' || file.kind === 'audio' || file.kind === 'mg';
@@ -921,7 +952,10 @@ function FolderTile(p: {
           {p.renaming ? <NameInput value={p.name} onDone={p.onRename} onCancel={p.onCancelRename} />
             : <span className={`block truncate text-[12.5px] font-medium ${on ? 'text-[var(--text)]' : 'text-[var(--text-dim)]'}`} style={KEEP_SPACES}>{p.name}</span>}
         </span>
-        <span className="shrink-0 pr-1 text-[11px] tabular-nums text-[var(--text-faint)]">{p.count ? String(p.count) : ''}</span>
+        <span className={COL_TYPE} />
+        <span className={COL_DIMS} />
+        <span className={COL_SIZE} />
+        <span className={COL_DUR}>{p.count ? String(p.count) : ''}</span>
       </div>
     );
   }
@@ -938,7 +972,7 @@ function FolderTile(p: {
             <div className={`pointer-events-none absolute inset-0 grid gap-px bg-black/40 ${grid}`}>
               {p.covers.map((file, i) => (
                 <span key={file.path} className={`relative overflow-hidden bg-[var(--bg-hover)] ${cells === 3 && i === 0 ? 'row-span-2' : ''}`}>
-                  <MediaPreview file={file} sources={p.sources} />
+                  {file.kind === 'mg' ? <PagePoster file={file} sources={p.sources} /> : <MediaPreview file={file} sources={p.sources} />}
                 </span>
               ))}
             </div>
@@ -1000,28 +1034,11 @@ function FileTile(p: {
   /** What a drag of it moves into a folder: it, or every one picked with it. */
   moving: () => readonly string[];
   onPress: (e?: React.MouseEvent) => void; onMenu: (e: React.MouseEvent) => void; onRename: (name: string) => void; onCancelRename: () => void;
-  /** The "+": the file put on the timeline. */
-  onAdd?: () => void;
-  addLabel?: string;
+  /** What kind of file it is, short (`PNG`, `Page`): the list view's Type. */
+  typeText: string;
   /** A row of the list view, not a tile. */
   row?: boolean;
 }) {
-  const add = p.onAdd ? (
-    <Tooltip label={p.addLabel ?? ''} shortcut="Enter">
-      <button
-        type="button"
-        data-media-add=""
-        aria-label={p.addLabel}
-        onMouseDown={(e) => e.preventDefault()}
-        onClick={(e) => { e.stopPropagation(); p.onPress(); p.onAdd!(); }}
-        className={p.row
-          ? `flex h-6 w-6 shrink-0 items-center justify-center rounded text-[var(--text-muted)] transition hover:bg-[var(--accent)] hover:text-white ${p.selected ? 'opacity-100' : 'opacity-0 focus-visible:opacity-100 group-hover:opacity-100'}`
-          : `absolute left-1 top-1 z-10 flex h-5 w-5 items-center justify-center rounded bg-black/65 text-white transition hover:bg-[var(--accent)] ${p.selected ? 'opacity-100' : 'opacity-0 focus-visible:opacity-100 group-hover:opacity-100'}`}
-      >
-        <Plus size={13} strokeWidth={2.4} />
-      </button>
-    </Tooltip>
-  ) : null;
   return (
     <div
       className={p.row
@@ -1057,16 +1074,16 @@ function FileTile(p: {
               : <span className={`block truncate text-[12.5px] ${p.selected ? 'text-[var(--text)]' : 'text-[var(--text-dim)]'}`} style={KEEP_SPACES}>{p.file.name}</span>}
             {p.where ? <span className="block truncate text-left text-[11px] text-[var(--text-faint)]" dir="rtl"><bdi>{p.where}</bdi></span> : null}
           </span>
-          {p.duration ? <span className="shrink-0 text-[11px] tabular-nums text-[var(--text-faint)]">{p.duration}</span> : null}
-          {add}
+          <span className={COL_TYPE}>{p.typeText}</span>
+          <span className={COL_DIMS}>{p.file.w && p.file.h ? `${p.file.w} × ${p.file.h}` : ''}</span>
+          <span className={COL_SIZE}>{p.file.size ? formatFileSize(p.file.size) : ''}</span>
+          <span className={COL_DUR}>{p.duration}</span>
         </>
       ) : <>
       {/* the same room above as a folder's stacked cards, so covers and names line up across a row */}
       <div className="pt-[7px]">
         <div className={`${TILE_BOX} bg-[var(--bg-hover)] ${p.lit ? 'ring-[var(--tl-accent)] shadow-[0_0_10px_1px_color-mix(in_srgb,var(--tl-accent)_55%,transparent)]' : p.selected ? 'ring-[var(--accent)]' : 'ring-transparent group-hover:ring-[var(--border)]'}`}>
           {p.file.kind === 'mg' ? <PagePoster file={p.file} sources={p.sources} /> : <MediaPreview file={p.file} sources={p.sources} />}
-          {/* "+": on the timeline at the playhead (or the main track's end), without dragging it there */}
-          {add}
           {p.duration ? <span className="absolute bottom-1 right-1 z-10 rounded bg-black/65 px-1 text-[10.5px] tabular-nums leading-[16px] text-white">{p.duration}</span> : null}
         </div>
       </div>

@@ -1,6 +1,6 @@
 import { Download, File as FileIcon } from 'lucide-react';
 import { useT } from '@/i18n';
-import { formatClipDuration, type WorkspaceResource, type WorkspaceResourceKind } from '@/lib/workspace-resources';
+import { formatClipDuration, formatFileSize, type WorkspaceResource, type WorkspaceResourceKind } from '@/lib/workspace-resources';
 import { InspectorPanel } from './InspectorPanel';
 import { KIND_ICON } from './MediaPreview';
 
@@ -42,25 +42,6 @@ function assetKindLabel(kind: WorkspaceResourceKind, t: (path: string) => string
   if (kind === 'image') return t('assets.catImage');
   if (kind === 'audio') return t('assets.kindAudio');
   return t('assets.catOther');
-}
-
-const SIZE_UNITS = ['B', 'KB', 'MB', 'GB', 'TB'];
-
-/** "12.3 MB": the order of magnitude is what a person reads, not the exact byte count. */
-function formatFileSize(bytes: number): string {
-  if (!Number.isFinite(bytes) || bytes <= 0) return '0 B';
-  let value = bytes;
-  let unit = 0;
-  while (value >= 1024 && unit < SIZE_UNITS.length - 1) {
-    value /= 1024;
-    unit += 1;
-  }
-  /* no decimals for bytes or past three digits ("248 MB" reads better than "248.3 MB") */
-  const text = value.toFixed(unit === 0 || value >= 100 ? 0 : 1);
-  /* 1023.97 KB rounds to 1024.0, which is 1 MB */
-  return Number(text) >= 1024 && unit < SIZE_UNITS.length - 1
-    ? `1.0 ${SIZE_UNITS[unit + 1]}`
-    : `${text} ${SIZE_UNITS[unit]}`;
 }
 
 /** Frame rate as people say it: 29.97 keeps two decimals, 30 is 30. */

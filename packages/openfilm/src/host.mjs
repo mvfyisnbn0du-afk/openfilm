@@ -335,7 +335,7 @@ export class FilmPage {
       /* a page without a size of its own, opened on its own, is 1920 × 1080 (inside a film it is the stage's); one
          without a duration has no end (null) */
       const sized = a.width != null || a.height != null;
-      return { duration: a.duration ?? null, width: sized ? a.width : 1920, height: sized ? a.height : 1080,
+      return { duration: a.duration ?? null, width: sized ? a.width : 1920, height: sized ? a.height : 1080, sized,
         /* an edit's sound, from the built-in timeline (a single page has none) */
         sounds: window.__filmSounds?.() ?? [] };
     }), readyMs, `film.ready did not finish within ${readyMs / 1000} s`).catch(async (e) => {

@@ -29,6 +29,8 @@ export interface WorkspaceResource {
   durationMs?: number;
   /** A web page without a duration: it has no end, so on the timeline it takes a length of its own, as a still. */
   endless?: boolean;
+  /** A web page that sets no size of its own: `w` × `h` is the size it is shown at alone (1920 × 1080). */
+  reflows?: boolean;
   w?: number;
   h?: number;
   /** Source frame rate: shown, because 25 and 30 fps footage mixed in one film repeats frames after export. */
@@ -75,6 +77,7 @@ export type MediaResult = 'ok' | 'taken' | 'failed';
 export interface MediaFacts {
   durationMs?: number;
   endless?: boolean;
+  reflows?: boolean;
   w?: number;
   h?: number;
   fps?: number;
@@ -125,12 +128,13 @@ export function mediaListingOf(
   const dirOf = (path: string) => { const r = rel(path); return r.includes('/') ? r.slice(0, r.lastIndexOf('/')) : ''; };
   return {
     dir: root,
+    /* a page put in a folder here is a page still: its poster, its preview, an mg clip */
     files: raw.files.map((f) => ({
       path: f.path,
-      name: f.path.slice(f.path.lastIndexOf('/') + 1),
+      name: f.kind === 'page' ? pageName(f.path) : f.path.slice(f.path.lastIndexOf('/') + 1),
       dir: dirOf(f.path),
       size: f.size,
-      kind: (MEDIA_KINDS.includes(f.kind) ? f.kind : 'other') as WorkspaceResourceKind,
+      kind: (f.kind === 'page' ? 'mg' : MEDIA_KINDS.includes(f.kind) ? f.kind : 'other') as WorkspaceResourceKind,
       mtimeMs: f.mtime,
       ...facts?.(f.path),
     })),
@@ -282,6 +286,25 @@ export function warmProjectMedia(projectId: string, listing: MediaListing | null
 export function srcHitsAsset(src: string, path: string): boolean {
   if (!src) return false;
   return src === path || path.endsWith(`/${src}`) || src.endsWith(`/${path}`);
+}
+
+const SIZE_UNITS = ['B', 'KB', 'MB', 'GB', 'TB'];
+
+/** "12.3 MB": the order of magnitude is what a person reads, not the exact byte count. */
+export function formatFileSize(bytes: number): string {
+  if (!Number.isFinite(bytes) || bytes <= 0) return '0 B';
+  let value = bytes;
+  let unit = 0;
+  while (value >= 1024 && unit < SIZE_UNITS.length - 1) {
+    value /= 1024;
+    unit += 1;
+  }
+  /* no decimals for bytes or past three digits ("248 MB" reads better than "248.3 MB") */
+  const text = value.toFixed(unit === 0 || value >= 100 ? 0 : 1);
+  /* 1023.97 KB rounds to 1024.0, which is 1 MB */
+  return Number(text) >= 1024 && unit < SIZE_UNITS.length - 1
+    ? `1.0 ${SIZE_UNITS[unit + 1]}`
+    : `${text} ${SIZE_UNITS[unit]}`;
 }
 
 /**

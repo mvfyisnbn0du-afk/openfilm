@@ -256,7 +256,8 @@ export function ProjectView({ projectId, onProject, onLeave }: {
     if (!rawListing) return;
     const wanted = [
       ...rawListing.files.filter((f) => f.kind === 'video' || f.kind === 'image' || f.kind === 'audio').map((f) => ({ f, page: false })),
-      ...rawListing.pages.map((f) => ({ f, page: true })),
+      /* pages: the project's, and any put in a folder of the media pane */
+      ...[...rawListing.pages, ...rawListing.files.filter((f) => f.kind === 'page')].map((f) => ({ f, page: true })),
     ];
     for (const { f, page } of wanted) {
       const key = `${f.path}@${f.mtime}`;
@@ -266,7 +267,11 @@ export function ProjectView({ projectId, onProject, onLeave }: {
         .then((r) => (r.ok ? r.json() : null))
         .then((probe) => {
           if (!probe) return;
-          const facts = { ...factsOfProbe(probe), audio: Boolean(probe.audio), ...(page && !(probe.duration > 0) ? { endless: true } : {}) };
+          const facts = {
+            ...factsOfProbe(probe), audio: Boolean(probe.audio),
+            ...(page && !(probe.duration > 0) ? { endless: true } : {}),
+            ...(page && probe.reflows ? { reflows: true } : {}),
+          };
           setFacts((m) => new Map(m).set(f.path, facts));
         }, () => {});
     }

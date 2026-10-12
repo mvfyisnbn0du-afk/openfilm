@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { assetClipElement, assetDropInsert, assetDropSpot, assetDropTargetOf, assetFitBox, assetRunInsert, soundLaneHit } from './asset-timeline.ts';
+import { assetClipElement, assetDropInsert, assetDropSpot, assetDropTargetOf, assetFitBox, assetPageFit, assetRunInsert, soundLaneHit } from './asset-timeline.ts';
 import type { TimelineTrack } from './timeline-layout.ts';
 
 /* A file from the media pane lands on the row under the pointer — a track has no kind (SPEC) — or, where its time
@@ -124,4 +124,15 @@ test('the clip written for a dropped file: a box for a still or video of another
   assert.ok(!('error' in plan) && (plan.element.box as { w: number }).w === 1080);
   const run = assetRunInsert([{ path: 'assets/a.png', kind: 'image', w: 1000, h: 1000 }], tracks, null, 0, undefined, stage);
   assert.ok('inserts' in run && (run.inserts[0]!.element.box as { x: number }).x === 420);
+});
+
+test('a page without a size of its own keeps the size it is shown at alone, scaled whole into the canvas', () => {
+  const page = { path: 'scenes/cards.html', kind: 'mg' as const, reflows: true, w: 1920, h: 1080 };
+  /* on 21:9 it stays 16:9, as high as the canvas, centered; it is not laid out again at 21:9 */
+  assert.deepEqual(assetClipElement(page, { w: 2520, h: 1080 }), { src: 'scenes/cards.html', box: { x: 300, y: 0, w: 1920, h: 1080 }, size: { w: 1920, h: 1080 } });
+  /* on 4K it is scaled up whole, not laid out at 3840 px */
+  assert.deepEqual(assetPageFit(page, { w: 3840, h: 2160 }), { size: { w: 1920, h: 1080 }, box: { x: 0, y: 0, w: 3840, h: 2160 } });
+  /* on its own size, or for a page that sets its size (it is its own size already): nothing */
+  assert.deepEqual(assetClipElement(page, { w: 1920, h: 1080 }), { src: 'scenes/cards.html' });
+  assert.equal(assetPageFit({ w: 480, h: 320 }, { w: 2520, h: 1080 }), null);
 });

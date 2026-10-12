@@ -680,7 +680,6 @@ export const ko: Words = {
   media: {
     insertSource: "재생 헤드에 삽입",
     overwriteSource: "재생 헤드에 덮어쓰기",
-    addToTimeline: "타임라인에 추가",
     close: '닫기',
     results: '결과',
     moveFailed: '그곳으로 옮길 수 없습니다.',
@@ -695,6 +694,7 @@ export const ko: Words = {
     cannotPreview: '이 파일은 여기서 미리 볼 수 없습니다.',
     scrub: '위치',
     search: '미디어 검색',
+    searchShort: "검색",
     clearSearch: '검색 지우기',
     sort: '정렬',
     import: '미디어 가져오기',

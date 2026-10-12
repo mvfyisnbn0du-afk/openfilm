@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { formatClipDuration, mediaNameMatches, renameChangesKind, renamedPath, safeName } from './workspace-resources.ts';
+import { formatClipDuration, mediaListingOf, mediaNameMatches, renameChangesKind, renamedPath, safeName } from './workspace-resources.ts';
 
 test('names keep spaces and every script; only what file systems refuse goes (the server’s rule, files.mjs)', () => {
   assert.equal(safeName('镜头 01.mp4'), '镜头 01.mp4');
@@ -41,4 +41,16 @@ test('the media search ignores case and runs of spaces', () => {
   assert.equal(mediaNameMatches('long tone.mp3', ' tone '), true);
   assert.equal(mediaNameMatches('longtone.mp3', 'long tone'), false);
   assert.equal(mediaNameMatches('anything', '   '), true);
+});
+
+test('a page put in a folder of the media pane is a page still, named as pages are; another file is "other"', () => {
+  const listing = mediaListingOf({
+    files: [
+      { path: 'assets/test/02-cards.html', kind: 'page', size: 1100, mtime: 1 },
+      { path: 'assets/test/brief.pdf', kind: 'other', size: 9, mtime: 1 },
+    ],
+    folders: ['assets/test'],
+    pages: [],
+  });
+  assert.deepEqual(listing.files.map((f) => [f.name, f.kind, f.dir]), [['02-cards', 'mg', 'test'], ['brief.pdf', 'other', 'test']]);
 });

@@ -681,7 +681,6 @@ export const en = {
   media: {
     insertSource: "Insert at the playhead",
     overwriteSource: "Overwrite at the playhead",
-    addToTimeline: "Add to timeline",
     close: 'Close',
     results: 'Results',
     moveFailed: 'Could not move it there.',
@@ -696,6 +695,7 @@ export const en = {
     cannotPreview: 'This file cannot be previewed here.',
     scrub: 'Position',
     search: 'Search media',
+    searchShort: "Search",
     clearSearch: 'Clear search',
     sort: 'Sort',
     import: 'Import media',
