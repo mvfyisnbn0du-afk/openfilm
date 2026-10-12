@@ -15,7 +15,7 @@
  */
 import type { PromptReference as StoredPromptReference } from '@openfilm/shared';
 import type { StudioRef } from '../app-bridge';
-import { clipPillKind } from './film-changes.ts';
+import { kindOf, soundRole } from 'openfilm/film-doc';
 import { refPill } from '../studio-refs.ts';
 
 export type AgentRefSegment = { kind: 'text'; text: string } | { kind: 'ref'; ref: StudioRef; raw: string };
@@ -88,4 +88,18 @@ export function agentRefPill(ref: StudioRef, { clipSrc, trackLabel }: { clipSrc?
   }
   const pill = refPill(undefined, ref);
   return { ...pill, id: `agent:${pill.id}`, ...(ref.kind === 'track' && trackLabel ? { label: trackLabel(ref.track) } : {}) };
+}
+
+/**
+ * The kind of pill (and so its icon) for a clip of this file, as the timeline colors it: a page is a motion graphic,
+ * a video or a still is a picture, a sound is a voice, a sound effect or music by where it lives.
+ */
+export function clipPillKind(src: string, sound = false): 'clipMg' | 'clipVideo' | 'clipVoice' | 'clipSfx' | 'clipMusic' {
+  const kind = kindOf({ src, ...(sound ? { sound: true } : {}) });
+  if (kind === 'page') return 'clipMg';
+  if (kind === 'sound') {
+    const role = soundRole(src);
+    return role === 'sfx' ? 'clipSfx' : role === 'music' ? 'clipMusic' : 'clipVoice';
+  }
+  return 'clipVideo';
 }

@@ -1,12 +1,12 @@
 /**
  * The film as Studio has it: film.html, read through Studio's own API (this page is Studio's, so the API is ours too).
- * The chat reads it when a project opens and when a turn starts and settles (lib/film-changes compares the two), and
- * keeps which file each clip is, so a clip an agent names in its reply gets the icon of what it is.
+ * The chat reads it when a project opens and keeps which file each clip is, so a clip an agent names in its reply gets
+ * the icon of what it is.
  */
 import React from 'react';
-import type { FilmDoc } from './film-changes';
+import type { FilmDoc } from 'openfilm/film-doc';
 
-/** how long a read may take before the turn's changes are left unsaid */
+/** how long a read may take before it is given up */
 const READ_WAIT_MS = 4000;
 
 let clipSrc = new Map<string, string>();

@@ -3,6 +3,7 @@
  * uses (localAgents, pathForFile) are typed in lib/desktop-bridge.ts.
  */
 import type { StudioRef, StudioSelection } from 'openfilm/studio-ui/lib/host.ts';
+import type { FileChange } from './lib/file-changes';
 
 /* what Studio and the chat say to each other about the film is Studio's own contract (its lib/host.ts) */
 export type { StageBox, StudioCommand, StudioRef, StudioRefImage, StudioSelection } from 'openfilm/studio-ui/lib/host.ts';
@@ -59,13 +60,18 @@ interface AppBridge {
     reveal(project: string, turnId?: string): Promise<unknown>;
     /** a picture a message's reference points at, kept for its agent: .film/refs/<turn>-<n>.jpg (its path in the project) */
     saveRefImage(project: string, turnId: string, n: number, bytes: ArrayBuffer): Promise<{ path: string }>;
+    /** the project's files as a turn starts, kept by the app; then what the turn changed in them (src/file-changes.mjs) */
+    snapshot(project: string, turnId: string): Promise<unknown>;
+    changes(project: string, turnId: string): Promise<{ files: FileChange[]; cut: boolean } | null>;
   };
   /** what an agent's command asks before it spends (a video clip), and what it tells the person (a provider with no
       balance left), worded by Studio: shown above the composer until answered; the command waits for a question */
   asks: { get(): SpendAsk[]; onChange(listener: (asks: SpendAsk[]) => void): () => void; answer(id: string, allow: boolean): void };
-  /** Settings → Developer: on, each turn shows its full log */
-  developer: { get(): Promise<boolean>; onChange(listener: (on: boolean) => void): () => void };
+  /** Settings → Developer: `logs`, each turn shows its full log; `changes`, what it changed in the files, under its reply */
+  developer: { get(): Promise<DeveloperPrefs>; onChange(listener: (prefs: DeveloperPrefs) => void): () => void };
 }
+
+export interface DeveloperPrefs { logs: boolean; changes: boolean }
 
 /** A question about spending, as Studio words it. */
 export interface SpendAsk { id: string; title: string; body: string | null; allowLabel: string; denyLabel: string }

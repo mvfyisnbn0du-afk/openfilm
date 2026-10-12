@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { agentRefPill, parseAgentRefs } from '../chat/src/lib/agent-refs.ts';
+import { agentRefPill, clipPillKind, parseAgentRefs } from '../chat/src/lib/agent-refs.ts';
 
 const refs = (text) => parseAgentRefs(text).filter((s) => s.kind === 'ref').map((s) => s.ref);
 
@@ -58,4 +58,14 @@ test('the other pills are the person\'s own pills for the same thing; a track is
   assert.equal(agentRefPill(track, { trackLabel: (n) => `Track ${n}` }).label, 'Track 2');
   assert.equal(agentRefPill(file).label, 'logo.png');
   assert.equal(agentRefPill(file).kind, 'file');
+});
+
+test('a clip\'s pill kind follows its file, as the timeline colors it', () => {
+  assert.equal(clipPillKind('mg/title.html'), 'clipMg');
+  assert.equal(clipPillKind('assets/video/talk.mp4'), 'clipVideo');
+  assert.equal(clipPillKind('assets/image/logo.png'), 'clipVideo');
+  assert.equal(clipPillKind('assets/audio/vo/01.m4a'), 'clipVoice');
+  assert.equal(clipPillKind('assets/audio/sfx/whoosh.mp3'), 'clipSfx');
+  assert.equal(clipPillKind('assets/audio/music/bed.mp3'), 'clipMusic');
+  assert.equal(clipPillKind('assets/video/talk.mp4', true), 'clipVoice');
 });

@@ -65,6 +65,8 @@ contextBridge.exposeInMainWorld('openfilmNative', {
     log: (project, turnId) => ipcRenderer.invoke('desktop:chat:log', { project, turnId }),
     reveal: (project, turnId) => ipcRenderer.invoke('desktop:chat:reveal', { project, turnId }),
     saveRefImage: (project, turnId, n, bytes) => ipcRenderer.invoke('desktop:chat:ref-image', { project, turnId, n, bytes }),
+    snapshot: (project, turnId) => ipcRenderer.invoke('desktop:chat:snapshot', { project, turnId }),
+    changes: (project, turnId) => ipcRenderer.invoke('desktop:chat:changes', { project, turnId }),
   },
   /* the app's own preferences (Settings → Developer) */
   prefs: {

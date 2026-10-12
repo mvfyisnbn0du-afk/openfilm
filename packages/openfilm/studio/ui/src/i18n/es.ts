@@ -1483,9 +1483,11 @@ export const es: Words = {
     },
     developer: {
       intro: 'Para saber exactamente qué hizo un agente y por qué: nada de esto cambia lo que hacen los agentes.',
-      group: 'Registros de turnos',
+      group: 'Cada turno',
+      changes: 'Mostrar lo que cambió cada turno',
+      changesHint: 'Bajo cada respuesta, los archivos que el turno añadió, eliminó o cambió, con las líneas añadidas y quitadas. Haz clic en un archivo para ver sus líneas cambiadas.',
       logs: 'Mostrar el registro de cada turno',
-      logsHint: 'En el chat, cada turno tiene un botón Registro: la petición y la sesión en que se ejecutó, cada herramienta con su entrada y su salida, cada pregunta y respuesta, y cómo terminó, tal como lo envió el agente. Bajo cada respuesta, lo que el turno cambió en film.html, línea por línea como un diff.',
+      logsHint: 'En el chat, cada turno tiene un botón Registro: la petición y la sesión en que se ejecutó, cada herramienta con su entrada y su salida, cada pregunta y respuesta, y cómo terminó, tal como lo envió el agente.',
       where: 'Cada turno se registra esté o no activado, en la carpeta .film/logs del proyecto, solo en este ordenador.',
       releaseGroup: 'Versiones',
       previewWhatsNew: 'Novedades',

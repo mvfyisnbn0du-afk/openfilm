@@ -288,22 +288,12 @@ export const zhCN: Words = {
     tokens: '输入 {input}（缓存 {cached}）· 输出 {output}',
   },
   turnFrame: {
-    added: '新增',
     balance: '{provider}：余额不足',
-    captions: '字幕已更新',
-    changes: '改动',
     copied: '已复制',
     copy: '复制回复',
-    edited: '已编辑',
     failed: '已中断',
-    jump: '在时间轴中显示',
-    length: '时长 {from} → {to}',
-    oneSound: '1 个声音',
     oneStep: '1 个步骤',
-    picture: '画面已更新',
     plan: '计划 · {done}/{total}',
-    removed: '已移除',
-    sounds: '{n} 个声音',
     steps: '{n} 个步骤',
     stopped: '已停止',
     thought: '思考了 {t}',
@@ -314,23 +304,13 @@ export const zhCN: Words = {
   agentRef: {
     track: '轨道 {n}',
   },
-  /** what a turn changed in the film, under its reply (components/FilmChangesList) */
-  filmChanges: {
-    one: '改了 1 个片段',
-    many: '改了 {n} 个片段',
+  /** what a turn changed in the project's files, under its reply (components/FileChangesList) */
+  fileChanges: {
+    more: '还有 {n} 个文件',
+    fewer: '收起',
+    cut: '只保留了前面的改动行。',
     added: '新增',
     removed: '已删除',
-    aspect: {
-      at: '从 {from} 秒挪到 {to} 秒',
-      time: '裁剪了',
-      speed: '速度 {from}× → {to}×',
-      track: '从轨道 {from} 挪到 {to}',
-      look: '样式变了',
-      box: '画面上的位置或大小变了',
-      src: '换了文件',
-      overrides: '页面里的调整变了',
-      volume: '音量变了',
-      other: '有改动',
-    },
+    changed: '已修改',
   },
 };

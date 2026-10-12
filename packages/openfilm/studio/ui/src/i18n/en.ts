@@ -1484,9 +1484,11 @@ export const en = {
     },
     developer: {
       intro: 'For finding out exactly what an agent did, and why: nothing here changes what the agents do.',
-      group: 'Turn logs',
+      group: 'Each turn',
+      changes: 'Show what each turn changed',
+      changesHint: 'Under each reply, the files the turn added, deleted or changed, with the lines added and removed. Click a file to see its changed lines.',
       logs: 'Show each turn’s log',
-      logsHint: 'In the chat, every turn gets a Log button: the prompt and the session it ran in, each tool call with its input and output, every question and answer, and how it ended, as the agent sent them. Under each reply, what the turn changed in film.html, line by line as a diff.',
+      logsHint: 'In the chat, every turn gets a Log button: the prompt and the session it ran in, each tool call with its input and output, every question and answer, and how it ended, as the agent sent them.',
       where: 'Every turn is logged whether or not this is on, in the project’s .film/logs folder, on this computer only.',
       releaseGroup: 'Releases',
       previewWhatsNew: 'What’s new',

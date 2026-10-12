@@ -1,5 +1,5 @@
 import type { Turn, LibraryVideo, PromptDisplay, TurnAttachment } from '@openfilm/shared';
-import { readFilmChanges, type ClipChange, type TurnFilmChanges } from './film-changes';
+import { readFileChanges, type FileChange, type TurnFileChanges } from './file-changes';
 import { readBalance, type Balance, type TurnBalance } from './balance';
 
 /**
@@ -42,8 +42,8 @@ export interface ProjectVersionEntry {
   createdAt?: string;
   /** When the turn settled (ISO), only for settled turns. Hovering under the reply says "N minutes ago". */
   settledAt?: string;
-  /** What the turn changed in the film, clip by clip (lib/film-changes); none when nothing did. */
-  filmChanges?: ClipChange[];
+  /** What the turn changed in the project's files (lib/file-changes); none when nothing did. */
+  fileChanges?: FileChange[];
 }
 
 /** Longest believable turn: anything longer most likely means a later write touched updatedAt. */
@@ -92,7 +92,7 @@ export function deriveProjectTurns(
   return ordered.map((asset) => {
     const film = videos.find((item) => item.turnId === asset.id);
     if (film) filmCount += 1;
-    const filmChanges = readFilmChanges((asset as Turn & TurnFilmChanges).filmChanges);
+    const fileChanges = readFileChanges((asset as Turn & TurnFileChanges).fileChanges);
     return {
       assetId: asset.id,
       label: film ? `v${filmCount}` : '',
@@ -104,7 +104,7 @@ export function deriveProjectTurns(
       status: statusOf(asset, Boolean(film)),
       current: asset.id === selectedId,
       ...frameOf(asset),
-      ...(filmChanges ? { filmChanges } : {}),
+      ...(fileChanges ? { fileChanges } : {}),
     };
   });
 }

@@ -6,6 +6,9 @@ import React from 'react';
  * editor in, served with `startStudio({ editorDir })`); Studio then leaves out what only makes sense in a browser,
  * such as the button that introduces the desktop app.
  */
+/** Settings → Developer, as the app keeps it (`developer` below). */
+export interface HostDeveloper { logs: boolean; changes: boolean }
+
 export interface StudioHost {
   /** the version of this interface the app speaks */
   version: 1;
@@ -99,13 +102,14 @@ export interface StudioHost {
     check?: () => Promise<HostUpdateState | null>;
   };
   /**
-   * The app's developer mode, for Settings → Developer: on, its chat shows each turn's full log (everything the agent
-   * sent and was answered, as it happened). `onChange` tells of a change from anywhere and returns a way to stop.
+   * The app's chat, for Settings → Developer: `logs`, each turn's full log (everything the agent sent and was
+   * answered, as it happened); `changes`, what each turn changed in the project's files, under its reply. `onChange`
+   * tells of a change from anywhere and returns a way to stop.
    */
   developer?: {
-    get: () => Promise<boolean>;
-    set: (on: boolean) => Promise<unknown>;
-    onChange: (listener: (on: boolean) => void) => () => void;
+    get: () => Promise<HostDeveloper>;
+    set: (next: Partial<HostDeveloper>) => Promise<unknown>;
+    onChange: (listener: (prefs: HostDeveloper) => void) => () => void;
   };
   /**
    * The app picks folders, and knows where a dropped one is: the Projects list gets "Open…", which asks the app for a

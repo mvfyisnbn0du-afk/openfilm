@@ -288,22 +288,12 @@ export const ko: Words = {
     tokens: '입력 {input} (캐시 {cached}) · 출력 {output}',
   },
   turnFrame: {
-    added: '새 항목',
     balance: '{provider}: 잔액 부족',
-    captions: '자막 업데이트됨',
-    changes: '변경 사항',
     copied: '복사됨',
     copy: '답변 복사',
-    edited: '편집됨',
     failed: '중단됨',
-    jump: '타임라인에서 보기',
-    length: '길이 {from} → {to}',
-    oneSound: '사운드 1개',
     oneStep: '1단계',
-    picture: '화면 업데이트됨',
     plan: '계획 · {done}/{total}',
-    removed: '삭제됨',
-    sounds: '사운드 {n}개',
     steps: '{n}단계',
     stopped: '중지됨',
     thought: '{t} 동안 생각함',
@@ -314,23 +304,13 @@ export const ko: Words = {
   agentRef: {
     track: '트랙 {n}',
   },
-  /** what a turn changed in the film, under its reply (components/FilmChangesList) */
-  filmChanges: {
-    one: '클립 1개 변경',
-    many: '클립 {n}개 변경',
-    added: '새로 추가',
+  /** what a turn changed in the project's files, under its reply (components/FileChangesList) */
+  fileChanges: {
+    more: '파일 {n}개 더 보기',
+    fewer: '접기',
+    cut: '앞부분의 변경된 줄만 남겼습니다.',
+    added: '새 파일',
     removed: '삭제됨',
-    aspect: {
-      at: '{from} → {to}초로 이동',
-      time: '트리밍',
-      speed: '속도 {from}× → {to}×',
-      track: '트랙 {from}에서 {to}(으)로 이동',
-      look: '모양 변경',
-      box: '화면 위치·크기 변경',
-      src: '파일 교체',
-      overrides: '페이지 안 조정 변경',
-      volume: '볼륨 변경',
-      other: '변경',
-    },
+    changed: '변경됨',
   },
 };

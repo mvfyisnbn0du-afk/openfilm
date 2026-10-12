@@ -7,7 +7,9 @@
  *   desktop:chat:log       { project, turnId } → { file, cut, size, events } | null
  *   desktop:chat:reveal    { project, turnId? }   the turn's log (or the logs folder) in the file manager
  *   desktop:chat:ref-image { project, turnId, n, bytes } → { path }   a reference's picture, kept for the agent
- *   desktop:prefs          → { developer }         and `desktop:prefs:set` { developer }; told on `desktop:prefs`
+ *   desktop:chat:snapshot  { project, turnId }     the project's files as a turn starts (file-changes.mjs), kept here
+ *   desktop:chat:changes   { project, turnId } → { files, cut } | null   what the turn changed in them since
+ *   desktop:prefs          → { developer, changes } and `desktop:prefs:set` either; told on `desktop:prefs`
  *
  * `project` is a folder path, and only one Studio has as a project is read or written: the page cannot point the
  * app at any other folder.
@@ -15,6 +17,10 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { chatDir, loadChat, readLog, saveRefImage, saveSessions, saveTurn } from './chat-store.mjs';
+import { changes, snapshot } from './file-changes.mjs';
+
+/** how many turns' snapshots are kept at once: one per running turn, and a few whose end was never asked about */
+const SNAPSHOTS_MAX = 8;
 
 /**
  * @param {import('electron').IpcMain} ipcMain
@@ -41,6 +47,22 @@ export function registerChatIpc(ipcMain, { trusted, projects, dataDir, reveal, t
   handle('desktop:chat:turn', async ({ project: path, turn, items }) => { saveTurn(await project(path), { turn, items }); return { ok: true }; });
   handle('desktop:chat:ref-image', async ({ project: path, turnId, n, bytes }) => saveRefImage(await project(path), turnId, n, bytes));
   handle('desktop:chat:log', async ({ project: path, turnId }) => readLog(await project(path), turnId));
+  /* the files as each running turn found them, by the turn: compared, and let go, when the turn settles */
+  const snapshots = new Map();
+  handle('desktop:chat:snapshot', async ({ project: path, turnId }) => {
+    const dir = await project(path);
+    const taken = await snapshot(dir);
+    snapshots.delete(turnId);
+    snapshots.set(turnId, { dir, taken });
+    while (snapshots.size > SNAPSHOTS_MAX) snapshots.delete(snapshots.keys().next().value);
+    return { ok: true };
+  });
+  handle('desktop:chat:changes', async ({ project: path, turnId }) => {
+    const dir = await project(path);
+    const kept = snapshots.get(turnId);
+    snapshots.delete(turnId);
+    return kept && kept.dir === dir ? changes(dir, kept.taken) : null;
+  });
   handle('desktop:chat:reveal', async ({ project: path, turnId }) => {
     const dir = await project(path);
     const found = typeof turnId === 'string' ? readLog(dir, turnId) : null;
@@ -52,12 +74,17 @@ export function registerChatIpc(ipcMain, { trusted, projects, dataDir, reveal, t
 
   /* the app's own preferences: kept by the app, not by the page (whose storage is its address's) */
   const file = join(dataDir, 'preferences.json');
+  /* `developer`: each turn's log (off unless turned on); `changes`: what each turn changed, under its reply (on) */
   const read = () => {
-    try { const raw = JSON.parse(readFileSync(file, 'utf8')); return { developer: raw.developer === true }; } catch { return { developer: false }; }
+    try {
+      const raw = JSON.parse(readFileSync(file, 'utf8'));
+      return { developer: raw.developer === true, changes: raw.changes !== false };
+    } catch { return { developer: false, changes: true }; }
   };
   handle('desktop:prefs', async () => read());
   handle('desktop:prefs:set', async (next) => {
-    const prefs = { ...read(), ...(typeof next.developer === 'boolean' ? { developer: next.developer } : {}) };
+    const prefs = { ...read() };
+    for (const key of ['developer', 'changes']) if (typeof next[key] === 'boolean') prefs[key] = next[key];
     if (!existsSync(dataDir)) mkdirSync(dataDir, { recursive: true });
     writeFileSync(file, `${JSON.stringify(prefs, null, 2)}\n`);
     tell('desktop:prefs', prefs);

@@ -11,7 +11,7 @@ import { X, Settings2, Keyboard, Sun, Moon, Monitor, Plug, Boxes, Bot, Search, S
 import { LANGUAGES, phrasesUnder, useLanguage, useLanguageChoice, useT, type LanguageChoice } from '@/i18n';
 import { shortcutHint } from '@/lib/shortcut-hint';
 import { SHORTCUTS, type ShortcutKey } from '@/lib/timeline-keys';
-import { studioHost, type HostUpdateState } from '@/lib/host';
+import { studioHost, type HostDeveloper, type HostUpdateState } from '@/lib/host';
 import { showWhatsNew } from '@/lib/whats-new';
 import { hasNotes, newestVersion } from '../WhatsNew';
 import { api, type StudioPrefs, type StudioVersion } from '@/api';
@@ -412,25 +412,34 @@ function AppAboutGroup() {
   );
 }
 
-/** The app's developer mode: each turn's full log in its chat (lib/host.ts `developer`). */
+/** What the app's chat shows of each turn: what it changed in the files, and its full log (lib/host.ts `developer`). */
 function DeveloperSection() {
   const t = useT();
   const developer = studioHost?.developer;
-  const [on, setOn] = React.useState<boolean | null>(null);
+  const [prefs, setPrefs] = React.useState<HostDeveloper | null>(null);
   React.useEffect(() => {
     if (!developer) return undefined;
-    void developer.get().then(setOn);
-    return developer.onChange(setOn);
+    void developer.get().then(setPrefs);
+    return developer.onChange(setPrefs);
   }, [developer]);
   if (!developer) return null;
+  const change = (next: Partial<HostDeveloper>) => {
+    setPrefs((was) => (was ? { ...was, ...next } : was));
+    void developer.set(next);
+  };
   return (
     <SettingsPage note={t('settings.developer.intro')}>
       <SettingsGroup title={t('settings.developer.group')} footnote={t('settings.developer.where')}>
+        {/* drawn once the app has said whether each is on: drawn off first, a switch slid on each time the page opened */}
+        <SettingsItem
+          title={t('settings.developer.changes')}
+          description={t('settings.developer.changesHint')}
+          control={prefs ? <SettingsSwitch checked={prefs.changes} label={t('settings.developer.changes')} onChange={(on) => change({ changes: on })} /> : null}
+        />
         <SettingsItem
           title={t('settings.developer.logs')}
           description={t('settings.developer.logsHint')}
-          /* drawn once the app has said whether it is on: drawn off first, it slid on each time the page opened */
-          control={on === null ? null : <SettingsSwitch checked={on} label={t('settings.developer.logs')} onChange={(next) => { setOn(next); void developer.set(next); }} />}
+          control={prefs ? <SettingsSwitch checked={prefs.logs} label={t('settings.developer.logs')} onChange={(on) => change({ logs: on })} /> : null}
         />
       </SettingsGroup>
       {newestVersion() ? (

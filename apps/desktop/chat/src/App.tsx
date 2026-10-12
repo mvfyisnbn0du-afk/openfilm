@@ -42,7 +42,7 @@ import {
 } from '@/lib/local-agent-run';
 import type { LocalAgentTurnMeta, PromptImage } from '@/lib/desktop-bridge';
 import { referencePictures } from '@/lib/ref-pictures';
-import { diffFilms, type TurnFilmChanges } from '@/lib/film-changes';
+import type { TurnFileChanges } from '@/lib/file-changes';
 import { readBalance, type TurnBalance } from '@/lib/balance';
 import { BalanceNotice } from '@/components/BalanceNotice';
 import { readStudioFilm } from '@/lib/studio-film';
@@ -425,21 +425,22 @@ function ChatPane({ project, banners, selection, assetsOpen }: { project: Projec
       turnNo: ordered.length, startedAt: Date.now(), turn: started,
     };
     registerRunningLocalTurn({ id, projectId: projectKey, projectTitle: project.name, sessionId, agent, prompt: instruction, startedAt: meta.startedAt, turn: started });
-    /* the film as the turn found it; once the turn settles, what it changed is kept with it and told under its reply.
-       The turn settles first: reading the film again is not worth keeping the person waiting for */
-    const filmBefore = readStudioFilm(project.id);
+    /* the project's files as the turn found them (read before the agent is sent anything); once the turn settles,
+       what it changed in them is kept with it and shown under its reply. The turn settles first: comparing the files
+       is not worth keeping the person waiting for */
+    const filesBefore = app.chat.snapshot(project.path, id).then(() => true, () => false);
     const settle = (patch: Partial<Turn & TurnBalance>) => {
       const done = settleLocalTurn(meta, turn, patch);
-      void filmBefore.then(async (before) => {
-        const after = before ? await readStudioFilm(project.id) : null;
-        const filmChanges = before && after ? diffFilms(before, after) : [];
-        if (!filmChanges.length) return;
-        const kept: Turn & TurnFilmChanges = { ...done, filmChanges };
+      void filesBefore.then(async (taken) => {
+        const found = taken ? await app.chat.changes(project.path, id).catch(() => null) : null;
+        const fileChanges = found?.files ?? [];
+        if (!fileChanges.length) return;
+        const kept: Turn & TurnFileChanges = { ...done, fileChanges };
         saveLocalAgentTurn(meta.projectId, kept, turn.items);
-        setTurns((list) => list.map((item) => (item.id === id ? { ...item, filmChanges } : item)));
+        setTurns((list) => list.map((item) => (item.id === id ? { ...item, fileChanges } : item)));
       });
     };
-    void prepared.then(({ text, images }) => runLocalAgentTurn({
+    void Promise.all([prepared, filesBefore]).then(([{ text, images }]) => runLocalAgentTurn({
       projectId: projectKey,
       agent,
       cwd: project.path,

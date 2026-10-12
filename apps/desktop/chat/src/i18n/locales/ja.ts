@@ -288,22 +288,12 @@ export const ja: Words = {
     tokens: '入力 {input}（キャッシュ {cached}）· 出力 {output}',
   },
   turnFrame: {
-    added: '新規',
     balance: '{provider}：残高が不足しています',
-    captions: '字幕を更新しました',
-    changes: '変更',
     copied: 'コピーしました',
     copy: '返信をコピー',
-    edited: '編集済み',
     failed: '中断されました',
-    jump: 'タイムラインで表示',
-    length: '長さ {from} → {to}',
-    oneSound: '1 個のサウンド',
     oneStep: '1 ステップ',
-    picture: '映像を更新しました',
     plan: 'プラン · {done}/{total}',
-    removed: '削除済み',
-    sounds: '{n} 個のサウンド',
     steps: '{n} ステップ',
     stopped: '停止しました',
     thought: '{t} 考えました',
@@ -314,23 +304,13 @@ export const ja: Words = {
   agentRef: {
     track: 'トラック {n}',
   },
-  /** what a turn changed in the film, under its reply (components/FilmChangesList) */
-  filmChanges: {
-    one: '1 個のクリップを変更',
-    many: '{n} 個のクリップを変更',
+  /** what a turn changed in the project's files, under its reply (components/FileChangesList) */
+  fileChanges: {
+    more: 'ほか {n} ファイル',
+    fewer: '折りたたむ',
+    cut: '最初の変更行だけを残しています。',
     added: '新規',
     removed: '削除',
-    aspect: {
-      at: '{from} → {to} 秒に移動',
-      time: 'トリミング',
-      speed: '速度 {from}× → {to}×',
-      track: 'トラック {from} から {to} へ移動',
-      look: '見た目を変更',
-      box: '画面上の位置・サイズを変更',
-      src: 'ファイルを差し替え',
-      overrides: 'ページ内の調整を変更',
-      volume: '音量を変更',
-      other: '変更',
-    },
+    changed: '変更',
   },
 };
