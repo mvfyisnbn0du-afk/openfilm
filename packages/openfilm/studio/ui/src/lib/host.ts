@@ -92,6 +92,9 @@ export interface StudioHost {
   update?: {
     onChange: (listener: (update: HostUpdate | null) => void) => () => void;
     restart: () => Promise<{ ok: boolean; error?: string }>;
+    /** Settings → About: the whole state now and on every change, and a check made now (it resolves when it ends) */
+    onState?: (listener: (state: HostUpdateState) => void) => () => void;
+    check?: () => Promise<HostUpdateState | null>;
   };
   /**
    * The app's developer mode, for Settings → Developer: on, its chat shows each turn's full log (everything the agent
@@ -116,6 +119,22 @@ export interface StudioHost {
 
 /** A question about spending, worded for the person (see `asks`). */
 export interface HostAsk { id: string; title: string; body: string | null; allowLabel: string; denyLabel: string }
+
+/**
+ * Where the app's update is: `off` (this build never updates) · idle · checking · current · available · downloading
+ * (`progress` 0–100) · staging (macOS unpacks it) · ready · installing · error. `availableVersion`: the newer version
+ * found; `checkedAt`: when a check last answered (ms); `error`: offline · unavailable · failed (a check or download),
+ * agent-busy · exporting · install-failed (a Restart not done).
+ */
+export interface HostUpdateState {
+  status: 'off' | 'idle' | 'checking' | 'current' | 'available' | 'downloading' | 'staging' | 'ready' | 'installing' | 'error';
+  version: string;
+  channel: 'stable' | 'beta';
+  availableVersion: string | null;
+  progress: number;
+  checkedAt: number | null;
+  error: string | null;
+}
 
 /** An update of the app, ready to install or installing; `waiting`: why the last Restart did not go ahead. */
 export type HostUpdate = { status: 'ready' | 'installing'; version: string; waiting?: 'agent-busy' | 'exporting' | 'install-failed' | null };

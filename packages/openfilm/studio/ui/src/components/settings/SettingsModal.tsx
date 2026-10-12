@@ -6,11 +6,11 @@
  */
 import React from 'react';
 import { createPortal } from 'react-dom';
-import { X, Settings2, Keyboard, Sun, Moon, Monitor, Plug, Boxes, Bot, Search, SquareTerminal } from 'lucide-react';
+import { X, Settings2, Keyboard, Sun, Moon, Monitor, Plug, Boxes, Bot, Search, SquareTerminal, Loader2 } from 'lucide-react';
 import { LANGUAGES, phrasesUnder, useLanguage, useLanguageChoice, useT, type LanguageChoice } from '@/i18n';
 import { shortcutHint } from '@/lib/shortcut-hint';
 import { SHORTCUTS, type ShortcutKey } from '@/lib/timeline-keys';
-import { studioHost } from '@/lib/host';
+import { studioHost, type HostUpdateState } from '@/lib/host';
 import { api, type StudioPrefs, type StudioVersion } from '@/api';
 import { AgentsSection } from './AgentsSection';
 import { ModelsSection } from './ModelsSection';
@@ -223,7 +223,7 @@ function GeneralSection() {
         />
       </SettingsGroup>
       <PlaybackGroup />
-      <AboutGroup />
+      {studioHost?.update?.onState ? <AppAboutGroup /> : <AboutGroup />}
     </SettingsPage>
   );
 }
@@ -307,6 +307,78 @@ function AboutGroup() {
           control={<code className="select-all rounded-md bg-[var(--surface-2)] px-2 py-1 font-mono text-[12px] text-[var(--text)]">npx -y openfilm@latest open</code>}
         />
       ) : null}
+    </SettingsGroup>
+  );
+}
+
+/** A check that answered this long ago is still news: opening About within it looks again only on a click. */
+const CHECKED_FRESH_MS = 10 * 60_000;
+
+/**
+ * The app's version and its update (lib/host.ts `update`), as an app's About shows them: looked for on opening (unless
+ * a check answered a few minutes ago), downloaded by itself with its progress, Restart when it is ready (it installs at
+ * the next quit too). The menu's Check for Updates… stays.
+ */
+function AppAboutGroup() {
+  const t = useT();
+  const language = useLanguage();
+  const update = studioHost?.update;
+  const [state, setState] = React.useState<HostUpdateState | null>(null);
+  const [refused, setRefused] = React.useState<string | null>(null);
+  React.useEffect(() => update?.onState?.(setState), [update]);
+  /* looked for once on opening, when the last answer is old or there is none */
+  const looked = React.useRef(false);
+  React.useEffect(() => {
+    if (!state || looked.current) return;
+    looked.current = true;
+    const stale = state.checkedAt == null || Date.now() - state.checkedAt > CHECKED_FRESH_MS;
+    if (stale && ['idle', 'current', 'error'].includes(state.status)) void update?.check?.();
+  }, [state, update]);
+  const check = () => { setRefused(null); void update?.check?.(); };
+  const restart = () => {
+    setRefused(null);
+    void update?.restart().then((r) => { if (!r.ok && r.error) setRefused(r.error); });
+  };
+  const ago = (at: number) => {
+    const minutes = Math.round((Date.now() - at) / 60_000);
+    const rtf = new Intl.RelativeTimeFormat(language, { numeric: 'auto' });
+    return minutes < 60 ? rtf.format(-minutes, 'minute') : minutes < 48 * 60 ? rtf.format(-Math.round(minutes / 60), 'hour') : rtf.format(-Math.round(minutes / 1440), 'day');
+  };
+  const s = state;
+  const next = s?.availableVersion ?? '';
+  const waiting = refused ?? (s?.status === 'ready' ? s.error : null);
+  const why = waiting === 'agent-busy' ? t('update.agentBusy') : waiting === 'exporting' ? t('update.exporting')
+    : waiting === 'install-failed' ? t('update.installFailed').replace('{version}', next) : null;
+  const errorText = s?.error === 'offline' ? t('settings.about.appOffline') : s?.error === 'unavailable' ? t('settings.about.appUnavailable') : t('settings.about.appFailed');
+  const busy = (text: string) => <span className="inline-flex items-center gap-1.5"><Loader2 size={13} className="animate-spin" aria-hidden />{text}</span>;
+  const description = !s ? null
+    : s.status === 'off' ? t('settings.about.appOff')
+    : s.status === 'idle' || s.status === 'checking' ? busy(t('settings.about.checking'))
+    : s.status === 'current' ? `${t('settings.about.upToDate')}${s.checkedAt ? ` ${t('settings.about.appChecked').replace('{time}', ago(s.checkedAt))}` : ''}`
+    : s.status === 'available' || s.status === 'downloading' ? busy(`${t('settings.about.appDownloading').replace('{version}', next)}${s.status === 'downloading' ? ` ${Math.round(s.progress)}%` : ''}`)
+    : s.status === 'staging' ? busy(t('settings.about.appStaging').replace('{version}', next))
+    : s.status === 'ready' ? (why ?? t('update.ready').replace('{version}', next))
+    : s.status === 'installing' ? busy(t('update.installing'))
+    : errorText;
+  const control = !s ? null
+    : s.status === 'current' ? <SettingsButton onClick={check}>{t('settings.about.check')}</SettingsButton>
+    : s.status === 'error' ? <SettingsButton onClick={check}>{t('settings.about.appRetry')}</SettingsButton>
+    : s.status === 'ready' ? <SettingsButton variant="primary" onClick={restart}>{t('update.restart')}</SettingsButton>
+    : null;
+  return (
+    <SettingsGroup title={t('settings.about.group')}>
+      <SettingsItem
+        title={`OpenFilm ${s?.version ?? ''}`.trim()}
+        badge={s?.channel === 'beta' ? <span className="rounded-full bg-[var(--fill-tsp)] px-2 py-0.5 text-[11.5px] text-[var(--text-muted)]">beta</span> : null}
+        description={description}
+        control={control}
+      >
+        {s?.status === 'downloading' ? (
+          <div className="h-1 overflow-hidden rounded-full bg-[var(--fill-tsp)]" role="progressbar" aria-valuenow={Math.round(s.progress)} aria-valuemin={0} aria-valuemax={100}>
+            <div className="h-full rounded-full bg-[var(--text)] transition-[width]" style={{ width: `${Math.max(2, s.progress)}%` }} />
+          </div>
+        ) : null}
+      </SettingsItem>
     </SettingsGroup>
   );
 }

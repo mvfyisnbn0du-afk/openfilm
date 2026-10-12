@@ -391,6 +391,9 @@ async function start() {
     },
   });
   ipcMain.handle('desktop:update-restart', (event) => (fromPage(event) ? updates?.restart() : { ok: false }));
+  /* Settings → About: the state now, and a check that answers with the state it ends in (no dialog) */
+  ipcMain.handle('desktop:update-state', (event) => (fromPage(event) ? updates?.snapshot() ?? null : null));
+  ipcMain.handle('desktop:update-check', (event) => (fromPage(event) ? updates?.check() ?? null : null));
 
   Menu.setApplicationMenu(applicationMenu({
     productName: PRODUCT_NAME,

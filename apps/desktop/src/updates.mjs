@@ -30,8 +30,12 @@ const { autoUpdater } = electronUpdater;
 export function startUpdates({ dataDir, productName, getWindow, onState, prepareRestart, beforeInstall }) {
   /* run from source, or built with no update feed (electron-builder writes app-update.yml only with one) */
   if (!app.isPackaged || !existsSync(join(process.resourcesPath, 'app-update.yml'))) {
-    const idle = { status: 'idle', version: app.getVersion(), channel: 'stable', availableVersion: null, progress: 0, checkedAt: null, error: null };
-    return { packaged: false, snapshot: () => idle, restart: async () => ({ ok: false, error: 'not-ready' }), manualCheck: null, channel: () => 'stable', setChannel: () => {}, close: () => {} };
+    /* `off`: this build never updates (Settings → About says so) */
+    const off = { status: 'off', version: app.getVersion(), channel: 'stable', availableVersion: null, progress: 0, checkedAt: null, error: null };
+    return {
+      packaged: false, snapshot: () => off, check: async () => off, restart: async () => ({ ok: false, error: 'not-ready' }), manualCheck: null,
+      channel: () => 'stable', setChannel: () => {}, close: () => {},
+    };
   }
   autoUpdater.logger = null;
   let channel = readUpdateChannel(dataDir);
@@ -85,6 +89,8 @@ export function startUpdates({ dataDir, productName, getWindow, onState, prepare
   return {
     packaged: true,
     snapshot: controller.snapshot,
+    /** Check now, quietly (Settings → About shows what it finds); the menu's check answers with a dialog */
+    check: controller.check,
     restart: controller.restart,
     manualCheck: createManualUpdateCheck({ controller, productName, showMessage, focusWindow: focus }),
     channel: () => channel,

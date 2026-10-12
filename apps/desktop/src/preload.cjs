@@ -85,4 +85,7 @@ contextBridge.exposeInMainWorld('openfilmNative', {
   onUpdate: on('desktop:update'),
   /* → { ok } | { ok: false, error }: refused while an agent works or Studio exports (the update stays ready) */
   restartToUpdate: () => ipcRenderer.invoke('desktop:update-restart'),
+  /* → the update's state (update-controller.mjs), now / after a check made now */
+  updateState: () => ipcRenderer.invoke('desktop:update-state'),
+  checkForUpdate: () => ipcRenderer.invoke('desktop:update-check'),
 });

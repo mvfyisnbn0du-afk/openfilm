@@ -10,7 +10,7 @@
  * (src/preload.cjs). Imported before Studio's modules and the chat's: Studio reads its host as it loads.
  */
 import { flushSync } from 'react-dom';
-import type { HostAgent, HostAsk, HostUpdate, StudioCommand, StudioHost, StudioRef, StudioSelection } from 'openfilm/studio-ui/lib/host.ts';
+import type { HostAgent, HostAsk, HostUpdate, HostUpdateState, StudioCommand, StudioHost, StudioRef, StudioSelection } from 'openfilm/studio-ui/lib/host.ts';
 
 type Listener<T> = (value: T) => void;
 type Stop = () => void;
@@ -37,6 +37,8 @@ interface Native {
   onFfmpeg(listener: Listener<unknown>): Stop;
   onUpdate(listener: Listener<unknown>): Stop;
   restartToUpdate(): Promise<{ ok: boolean; error?: string }>;
+  updateState(): Promise<unknown>;
+  checkForUpdate(): Promise<unknown>;
 }
 
 const native = (window as unknown as { openfilmNative: Native }).openfilmNative;
@@ -218,6 +220,13 @@ const update: NonNullable<StudioHost['update']> = {
     return native.onUpdate((state) => { told = true; listener(shownUpdate(state)); });
   },
   restart: native.restartToUpdate,
+  /* the whole state, for Settings → About: now, then every change */
+  onState(listener) {
+    let told = false;
+    void native.updateState().then((s) => { if (!told && s) listener(s as HostUpdateState); });
+    return native.onUpdate((s) => { told = true; if (s) listener(s as HostUpdateState); });
+  },
+  check: async () => (await native.checkForUpdate()) as HostUpdateState | null,
 };
 
 /* ── Studio's host ── */
