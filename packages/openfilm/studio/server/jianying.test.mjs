@@ -89,10 +89,10 @@ test('subtitles: a text track over all, one clip a cue, white with a dark edge, 
 });
 
 test('剪映\'s drafts folder: where it keeps them on a Mac and on Windows, when it is there', () => {
-  const mac = join('/Users/me', 'Movies', 'JianyingPro', 'User Data', 'Projects', 'com.lveditor.draft');
-  assert.equal(jianyingDraftsRoot({ platform: 'darwin', home: '/Users/me', exists: (p) => p === mac }), mac);
-  assert.equal(jianyingDraftsRoot({ platform: 'darwin', home: '/Users/me', exists: () => false }), null);
-  const win = join('C:\\Users\\me\\AppData\\Local', 'JianyingPro', 'User Data', 'Projects', 'com.lveditor.draft');
-  assert.equal(jianyingDraftsRoot({ platform: 'win32', home: 'C:\\Users\\me', localAppData: 'C:\\Users\\me\\AppData\\Local', exists: (p) => p === win }), win);
-  assert.equal(jianyingDraftsRoot({ platform: 'linux', home: '/home/me', exists: () => true }), null);
+  const mac = join('/mac-home', 'Movies', 'JianyingPro', 'User Data', 'Projects', 'com.lveditor.draft');
+  assert.equal(jianyingDraftsRoot({ platform: 'darwin', home: '/mac-home', exists: (p) => p === mac }), mac);
+  assert.equal(jianyingDraftsRoot({ platform: 'darwin', home: '/mac-home', exists: () => false }), null);
+  const win = join('D:\\local-app-data', 'JianyingPro', 'User Data', 'Projects', 'com.lveditor.draft');
+  assert.equal(jianyingDraftsRoot({ platform: 'win32', home: 'D:\\win-home', localAppData: 'D:\\local-app-data', exists: (p) => p === win }), win);
+  assert.equal(jianyingDraftsRoot({ platform: 'linux', home: '/linux-home', exists: () => true }), null);
 });
