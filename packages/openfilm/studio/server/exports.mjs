@@ -31,11 +31,13 @@
  *       plain transcript); refused when the film has none
  *   { kind: 'slides', format?: 'pptx' (default) | 'pdf', frame?, fill?, shortEdge? (default 1080), at?: number[] }
  *       the scene stills bound as a deck (the scene's name in the speaker notes) or a PDF, one page each
- *   { kind: 'nle', fps? (snapped to 23.976, 24, 25, 29.97, 30, 50, 59.94 or 60; default 30), audio?: 'clips' (default)
- *     | 'stems', media?: 'copy' (default) | 'link', subtitles?: boolean (default true) }
+ *   { kind: 'nle', format?: 'xml' (default) | 'jianying', fps? (snapped to 23.976, 24, 25, 29.97, 30, 50, 59.94 or 60;
+ *     default 30), audio?: 'clips' (default) | 'stems', media?: 'copy' (default) | 'link', subtitles?: boolean (default true) }
  *       a folder an editing program opens (see nle.mjs): `<name>.xml` (xmeml: Premiere Pro, DaVinci Resolve), each
  *       web page rendered to a ProRes 4444 with alpha in media/, footage, stills and sounds cloned there (`link`:
- *       pointed at where they are), the sound as clips or as mixed stems, `<name>.srt` when there are subtitles
+ *       pointed at where they are), the sound as clips or as mixed stems, `<name>.srt` when there are subtitles.
+ *       `jianying`: the same timeline as a 剪映 draft (see jianying.mjs), made in 剪映's drafts folder when this
+ *       computer has one (else in the exports folder, to be moved there), its subtitles a text track
  *
  *   { kind: 'project', parts?: ('history' | 'chat' | 'logs')[], as?: 'zip' (default) | 'folder' }
  *       the project itself, to hand on or keep (see projectFiles): its work always, the parts asked besides; a zip
@@ -57,6 +59,7 @@ import { FilmPage, launch } from '../../src/host.mjs';
 import { filmSound, kill as killProcess, mix, open } from '../../src/shared.mjs';
 import { FILM_FILE, clipFade, filmHtml, fittedFade, kindOf, pictureRect, readFilmFile } from '../../src/film-doc.mjs';
 import { NLE_FPS, nleFps, planNleTimeline, probeSource, soundStem, xmemlDocument } from './nle.mjs';
+import { jianyingDraft, jianyingDraftsRoot } from './jianying.mjs';
 import { slidesPdf, writePptx } from './slides.mjs';
 import { subtitlesForExport } from './captions.mjs';
 import { filmSubtitleCuesInRange, filmSubtitleShown, filmSubtitleSrt, filmSubtitleTranscript, filmSubtitleVtt } from './film-subtitle.mjs';
@@ -85,7 +88,7 @@ export const exportsRoot = () => process.env.OPENFILM_EXPORTS
  * @typedef {Framing & { kind: 'poster', format?: 'png' | 'jpg', shortEdge?: number, at?: number }} PosterAsk
  * @typedef {{ kind: 'subtitles', format?: 'srt' | 'vtt' | 'txt' }} SubtitlesAsk
  * @typedef {Framing & { kind: 'slides', format?: 'pptx' | 'pdf', shortEdge?: number, at?: number[] }} SlidesAsk
- * @typedef {{ kind: 'nle', fps?: number, audio?: 'clips' | 'stems', media?: 'copy' | 'link', subtitles?: boolean }} NleAsk
+ * @typedef {{ kind: 'nle', format?: 'xml' | 'jianying', fps?: number, audio?: 'clips' | 'stems', media?: 'copy' | 'link', subtitles?: boolean }} NleAsk
  * @typedef {{ kind: 'project', parts?: ProjectPart[], as?: 'zip' | 'folder' }} ProjectAsk
  * @typedef {typeof PROJECT_PARTS[number]} ProjectPart
  * @typedef {VideoAsk | GifAsk | AudioAsk | StillsAsk | PosterAsk | SubtitlesAsk | SlidesAsk | NleAsk | ProjectAsk} ExportSpec
@@ -138,6 +141,11 @@ export async function exportCapabilities() {
     mp3: have.has('libmp3lame'),
   };
 }
+
+/** 剪映's drafts folder on this computer, or null. */
+const defaultJianyingDrafts = () => jianyingDraftsRoot({ home: homedir(), localAppData: process.env.LOCALAPPDATA, exists: existsSync });
+/** Whether 剪映 is on this computer (its drafts folder is there): an editing project then goes into its drafts. */
+export const hasJianying = () => Boolean(defaultJianyingDrafts());
 
 /* ── delivery frames (the same arithmetic as the editor's lib/film-frame.ts) ── */
 
@@ -238,7 +246,7 @@ function baseName(project, ask) {
     }
     case 'stills': return `${base} stills`;
     case 'poster': return `${base} poster`;
-    case 'nle': return `${base} · Editor XML`;
+    case 'nle': return ask.format === 'jianying' ? base : `${base} · Editor XML`;
     default: return `${base}${range}`;
   }
 }
@@ -298,6 +306,7 @@ function checked(/** @type {ExportAsk} */ ask) {
       break;
     case 'nle':
       if (ask.range !== undefined) throw new ExportError('an editor gets the whole timeline: no range');
+      if (ask.format !== undefined && ask.format !== 'xml' && ask.format !== 'jianying') throw new ExportError('format: xml or jianying');
       if (!between(ask.fps, 1, 120)) throw new ExportError(`fps: ${NLE_FPS.join(', ')}`);
       if (ask.audio !== undefined && ask.audio !== 'clips' && ask.audio !== 'stems') throw new ExportError('audio: clips or stems');
       if (ask.media !== undefined && ask.media !== 'copy' && ask.media !== 'link') throw new ExportError('media: copy or link');
@@ -724,9 +733,11 @@ async function rasterize(browser, file, w, h, out) {
 /**
  * The export queue. `onChange(job)` is told every change of a job (its progress included), for the pages watching.
  * `captions(root)`: a film's subtitle cues and the person's style for them (captions.mjs by default).
- * @param {{ onChange?: (job: ExportJob) => void, captions?: (root: string) => Promise<{ cues: Cue[], style: SubtitleStyle }> }} [options]
+ * `jianyingDrafts()`: 剪映's drafts folder, where a 剪映 draft goes (null: the exports folder); this computer's by default.
+ * @param {{ onChange?: (job: ExportJob) => void, captions?: (root: string) => Promise<{ cues: Cue[], style: SubtitleStyle }>,
+ *   jianyingDrafts?: () => string | null }} [options]
  */
-export function createExports({ onChange = () => {}, captions = subtitlesForExport } = {}) {
+export function createExports({ onChange = () => {}, captions = subtitlesForExport, jianyingDrafts = defaultJianyingDrafts } = {}) {
   /** @type {ExportJob[]} */
   const jobs = [];
   /** @type {Map<string, { root: string, folder: string, abort: AbortController }>} */
@@ -1054,11 +1065,15 @@ export function createExports({ onChange = () => {}, captions = subtitlesForExpo
 
   /**
    * The timeline for an editing program: a folder with the xmeml, the media it points at, and the subtitles as SRT
-   * (see nle.mjs). Made in a hidden folder beside it and moved into place when whole.
-   * @param {ExportJob} job @param {string} root @param {string} dir @param {AbortSignal} signal
+   * (see nle.mjs), or a 剪映 draft (jianying.mjs) in 剪映's drafts folder. Made in a hidden folder beside it and moved
+   * into place when whole.
+   * @param {ExportJob} job @param {string} root @param {string} out @param {AbortSignal} signal
    */
-  async function exportNle(job, root, dir, signal) {
+  async function exportNle(job, root, out, signal) {
     const ask = /** @type {NleAsk} */ (job.ask);
+    const jianying = ask.format === 'jianying';
+    /* a 剪映 draft goes where 剪映 lists its drafts, when it is on this computer */
+    const dir = (jianying && jianyingDrafts()) || out;
     const fps = nleFps(ask.fps ?? 30);
     const mode = ask.audio ?? 'clips';
     const title = safeName(job.name);
@@ -1208,17 +1223,26 @@ export function createExports({ onChange = () => {}, captions = subtitlesForExpo
       }
 
       update(job, { phase: 'finishing', progress: 0.98 });
-      if (ask.subtitles !== false) {
-        const srt = filmSubtitleSrt((await subtitlesOf(root).catch(() => ({ cues: [] }))).cues);
+      const cues = ask.subtitles !== false ? (await subtitlesOf(root).catch(() => ({ cues: [] }))).cues : [];
+      if (jianying) {
+        /* Windows' 剪映 reads draft_content.json, the Mac's draft_info.json: the same draft in both */
+        const draft = jianyingDraft(timeline, { name: basename(final), folder: final, root: dir, cues });
+        const info = JSON.stringify(draft.info);
+        await writeFile(join(staging, 'draft_info.json'), info, 'utf8');
+        await writeFile(join(staging, 'draft_content.json'), info, 'utf8');
+        await writeFile(join(staging, 'draft_meta_info.json'), JSON.stringify(draft.meta), 'utf8');
+      } else {
+        const srt = filmSubtitleSrt(cues);
         if (srt) await writeFile(join(staging, `${title}.srt`), srt, 'utf8');
+        await writeFile(join(staging, `${title}.xml`), xmemlDocument(timeline), 'utf8');
       }
-      await writeFile(join(staging, `${title}.xml`), xmemlDocument(timeline), 'utf8');
       if (signal.aborted) throw new Error('cancelled');
       if (!(await readdir(join(staging, 'media'))).length) await rmdir(join(staging, 'media'));
       await rename(staging, final);
       const media = existsSync(join(final, 'media')) ? (await readdir(join(final, 'media'))).sort().map((n) => join(final, 'media', n)) : [];
-      const top = (await readdir(final)).filter((n) => n !== 'media').sort((a, b) => Number(!a.endsWith('.xml')) - Number(!b.endsWith('.xml')) || a.localeCompare(b));
-      /* the XML first: "Show in Finder" shows the first */
+      const first = jianying ? 'draft_info.json' : '.xml';
+      const top = (await readdir(final)).filter((n) => n !== 'media').sort((a, b) => Number(!a.endsWith(first)) - Number(!b.endsWith(first)) || a.localeCompare(b));
+      /* the XML (the draft) first: "Show in Finder" shows the first */
       const outputs = [...top.map((n) => join(final, n)), ...media];
       update(job, { out: outputs[0], outputs });
     } finally {

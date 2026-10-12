@@ -19,7 +19,7 @@ export type ExportRequest = { range?: [number, number]; label?: string } & (
   | { kind: 'subtitles'; format: 'srt' | 'vtt' | 'txt' }
   | (Framing & { kind: 'slides'; format: 'pptx' | 'pdf'; shortEdge: number; at?: number[] })
   /* for an editing program: an xmeml folder; `media: 'link'` points at the sources where they are instead of cloning them */
-  | { kind: 'nle'; fps: number; audio: 'clips' | 'stems'; media?: 'copy' | 'link'; subtitles: boolean }
+  | { kind: 'nle'; format?: 'xml' | 'jianying'; fps: number; audio: 'clips' | 'stems'; media?: 'copy' | 'link'; subtitles: boolean }
   /* the project itself: its work, and the parts of its .film asked; a zip of its folder, or the folder */
   | { kind: 'project'; parts: ProjectPart[]; as: 'zip' | 'folder' }
 );
@@ -90,7 +90,7 @@ async function call<T>(url: string, init?: RequestInit & { json?: unknown }): Pr
  * The project's exports, where they go by default, what this machine encodes, how many subtitle cues the film has, and
  * how big the project and its parts are.
  */
-export function listExports(projectId: string): Promise<{ exports: ExportJob[]; folder: string; can: ExportCapabilities; subtitles?: number; project?: ProjectSizes }> {
+export function listExports(projectId: string): Promise<{ exports: ExportJob[]; folder: string; can: ExportCapabilities; jianying?: boolean; subtitles?: number; project?: ProjectSizes }> {
   return call(endpoint(projectId), { cache: 'no-store' });
 }
 
