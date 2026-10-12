@@ -248,13 +248,14 @@ export function ProjectView({ projectId, onProject, onLeave }: {
   filmRef.current = film.film;
   React.useEffect(() => { if (film.error) toast.showError(film.error); }, [film.error, toast]);
 
-  /* media facts (length, size, sound) of the project's video and sound files and its web pages, probed once each: a
-     page without a duration has no end, and is dropped on the timeline with a length of its own */
+  /* media facts (length, size, sound) of the project's videos, stills and sounds and its web pages, probed once each: a
+     page without a duration has no end, and is dropped on the timeline with a length of its own; a picture's size
+     gives its clip a box in its own shape */
   const probed = React.useRef(new Set<string>());
   React.useEffect(() => {
     if (!rawListing) return;
     const wanted = [
-      ...rawListing.files.filter((f) => f.kind === 'video' || f.kind === 'audio').map((f) => ({ f, page: false })),
+      ...rawListing.files.filter((f) => f.kind === 'video' || f.kind === 'image' || f.kind === 'audio').map((f) => ({ f, page: false })),
       ...rawListing.pages.map((f) => ({ f, page: true })),
     ];
     for (const { f, page } of wanted) {
@@ -858,7 +859,7 @@ export function ProjectView({ projectId, onProject, onLeave }: {
     return planRoom(editModel(), onTracks, { mode, sync: readTimelinePrefs().sync }).ops;
   }, [editModel]);
   const dropAsset = React.useCallback(async (file: ResourceDragItem, target: AssetDropTarget, atMs: number): Promise<string | null> => {
-    const plan = assetDropInsert(file, timelineTracks, target, atMs);
+    const plan = assetDropInsert(file, timelineTracks, target, atMs, stageRef.current);
     if ('error' in plan) return plan.error === 'locked' ? t('timeline.trackLocked') : t('timeline.dropNotClip');
     const pending = pendingDropOf(file, target, atMs);
     if (pending) setPendingDrops((all) => [...all, pending]);
@@ -880,7 +881,7 @@ export function ProjectView({ projectId, onProject, onLeave }: {
     const prefs = readTimelinePrefs();
     const target = timelineCommands.current?.target() ?? null;
     const at = how.atPlayhead || target != null ? snapToFrame(timeRef.current) : 'end';
-    const plan = placeMedia(editModel(), { file, range: how.range ?? null, target, at, mode: how.mode ?? (prefs.magnet ? 'insert' : 'overwrite'), sync: prefs.sync });
+    const plan = placeMedia(editModel(), { file, range: how.range ?? null, target, at, mode: how.mode ?? (prefs.magnet ? 'insert' : 'overwrite'), sync: prefs.sync, stage: stageRef.current });
     if ('error' in plan) { toast.show(plan.error === 'locked' ? t('timeline.trackLocked') : t('timeline.dropNotClip')); return; }
     const failed = await edit(plan.ops, 'history.stepDrop');
     if (failed) { toast.show(failed); return; }
@@ -1558,11 +1559,11 @@ export function ProjectView({ projectId, onProject, onLeave }: {
   }, [projectApi, t, toast]);
 
   /* ── files dropped from the computer: imported into assets/ (the media pane's own import), then put on the film ── */
-  /** A file just imported, as the media pane would hand it to a drop: its kind from its name, its length probed. */
+  /** A file just imported, as the media pane would hand it to a drop: its kind from its name, its length and size probed. */
   const resourceOf = React.useCallback(async (path: string): Promise<ResourceDragItem> => {
     const kind = resourceKindOf(path);
     const base: ResourceDragItem = { path, name: path.slice(path.lastIndexOf('/') + 1), kind, dir: '', size: 0, mtimeMs: 0 };
-    if (kind !== 'video' && kind !== 'audio') return base;
+    if (kind !== 'video' && kind !== 'image' && kind !== 'audio') return base;
     const probe = await fetch(`${projectApi}/media?what=probe&path=${encodeURIComponent(path)}`).then((r) => (r.ok ? r.json() : null), () => null);
     return { ...base, ...factsOfProbe(probe) };
   }, [projectApi]);
@@ -1594,7 +1595,7 @@ export function ProjectView({ projectId, onProject, onLeave }: {
   }, [onImport, resourceOf, edit, roomFor, t]);
   /* on the timeline: where they were dropped, as a drag from the media pane lands */
   const dropFiles = React.useCallback((files: File[], hit: AssetLaneHit | null, atMs: number, mode?: EditMode) => (
-    importAndPlace(files, (items) => assetRunInsert(items, tracksRef.current, hit, atMs, mode), mode)
+    importAndPlace(files, (items) => assetRunInsert(items, tracksRef.current, hit, atMs, mode, stageRef.current), mode)
   ), [importAndPlace]);
   /* on the picture: at the playhead, pictures on a new track on top, sounds on a sound track */
   const dropFilesOnPicture = React.useCallback((files: File[]) => {
@@ -1604,7 +1605,7 @@ export function ProjectView({ projectId, onProject, onLeave }: {
       const pictures = items.filter((f) => f.kind !== 'audio');
       const tracks = tracksRef.current;
       const heard = sounds.length ? assetRunInsert(sounds, tracks, soundLaneHit(tracks, atMs, assetRunMs(sounds)), atMs) : { inserts: [] };
-      const seen = pictures.length ? assetRunInsert(pictures, tracks, { lane: -1, band: 'body' }, atMs) : { inserts: [] };
+      const seen = pictures.length ? assetRunInsert(pictures, tracks, { lane: -1, band: 'body' }, atMs, undefined, stageRef.current) : { inserts: [] };
       /* the sounds first: the pictures' new track goes in at the top and moves every track under it down one */
       const inserts = [...('inserts' in heard ? heard.inserts : []), ...('inserts' in seen ? seen.inserts : [])];
       if (inserts.length) return { inserts };

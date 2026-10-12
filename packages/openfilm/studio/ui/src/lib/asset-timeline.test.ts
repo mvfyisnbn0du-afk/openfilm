@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { assetDropInsert, assetDropSpot, assetDropTargetOf, assetRunInsert, soundLaneHit } from './asset-timeline.ts';
+import { assetClipElement, assetDropInsert, assetDropSpot, assetDropTargetOf, assetFitBox, assetRunInsert, soundLaneHit } from './asset-timeline.ts';
 import type { TimelineTrack } from './timeline-layout.ts';
 
 /* A file from the media pane lands on the row under the pointer — a track has no kind (SPEC) — or, where its time
@@ -97,4 +97,31 @@ test('a drop snapped onto a clip end that is not on a frame lands on it, not a f
   /* the timeline hands over the snapped edge as it is (its dropAt); written to the frame, 11.011 became 11 */
   const plan = assetDropInsert({ path: 'assets/a.mp4', kind: 'video' }, tracks, { lane: null, insertTrackAt: null }, 11_011);
   assert.equal('at' in plan && plan.at, 11.011);
+});
+
+test('a picture of another shape than the canvas lands in its own shape, as large as fits, centered', () => {
+  const stage = { w: 1080, h: 1440 };
+  /* a square still on a 3:4 canvas: as wide as the canvas, centered top to bottom */
+  assert.deepEqual(assetFitBox({ w: 800, h: 800 }, stage), { x: 0, y: 180, w: 1080, h: 1080 });
+  /* a 16:9 video on a 9:16 canvas, and a portrait one on 16:9: one side meets the edge */
+  assert.deepEqual(assetFitBox({ w: 1920, h: 1080 }, { w: 1080, h: 1920 }), { x: 0, y: 656, w: 1080, h: 608 });
+  assert.deepEqual(assetFitBox({ w: 1080, h: 1920 }, { w: 1920, h: 1080 }), { x: 656, y: 0, w: 608, h: 1080 });
+  /* the canvas's shape (to the px), or a size not known yet: no box, it fills the canvas as it always did */
+  assert.equal(assetFitBox({ w: 3840, h: 2160 }, { w: 1920, h: 1080 }), null);
+  assert.equal(assetFitBox({ w: 1921, h: 1080 }, { w: 1920, h: 1080 }), null);
+  assert.equal(assetFitBox({}, stage), null);
+  assert.equal(assetFitBox({ w: 800, h: 800 }, null), null);
+});
+
+test('the clip written for a dropped file: a box for a still or video of another shape, never for a sound or a page', () => {
+  const stage = { w: 1920, h: 1080 };
+  assert.deepEqual(assetClipElement({ path: 'assets/a.png', kind: 'image', w: 1000, h: 1000 }, stage), { src: 'assets/a.png', time: [0, 4], box: { x: 420, y: 0, w: 1080, h: 1080 } });
+  assert.deepEqual(assetClipElement({ path: 'assets/a.mp4', kind: 'video', w: 1920, h: 1080 }, stage), { src: 'assets/a.mp4' });
+  assert.deepEqual(assetClipElement({ path: 'assets/a.mp3', kind: 'audio', w: 500, h: 500 }, stage), { src: 'assets/a.mp3' });
+  assert.deepEqual(assetClipElement({ path: 'scenes/a.html', kind: 'mg', w: 500, h: 500 }, stage), { src: 'scenes/a.html' });
+  /* the drop and a run of files from the computer carry it through */
+  const plan = assetDropInsert({ path: 'assets/a.png', kind: 'image', w: 1000, h: 1000 }, tracks, { lane: null, insertTrackAt: 0 }, 0, stage);
+  assert.ok(!('error' in plan) && (plan.element.box as { w: number }).w === 1080);
+  const run = assetRunInsert([{ path: 'assets/a.png', kind: 'image', w: 1000, h: 1000 }], tracks, null, 0, undefined, stage);
+  assert.ok('inserts' in run && (run.inserts[0]!.element.box as { x: number }).x === 420);
 });

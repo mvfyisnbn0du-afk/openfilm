@@ -29,6 +29,15 @@ test('probe: length, picture size, frame rate and sound of a video; a sound has 
   assert.ok(Math.abs(sound.duration - 2) < 0.05);
 });
 
+test('probe: a still\'s size, and a video turned a quarter (a phone\'s portrait video) as it is shown', { skip: !hasFfmpeg && 'no ffmpeg' }, async () => {
+  execFileSync('ffmpeg', ['-v', 'error', '-f', 'lavfi', '-i', 'testsrc=size=300x200', '-frames:v', '1', join(root, 'assets', 'still.png')]);
+  const still = await probe(root, 'assets/still.png');
+  assert.deepEqual([still.width, still.height, still.duration], [300, 200, undefined]);
+  execFileSync('ffmpeg', ['-v', 'error', '-display_rotation', '90', '-i', join(root, 'assets', 'clip.mp4'), '-c', 'copy', join(root, 'assets', 'turned.mp4')]);
+  const turned = await probe(root, 'assets/turned.mp4');
+  assert.deepEqual([turned.width, turned.height], [180, 320]);
+});
+
 test('poster and frames are JPEG, cached until the file changes', { skip: !hasFfmpeg && 'no ffmpeg' }, async () => {
   const jpeg = await poster(root, 'assets/clip.mp4');
   assert.deepEqual([...jpeg.subarray(0, 2)], [0xff, 0xd8]);

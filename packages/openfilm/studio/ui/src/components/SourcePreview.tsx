@@ -14,7 +14,7 @@ import type { SourceRange } from '@/lib/media-place';
 import { formatTimecode, snapToFrame } from '@/lib/timecode';
 import { type MediaSources, type WorkspaceResource } from '@/lib/workspace-resources';
 import { isTypingTarget } from './typing-target';
-import { MediaPreview } from './MediaPreview';
+import { KIND_ICON, MediaPreview } from './MediaPreview';
 import { PANE_BTN, PANE_ICON } from './dock-pane-bar';
 import { Tooltip } from './Tooltip';
 import { ViewerBar } from './ViewerBar';
@@ -246,7 +246,12 @@ function MediaPreviewPane({ file, sources, onClose, onPlace }: SourcePreviewProp
             <audio key={file.path} ref={mediaRef} src={src} preload="auto" autoPlay {...mediaEvents} />
           </div>
         ) : (
-          <p className="text-[12.5px] text-[var(--text-muted)]">{t('media.cannotPreview')}</p>
+          /* a file Studio does not play: what it is, by its icon and name */
+          <div className="flex min-w-0 flex-col items-center gap-2 text-center">
+            {React.createElement(KIND_ICON[file.kind], { size: 40, strokeWidth: 1.4, className: 'text-[var(--text-muted)]' })}
+            <span className="max-w-full truncate text-[13px] font-medium text-[var(--text)]">{file.name}</span>
+            <p className="text-[12.5px] text-[var(--text-muted)]">{t('media.cannotPreview')}</p>
+          </div>
         )}
       </div>
       {timed ? (

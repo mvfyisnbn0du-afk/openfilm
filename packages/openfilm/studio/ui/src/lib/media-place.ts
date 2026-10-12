@@ -8,12 +8,12 @@
  * room, else a new one under the others).
  */
 import type { Op } from '../api.ts';
-import { assetClipElement, assetClipKindOf, dropDurMsOf } from './asset-timeline.ts';
+import { assetClipElement, assetClipKindOf, dropDurMsOf, type StageSize } from './asset-timeline.ts';
 import type { ResourceDragItem } from './resource-drag';
 import { planRoom, soundTrackFor, TOUCH_MS, type EditMode, type EditModel, type TrackDest } from './timeline-edit.ts';
 import { snapToFrame } from './timecode.ts';
 
-export type PlaceFile = Pick<ResourceDragItem, 'path' | 'kind' | 'durationMs' | 'endless'>;
+export type PlaceFile = Pick<ResourceDragItem, 'path' | 'kind' | 'durationMs' | 'endless' | 'w' | 'h'>;
 
 /** A part of the file, in its own ms (the source viewer's in and out). */
 export type SourceRange = { inMs: number; outMs: number };
@@ -27,6 +27,8 @@ export interface PlaceSpec {
   at: number | 'end';
   mode: EditMode;
   sync: boolean;
+  /** The canvas: a picture of another shape gets a box in its own (asset-timeline assetFitBox). */
+  stage?: StageSize | null;
 }
 
 export type PlacePlan = { ops: Op[]; track: TrackDest; startMs: number; durMs: number } | { error: 'not-clip' | 'locked' };
@@ -34,8 +36,8 @@ export type PlacePlan = { ops: Op[]; track: TrackDest; startMs: number; durMs: n
 const isSoundTrack = (role: string | undefined) => role === 'audio';
 
 /** The clip as film.html takes it: the file, trimmed to the part marked (a still keeps its length). */
-function elementOf(file: PlaceFile, range: SourceRange | null | undefined): { element: Record<string, unknown>; durMs: number } | null {
-  const element = assetClipElement(file);
+function elementOf(file: PlaceFile, range: SourceRange | null | undefined, stage: StageSize | null | undefined): { element: Record<string, unknown>; durMs: number } | null {
+  const element = assetClipElement(file, stage);
   if (!element) return null;
   const still = Array.isArray(element.time);
   if (range && range.outMs > range.inMs && !(still && assetClipKindOf(file) === 'video')) {
@@ -46,7 +48,7 @@ function elementOf(file: PlaceFile, range: SourceRange | null | undefined): { el
 
 export function placeMedia(model: EditModel, spec: PlaceSpec): PlacePlan {
   const kind = assetClipKindOf(spec.file);
-  const made = kind ? elementOf(spec.file, spec.range) : null;
+  const made = kind ? elementOf(spec.file, spec.range, spec.stage) : null;
   if (!kind || !made) return { error: 'not-clip' };
   const sound = kind === 'audio';
   const fits = (role: string | undefined) => (sound ? isSoundTrack(role) : !isSoundTrack(role));

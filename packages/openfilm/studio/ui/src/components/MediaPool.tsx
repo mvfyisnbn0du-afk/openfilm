@@ -6,7 +6,9 @@
  * drag files into them. Paths are not shown: Reveal in Finder and Copy path are on the right-click menu.
  *
  * Click a file to see it: the viewer plays it and the inspector shows its facts (onSelectFile). Drag it to the
- * timeline to use it. Moving or renaming a file also repoints the timeline's clips (the server does it in the same
+ * timeline to use it. Several are picked as in Finder (⌘-click, ⇧-click, a box dragged over empty space, ⌘A), to move
+ * them (dragged onto a folder, or Move to) or delete them together. Any kind of file can be imported; Studio previews
+ * and plays only pictures, videos, sounds and pages. Moving or renaming a file also repoints the timeline's clips (the server does it in the same
  * step), so nothing goes missing.
  *
  * The host owns the data and the changes: it passes the listing (`listing`), where pictures and sounds come from
@@ -19,6 +21,7 @@ import {
   Clapperboard,
   Copy,
   Folder,
+  FolderInput,
   FolderOpen,
   FolderPlus,
   LayoutGrid,
@@ -53,12 +56,13 @@ import { ContextMenu, type ContextMenuEntry } from './ContextMenu';
 import { MediaPreview } from './MediaPreview';
 import { Tooltip } from './Tooltip';
 import { retryImage } from '@/lib/retry-image';
+import { boxBetween, boxHits, boxPick, moveTargets, pickItem, type Box } from '@/lib/media-selection';
 
-type Filter = 'all' | 'video' | 'image' | 'audio' | 'page';
+type Filter = 'all' | 'video' | 'image' | 'audio' | 'page' | 'other';
 type SortKey = 'name' | 'time' | 'duration' | 'type';
-const FILTERS: readonly Filter[] = ['all', 'video', 'image', 'audio', 'page'];
+const FILTERS: readonly Filter[] = ['all', 'video', 'image', 'audio', 'page', 'other'];
 const SORTS: readonly SortKey[] = ['name', 'time', 'duration', 'type'];
-/** A tile dragged inside the pane, to be moved into a folder. */
+/** Tiles dragged inside the pane, to be moved into a folder: their paths, a line each (a name has no line break). */
 const FOLDER_DRAG = 'application/x-openfilm-media';
 /** Files dragged in from the computer, not a tile of this pane (the browser adds a dragged picture as a file). */
 const fromComputer = (dt: DataTransfer) => dt.types.includes('Files') && !dt.types.includes(FOLDER_DRAG);
@@ -69,7 +73,6 @@ const OPEN_FOLDER = new Map<string, string>();
 const HIDDEN_DIRS = [/(^|\/)fonts?(\/|$)/i];
 const hiddenDir = (rel: string) => HIDDEN_DIRS.some((re) => re.test(rel));
 
-const isMedia = (f: WorkspaceResource) => f.kind === 'video' || f.kind === 'image' || f.kind === 'audio';
 const filterOf = (f: WorkspaceResource): Filter => (f.kind === 'mg' ? 'page' : f.kind as Filter);
 
 /** `layout`: tiles in a grid, or rows of a list (name, length, kind). */
@@ -167,18 +170,34 @@ export function MediaPool({
   const [at, setAtState] = React.useState(() => OPEN_FOLDER.get(projectId) ?? '');
   const setAt = React.useCallback((rel: string) => { OPEN_FOLDER.set(projectId, rel); setAtState(rel); }, [projectId]);
   const [query, setQuery] = React.useState('');
-  const [selectedFolder, setSelectedFolder] = React.useState<string | null>(null);
+  /** What is picked: files and folders by their project-relative path (lib/media-selection). */
+  const [picked, setPicked] = React.useState<string[]>(() => (selectedPath ? [selectedPath] : []));
+  /** The one clicked last: where a ⇧-click's run starts. */
+  const anchor = React.useRef<string | null>(selectedPath ?? null);
   const [renaming, setRenaming] = React.useState<string | null>(null);
   const [creating, setCreating] = React.useState(false);
   const [menu, setMenu] = React.useState<{ x: number; y: number; flipTo?: number; items: ContextMenuEntry[]; dense?: boolean } | null>(null);
-  const [confirm, setConfirm] = React.useState<{ path: string; name: string; folder: boolean } | null>(null);
+  const [confirm, setConfirm] = React.useState<{ targets: { path: string; folder: boolean }[]; name: string } | null>(null);
   const [importing, setImporting] = React.useState<{ count: number; ratio: number } | null>(null);
   const [notice, setNotice] = React.useState<string | null>(null);
   const [dropTarget, setDropTarget] = React.useState<string | null>(null);
   const [osDrag, setOsDrag] = React.useState(false);
   const inputRef = React.useRef<HTMLInputElement>(null);
 
-  React.useEffect(() => { setView(loadView(projectId)); setAtState(OPEN_FOLDER.get(projectId) ?? ''); }, [projectId]);
+  React.useEffect(() => { setView(loadView(projectId)); setAtState(OPEN_FOLDER.get(projectId) ?? ''); setPicked([]); }, [projectId]);
+  /* the file the viewer shows is the host's: the one clicked last, when it is a file. One shown from elsewhere (a click
+     on the timeline let it go, the chat pointed at one) is then all that is picked */
+  const sentPath = React.useRef(selectedPath ?? null);
+  const showFile = React.useCallback((file: WorkspaceResource | null) => {
+    sentPath.current = file?.path ?? null;
+    onSelectFile(file);
+  }, [onSelectFile]);
+  React.useEffect(() => {
+    if ((selectedPath ?? null) === sentPath.current) return;
+    sentPath.current = selectedPath ?? null;
+    setPicked(selectedPath ? [selectedPath] : []);
+    anchor.current = selectedPath ?? null;
+  }, [selectedPath]);
   React.useEffect(() => {
     try { window.localStorage.setItem(viewKey(projectId), JSON.stringify(view)); } catch { /* per-viewer only */ }
   }, [projectId, view]);
@@ -189,23 +208,14 @@ export function MediaPool({
 
   const allFiles = React.useMemo(() => {
     if (!media) return null;
-    const files = media.files.filter((f) => isMedia(f) && !hiddenDir(relDir(assetRel(f.path))));
+    /* every file, of any kind: a document or a model is material too (the agent can make a film of it); Studio
+       plays and previews only pictures, videos, sounds and pages */
+    const files = media.files.filter((f) => !hiddenDir(relDir(assetRel(f.path))));
     return [...media.pages, ...files];
   }, [media, assetRel]);
 
-  /* a folder shows when it holds media, when the person made it, or when it is empty (made in Finder, or by an agent,
-     to be filled): only one holding nothing but other files (a tool's data) stays out of the way */
-  const folders = React.useMemo(() => {
-    if (!media) return [];
-    const made = media.made ? new Set(media.made) : null;
-    const under = (dir: string) => media.files.filter((f) => assetRel(f.path).startsWith(`${dir}/`));
-    return media.dirs.filter((dir) => {
-      if (hiddenDir(dir)) return false;
-      if (!made || [...made].some((m) => m === dir || m.startsWith(`${dir}/`))) return true;
-      const files = under(dir);
-      return !files.length || files.some((f) => isMedia(f) && !hiddenDir(relDir(assetRel(f.path))));
-    });
-  }, [media, assetRel]);
+  /* every folder under assets/ but a tool's (fonts) */
+  const folders = React.useMemo(() => (media ? media.dirs.filter((dir) => !hiddenDir(dir)) : []), [media]);
 
   const items = React.useMemo((): Item[] | null => {
     if (!allFiles) return null;
@@ -260,6 +270,14 @@ export function MediaPool({
   }, [at, media, setAt]);
 
   const folderPath = (rel: string) => (rel ? `${root}/${rel}` : root);
+  const keyOf = React.useCallback((item: Item) => (item.type === 'folder' ? `${root}/${item.rel}` : item.file.path), [root]);
+  /* the items as shown, by key: a ⇧-click's run goes along them */
+  const order = React.useMemo(() => (items ?? []).map(keyOf), [items, keyOf]);
+  const itemByKey = React.useMemo(() => new Map((items ?? []).map((item) => [keyOf(item), item])), [items, keyOf]);
+  /* what is picked and shown: a search or another folder hides the rest, and what is hidden is not acted on */
+  const chosen = React.useMemo(() => picked.filter((key) => itemByKey.has(key)), [picked, itemByKey]);
+  /** The folder an item is in ('' the top, where the pages are shown). */
+  const hereOf = (key: string) => (key.startsWith(`${root}/`) ? relDir(assetRel(key)) : '');
 
   const importFiles = async (list: File[], intoRel = at) => {
     if (!list.length) return;
@@ -279,30 +297,54 @@ export function MediaPool({
   const selectedRef = React.useRef(selectedPath);
   selectedRef.current = selectedPath;
   /* a page (or a folder with one) whose code makes paths while it runs: those cannot be rewritten, so it is asked first */
-  const [moveAsk, setMoveAsk] = React.useState<{ path: string; intoRel: string; unseen: { file: string; unseen: string[] }[] } | null>(null);
-  const moveInto = async (path: string, intoRel: string, asked = false) => {
+  const [moveAsk, setMoveAsk] = React.useState<{ paths: string[]; intoRel: string; unseen: { file: string; unseen: string[] }[] } | null>(null);
+  /** Move files and folders into a folder (`intoRel` under assets/, '' its top), one after another. */
+  const moveAll = async (paths: readonly string[], intoRel: string, asked = false) => {
     const into = folderPath(intoRel);
-    if (relDir(path) === into) return;
-    const name = path.slice(path.lastIndexOf('/') + 1);
+    const nameOf = (path: string) => path.slice(path.lastIndexOf('/') + 1);
+    /* what is there already stays, and a folder never goes into itself */
+    const going = paths.filter((path) => hereOf(path) !== intoRel && into !== path && !into.startsWith(`${path}/`));
+    if (!going.length) return;
     if (!asked && onMoveCheck) {
-      const unseen = await onMoveCheck(path, `${into}/${name}`).catch(() => []);
-      if (unseen.length) { setMoveAsk({ path, intoRel, unseen }); return; }
+      const unseen = (await Promise.all(going.map((path) => onMoveCheck(path, `${into}/${nameOf(path)}`).catch(() => [])))).flat();
+      if (unseen.length) { setMoveAsk({ paths: going, intoRel, unseen }); return; }
     }
-    const result = await onMove(path, `${into}/${name}`);
-    if (result === 'taken') setNotice(t('media.moveTaken').replace('{name}', name).replace('{folder}', intoRel ? intoRel.split('/').pop()! : t('media.filter_all')));
-    else if (result !== 'ok') setNotice(t('media.moveFailed'));
-    else if (selectedRef.current === path) onSelectFile(null);
+    const moved: string[] = [];
+    let taken: string | null = null;
+    let failed = false;
+    for (const path of going) {
+      // eslint-disable-next-line no-await-in-loop
+      const result = await onMove(path, `${into}/${nameOf(path)}`);
+      if (result === 'ok') moved.push(path);
+      else if (result === 'taken') taken ??= nameOf(path);
+      else failed = true;
+    }
+    if (taken) setNotice(t('media.moveTaken').replace('{name}', taken).replace('{folder}', intoRel ? intoRel.split('/').pop()! : t('media.filter_all')));
+    else if (failed) setNotice(t('media.moveFailed'));
+    if (selectedRef.current && moved.includes(selectedRef.current)) showFile(null);
+    setPicked((cur) => cur.filter((key) => !moved.includes(key)));
   };
 
-  const remove = async (target: { path: string; folder: boolean }) => {
-    const gone = target.folder
+  const remove = async (targets: readonly { path: string; folder: boolean }[]) => {
+    const gone = targets.flatMap((target) => (target.folder
       ? (media?.files ?? []).filter((f) => f.path.startsWith(`${target.path}/`)).map((f) => f.path)
-      : [target.path];
+      : [target.path]));
     const dropped = await onDropClips?.(gone);
     if (dropped) { setNotice(dropped); return; }
-    const result = await onDelete(target.path);
-    if (result !== 'ok') setNotice(t('assets.deleteFailed'));
-    if (selectedPath && gone.includes(selectedPath)) onSelectFile(null);
+    let failed = false;
+    for (const target of targets) {
+      // eslint-disable-next-line no-await-in-loop
+      if (await onDelete(target.path) !== 'ok') failed = true;
+    }
+    if (failed) setNotice(t('assets.deleteFailed'));
+    if (selectedPath && gone.includes(selectedPath)) showFile(null);
+    setPicked((cur) => cur.filter((key) => !targets.some((target) => target.path === key)));
+  };
+  /** Ask to delete these (picked) items. */
+  const askDelete = (keys: readonly string[]) => {
+    const targets = keys.flatMap((key) => { const item = itemByKey.get(key); return item ? [{ path: key, folder: item.type === 'folder' }] : []; });
+    const first = targets[0] ? itemByKey.get(targets[0].path) : undefined;
+    if (first) setConfirm({ targets, name: first.type === 'folder' ? first.name : first.file.name });
   };
 
   const rename = async (path: string, name: string, folder: boolean) => {
@@ -316,7 +358,7 @@ export function MediaPool({
     }
     const result = await onMove(path, to);
     if (result !== 'ok') setNotice(t(result === 'taken' ? 'assets.renameTaken' : 'assets.renameFailed'));
-    else if (selectedPath === path) onSelectFile(null);
+    else if (selectedPath === path) showFile(null);
   };
 
   /* a folder just named stays where it was typed until the listing has it: no blink between Enter and the refresh */
@@ -345,6 +387,22 @@ export function MediaPool({
     ...(onReveal ? [{ id: 'reveal', label: t('projects.revealFolder'), icon: <FolderOpen size={14} />, onSelect: () => onReveal(path) }] : []),
     { id: 'copy', label: t('media.copyPath'), icon: <Copy size={14} />, onSelect: () => { void navigator.clipboard?.writeText(path).catch(() => {}); } },
   ];
+  /** Move to: the top or any folder, the one they are all in checked (they are there already). */
+  const moveEntry = (keys: readonly string[]): ContextMenuEntry => {
+    const heres = new Set(keys.map(hereOf));
+    const moving = keys.filter((key) => itemByKey.get(key)?.type === 'folder').map(assetRel);
+    return {
+      id: 'move-to', label: t('media.moveTo'), icon: <FolderInput size={14} />,
+      submenu: moveTargets(folders, moving).map((rel) => {
+        const here = heres.size === 1 && heres.has(rel);
+        return {
+          id: `move:${rel}`, label: rel ? rel.split('/').join(' / ') : t('media.filter_all'), checked: here, disabled: here,
+          ...(here ? { hint: t('media.moveHere') } : {}),
+          onSelect: () => { void moveAll(keys, rel); },
+        };
+      }),
+    };
+  };
   const fileMenu = (file: WorkspaceResource): ContextMenuEntry[] => [
     ...(fileRef && onRefer ? [
       { id: 'refer', label: t('host.refer'), icon: <MessageSquarePlus size={14} />, onSelect: () => onRefer(fileRef(file)) },
@@ -359,23 +417,134 @@ export function MediaPool({
       onSelect: () => { void onExtractAudio(file.path).then((r) => { if (r !== 'ok') setNotice(t('assets.extractAudioFailed')); }); },
     }] : []),
     ...(file.kind === 'mg' ? [] : [{ id: 'rename', label: t('assets.rename'), icon: <Pencil size={14} />, onSelect: () => setRenaming(file.path) }]),
-    { id: 'delete', label: t('assets.delete'), icon: <Trash2 size={14} />, danger: true, onSelect: () => setConfirm({ path: file.path, name: file.name, folder: false }) },
+    moveEntry([file.path]),
+    { id: 'delete', label: t('assets.delete'), icon: <Trash2 size={14} />, danger: true, onSelect: () => setConfirm({ targets: [{ path: file.path, folder: false }], name: file.name }) },
   ];
   const folderMenu = (rel: string, name: string): ContextMenuEntry[] => [
     ...commonEntries(`${root}/${rel}`),
     { id: 'sep', separator: true },
     { id: 'rename', label: t('assets.rename'), icon: <Pencil size={14} />, onSelect: () => setRenaming(`${root}/${rel}`) },
-    { id: 'delete', label: t('assets.delete'), icon: <Trash2 size={14} />, danger: true, onSelect: () => setConfirm({ path: `${root}/${rel}`, name, folder: true }) },
+    moveEntry([`${root}/${rel}`]),
+    { id: 'delete', label: t('assets.delete'), icon: <Trash2 size={14} />, danger: true, onSelect: () => setConfirm({ targets: [{ path: `${root}/${rel}`, folder: true }], name }) },
+  ];
+  /** Several picked: what can be done to all of them at once. */
+  const manyMenu = (keys: readonly string[]): ContextMenuEntry[] => [
+    moveEntry(keys),
+    { id: 'sep', separator: true },
+    { id: 'delete', label: t('media.deleteMany').replace('{n}', String(keys.length)), icon: <Trash2 size={14} />, danger: true, onSelect: () => askDelete(keys) },
   ];
   const blankMenu: ContextMenuEntry[] = [
     { id: 'new-folder', label: t('assets.newFolder'), icon: <FolderPlus size={14} />, onSelect: () => setCreating(true) },
     { id: 'import', label: t('media.import'), icon: <Plus size={14} />, onSelect: () => inputRef.current?.click() },
   ];
   const openMenuAt = (e: { clientX: number; clientY: number }, items: ContextMenuEntry[], dense?: boolean) => setMenu({ x: e.clientX, y: e.clientY, items, dense });
+
+  /* a click picks (lib/media-selection pickItem); the viewer shows the file clicked while it is picked, else the film */
+  const press = (item: Item, e?: { metaKey: boolean; ctrlKey: boolean; shiftKey: boolean }) => {
+    const key = keyOf(item);
+    const mods = { toggle: Boolean(e && (e.metaKey || e.ctrlKey)), range: Boolean(e?.shiftKey) };
+    const next = pickItem(chosen, key, order, anchor.current, mods);
+    if (!mods.range) anchor.current = key;
+    setPicked(next);
+    showFile(item.type === 'file' && next.includes(key) ? item.file : null);
+    /* the keys are the pane's now (Delete, ⌘A), whatever was clicked */
+    if (!gridRef.current?.contains(document.activeElement)) gridRef.current?.focus({ preventScroll: true });
+  };
+  /* a right-click on one of several picked is about all of them; on anything else, about it alone */
+  const menuFor = (item: Item, e: React.MouseEvent) => {
+    const key = keyOf(item);
+    if (chosen.length > 1 && chosen.includes(key)) { openMenuAt(e, manyMenu(chosen)); return; }
+    press(item);
+    openMenuAt(e, item.type === 'folder' ? folderMenu(item.rel, item.name) : fileMenu(item.file));
+  };
+  /** What a drag of this item moves: every one picked when it is one of them. */
+  const dragKeys = (key: string) => (chosen.length > 1 && chosen.includes(key) ? chosen : [key]);
+
+  /* a box dragged over empty space picks what it touches (lib/media-selection); held near the top or bottom, the pane
+     scrolls on under it */
+  const [marquee, setMarquee] = React.useState<Box | null>(null);
+  /** The click that ends a box is not a click on empty space (which lets go of what is picked). */
+  const boxed = React.useRef(false);
+  const startBox = (e: React.PointerEvent<HTMLDivElement>) => {
+    boxed.current = false;
+    const grid = e.currentTarget;
+    const r0 = grid.getBoundingClientRect();
+    if (e.button !== 0 || e.clientX - r0.left >= grid.clientWidth) return;
+    if ((e.target as Element).closest('[data-media-path], [data-media-folder], [data-media-new-folder], button, input')) return;
+    /* no text selected as it goes; the keys are the pane's */
+    e.preventDefault();
+    grid.focus({ preventScroll: true });
+    const at = (x: number, y: number) => { const r = grid.getBoundingClientRect(); return { x: x - r.left + grid.scrollLeft, y: y - r.top + grid.scrollTop }; };
+    const start = at(e.clientX, e.clientY);
+    const add = e.metaKey || e.ctrlKey || e.shiftKey;
+    const before = add ? chosen : [];
+    const byKey = itemByKey;
+    let pointer = { x: e.clientX, y: e.clientY };
+    let live = false;
+    let hits: string[] = before;
+    const tiles = () => [...grid.querySelectorAll<HTMLElement>('[data-media-key]')].map((el) => {
+      const r = el.getBoundingClientRect();
+      const o = at(r.left, r.top);
+      return { key: el.dataset.mediaKey!, box: { left: o.x, top: o.y, right: o.x + r.width, bottom: o.y + r.height } };
+    });
+    const update = () => {
+      const now = at(pointer.x, pointer.y);
+      if (!live && Math.hypot(now.x - start.x, now.y - start.y) < 4) return;
+      live = true;
+      const box = boxBetween(start, now);
+      setMarquee(box);
+      hits = boxPick(before, boxHits(tiles(), box), add);
+      setPicked(hits);
+    };
+    let frame = 0;
+    const tick = () => {
+      const r = grid.getBoundingClientRect();
+      const dy = pointer.y < r.top + 24 ? -Math.min(20, Math.ceil((r.top + 24 - pointer.y) / 3))
+        : pointer.y > r.bottom - 24 ? Math.min(20, Math.ceil((pointer.y - r.bottom + 24) / 3)) : 0;
+      if (live && dy) { grid.scrollTop += dy; update(); }
+      frame = requestAnimationFrame(tick);
+    };
+    frame = requestAnimationFrame(tick);
+    const move = (ev: PointerEvent) => { pointer = { x: ev.clientX, y: ev.clientY }; update(); };
+    const end = () => {
+      cancelAnimationFrame(frame);
+      window.removeEventListener('pointermove', move);
+      window.removeEventListener('pointerup', end);
+      window.removeEventListener('pointercancel', end);
+      setMarquee(null);
+      if (!live) return;
+      boxed.current = true;
+      anchor.current = hits.at(-1) ?? null;
+      const only = hits.length === 1 ? byKey.get(hits[0]!) : undefined;
+      showFile(only?.type === 'file' ? only.file : null);
+    };
+    window.addEventListener('pointermove', move);
+    window.addEventListener('pointerup', end);
+    window.addEventListener('pointercancel', end);
+  };
   const barMenu = (e: React.MouseEvent, items: ContextMenuEntry[]) => {
     const r = e.currentTarget.getBoundingClientRect();
     setMenu({ x: r.left, y: r.bottom + 4, flipTo: r.top - 4, items, dense: true });
   };
+
+  /* the bar at the pane's width (the whole pane is measured: the bar's own padding changes with it) */
+  const rootRef = React.useRef<HTMLDivElement>(null);
+  const [paneWidth, setPaneWidth] = React.useState(0);
+  React.useEffect(() => {
+    const el = rootRef.current;
+    if (!el || typeof ResizeObserver === 'undefined') return undefined;
+    const ro = new ResizeObserver(([entry]) => setPaneWidth(Math.round(entry?.contentRect.width ?? 0)));
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
+  const room = paneWidth - (onClose ? 30 : 0);
+  /** Upload shown as its icon. */
+  const compact = paneWidth > 0 && room < 330;
+  /** The search a button too. */
+  const tight = paneWidth > 0 && room < 270;
+  const [searchOpen, setSearchOpen] = React.useState(false);
+  /* a search typed stays open */
+  const searching = tight && (searchOpen || Boolean(query));
 
   const crumbs = at ? at.split('/') : [];
   const flat = Boolean(query.trim()) || view.filter !== 'all';
@@ -404,10 +573,10 @@ export function MediaPool({
       setDropTarget((cur) => (cur === intoRel ? null : cur));
     },
     onDrop: (e: React.DragEvent) => {
-      const path = e.dataTransfer.getData(FOLDER_DRAG);
-      if (path) {
+      const paths = e.dataTransfer.getData(FOLDER_DRAG);
+      if (paths) {
         e.preventDefault(); e.stopPropagation(); setDropTarget(null);
-        void moveInto(path, intoRel);
+        void moveAll(paths.split('\n').filter(Boolean), intoRel);
         return;
       }
       if (!fromComputer(e.dataTransfer) || !e.dataTransfer.files.length) return;
@@ -417,32 +586,41 @@ export function MediaPool({
   });
 
   const counts = React.useMemo(() => {
-    const out: Record<Filter, number> = { all: 0, video: 0, image: 0, audio: 0, page: 0 };
+    const out: Record<Filter, number> = { all: 0, video: 0, image: 0, audio: 0, page: 0, other: 0 };
     for (const f of allFiles ?? []) { out.all += 1; out[filterOf(f)] += 1; }
     return out;
   }, [allFiles]);
 
   return (
     <div
+      ref={rootRef}
       className="relative flex h-full min-h-0 flex-col"
-      /* Delete (or Backspace) on the file picked here asks to delete it, as an editor's project panel does; only while
-         the keys are the pane's (the timeline's Delete is the timeline's) */
+      /* the pane's keys, while they are its own (the timeline's Delete is the timeline's): Delete (or Backspace) asks to
+         delete what is picked, as an editor's project panel does; Enter puts the one file picked on the timeline, as
+         its "+" does; ⌘A picks everything shown; Esc lets go */
       onKeyDown={(e) => {
-        if (!selectedPath || renaming || confirm) return;
+        if (renaming || confirm) return;
         if ((e.target as HTMLElement).closest('input, textarea, [contenteditable="true"], button')) return;
-        const file = allFiles?.find((f) => f.path === selectedPath);
-        if (!file) return;
-        /* Enter puts the file picked on the timeline, as its "+" does */
-        if (e.key === 'Enter' && onAdd && !e.metaKey && !e.ctrlKey && !e.altKey && !e.shiftKey && canAdd(file)) {
+        const plain = !e.metaKey && !e.ctrlKey && !e.altKey && !e.shiftKey;
+        if ((e.metaKey || e.ctrlKey) && !e.altKey && !e.shiftKey && e.key.toLowerCase() === 'a' && order.length) {
           e.preventDefault();
           e.stopPropagation();
-          onAdd(file);
+          setPicked(order);
+          return;
+        }
+        if (!chosen.length) return;
+        if (e.key === 'Escape' && plain) { setPicked([]); return; }
+        const only = chosen.length === 1 ? itemByKey.get(chosen[0]!) : undefined;
+        if (e.key === 'Enter' && onAdd && plain && only?.type === 'file' && canAdd(only.file)) {
+          e.preventDefault();
+          e.stopPropagation();
+          onAdd(only.file);
           return;
         }
         if (e.key !== 'Delete' && e.key !== 'Backspace') return;
         e.preventDefault();
         e.stopPropagation();
-        setConfirm({ path: file.path, name: file.name, folder: false });
+        askDelete(chosen);
       }}
       /* files from the computer: a drag of this pane's own tiles is not one, whatever the browser adds to it (a picture
          dragged carries itself as a file) */
@@ -455,34 +633,52 @@ export function MediaPool({
         void importFiles([...e.dataTransfer.files]);
       }}
     >
-      <div className="flex shrink-0 items-center gap-1 px-2.5 pb-1.5 pt-2.5">
-        <label className="flex h-7 min-w-0 flex-1 items-center gap-1.5 rounded-md bg-[var(--bg-hover)] px-2 text-[12.5px] text-[var(--text-muted)]">
-          <Search size={13} className="shrink-0" />
-          <input value={query} onChange={(e) => setQuery(e.target.value)} placeholder={t('media.search')}
-            className="min-w-0 flex-1 bg-transparent text-[var(--text)] outline-none placeholder:text-[var(--text-faint)]" />
-          {query ? <button type="button" aria-label={t('media.clearSearch')} onClick={() => setQuery('')} className="shrink-0 hover:text-[var(--text)]"><X size={12} /></button> : null}
-        </label>
-        {/* bringing media in is what this pane is for: the one labeled button, right after the search */}
-        <Tooltip label={t('media.import')} side="bottom">
-          <button type="button" onClick={() => inputRef.current?.click()}
-            className="flex h-7 shrink-0 items-center gap-1.5 rounded-md bg-[var(--bg-active)] px-2.5 text-[12.5px] font-medium text-[var(--text)] transition hover:bg-[var(--border-strong)] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--border-strong)]">
-            <Upload size={13} strokeWidth={2.2} />
-            {t('media.upload')}
-          </button>
-        </Tooltip>
-        <BarButton label={t(rows ? 'media.viewGrid' : 'media.viewList')} onClick={() => setView((v) => ({ ...v, layout: rows ? 'grid' : 'list' }))}>
-          {rows ? <LayoutGrid size={14} /> : <List size={14} />}
-        </BarButton>
-        <BarButton label={t('media.filter')} on={view.filter !== 'all'} onClick={(e) => barMenu(e, FILTERS.map((f) => ({
-          id: f, label: `${t(`media.filter_${f}`)}  ${counts[f]}`, checked: view.filter === f, onSelect: () => setView((v) => ({ ...v, filter: f })),
-        })))}><ListFilter size={14} /></BarButton>
-        <BarButton label={t('media.sort')} onClick={(e) => barMenu(e, SORTS.map((key) => ({
-          id: key, label: t(`media.sort_${key}`), checked: view.sort === key, onSelect: () => setView((v) => ({ ...v, sort: key })),
-        })))}><ArrowUpDown size={14} /></BarButton>
-        <BarButton label={t('assets.newFolder')} onClick={() => { setQuery(''); setView((v) => ({ ...v, filter: 'all' })); setCreating(true); }}><FolderPlus size={14} /></BarButton>
-        <input ref={inputRef} type="file" multiple accept="video/*,image/*,audio/*" className="hidden"
+      {/* narrow, the bar keeps every button whole: Upload as its icon, then the search as a button that opens over the bar */}
+      <div className={`flex shrink-0 items-center pb-1.5 pt-2.5 ${tight ? 'gap-0.5 px-2' : 'gap-1 px-2.5'}`}>
+        {searching ? (
+          <label className="flex h-7 min-w-0 flex-1 items-center gap-1.5 rounded-md bg-[var(--bg-hover)] px-2 text-[12.5px] text-[var(--text-muted)]">
+            <Search size={13} className="shrink-0" />
+            <input autoFocus value={query} onChange={(e) => setQuery(e.target.value)} placeholder={t('media.search')}
+              onKeyDown={(e) => { if (e.key === 'Escape') { setQuery(''); setSearchOpen(false); } }}
+              onBlur={() => { if (!query) setSearchOpen(false); }}
+              className="min-w-0 flex-1 bg-transparent text-[var(--text)] outline-none placeholder:text-[var(--text-faint)]" />
+            <button type="button" aria-label={t('media.clearSearch')} onMouseDown={(e) => e.preventDefault()} onClick={() => { setQuery(''); setSearchOpen(false); }} className="shrink-0 hover:text-[var(--text)]"><X size={12} /></button>
+          </label>
+        ) : <>
+          {tight ? (
+            <BarButton label={t('media.search')} onClick={() => setSearchOpen(true)}><Search size={14} /></BarButton>
+          ) : (
+            <label className="flex h-7 min-w-0 flex-1 items-center gap-1.5 rounded-md bg-[var(--bg-hover)] px-2 text-[12.5px] text-[var(--text-muted)]">
+              <Search size={13} className="shrink-0" />
+              <input value={query} onChange={(e) => setQuery(e.target.value)} placeholder={t('media.search')}
+                className="min-w-0 flex-1 bg-transparent text-[var(--text)] outline-none placeholder:text-[var(--text-faint)]" />
+              {query ? <button type="button" aria-label={t('media.clearSearch')} onClick={() => setQuery('')} className="shrink-0 hover:text-[var(--text)]"><X size={12} /></button> : null}
+            </label>
+          )}
+          {/* bringing media in is what this pane is for: the one labeled button, right after the search */}
+          <Tooltip label={t('media.import')} side="bottom">
+            <button type="button" aria-label={t('media.import')} onClick={() => inputRef.current?.click()}
+              className={`flex h-7 shrink-0 items-center justify-center gap-1.5 rounded-md bg-[var(--bg-active)] text-[12.5px] font-medium text-[var(--text)] transition hover:bg-[var(--border-strong)] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--border-strong)] ${compact ? 'w-7' : 'px-2.5'}`}>
+              <Upload size={13} strokeWidth={2.2} />
+              {compact ? null : t('media.upload')}
+            </button>
+          </Tooltip>
+          {tight ? <span className="min-w-0 flex-1" /> : null}
+          <BarButton label={t(rows ? 'media.viewGrid' : 'media.viewList')} onClick={() => setView((v) => ({ ...v, layout: rows ? 'grid' : 'list' }))}>
+            {rows ? <LayoutGrid size={14} /> : <List size={14} />}
+          </BarButton>
+          <BarButton label={t('media.filter')} on={view.filter !== 'all'} onClick={(e) => barMenu(e, FILTERS.map((f) => ({
+            id: f, label: `${t(`media.filter_${f}`)}  ${counts[f]}`, checked: view.filter === f, onSelect: () => setView((v) => ({ ...v, filter: f })),
+          })))}><ListFilter size={14} /></BarButton>
+          <BarButton label={t('media.sort')} onClick={(e) => barMenu(e, SORTS.map((key) => ({
+            id: key, label: t(`media.sort_${key}`), checked: view.sort === key, onSelect: () => setView((v) => ({ ...v, sort: key })),
+          })))}><ArrowUpDown size={14} /></BarButton>
+          <BarButton label={t('assets.newFolder')} onClick={() => { setQuery(''); setView((v) => ({ ...v, filter: 'all' })); setCreating(true); }}><FolderPlus size={14} /></BarButton>
+          {onClose ? <BarButton label={t('media.close')} onClick={onClose}><X size={14} /></BarButton> : null}
+        </>}
+        {/* any kind of file: what Studio cannot play is still the project's material */}
+        <input ref={inputRef} type="file" multiple className="hidden"
           onChange={(e) => { const list = [...(e.target.files ?? [])]; e.target.value = ''; void importFiles(list); }} />
-        {onClose ? <BarButton label={t('media.close')} onClick={onClose}><X size={14} /></BarButton> : null}
       </div>
 
       {/* where you are: All, then the folders you went into (drop a file on one to move it there) */}
@@ -531,11 +727,20 @@ export function MediaPool({
 
       <div
         ref={gridRef}
-        className="min-h-0 flex-1 overflow-y-auto px-2.5 pb-3 pt-1"
-        /* a click on empty space (around the tiles, or in the gaps between them) lets go of what is selected */
-        onClick={(e) => { if (!(e.target as Element).closest('[data-media-path], [data-media-folder], [data-media-new-folder], button')) { setSelectedFolder(null); onSelectFile(null); } }}
+        tabIndex={-1}
+        className="relative min-h-0 flex-1 overflow-y-auto px-2.5 pb-3 pt-1 outline-none"
+        onPointerDown={startBox}
+        /* a click on empty space (around the tiles, or in the gaps between them) lets go of what is picked */
+        onClick={(e) => {
+          if (boxed.current) { boxed.current = false; return; }
+          if (!(e.target as Element).closest('[data-media-path], [data-media-folder], [data-media-new-folder], button')) { setPicked([]); showFile(null); }
+        }}
         onContextMenu={(e) => { if (e.target === e.currentTarget) { e.preventDefault(); openMenuAt(e, blankMenu); } }}
       >
+        {marquee ? (
+          <div className="pointer-events-none absolute z-20 rounded-[2px] border border-[var(--accent)] bg-[color-mix(in_srgb,var(--accent)_14%,transparent)]"
+            style={{ left: marquee.left, top: marquee.top, width: marquee.right - marquee.left, height: marquee.bottom - marquee.top }} />
+        ) : null}
         {items && !items.length && !creating ? (
           flat ? <p className="px-1 pt-6 text-center text-[12px] text-[var(--text-muted)]">{t('media.noMatch')}</p> : (
             <div className="flex h-full flex-col items-center justify-center gap-2 px-4 text-center">
@@ -561,14 +766,15 @@ export function MediaPool({
                 count={item.count}
                 covers={item.covers}
                 sources={sources}
-                selected={selectedFolder === item.rel}
+                pickKey={`${root}/${item.rel}`}
+                selected={chosen.includes(`${root}/${item.rel}`)}
                 target={dropTarget === item.rel}
                 renaming={renaming === `${root}/${item.rel}`}
                 drop={dropProps(item.rel)}
-                onDragStart={(e) => { e.dataTransfer.setData(FOLDER_DRAG, `${root}/${item.rel}`); e.dataTransfer.effectAllowed = 'move'; }}
-                onPress={() => { setSelectedFolder(item.rel); onSelectFile(null); }}
-                onOpen={() => { setSelectedFolder(null); setAt(item.rel); }}
-                onMenu={(e) => { setSelectedFolder(item.rel); openMenuAt(e, folderMenu(item.rel, item.name)); }}
+                onDragStart={(e) => { e.dataTransfer.setData(FOLDER_DRAG, dragKeys(`${root}/${item.rel}`).join('\n')); e.dataTransfer.effectAllowed = 'move'; }}
+                onPress={(e) => press(item, e)}
+                onOpen={() => { setPicked([]); setAt(item.rel); }}
+                onMenu={(e) => menuFor(item, e)}
                 onRename={(name) => void rename(`${root}/${item.rel}`, name, true)}
                 onCancelRename={() => setRenaming(null)}
               />
@@ -580,13 +786,14 @@ export function MediaPool({
                 sources={sources}
                 duration={formatClipDuration(item.file.durationMs ?? 0)}
                 where={repeated.has(item.file.name) ? item.file.path.slice(0, Math.max(0, item.file.path.lastIndexOf('/'))) || item.file.path : undefined}
-                selected={selectedPath === item.file.path}
+                selected={chosen.includes(item.file.path)}
                 lit={litPath === item.file.path}
                 renaming={renaming === item.file.path}
                 {...(fileRef ? { studioRef: () => fileRef(item.file) } : {})}
-                onPress={() => { setSelectedFolder(null); onSelectFile(item.file); }}
+                moving={() => dragKeys(item.file.path)}
+                onPress={(e) => press(item, e)}
                 {...(onAdd && canAdd(item.file) ? { onAdd: () => onAdd(item.file), addLabel: t('media.addToTimeline') } : {})}
-                onMenu={(e) => { onSelectFile(item.file); openMenuAt(e, fileMenu(item.file)); }}
+                onMenu={(e) => menuFor(item, e)}
                 onRename={(name) => void rename(item.file.path, name, false)}
                 onCancelRename={() => setRenaming(null)}
               />
@@ -609,22 +816,25 @@ export function MediaPool({
         confirmLabel={t('media.moveAskConfirm')}
         cancelLabel={t('confirm.cancel')}
         onCancel={() => setMoveAsk(null)}
-        onConfirm={() => { const ask = moveAsk; setMoveAsk(null); if (ask) void moveInto(ask.path, ask.intoRel, true); }}
+        onConfirm={() => { const ask = moveAsk; setMoveAsk(null); if (ask) void moveAll(ask.paths, ask.intoRel, true); }}
       />
       <ConfirmDialog
         open={confirm != null}
-        title={confirm?.folder ? t('media.deleteFolderTitle').replace('{name}', confirm.name) : t('assets.deleteConfirmTitle')}
+        title={!confirm ? '' : confirm.targets.length > 1 ? t('media.deleteManyTitle').replace('{n}', String(confirm.targets.length))
+          : confirm.targets[0]?.folder ? t('media.deleteFolderTitle').replace('{name}', confirm.name) : t('assets.deleteConfirmTitle')}
         description={(() => {
           if (!confirm) return '';
-          const hits = usedSrcs.filter((src) => srcHitsAsset(src, confirm.path) || src.startsWith(`${confirm.path}/`)).length;
-          if (!hits) return t('assets.deleteConfirm');
+          const many = confirm.targets.length > 1;
+          const hits = usedSrcs.filter((src) => confirm.targets.some((x) => srcHitsAsset(src, x.path) || src.startsWith(`${x.path}/`))).length;
+          if (!hits) return t(many ? 'media.deleteManyConfirm' : 'assets.deleteConfirm');
+          if (many) return t(hits === 1 ? 'media.deleteManyAlsoClip' : 'media.deleteManyAlsoClips').replace('{n}', String(hits));
           return t(hits === 1 ? 'assets.deleteAlsoClip' : 'assets.deleteAlsoClips').replace('{n}', String(hits));
         })()}
         confirmLabel={t('assets.delete')}
         cancelLabel={t('confirm.cancel')}
         danger
         onCancel={() => setConfirm(null)}
-        onConfirm={() => { const target = confirm; setConfirm(null); if (target) void remove(target); }}
+        onConfirm={() => { const asked = confirm; setConfirm(null); if (asked) void remove(asked.targets); }}
       />
     </div>
   );
@@ -685,10 +895,12 @@ function FolderGlyph({ open }: { open?: boolean }) {
  */
 function FolderTile(p: {
   name: string; count: number; covers: readonly WorkspaceResource[]; sources: MediaSources;
+  /** Its key in what is picked (its path). */
+  pickKey: string;
   selected: boolean; target: boolean; renaming: boolean;
   drop: { onDragOver: (e: React.DragEvent) => void; onDragLeave: (e: React.DragEvent) => void; onDrop: (e: React.DragEvent) => void };
   onDragStart: (e: React.DragEvent) => void;
-  onPress: () => void; onOpen: () => void; onMenu: (e: React.MouseEvent) => void;
+  onPress: (e: React.MouseEvent) => void; onOpen: () => void; onMenu: (e: React.MouseEvent) => void;
   onRename: (name: string) => void; onCancelRename: () => void;
   /** A row of the list view, not a tile. */
   row?: boolean;
@@ -698,7 +910,7 @@ function FolderTile(p: {
   if (p.row) {
     return (
       <div className={`${ROW} ${on ? 'bg-[var(--bg-active)]' : 'hover:bg-[var(--bg-hover)]'} ${p.target ? 'ring-1 ring-inset ring-[var(--accent)]' : ''}`}
-        data-media-folder="" draggable={!p.renaming} onDragStart={p.onDragStart}
+        data-media-folder="" data-media-key={p.pickKey} draggable={!p.renaming} onDragStart={p.onDragStart}
         onClick={p.onPress} onDoubleClick={p.onOpen} onContextMenu={(e) => { e.preventDefault(); e.stopPropagation(); p.onMenu(e); }} {...p.drop}>
         <span className={ROW_THUMB}>
           <span className="pointer-events-none absolute inset-0 flex items-center justify-center">
@@ -715,7 +927,7 @@ function FolderTile(p: {
   }
   const grid = cells >= 4 ? 'grid-cols-2 grid-rows-2' : cells === 3 ? 'grid-cols-2 grid-rows-2' : cells === 2 ? 'grid-cols-2 grid-rows-1' : 'grid-cols-1 grid-rows-1';
   return (
-    <div className="group min-w-0 cursor-default select-none" data-media-folder="" draggable={!p.renaming} onDragStart={p.onDragStart}
+    <div className="group min-w-0 cursor-default select-none" data-media-folder="" data-media-key={p.pickKey} draggable={!p.renaming} onDragStart={p.onDragStart}
       onClick={p.onPress} onDoubleClick={p.onOpen} onContextMenu={(e) => { e.preventDefault(); e.stopPropagation(); p.onMenu(e); }} {...p.drop}>
       <div className="relative pt-[7px]">
         {/* the stack: two cards peeking out above the cover */}
@@ -785,7 +997,9 @@ function FileTile(p: {
   lit?: boolean;
   /** The file as a reference in the app's chat, carried by a drag beside the file itself. */
   studioRef?: () => StudioRef;
-  onPress: () => void; onMenu: (e: React.MouseEvent) => void; onRename: (name: string) => void; onCancelRename: () => void;
+  /** What a drag of it moves into a folder: it, or every one picked with it. */
+  moving: () => readonly string[];
+  onPress: (e?: React.MouseEvent) => void; onMenu: (e: React.MouseEvent) => void; onRename: (name: string) => void; onCancelRename: () => void;
   /** The "+": the file put on the timeline. */
   onAdd?: () => void;
   addLabel?: string;
@@ -814,6 +1028,7 @@ function FileTile(p: {
         ? `${ROW} outline-none ${p.lit ? 'ring-1 ring-inset ring-[var(--tl-accent)]' : ''} ${p.selected ? 'bg-[var(--bg-active)]' : 'hover:bg-[var(--bg-hover)]'}`
         : 'group min-w-0 cursor-default select-none outline-none'}
       data-media-path={p.file.path}
+      data-media-key={p.file.path}
       data-chat-lit={p.lit ? '' : undefined}
       title={p.where ? p.file.path : p.file.name}
       draggable={!p.renaming}
@@ -823,13 +1038,13 @@ function FileTile(p: {
         setResourceDragData(e.dataTransfer, p.file);
         if (p.studioRef) e.dataTransfer.setData(STUDIO_REF_TYPE, JSON.stringify([p.studioRef()]));
         /* any file can go into a folder of this pane: a page's links are written again as it moves (Studio) */
-        e.dataTransfer.setData(FOLDER_DRAG, p.file.path);
+        e.dataTransfer.setData(FOLDER_DRAG, p.moving().join('\n'));
         e.dataTransfer.effectAllowed = 'copyMove';
       }}
       onDragEnd={() => clearResourceDrag()}
       /* focusable, so the keys pressed after picking it are the pane's (Delete asks to delete it) */
       tabIndex={-1}
-      onClick={(e) => { e.currentTarget.focus({ preventScroll: true }); p.onPress(); }}
+      onClick={(e) => { e.currentTarget.focus({ preventScroll: true }); p.onPress(e); }}
       onContextMenu={(e) => { e.preventDefault(); e.stopPropagation(); p.onMenu(e); }}
     >
       {p.row ? (

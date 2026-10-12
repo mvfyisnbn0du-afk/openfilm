@@ -10,7 +10,7 @@
  * whatever is there: an insert pushes it on, an overwrite cuts it out (lib/timeline-edit planRoom), and only the empty
  * space above or below the tracks opens a new one. Without one, a taken spot opens a new track, shown by a line.
  */
-import { filmAudioRoleOf, filmSrcIsPage, filmSrcIsStill } from './film.ts';
+import { filmAudioRoleOf, filmSrcIsPage, filmSrcIsStill, type FilmBox } from './film.ts';
 
 import type { ResourceDragItem } from './resource-drag';
 import { exactRate, frameMs, timecodeFps } from './timecode.ts';
@@ -57,16 +57,42 @@ export function dropDurMsOf(file: { path: string; kind: string; durationMs?: num
   return Math.max(MIN_BLOCK_MS, 1000);
 }
 
+/** The film's canvas, in px. */
+export type StageSize = { w: number; h: number };
+
 /**
- * The file as a film.html clip: just `src` (its kind is the track it lands on, see assetDropInsert); a still, or a page
- * without a duration, also gets `time`, which is its length, not a trim.
+ * Where a dropped video or still sits: in its own shape, as large as the canvas holds, centered, so one side meets the
+ * canvas's edge (as CapCut places it). Without a box it would be the whole canvas with the picture letterboxed inside
+ * it, and the box a person picks would not be the picture. None when its shape is the canvas's, or not known yet.
  */
-export function assetClipElement(file: Pick<ResourceDragItem, 'path' | 'kind' | 'endless'>): Record<string, unknown> | null {
+export function assetFitBox(file: { w?: number | undefined; h?: number | undefined }, stage: StageSize | null | undefined): FilmBox | null {
+  if (!stage || !(stage.w > 0 && stage.h > 0) || !(file.w && file.w > 0 && file.h && file.h > 0)) return null;
+  const k = Math.min(stage.w / file.w, stage.h / file.h);
+  const w = Math.min(stage.w, Math.round(file.w * k));
+  const h = Math.min(stage.h, Math.round(file.h * k));
+  /* within 2 px of the canvas each way is its shape: the clip fills it as it is */
+  if (stage.w - w <= 2 && stage.h - h <= 2) return null;
+  return { x: Math.round((stage.w - w) / 2), y: Math.round((stage.h - h) / 2), w, h };
+}
+
+/**
+ * The file as a film.html clip: `src` (its kind is the track it lands on, see assetDropInsert); a still, or a page
+ * without a duration, also gets `time`, which is its length, not a trim. A video or still of another shape than the
+ * canvas gets a box in its own shape (assetFitBox).
+ */
+export function assetClipElement(
+  file: Pick<ResourceDragItem, 'path' | 'kind' | 'endless'> & { w?: number | undefined; h?: number | undefined },
+  stage?: StageSize | null,
+): Record<string, unknown> | null {
   const kind = assetClipKindOf(file);
   if (!kind) return null;
   const src = file.path;
-  if (!isEndless(file)) return { src };
-  return { src, time: [0, STILL_DROP_MS / 1000] };
+  const box = kind === 'video' ? assetFitBox(file, stage) : null;
+  return {
+    src,
+    ...(isEndless(file) ? { time: [0, STILL_DROP_MS / 1000] } : {}),
+    ...(box ? { box } : {}),
+  };
 }
 
 /** The clip's color and row height: sounds as voice / sfx / music by path. */
@@ -176,12 +202,13 @@ export type AssetDropPlan =
  * answer, no track is named and the insert finds one of the kind.
  */
 export function assetDropInsert(
-  file: Pick<ResourceDragItem, 'path' | 'kind'>,
+  file: Pick<ResourceDragItem, 'path' | 'kind' | 'endless' | 'w' | 'h'>,
   tracks: readonly TimelineTrack[],
   target: AssetDropTarget,
   atMs: number,
+  stage?: StageSize | null,
 ): AssetDropPlan {
-  const element = assetClipElement(file);
+  const element = assetClipElement(file, stage);
   if (!element) return { error: 'not-clip' };
   const kind = assetClipKindOf(file)!;
   /* where it was dropped: on the frame grid, or on the edge it snapped to (the timeline decides, see its dropAt) */
@@ -205,17 +232,18 @@ export type AssetRunInsert = { element: Record<string, unknown>; at: number; dur
  * document) are left out; none left is `not-clip`.
  */
 export function assetRunInsert(
-  files: readonly Pick<ResourceDragItem, 'path' | 'kind' | 'durationMs' | 'endless'>[],
+  files: readonly Pick<ResourceDragItem, 'path' | 'kind' | 'durationMs' | 'endless' | 'w' | 'h'>[],
   tracks: readonly TimelineTrack[],
   hit: AssetLaneHit | null,
   atMs: number,
   edit?: EditMode,
+  stage?: StageSize | null,
 ): { inserts: AssetRunInsert[] } | { error: 'not-clip' | 'locked' } {
   const usable = files.filter((f) => assetClipElement(f));
   if (!usable.length) return { error: 'not-clip' };
   const lengths = usable.map(dropDurMsOf);
   const whole = { path: usable[0]!.path, kind: usable[0]!.kind, durationMs: lengths.reduce((a, b) => a + b, 0) + lengths.length * frameMs(1) };
-  const first = assetDropInsert(usable[0]!, tracks, assetDropTargetOf(assetDropSpot(whole, tracks, hit, atMs, edit)), atMs);
+  const first = assetDropInsert(usable[0]!, tracks, assetDropTargetOf(assetDropSpot(whole, tracks, hit, atMs, edit)), atMs, stage);
   if ('error' in first) return first;
   /* after the first: the track it went onto (a new one is at the index it was opened at) */
   const then = typeof first.track === 'object' ? first.track.insert : first.track;
@@ -223,7 +251,7 @@ export function assetRunInsert(
   let startMs = Math.max(0, Math.round(atMs));
   usable.forEach((file, i) => {
     const track = i === 0 ? first.track : then;
-    inserts.push({ element: assetClipElement(file)!, at: Math.round(startMs) / 1000, durMs: lengths[i]!, ...(track != null ? { track } : {}) });
+    inserts.push({ element: assetClipElement(file, stage)!, at: Math.round(startMs) / 1000, durMs: lengths[i]!, ...(track != null ? { track } : {}) });
     /* the next one on the first whole frame past this one's end: rounded to the nearest, it could start inside it */
     startMs = frameMs(Math.ceil(((startMs + lengths[i]!) * exactRate(timecodeFps())) / 1000 - 1e-6));
   });

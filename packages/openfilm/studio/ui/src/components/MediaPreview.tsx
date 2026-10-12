@@ -23,6 +23,9 @@ export const KIND_ICON: Record<WorkspaceResourceKind, LucideIcon> = {
   other: FileIcon,
 };
 
+/** A file name's ending, without the dot (`pdf`), or '' when it has none. */
+const extOf = (name: string) => /\.([^./\s]{1,8})$/.exec(name)?.[1] ?? '';
+
 /**
  * Has this element come near the viewport yet. A tile asks for its poster only then: a pane of eighty files would
  * otherwise send eighty requests at once, and the visible row would come in last. Latched: once near, it stays.
@@ -86,6 +89,12 @@ export function MediaPreview({
         />
       ) : thumbable && near && poster ? (
         <img src={poster} alt="" onError={() => setBroken(true)} className={IMG} />
+      ) : file.kind === 'other' ? (
+        /* a file Studio does not play (a document, a model, data): its icon and its ending, which say what it is */
+        <span className="flex flex-col items-center gap-1">
+          <Icon size={24} className="text-[var(--text-muted)]" />
+          {extOf(file.name) ? <span className="text-[10px] font-semibold uppercase tracking-wide text-[var(--text-faint)]">{extOf(file.name)}</span> : null}
+        </span>
       ) : (
         <Icon size={26} className="text-[var(--text-muted)]" />
       )}
