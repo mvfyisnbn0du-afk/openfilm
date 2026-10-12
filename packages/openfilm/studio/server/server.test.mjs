@@ -41,13 +41,13 @@ function collect(path, until) {
   });
 }
 
-test('the API needs the key; /open sets it as a cookie and goes where it was asked', async () => {
+test('the API needs the key; /open sets it as a cookie and goes where it was asked, the key kept in the address', async () => {
   assert.equal((await api('/api/projects', { key: null })).status, 401);
   assert.equal((await api('/api/health', { key: null })).status, 200);
   assert.equal((await api(`/open?key=wrong`, { key: null })).status, 403);
   const res = await api(`/open?key=${studio.key}&to=/projects/x`, { key: null });
   assert.equal(res.status, 302);
-  assert.equal(res.headers.get('location'), '/projects/x');
+  assert.equal(res.headers.get('location'), `/projects/x?key=${studio.key}`);
   const [cookie, framed] = res.headers.getSetCookie();
   assert.match(cookie, /SameSite=Strict/);
   /* its twin for a page inside another site's frame (an agent's preview): kept for that frame alone */
@@ -60,6 +60,21 @@ test('the API needs the key; /open sets it as a cookie and goes where it was ask
   /* a write with the cookie from any other origin is refused (a page elsewhere cannot drive Studio) */
   const write = await api('/api/projects', { method: 'POST', key: null, body: { name: 'x' }, headers: { cookie: framed.split(';')[0], origin: 'http://evil.test' } });
   assert.equal(write.status, 403);
+});
+
+test('a page\'s address with the key signs a browser in (a copied address opens anywhere); one signed in gets the key in its address', async () => {
+  const page = await api(`/projects/x?key=${studio.key}`, { key: null });
+  assert.equal(page.status, 200);
+  assert.equal(page.headers.get('referrer-policy'), 'no-referrer');
+  const [cookie] = page.headers.getSetCookie();
+  assert.equal((await api('/api/projects', { key: null, headers: { cookie: cookie.split(';')[0] } })).status, 200);
+  /* signed in, an address without the key (typed, or from before) is sent to the one with it */
+  const bare = await api('/projects/x?t=2', { key: null, headers: { cookie: cookie.split(';')[0] } });
+  assert.equal(bare.status, 302);
+  assert.equal(bare.headers.get('location'), `/projects/x?t=2&key=${studio.key}`);
+  /* not signed in and no key: the page, which says how to get in; a wrong key signs nothing in */
+  assert.equal((await api('/projects/x', { key: null })).status, 200);
+  assert.deepEqual((await api('/projects/x?key=wrong', { key: null })).headers.getSetCookie(), []);
 });
 
 test('openfilm open: with no editor page, the person\'s browser gets the address after the fallback', async () => {

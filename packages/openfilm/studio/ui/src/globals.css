@@ -505,6 +505,12 @@ body.tl-scrubbing * {
   /* handles of what is selected reach past the picture's edge */
   overflow: visible;
 }
+.stage-frames {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  background: #000;
+}
 .stage iframe {
   position: absolute;
   left: 0;

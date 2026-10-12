@@ -12,12 +12,24 @@ import { BrandLoadingScreen } from './components/BrandLoadingScreen';
 import { ProjectsPopover } from './components/ProjectsLibrary';
 import { studioHost } from './lib/host';
 
+/**
+ * `to` with this page's key in its address (the server puts it there): the address bar is what a person copies, and
+ * with the key a copied address opens Studio in any browser on this machine, or in an agent's preview.
+ */
+const keepKey = (to: string) => {
+  const key = new URLSearchParams(location.search).get('key');
+  if (!key) return to;
+  const at = new URL(to, location.origin);
+  at.searchParams.set('key', key);
+  return at.pathname + at.search;
+};
+
 const projectIn = (path: string) => /^\/projects\/([\w-]+)/.exec(path)?.[1] ?? null;
 
 export function App() {
   const [path, setPath] = useState(location.pathname);
   const go = (to: string, replace = false) => {
-    if (to !== location.pathname) (replace ? history.replaceState : history.pushState).call(history, null, '', to);
+    if (to !== location.pathname) (replace ? history.replaceState : history.pushState).call(history, null, '', keepKey(to));
     setPath(to);
   };
 

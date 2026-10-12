@@ -3,8 +3,10 @@
  * OpenFilm Studio's server: one process for the whole editor. Two origins, so a web page can never reach the editor:
  *
  *   http://127.0.0.1:<port>      the editor's pages and its API. The API needs the launch key: as a cookie, set by
- *                                /open?key=…, or as `x-studio-key` (the CLI). Writes from a browser must come from
- *                                this origin.
+ *                                any page's address with ?key=… (/open?key=… too), or as `x-studio-key` (the CLI).
+ *                                The key stays in the pages' address, so a copied address opens Studio anywhere on
+ *                                this machine (another browser, an agent's preview). Writes from a browser must come
+ *                                from this origin.
  *   http://localhost:<port + 1>  the film itself: project files, read only, for the preview (see pages.mjs).
  *
  * Both answer only requests addressed to 127.0.0.1, localhost or [::1] at their own port (ownHost): another site
@@ -155,16 +157,29 @@ export async function startStudio({ port = 4747, key, openBrowser = systemBrowse
     /* which Studio this is: the CLI replaces an older one, and finds its own home's when run.json is gone. Asked
        without the key, so it says nothing of the machine: its home only as a digest (homeTag), no process id */
     if (path === '/api/health') return json(res, 200, { product: 'openfilm-studio', version: VERSION, home: homeTag(), filmOrigin });
+    const signIn = [`${COOKIE}=${key}; Path=/; HttpOnly; SameSite=Strict`, `${FRAMED}=${key}; Path=/; HttpOnly; Secure; SameSite=None; Partitioned`];
+    /** A page's address with the key in it (the address bar is what a person copies). */
+    const keyed = (/** @type {string} */ to) => {
+      const at = new URL(to, origin);
+      at.searchParams.set('key', String(key));
+      return at.pathname + at.search;
+    };
     if (path === '/open') {
       if (!sameKey(url.searchParams.get('key'))) throw new HttpError(403, 'this link is from another Studio launch; use the one `openfilm open` printed');
       const to = url.searchParams.get('to') ?? '/';
-      res.writeHead(302, {
-        location: /^\/(?!\/)[^\s\\]*$/.test(to) ? to : '/',
-        'set-cookie': [`${COOKIE}=${key}; Path=/; HttpOnly; SameSite=Strict`, `${FRAMED}=${key}; Path=/; HttpOnly; Secure; SameSite=None; Partitioned`],
-      });
+      res.writeHead(302, { location: keyed(/^\/(?!\/)[^\s\\]*$/.test(to) ? to : '/'), 'set-cookie': signIn, 'referrer-policy': 'no-referrer' });
       return res.end();
     }
-    if (!path.startsWith('/api/')) return sendEditor(res, editorDir, path);
+    if (!path.startsWith('/api/')) {
+      if (path.startsWith('/assets/')) return sendEditor(res, editorDir, path);
+      /* a page with the key in its address signs this browser in; one signed in without it gets it in its address */
+      if (sameKey(url.searchParams.get('key'))) return sendEditor(res, editorDir, path, { 'set-cookie': signIn });
+      if (sameKey(cookieKey(req))) {
+        res.writeHead(302, { location: keyed(path + url.search), 'referrer-policy': 'no-referrer' });
+        return res.end();
+      }
+      return sendEditor(res, editorDir, path);
+    }
 
     authorize(req);
     const parts = path.slice('/api/'.length).split('/').map(decodeURIComponent);
@@ -690,7 +705,7 @@ const EDITOR_DIR = fileURLToPath(new URL('../ui/dist/', import.meta.url));
 const TYPES = { '.js': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8', '.svg': 'image/svg+xml', '.png': 'image/png', '.woff2': 'font/woff2', '.ico': 'image/x-icon' };
 
 /** The editor's files: its assets as they are (named by their content, so kept for good), any other path its page. */
-function sendEditor(/** @type {Res} */ res, /** @type {string} */ dir, /** @type {string} */ path) {
+function sendEditor(/** @type {Res} */ res, /** @type {string} */ dir, /** @type {string} */ path, /** @type {Record<string, string | string[]>} */ headers = {}) {
   const root = dir.endsWith(sep) ? dir : dir + sep;
   if (path.startsWith('/assets/')) {
     const file = normalize(join(root, path));
@@ -702,7 +717,8 @@ function sendEditor(/** @type {Res} */ res, /** @type {string} */ dir, /** @type
     return;
   }
   const page = join(root, 'index.html');
-  res.writeHead(200, { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store' });
+  /* no referrer: the page's address holds the key, and a link it opens must not carry it to another site */
+  res.writeHead(200, { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store', 'referrer-policy': 'no-referrer', ...headers });
   res.end(existsSync(page) ? readFileSync(page) : '<!doctype html><meta charset="utf-8"><title>OpenFilm Studio</title><p>The editor is not built: run <code>npm run build:ui</code>.</p>');
 }
 

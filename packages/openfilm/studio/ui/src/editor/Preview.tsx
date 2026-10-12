@@ -17,6 +17,9 @@ import type { ClipSpan } from '@/lib/film-shape';
 import type { Sound } from './player';
 import { reloaded, shownAfter, updateKeys, type Frame } from './preview-frames';
 
+/** How far the film's frame reaches past the picture's box on each side, in px (see the `stage-frames` clip). */
+const BLEED = 1;
+
 export type FilmInfo = { duration: number; width: number; height: number; sounds: Sound[]; spans: ClipSpan[] };
 /** What is selected in the picture: an element of a page (named by selector and match), or a whole clip. */
 export type Target = {
@@ -253,6 +256,10 @@ export const Preview = forwardRef<PreviewHandle, Props>(function Preview({ folde
   return (
     <div className="stage-box" ref={box}>
       <div className="stage" style={{ width: fit.w, height: fit.h }}>
+        {/* the frames, clipped to the picture's whole-px box; each reaches BLEED px past it on every side, so the edge
+            of a frame (a part of a device px a browser rounds its own way, a backdrop it paints under the film) is
+            never on screen as a line along the picture */}
+        <div className="stage-frames">
         {frames.map((f) => (
           <iframe
             key={f.key}
@@ -265,10 +272,14 @@ export const Preview = forwardRef<PreviewHandle, Props>(function Preview({ folde
             /* the one loading is transparent, not hidden: the film is on another site, in a process of its own, and a
                frame hidden from there is not drawn at all, so a page that waits to draw (an image's decode()) would
                never be ready */
-            /* scaled to the picture's whole-px box exactly, each way: a fraction of a px past it would show a hairline */
-            style={{ width: stage.w, height: stage.h, transform: `scale(${fit.w / stage.w}, ${fit.h / stage.h})`, ...(f === shown ? {} : { opacity: 0, pointerEvents: 'none' }) }}
+            style={{
+              width: stage.w, height: stage.h,
+              transform: `translate(${-BLEED}px, ${-BLEED}px) scale(${(fit.w + 2 * BLEED) / stage.w}, ${(fit.h + 2 * BLEED) / stage.h})`,
+              ...(f === shown ? {} : { opacity: 0, pointerEvents: 'none' }),
+            }}
           />
         ))}
+        </div>
         {shown && !error ? children : null}
         {!shown && !error ? <div className="cover"><span role="status" className="text-sweep">{t('project.previewStageMount')}</span></div> : null}
         {error ? (

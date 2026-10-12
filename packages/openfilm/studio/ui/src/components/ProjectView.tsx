@@ -556,9 +556,9 @@ export function ProjectView({ projectId, onProject, onLeave }: {
   const [layersWidth, setLayersWidth] = React.useState(240);
   const layersPaneRef = React.useRef<HTMLDivElement | null>(null);
   const [timelineOpen, setTimelineOpen] = useKeptFlag('openfilm.project.timeline');
-  /* closed until it has something to show (a selection opens it), or the person opens it */
-  const [inspectorOpen, persistInspector, setInspectorOpen] = useKeptFlag('openfilm.project.inspector', true);
-  const closeInspector = React.useCallback(() => persistInspector(false), [persistInspector]);
+  /* open whenever the project opens (a reload too); closed, it stays closed until then or until a selection opens it */
+  const [inspectorOpen, setInspectorOpen] = React.useState(true);
+  const closeInspector = React.useCallback(() => setInspectorOpen(false), [setInspectorOpen]);
   const [rowWidth, setRowWidth] = React.useState(0);
   const [colHeight, setColHeight] = React.useState(0);
   React.useEffect(() => {
@@ -2111,7 +2111,7 @@ export function ProjectView({ projectId, onProject, onLeave }: {
                 assets={hostAssets ? null : assetsPaneOpen} onAssets={setAssetsPaneOpen}
                 layers={layersPaneOpen} onLayers={setLayersPaneOpen}
                 timeline={timelineOpen} inspector={inspectorOpen}
-                onTimeline={setTimelineOpen} onInspector={persistInspector}
+                onTimeline={setTimelineOpen} onInspector={setInspectorOpen}
                 hostPanel={hostPanel ? { label: hostPanel.label, open: hostPanel.open, onChange: hostPanel.setOpen } : null} />
               <ProjectHistoryButton open={historyOpen} onClick={openHistory} className={TOP_BTN} />
               <ProjectMenu className={TOP_BTN}
@@ -2198,7 +2198,7 @@ export function ProjectView({ projectId, onProject, onLeave }: {
                   </Tooltip>
                   <span className="min-w-0 flex-1" />
                   <Tooltip label={t(inspectorOpen ? 'inspector.hide' : 'inspector.show')} side="bottom">
-                    <button type="button" onClick={() => persistInspector(!inspectorOpen)}
+                    <button type="button" onClick={() => setInspectorOpen(!inspectorOpen)}
                       aria-label={t(inspectorOpen ? 'inspector.hide' : 'inspector.show')}
                       className={`${PANE_TOGGLE} ${inspectorOpen ? PANE_BTN_ON : ''}`}>
                       <Settings2 size={PANE_TOGGLE_ICON} />
