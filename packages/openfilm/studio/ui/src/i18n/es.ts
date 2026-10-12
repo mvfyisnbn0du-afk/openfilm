@@ -1422,7 +1422,7 @@ export const es: Words = {
       recommendedHint: 'La forma más barata: con la suscripción que ya tienes',
       ready: 'Conectado',
       off: 'No conectado',
-      signedOut: 'Sesión cerrada',
+      signedOut: 'Sin sesión iniciada',
       waiting: 'Esperando el inicio de sesión en Terminal…',
       waitingHint: 'Termina de iniciar sesión en la ventana que se abrió y vuelve aquí.',
       startAgain: 'Volver a empezar',

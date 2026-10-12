@@ -1421,7 +1421,7 @@ export const ko: Words = {
       recommendedHint: '가장 저렴한 방법: 이미 쓰고 있는 구독으로 사용',
       ready: '연결됨',
       off: '연결 안 됨',
-      signedOut: '로그아웃됨',
+      signedOut: '로그인하지 않음',
       waiting: '터미널에서 로그인을 기다리는 중…',
       waitingHint: '열린 창에서 로그인을 완료한 뒤 돌아오세요.',
       startAgain: '다시 시작',

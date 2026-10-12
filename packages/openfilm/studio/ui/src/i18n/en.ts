@@ -1423,7 +1423,7 @@ export const en = {
       recommendedHint: 'The cheapest way: the subscription you already have',
       ready: 'Connected',
       off: 'Not connected',
-      signedOut: 'Signed out',
+      signedOut: 'Not signed in',
       waiting: 'Waiting for the sign-in in Terminal…',
       waitingHint: 'Finish signing in in the window that opened, then come back.',
       startAgain: 'Start again',

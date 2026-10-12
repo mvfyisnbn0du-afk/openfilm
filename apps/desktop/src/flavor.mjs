@@ -3,6 +3,9 @@
  * one run from this repository never shares a window, a lock or a Studio with the installed one:
  *
  *   · release — the packaged app. Its Studio is the machine's Studio (~/.openfilm), the one `openfilm open` finds.
+ *   · preview — a packaged app built with `release --preview`, "OpenFilm Preview", to try a build in: its own data
+ *               folder, Studio home, port and projects, so it never meets an installed OpenFilm (its package says so:
+ *               `openfilmFlavor`).
  *   · dev     — `pnpm --filter @openfilm/desktop start`: this repository's code, with its own Studio home and its own
  *               folder for new projects.
  *   · bench   — `node bench/run.mjs`: this repository's code, everything (data, Studio home, projects) in the throwaway
@@ -10,13 +13,19 @@
  *
  * Reads no Electron module, so `node --test` can use it.
  */
+import { readFileSync } from 'node:fs';
 import { homedir } from 'node:os';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 
 const packaged = Boolean(process.versions.electron) && !process.defaultApp;
 
 export const FLAVORS = Object.freeze({
   release: { productName: 'OpenFilm', bundleId: 'dev.openfilm.desktop', studioPort: 4747, studioHome: null, library: null },
+  preview: {
+    productName: 'OpenFilm Preview', bundleId: 'dev.openfilm.desktop.preview', studioPort: 4777,
+    studioHome: join(homedir(), '.openfilm-preview'), library: join(homedir(), 'Movies', 'OpenFilm Preview', 'Projects'),
+  },
   dev: {
     productName: 'OpenFilm Dev', bundleId: 'dev.openfilm.desktop.dev', studioPort: 4757,
     studioHome: join(homedir(), '.openfilm-dev'), library: join(homedir(), 'Movies', 'OpenFilm Dev', 'Projects'),
@@ -29,8 +38,15 @@ const BENCH = Object.freeze({
   studioHome: join(benchDir, 'home'), library: join(benchDir, 'projects'), userData: join(benchDir, 'data'),
 });
 
-export function flavorName(env = process.env, isPackaged = packaged) {
-  if (isPackaged) return 'release';
+/** What the app's package says it was built as (`release --preview` writes `openfilmFlavor`). */
+function builtFlavor() {
+  try {
+    return JSON.parse(readFileSync(join(dirname(fileURLToPath(import.meta.url)), '..', 'package.json'), 'utf8')).openfilmFlavor ?? null;
+  } catch { return null; }
+}
+
+export function flavorName(env = process.env, isPackaged = packaged, built = isPackaged ? builtFlavor() : null) {
+  if (isPackaged) return built === 'preview' ? 'preview' : 'release';
   if (env.OPENFILM_DESKTOP_FLAVOR === 'dev') return 'dev';
   if (env.OPENFILM_DESKTOP_FLAVOR === 'bench' && env.OPENFILM_BENCH_DIR) return 'bench';
   return 'release';

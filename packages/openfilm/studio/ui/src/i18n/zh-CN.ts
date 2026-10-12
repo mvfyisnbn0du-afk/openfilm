@@ -1423,7 +1423,7 @@ export const zhCN: Words = {
       recommendedHint: '最划算：用你已有的订阅',
       ready: '已连接',
       off: '未连接',
-      signedOut: '已退出登录',
+      signedOut: '未登录',
       waiting: '正在等待终端中的登录…',
       waitingHint: '请在刚打开的窗口中完成登录，然后回到这里。',
       startAgain: '重新开始',

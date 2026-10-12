@@ -1,7 +1,7 @@
 /**
  * Build the app people install: `pnpm --filter @openfilm/desktop release` (`--arch=x64` for Intel Macs, default this
  * Mac's; `--unsigned` for a local try; `--platform=win --arch=x64|arm64` for the Windows installer, built here too;
- * `--official` for the project's own build).
+ * `--official` for the project's own build; `--preview` for "OpenFilm Preview", an app of its own to try a build in).
  *
  * Which build it is comes from the `openfilm` package's product files: a build of this source uses product.json,
  * empty in the repository (no update feed: the app never looks for updates); `--official` uses product.official.json
@@ -60,6 +60,11 @@ if (unsigned && !win && !process.argv.includes('--unsigned')) {
 
 /* this build's product: its update feed (see the header) */
 const official = process.argv.includes('--official');
+/* --preview: "OpenFilm Preview", to try a build in apart from an installed OpenFilm: its own name and bundle, data
+   folder, Studio home, port and projects (src/flavor.mjs `preview`, from the package's `openfilmFlavor`); no updates */
+const preview = process.argv.includes('--preview');
+if (preview && official) throw new Error('--preview is never the official build');
+const NAME = preview ? 'OpenFilm Preview' : 'OpenFilm';
 const productFile = join(protocol, official ? 'product.official.json' : 'product.json');
 const product = JSON.parse(readFileSync(productFile, 'utf8'));
 const updates = typeof product.desktop?.updates === 'string' ? product.desktop.updates.trim().replace(/\/+$/, '') : '';
@@ -85,7 +90,8 @@ const pack = (dir) => execFileSync('npm', ['pack', '--ignore-scripts', '--pack-d
 const dependencies = { ...pkg.dependencies, openfilm: `file:../${pack(protocol)}` };
 writeFileSync(join(stage, 'package.json'), `${JSON.stringify({
   name: 'openfilm-desktop',
-  productName: 'OpenFilm',
+  productName: NAME,
+  ...(preview ? { openfilmFlavor: 'preview' } : {}),
   version: pkg.version,
   description: pkg.description,
   author: 'OpenFilm',
@@ -125,19 +131,19 @@ await builder.build({
       icon: join(desktop, 'build/icon.ico'),
       /* resedit writes the icon and version (afterPack); rcedit would need wine on this Mac */
       signAndEditExecutable: false,
-      artifactName: 'OpenFilm-Setup-${arch}.${ext}',
+      artifactName: `${NAME.replace(' ', '-')}-Setup-\${arch}.\${ext}`,
     },
     nsis: {
       oneClick: true,
       perMachine: false,
       installerIcon: join(desktop, 'build/icon.ico'),
       uninstallerIcon: join(desktop, 'build/icon.ico'),
-      shortcutName: 'OpenFilm',
+      shortcutName: NAME,
       deleteAppDataOnUninstall: false,
-      artifactName: 'OpenFilm-Setup-${arch}.${ext}',
+      artifactName: `${NAME.replace(' ', '-')}-Setup-\${arch}.\${ext}`,
     },
-    appId: 'dev.openfilm.desktop',
-    productName: 'OpenFilm',
+    appId: preview ? 'dev.openfilm.desktop.preview' : 'dev.openfilm.desktop',
+    productName: NAME,
     copyright: 'Copyright © 2026 OpenFilm',
     electronVersion,
     asar: true,
@@ -163,7 +169,7 @@ await builder.build({
       icon: join(desktop, 'build/icon.icns'),
       minimumSystemVersion: '13.0',
       /* the .zip the updater downloads; the .dmg has its own name (dmg.artifactName) */
-      artifactName: 'OpenFilm-${version}-${arch}-mac.${ext}',
+      artifactName: `${NAME.replace(' ', '-')}-\${version}-\${arch}-mac.\${ext}`,
       hardenedRuntime: true,
       gatekeeperAssess: false,
       entitlements: join(desktop, 'build/entitlements.mac.plist'),
@@ -171,16 +177,16 @@ await builder.build({
       ...(unsigned ? { identity: null } : { identity: IDENTITY, notarize: true }),
     },
     /* the downloads keep one name from version to version: the website links the latest release's by it */
-    dmg: { title: 'OpenFilm', artifactName: 'OpenFilm-${arch}.${ext}' },
+    dmg: { title: NAME, artifactName: `${NAME.replace(' ', '-')}-\${arch}.\${ext}` },
   },
 });
 
 if (!unsigned && !win && FEED) {
-  const app = join(out, arch === 'arm64' ? 'mac-arm64' : 'mac', 'OpenFilm.app');
+  const app = join(out, arch === 'arm64' ? 'mac-arm64' : 'mac', `${NAME}.app`);
   run('/usr/bin/codesign', ['--verify', '--deep', '--strict', app]);
   run('/usr/bin/xcrun', ['stapler', 'validate', app]);
   /* 4. the download */
-  const dmg = join(out, `OpenFilm-${arch}.dmg`);
+  const dmg = join(out, `${NAME.replace(' ', '-')}-${arch}.dmg`);
   run('/usr/bin/codesign', ['--sign', `Developer ID Application: ${IDENTITY}`, '--timestamp', dmg]);
   run('/usr/bin/xcrun', ['notarytool', 'submit', dmg, '--keychain-profile', NOTARY_PROFILE, '--wait']);
   run('/usr/bin/xcrun', ['stapler', 'staple', dmg]);
@@ -201,7 +207,7 @@ if (FEED && !existsSync(join(out, win ? 'latest.yml' : 'latest-mac.yml'))) proce
 async function windowsResources(context) {
   const ResEdit = await import('resedit');
   const PE = await import('pe-library');
-  const file = join(context.appOutDir, 'OpenFilm.exe');
+  const file = join(context.appOutDir, `${NAME}.exe`);
   const exe = PE.NtExecutable.from(readFileSync(file), { ignoreCert: true });
   const res = PE.NtExecutableResource.from(exe);
   const icon = ResEdit.Data.IconFile.from(readFileSync(join(desktop, 'build/icon.ico')));

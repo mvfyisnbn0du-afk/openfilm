@@ -1422,7 +1422,7 @@ export const ja: Words = {
       recommendedHint: 'いちばん安上がり：すでにお持ちのサブスクリプションで使えます',
       ready: '接続済み',
       off: '未接続',
-      signedOut: 'サインアウト済み',
+      signedOut: 'サインインしていません',
       waiting: 'ターミナルでのサインインを待っています…',
       waitingHint: '開いたウィンドウでサインインを完了してから、戻ってきてください。',
       startAgain: 'やり直す',
