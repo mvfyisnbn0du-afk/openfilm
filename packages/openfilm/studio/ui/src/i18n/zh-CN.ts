@@ -1532,6 +1532,7 @@ export const zhCN: Words = {
       jumpStep: "播放头移动 10 帧",
       rippleDelete: '波纹删除并合拢间隙',
       selectAll: '选择未锁定的片段（需先点击时间轴）',
+      selectSide: "向左全选 / 向右全选（播放头之前 / 之后的所有片段）",
       deselect: '取消选择',
       zoomIn: '放大时间轴',
       zoomOut: '缩小时间轴',

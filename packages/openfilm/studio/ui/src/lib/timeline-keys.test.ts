@@ -60,6 +60,8 @@ test('CapCut\'s keys (its Final Cut Pro X set on a Mac): P, ~, ⇧X, ⌥X, ⌘R,
   assert.equal(win('S', { ctrlKey: true, shiftKey: true }), 'detach-audio');
   assert.equal(mac('C', { metaKey: true, shiftKey: true }), 'copy-attrs');
   assert.equal(mac('V', { metaKey: true, shiftKey: true }), 'paste-attrs');
+  assert.equal(keyCommandOf({ ...press('['), code: 'BracketLeft' }, true), 'select-left');
+  assert.equal(keyCommandOf({ ...press(']'), code: 'BracketRight' }, true), 'select-right');
 });
 
 test('keys that are not the editor\'s stay the browser\'s, and Ctrl is the modifier off a Mac', () => {

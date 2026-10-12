@@ -112,7 +112,7 @@ import { STUDIO_REF_TYPE, type StudioRef } from '@/lib/host';
 import { orderedRange, rangeLabel, type FilmRange } from '@/lib/studio-refs';
 import { draftNumbersOf, sameClip, type ChatPoint, type DraftMarks } from '@/lib/chat-marks';
 import { formatRulerLabel, formatTimecode, frameAt, frameMs, secondFrames, snapToFrame, stepFrames, useTimecodeFps } from '@/lib/timecode';
-import { planNudge, splitAllTargets, splitTargets } from '@/lib/timeline-nav';
+import { planNudge, sideTargets, splitAllTargets, splitTargets } from '@/lib/timeline-nav';
 import {
   VIEW_SPAN_MIN_MS,
   ZOOM_DEFAULT,
@@ -686,6 +686,8 @@ export interface TimelineCommands {
   /** The switches (see lib/timeline-prefs). */
   toggleMagnet: () => void;
   toggleLinkage: () => void;
+  /** [ / ]: every clip before / after the playhead selected (lib/timeline-nav sideTargets). */
+  selectSide: (dir: -1 | 1) => void;
   toggleSnap: () => void;
   /**
    * ⌘B: split the selected clips at the playhead; with nothing selected, the clip under it on the targeted track (the
@@ -3071,6 +3073,7 @@ export const Timeline = React.memo(function Timeline({
       unlink: () => unlinkBlocks(picked()),
       toggleMagnet: () => togglePref('magnet'),
       toggleLinkage: () => togglePref('linkage'),
+      selectSide: (dir) => { setSelected(sideTargets(tracks, timeMsRef.current, dir).map((b) => b.id)); },
       toggleSnap: () => togglePref('snap'),
       split: () => {
         const atMs = timeMsRef.current;

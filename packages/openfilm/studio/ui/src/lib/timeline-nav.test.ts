@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { applyOps } from '../../../server/ops.mjs';
 import type { Op } from '../api.ts';
-import { cutPoints, namedTrack, nextCut, planNudge, splitAllTargets, splitTargets, trackNamesOf } from './timeline-nav.ts';
+import { cutPoints, namedTrack, nextCut, planNudge, sideTargets, splitAllTargets, splitTargets, trackNamesOf } from './timeline-nav.ts';
 import type { EditTrack } from './timeline-edit.ts';
 import type { TimelineBlock, TimelineTrack } from './timeline-layout';
 
@@ -48,6 +48,18 @@ test('⌘B splits the selected clips under the playhead, else the main track\'s,
   assert.deepEqual(ids(splitTargets(tracks.slice(0, 3), [], 2000, null)), ['v'], 'a locked main track: the top one seen, not a hidden one');
   assert.deepEqual(ids(splitTargets(tracks, [], 4000, null)), [], 'on a cut there is nothing to split');
   assert.deepEqual(ids(splitAllTargets(tracks, 2000)), ['top', 'v', 's']);
+});
+
+test('[ and ] select every clip with a part before or after the playhead, on tracks not locked', () => {
+  const tracks = [
+    row(0, [['t', 1, 3]]),
+    row(1, [['a', 0, 2], ['b', 2, 5], ['c', 5, 8]]),
+    row(2, [['l', 0, 8]], { locked: true }),
+  ];
+  const ids = (bs: TimelineBlock[]) => bs.map((b) => b.clipId);
+  assert.deepEqual(ids(sideTargets(tracks, 3000, 1)), ['b', 'c'], 'b plays on past 3 s; t ends right there');
+  assert.deepEqual(ids(sideTargets(tracks, 3000, -1)), ['t', 'a', 'b']);
+  assert.deepEqual(ids(sideTargets(tracks, 0, -1)), [], 'nothing before the start');
 });
 
 const clip = (id: string, s: number, e: number) => ({ id, startMs: s * 1000, endMs: e * 1000, inMs: 0, speed: 1, sourceMs: 60_000 });

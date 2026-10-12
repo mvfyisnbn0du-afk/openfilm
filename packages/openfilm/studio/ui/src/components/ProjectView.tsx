@@ -2112,6 +2112,7 @@ export function ProjectView({ projectId, onProject, onLeave }: {
         commands.nudge(cmd === 'nudge-back' ? -1 : 1);
         return;
       case 'zoom-fit': take(); commands.zoomFit(); return;
+      case 'select-left': case 'select-right': take(); if (once) commands.selectSide(cmd === 'select-left' ? -1 : 1); return;
       case 'ripple-start': take(); if (once) commands.rippleTrimStart(); return;
       case 'ripple-end': take(); if (once) commands.rippleTrimEnd(); return;
       case 'toggle-snap': case 'toggle-magnet': case 'toggle-linkage': {

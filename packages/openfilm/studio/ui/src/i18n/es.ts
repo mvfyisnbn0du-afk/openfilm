@@ -1531,6 +1531,7 @@ export const es: Words = {
       jumpStep: "Mover el cabezal 10 fotogramas",
       rippleDelete: 'Eliminar con desplazamiento y cerrar el hueco',
       selectAll: 'Seleccionar los clips desbloqueados (haz clic antes en la línea de tiempo)',
+      selectSide: "Seleccionar todos los clips antes / después del cabezal",
       deselect: 'Deseleccionar',
       zoomIn: 'Acercar la línea de tiempo',
       zoomOut: 'Alejar la línea de tiempo',

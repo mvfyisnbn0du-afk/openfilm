@@ -1532,6 +1532,7 @@ export const en = {
       jumpStep: "Move playhead 10 frames",
       rippleDelete: "Ripple delete and close the gap",
       selectAll: "Select unlocked clips (click timeline first)",
+      selectSide: "Select every clip before / after the playhead",
       deselect: "Deselect",
       zoomIn: "Zoom in on timeline",
       zoomOut: "Zoom out on timeline",

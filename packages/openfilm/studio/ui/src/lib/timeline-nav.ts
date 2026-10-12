@@ -72,6 +72,15 @@ export function splitTargets(
   return [];
 }
 
+/**
+ * What [ / ] select (CapCut's 向左全选 / 向右全选): every clip with a part before the playhead (`dir` -1) or after it
+ * (`dir` 1), on every track not locked — what to move when the film before or after a point moves along.
+ */
+export function sideTargets(tracks: readonly TimelineTrack[], atMs: number, dir: -1 | 1): TimelineBlock[] {
+  return tracks.filter((tr) => !tr.locked).flatMap((tr) => tr.blocks)
+    .filter((b) => Boolean(b.loc) && (dir > 0 ? b.endMs > atMs + 1 : b.startMs < atMs - 1));
+}
+
 /** What ⇧⌘B splits: every clip the playhead is inside, on every track not locked. */
 export function splitAllTargets(tracks: readonly TimelineTrack[], atMs: number): TimelineBlock[] {
   return tracks.filter((tr) => !tr.locked).flatMap((tr) => tr.blocks).filter((b) => Boolean(b.loc && b.clipId) && splitsAt(b, atMs));

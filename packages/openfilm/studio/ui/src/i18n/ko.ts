@@ -1530,6 +1530,7 @@ export const ko: Words = {
       jumpStep: "재생 헤드 10프레임 이동",
       rippleDelete: '리플 삭제 후 간격 메우기',
       selectAll: '잠기지 않은 클립 선택(먼저 타임라인 클릭)',
+      selectSide: "재생 헤드 앞 / 뒤의 모든 클립 선택",
       deselect: '선택 해제',
       zoomIn: '타임라인 확대',
       zoomOut: '타임라인 축소',

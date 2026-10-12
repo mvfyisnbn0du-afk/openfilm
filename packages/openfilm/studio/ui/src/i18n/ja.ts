@@ -1531,6 +1531,7 @@ export const ja: Words = {
       jumpStep: "再生ヘッドを 10 フレーム移動",
       rippleDelete: 'リップル削除して隙間を詰める',
       selectAll: 'ロックされていないクリップを選択（先にタイムラインをクリック）',
+      selectSide: "再生ヘッドより前 / 後のクリップをすべて選択",
       deselect: '選択解除',
       zoomIn: 'タイムラインをズームイン',
       zoomOut: 'タイムラインをズームアウト',

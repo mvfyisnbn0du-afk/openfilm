@@ -17,7 +17,7 @@ export type KeyCommand =
   | 'nudge-back' | 'nudge-forward'
   | 'start' | 'end'
   | 'zoom-fit' | 'toggle-snap' | 'toggle-magnet' | 'toggle-linkage'
-  | 'range-clip' | 'speed' | 'detach-audio' | 'copy-attrs' | 'paste-attrs'
+  | 'range-clip' | 'speed' | 'detach-audio' | 'copy-attrs' | 'paste-attrs' | 'select-left' | 'select-right'
   | 'ripple-start' | 'ripple-end'
   | 'insert-source' | 'overwrite-source'
   | 'add-marker' | 'next-marker' | 'prev-marker';
@@ -78,6 +78,9 @@ export function keyCommandOf(e: KeyPress, mac: boolean): KeyCommand | null {
     case '.': return e.altKey || e.shiftKey ? null : 'overwrite-source';
     default: break;
   }
+  /* [ / ]: every clip before / after the playhead selected (CapCut's 向左全选 / 向右全选), read by where the key is */
+  if (!e.shiftKey && !e.altKey && (e.code === 'BracketLeft' || e.key === '[')) return 'select-left';
+  if (!e.shiftKey && !e.altKey && (e.code === 'BracketRight' || e.key === ']')) return 'select-right';
   /* ~ (the key left of 1, with ⇧ or without): linkage on / off, as CapCut's */
   if (e.code === 'Backquote' || e.key === '`' || e.key === '~') return e.altKey ? null : 'toggle-linkage';
   /* ⌥M / ⌥⇧M: the marker before; ⌥X: the range cleared (on a Mac ⌥ types another letter: read by where the key is) */
@@ -172,6 +175,7 @@ export const SHORTCUTS: { group: 'groupPlayback' | 'groupMarks' | 'groupEdit' | 
       { label: 'rippleDelete', keys: [k('⌫', { shift: true }), k('Delete', { shift: true })] },
       { label: 'nudgeClip', keys: [k('←', { alt: true }), k('→', { alt: true })] },
       { label: 'selectAll', keys: [k('A', { mod: true })] },
+      { label: 'selectSide', keys: [k('['), k(']')] },
       { label: 'deselect', keys: [k('Esc')] },
       { label: 'selectMode', keys: [k('A'), k('V')] },
       { label: 'splitMode', keys: [k('B')] },
