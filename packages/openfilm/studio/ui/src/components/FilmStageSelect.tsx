@@ -141,11 +141,12 @@ export interface StageLayer {
   };
 }
 
-/** Just where a hovered layer is. */
+/** Just where a hovered layer is; a whole clip hovered (a page's empty part, a video, a still) has its id. */
 interface StageOutline {
   handle: number;
   rect: ClientBox;
   frame?: StageFrame;
+  clip?: string;
 }
 
 /** A clip's edit from the stage: its film.html `box`, or its own CSS (`style`: a crop). */
@@ -520,6 +521,17 @@ function FilmStageSelectImpl({
     const live = lookLiveRef.current;
     return clipInfo(docRef.current, spansRef.current, stage, loc, live?.clipLoc === loc ? live : null);
   };
+  /** A whole clip's outline for the hover: the part of it that shows, turned with it. */
+  const clipOutline = (id: string): StageOutline | null => {
+    const loc = clipLocOf(docRef.current, id);
+    const info = loc ? infoOf(loc) : null;
+    if (!info?.box) return null;
+    const frame = visibleFrame(info.t, info.box, info.crop);
+    const r = frameAabb(frame);
+    return { handle: -1, clip: id, rect: clientOf(r), ...(frame.r ? { frame } : {}) };
+  };
+  const clipOutlineRef = React.useRef(clipOutline);
+  clipOutlineRef.current = clipOutline;
   /** Another clip as a snap or measuring target: the part its crop leaves (the film's stage tells whole boxes). */
   const shownBoxOf = (c: { id: string; x: number; y: number; w: number; h: number }): Rect => {
     const loc = clipLocOf(docRef.current, c.id);
@@ -1261,12 +1273,18 @@ function FilmStageSelectImpl({
   const moveRaf = React.useRef(0);
   const moveAt = React.useRef<{ cx: number; cy: number; shift?: boolean; alt?: boolean } | null>(null);
   React.useEffect(() => () => { if (moveRaf.current) cancelAnimationFrame(moveRaf.current); }, []);
+  /* every thing a click can take is outlined under the pointer: a page's layer, else the clip there (a page by its
+     empty part, as its layers are: several pages on the picture are each found) */
   const hoverQueue = React.useMemo(() => new Latest<{ x: number; y: number; from: number | null }>(async (p) => {
-    const found = await ask<StageOutline>('hit', p);
+    let found = await ask<StageOutline>('hit', p);
+    if (!found) {
+      const id = await ask<string>('clipAt', { x: p.x, y: p.y });
+      found = id ? clipOutlineRef.current(id) : null;
+    }
     if (!moveAt.current) return;
-    /* the same layer in the same place: keep the object (sixty questions a second must not redraw the outline) */
+    /* the same thing in the same place: keep the object (sixty questions a second must not redraw the outline) */
     setHover((cur) => (found
-      ? (cur && cur.handle === found.handle && sameClientRect(cur.rect, found.rect) ? cur : found)
+      ? (cur && cur.handle === found.handle && cur.clip === found.clip && sameClientRect(cur.rect, found.rect) ? cur : found)
       : (cur ? null : cur)));
   }), [ask]);
   /* a layer pointed at from the Layers panel: outlined where it is drawn, until the pointer leaves the row */
@@ -1286,12 +1304,8 @@ function FilmStageSelectImpl({
     });
     return () => { live = false; };
   }, [pointClip, pointLoc, ask]);
-  /** Only with no clip in hand: a clip in hand owns the picture. */
-  const hoverEnabled = !picked?.element?.isMgOuter;
-  const hoverEnabledRef = React.useRef(hoverEnabled);
-  hoverEnabledRef.current = hoverEnabled;
   /* the layer under the pointer, told to the app: asked of the stage once each time it is another one */
-  const hoverHandle = hover?.handle ?? null;
+  const hoverHandle = hover && !hover.clip ? hover.handle : null;
   React.useEffect(() => {
     if (!onHoverLayer) return undefined;
     if (hoverHandle == null) { onHoverLayer(null); return undefined; }
@@ -1793,7 +1807,8 @@ function FilmStageSelectImpl({
       setDraft(draftRef.current);
       return;
     }
-    if (!hoverEnabledRef.current || textEdit.current) return;
+    /* with a clip in hand too: what is in it and around it is still found (its own outline is its frame) */
+    if (textEdit.current) return;
     hoverQueue.push({ x: x / vs, y: y / vs, from: pickedRef.current?.layer?.handle ?? null });
   };
   const flushMoveRef = React.useRef(flushMove);
@@ -2425,7 +2440,6 @@ function FilmStageSelectImpl({
           }
           return;
         }
-        if (!gestureRef.current && !draftRef.current && !hoverEnabled) return;
         moveAt.current = { cx: e.clientX, cy: e.clientY, shift: e.shiftKey, alt: e.altKey };
         if (!moveRaf.current) moveRaf.current = requestAnimationFrame(flushMove);
       }}
@@ -2474,7 +2488,8 @@ function FilmStageSelectImpl({
           </div>
         ) : null}
         {/* not on the layer in hand (it has its frame), not while drawing a marquee or dragging */}
-        {hover && hoverEnabled && !draftRect && !dragging && editingText == null && !(picked && hover.handle === picked.layer?.handle) ? (
+        {hover && !draftRect && !dragging && editingText == null
+          && !(picked && (hover.clip ? picked.element?.isMgOuter && hover.clip === picked.element.clipId : hover.handle === picked.layer?.handle)) ? (
           <Box rect={scaleBox(hover.rect, vsNow)} frame={hover.frame && scaleFrame(hover.frame, vsNow)} tone="hover" />
         ) : null}
         {draftRect ? <Box rect={draftRect} tone="draft" /> : null}
