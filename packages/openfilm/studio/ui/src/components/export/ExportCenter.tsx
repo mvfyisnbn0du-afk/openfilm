@@ -26,7 +26,7 @@ import { api } from '@/api';
 import {
   CODEC_LABEL,
   EXPORT_ALPHA_CODECS,
-  EXPORT_PRESETS,
+  exportPresetsFor,
   exportDimsForShortEdge,
   exportEstimateBytes,
   exportFilmPixels,
@@ -132,16 +132,18 @@ const DEFAULTS: Settings = {
   subtitles: { format: 'srt' },
   images: { format: 'png', shortEdge: 1080, frame: 'current', fill: 'contain', burn: false },
   slides: { format: 'pptx', shortEdge: 1080, frame: 'current', fill: 'contain', burn: false },
-  project: { as: 'zip', history: true, chat: false, logs: false },
+  project: { as: 'zip', history: false, chat: false, logs: false },
   folder: '',
 };
 
 const STORE_KEY = 'openfilm.exportCenter.v1';
 
-function loadSettings(): Settings {
+/** What was chosen last time; the first time, the defaults (哔哩哔哩 rather than YouTube in Chinese). */
+function loadSettings(language: string): Settings {
+  const first = language === 'zh-CN' ? { ...DEFAULTS, presets: ['bilibili'] } : DEFAULTS;
   try {
     const raw = JSON.parse(localStorage.getItem(STORE_KEY) ?? 'null') as Partial<Settings> | null;
-    if (!raw || typeof raw !== 'object') return DEFAULTS;
+    if (!raw || typeof raw !== 'object') return first;
     return {
       ...DEFAULTS,
       ...raw,
@@ -154,10 +156,12 @@ function loadSettings(): Settings {
       subtitles: { ...DEFAULTS.subtitles, ...raw.subtitles },
       images: { ...DEFAULTS.images, ...raw.images },
       slides: { ...DEFAULTS.slides, ...raw.slides },
-      project: { ...DEFAULTS.project, ...raw.project },
+      /* the parts besides the work start off each time (history, chat and logs are the person's own): only zip or
+         folder is kept */
+      project: { ...DEFAULTS.project, ...(raw.project?.as === 'folder' ? { as: 'folder' } : {}) },
     };
   } catch {
-    return DEFAULTS;
+    return first;
   }
 }
 
@@ -220,12 +224,19 @@ export interface ExportCenterProps {
   onQueued?: (jobs: ExportJob[]) => void;
   /** The project's frame rate (`.film/settings.json`, else its footage's): a video's rate unless another is picked. */
   projectFps?: number;
+  /** Media files the film uses that are gone: an export that draws or plays the film stops at them, so it is held back. */
+  missingFiles?: readonly string[];
 }
+
+/** What draws or plays the film, and so needs every file it uses. */
+const RENDERS: ReadonlySet<Dest> = new Set(['social', 'video', 'alpha', 'gif', 'audio', 'images', 'slides']);
 
 export function ExportCenter(props: ExportCenterProps) {
   const { open, onClose } = props;
   const t = useT();
   const language = useLanguage();
+  /** the platforms offered in this language (a platform picked in another and not offered here is not exported) */
+  const presets = React.useMemo(() => exportPresetsFor(language), [language]);
   const [can, setCan] = React.useState<ExportCapabilities | null>(null);
   /** 剪映 and CapCut on this computer: an editing project for one goes into its drafts */
   const [draftApps, setDraftApps] = React.useState<{ jianying: boolean; capcut: boolean }>({ jianying: false, capcut: false });
@@ -246,7 +257,7 @@ export function ExportCenter(props: ExportCenterProps) {
 
   React.useEffect(() => {
     if (!open) return;
-    const loaded = loadSettings();
+    const loaded = loadSettings(language);
     setS(props.focusClipId
       ? { ...loaded, dest: 'alpha', alpha: { ...loaded.alpha, source: props.focusClipId } }
       : loaded);
@@ -369,7 +380,7 @@ export function ExportCenter(props: ExportCenterProps) {
     const burn = (on: boolean) => (captions > 0 && on ? { burnSubtitles: true } : {});
     switch (dest) {
       case 'social':
-        return s.presets.map((id) => EXPORT_PRESETS.find((p) => p.id === id) ?? null).filter((p) => p !== null).map((p) => ({
+        return s.presets.map((id) => presets.find((p) => p.id === id) ?? null).filter((p) => p !== null).map((p) => ({
           kind: 'video', codec: 'h264', frame: p.frame, fill: 'contain', shortEdge: p.shortEdge, fps: p.fps,
           quality: s.socialQuality, audio: true, preset: p.name, label: p.name,
           ...burn(s.socialSubs === 'auto' ? p.burnSubtitles : s.socialSubs === 'on'), ...ranged,
@@ -418,7 +429,7 @@ export function ExportCenter(props: ExportCenterProps) {
         }];
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [dest, s, can, nleApp, draftApp, rangeSec?.[0], rangeSec?.[1], props.frame, blocks, nleSourceFps, captions, projectParts]);
+  }, [dest, s, can, presets, nleApp, draftApp, rangeSec?.[0], rangeSec?.[1], props.frame, blocks, nleSourceFps, captions, projectParts]);
 
   /* a range, not a size: what is in the picture decides a video's or a GIF's size (export-spec.ts); sound is exact */
   const estBytes = React.useMemo(() => requests.reduce<[number, number]>(([low, high], r) => {
@@ -462,7 +473,14 @@ export function ExportCenter(props: ExportCenterProps) {
     return n + 1;
   }, 0);
 
+  /* files the film uses that are gone: said first, by name, before anything is queued (it would stop at them) */
+  const missing = props.missingFiles ?? [];
+  const missingReason = missing.length && RENDERS.has(dest)
+    ? t('exportCenter.missingMedia').replace('{n}', String(missing.length))
+      .replace('{files}', missing.slice(0, 3).map((f) => f.split('/').pop()).join(', ') + (missing.length > 3 ? ', …' : ''))
+    : null;
   const emptyReason = ((): string | null => {
+    if (missingReason) return missingReason;
     if (!totalMs && dest !== 'project') return t('exportCenter.emptyFilm');
     if (dest === 'social' && requests.length === 0) return t('exportCenter.pickPreset');
     if (dest === 'subtitles' && captionCount != null && captions === 0) return t('exportCenter.noCaptions');
@@ -602,7 +620,7 @@ export function ExportCenter(props: ExportCenterProps) {
                   {PRESET_GROUPS.map((group) => (
                     <Field key={group} label={t(`exportCenter.group.${group}`)}>
                       <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
-                        {EXPORT_PRESETS.filter((p) => p.group === group).map((p) => {
+                        {presets.filter((p) => p.group === group).map((p) => {
                           const on = s.presets.includes(p.id);
                           const dims = exportDimsForShortEdge(filmFrameBox(stage, p.frame), p.shortEdge);
                           const tooLong = p.maxDurationSec != null && rangeMs / 1000 > p.maxDurationSec;
@@ -947,7 +965,7 @@ export function ExportCenter(props: ExportCenterProps) {
                     <div className="flex flex-col gap-2.5">
                       <PartToggle
                         checked
-                        disabled
+                        locked
                         onChange={() => {}}
                         label={t('exportCenter.projectPart.work')}
                         hint={t('exportCenter.projectPartHint.work')}
@@ -1144,7 +1162,7 @@ export function ExportCenter(props: ExportCenterProps) {
                 {result ? (
                   <span className={result.ok ? 'text-[var(--ok)]' : 'text-[var(--err)]'}>{result.text}</span>
                 ) : emptyReason ? (
-                  <span className="text-[var(--text-faint)]">{emptyReason}</span>
+                  <span data-export-reason="" className={missingReason ? 'text-[var(--warn)]' : 'text-[var(--text-faint)]'}>{emptyReason}</span>
                 ) : (
                   <>
                     {/* a project is not a length of film: its size only */}
@@ -1300,20 +1318,26 @@ function Segmented<V extends string>({ value, options, onChange }: {
   );
 }
 
-function Toggle({ checked, onChange, label, disabled }: {
-  checked: boolean; onChange: (v: boolean) => void; label: string; disabled?: boolean;
+/**
+ * A switch and its words: lit when on, quieter when off, faint when it can't be had. `locked`: always on (a part that
+ * is always taken), shown on in full, not to be switched.
+ */
+function Toggle({ checked, onChange, label, disabled, locked }: {
+  checked: boolean; onChange: (v: boolean) => void; label: string; disabled?: boolean; locked?: boolean;
 }) {
+  const tone = disabled ? 'text-[var(--text-faint)]' : checked || locked ? 'text-[var(--text)]' : 'text-[var(--text-muted)]';
   return (
-    <label className={`flex select-none items-center gap-2.5 text-[12.5px] ${disabled ? 'cursor-default text-[var(--text-faint)]' : 'cursor-pointer text-[var(--text)]'}`}>
+    <label className={`flex select-none items-center gap-2.5 text-[12.5px] ${tone} ${disabled || locked ? 'cursor-default' : 'cursor-pointer'}`}>
       <button
         type="button"
         role="switch"
-        aria-checked={checked}
+        aria-checked={checked || Boolean(locked)}
+        aria-readonly={locked || undefined}
         disabled={disabled}
-        onClick={() => onChange(!checked)}
-        className={`relative h-[18px] w-[30px] shrink-0 rounded-full transition ${checked ? 'bg-[var(--text)]' : 'bg-[var(--border-strong,var(--border))]'} disabled:opacity-50`}
+        onClick={() => { if (!locked) onChange(!checked); }}
+        className={`relative h-[18px] w-[30px] shrink-0 rounded-full transition ${checked || locked ? 'bg-[var(--text)]' : 'bg-[var(--border-strong,var(--border))]'} ${locked ? 'cursor-default' : ''} disabled:opacity-50`}
       >
-        <span className={`absolute top-[2px] h-[14px] w-[14px] rounded-full bg-[var(--bg)] transition-[left] ${checked ? 'left-[14px]' : 'left-[2px]'}`} />
+        <span className={`absolute top-[2px] h-[14px] w-[14px] rounded-full bg-[var(--bg)] transition-[left] ${checked || locked ? 'left-[14px]' : 'left-[2px]'}`} />
       </button>
       {label}
     </label>
@@ -1321,13 +1345,13 @@ function Toggle({ checked, onChange, label, disabled }: {
 }
 
 /** A part of the project to take or leave: the switch, what the part is, and how big. */
-function PartToggle({ checked, onChange, label, hint, size, disabled }: {
-  checked: boolean; onChange: (v: boolean) => void; label: string; hint: string; size: string; disabled?: boolean;
+function PartToggle({ checked, onChange, label, hint, size, disabled, locked }: {
+  checked: boolean; onChange: (v: boolean) => void; label: string; hint: string; size: string; disabled?: boolean; locked?: boolean;
 }) {
   return (
     <div className="flex flex-col gap-0.5">
       <div className="flex items-center gap-2">
-        <Toggle checked={checked} onChange={onChange} label={label} disabled={disabled} />
+        <Toggle checked={checked} onChange={onChange} label={label} disabled={disabled} locked={locked} />
         {size && <span className="ml-auto font-mono text-[11px] tabular-nums text-[var(--text-faint)]">{size}</span>}
       </div>
       <p className="pl-[40px] text-[11.5px] leading-snug text-[var(--text-faint)]">{hint}</p>

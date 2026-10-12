@@ -45,9 +45,16 @@ export interface ExportPreset {
   burnSubtitles: boolean;
   /** The platform's longest video, in seconds. */
   maxDurationSec?: number;
+  /** A platform of mainland China: offered (first) when Studio speaks Chinese, not otherwise. */
+  china?: boolean;
 }
 
 export const EXPORT_PRESETS: readonly ExportPreset[] = [
+  { id: 'bilibili', name: '哔哩哔哩', group: 'landscape', frame: '16:9', shortEdge: 1080, fps: 60, burnSubtitles: false, china: true },
+  { id: 'douyin', name: '抖音', group: 'vertical', frame: '9:16', shortEdge: 1080, fps: 30, burnSubtitles: true, china: true },
+  { id: 'kuaishou', name: '快手', group: 'vertical', frame: '9:16', shortEdge: 1080, fps: 30, burnSubtitles: true, china: true },
+  { id: 'channels', name: '视频号', group: 'vertical', frame: '9:16', shortEdge: 1080, fps: 30, burnSubtitles: true, china: true },
+  { id: 'xiaohongshu', name: '小红书', group: 'feed', frame: '3:4', shortEdge: 1080, fps: 30, burnSubtitles: true, china: true },
   { id: 'youtube', name: 'YouTube', group: 'landscape', frame: '16:9', shortEdge: 1080, fps: 60, burnSubtitles: false },
   { id: 'youtube-4k', name: 'YouTube 4K', group: 'landscape', frame: '16:9', shortEdge: 2160, fps: 60, burnSubtitles: false },
   { id: 'x', name: 'X', group: 'landscape', frame: '16:9', shortEdge: 1080, fps: 30, burnSubtitles: true, maxDurationSec: 140 },
@@ -57,6 +64,11 @@ export const EXPORT_PRESETS: readonly ExportPreset[] = [
   { id: 'instagram', name: 'Instagram Feed', group: 'feed', frame: '4:5', shortEdge: 1080, fps: 30, burnSubtitles: true },
   { id: 'square', name: 'LinkedIn · Facebook', group: 'feed', frame: '1:1', shortEdge: 1080, fps: 30, burnSubtitles: true },
 ];
+
+/** The platforms offered in a language: China's first in Chinese, and none of them in any other. */
+export function exportPresetsFor(language: string): readonly ExportPreset[] {
+  return language === 'zh-CN' ? [...EXPORT_PRESETS.filter((p) => p.china), ...EXPORT_PRESETS.filter((p) => !p.china)] : EXPORT_PRESETS.filter((p) => !p.china);
+}
 
 export function exportPreset(id: string | undefined): ExportPreset | null {
   return EXPORT_PRESETS.find((p) => p.id === id) ?? null;

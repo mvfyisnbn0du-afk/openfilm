@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { exportEstimateBytes, exportFilmPixels, exportFramedDims, exportGifDims, exportGifEstimateBytes, rangeMarks } from './export-spec.ts';
+import { exportEstimateBytes, exportFilmPixels, exportFramedDims, exportGifDims, exportGifEstimateBytes, exportPresetsFor, rangeMarks } from './export-spec.ts';
 import { filmFrameBox } from './film-frame.ts';
 
 const stage = { w: 1920, h: 1080 };
@@ -66,4 +66,15 @@ test('a frame comes out in its own shape: 16:9 around a 2:1 film is 1920 × 1080
   assert.deepEqual(exportFramedDims(wide, '9:16', 'cover', 1080), { w: 1080, h: 1920 });
   assert.deepEqual(exportFramedDims(wide, '4:5', 'contain', 1080), { w: 1080, h: 1350 });
   assert.deepEqual(exportGifDims(filmFrameBox(wide, '16:9'), 640), { w: 640, h: 360 });
+});
+
+test('platforms: China\'s first in Chinese, none of them in any other language', () => {
+  const zh = exportPresetsFor('zh-CN').map((p) => p.id);
+  assert.deepEqual(zh.slice(0, 5), ['bilibili', 'douyin', 'kuaishou', 'channels', 'xiaohongshu']);
+  assert.ok(zh.includes('youtube') && zh.includes('tiktok'), 'the others still offered in Chinese');
+  for (const language of ['en', 'ja', 'ko', 'es']) {
+    assert.ok(!exportPresetsFor(language).some((p) => p.china), language);
+  }
+  const xhs = exportPresetsFor('zh-CN').find((p) => p.id === 'xiaohongshu');
+  assert.deepEqual(exportFramedDims({ w: 1920, h: 1080 }, xhs.frame, 'contain', xhs.shortEdge), { w: 1080, h: 1440 });
 });
