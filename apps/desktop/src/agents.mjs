@@ -54,6 +54,9 @@ export const AGENTS = Object.freeze({
     env: (path) => ({ CLAUDE_CODE_EXECUTABLE: path }),
     auth: ['auth', 'status'],
     login: ['auth', 'login'],
+    /* a key or gateway in the shell would take the place of its own sign-in, and `auth status` would call that signed
+       in: a stale one left in .zshrc made it look connected and fail every message */
+    unsetEnv: ['ANTHROPIC_API_KEY', 'ANTHROPIC_AUTH_TOKEN', 'ANTHROPIC_BASE_URL'],
     systemPrompt: true,
   },
   codex: {
@@ -313,7 +316,7 @@ export async function agentStatus(id, cliPath) {
   if (!spec || !cliPath) return { signedIn: null, account: null };
   if (!spec.auth) return { signedIn: await acpSignedIn(id), account: null };
   const how = starting(cliPath, spec.auth);
-  const r = await run(how.cmd, how.args, 10_000, { env: childEnvironment({ shell: await loginShellVariables(), extra: how.env }), options: how.options });
+  const r = await run(how.cmd, how.args, 10_000, { env: childEnvironment({ shell: agentShell(id, await loginShellVariables()), extra: how.env }), options: how.options });
   return readAgentStatus(id, r.stdout, r.out);
 }
 
@@ -380,9 +383,20 @@ function noteSignedOut(id) {
 const shq = (s) => `'${String(s).replace(/'/g, `'\\''`)}'`;
 
 /** The AppleScript that has Terminal run one command in a new window. */
-export function signInScript(cliPath, args) {
-  const command = [cliPath, ...args].map(shq).join(' ');
+export function signInScript(cliPath, args, unsetEnv = []) {
+  /* Terminal's shell has the person's variables: the ones the agent is not given are left out of its sign-in too */
+  const unset = unsetEnv.length ? ['/usr/bin/env', ...unsetEnv.flatMap((key) => ['-u', key])] : [];
+  const command = [...unset, cliPath, ...args].map(shq).join(' ');
   return `tell application "Terminal"\nactivate\ndo script "${command.replace(/\\/g, '\\\\').replace(/"/g, '\\"')}"\nend tell`;
+}
+
+/**
+ * The person's shell variables as this agent is given them: without the ones that would put another account in place
+ * of its own sign-in (`unsetEnv`).
+ */
+export function agentShell(id, shell) {
+  const unset = AGENTS[id]?.unsetEnv;
+  return unset ? Object.fromEntries(Object.entries(shell).filter(([key]) => !unset.includes(key))) : shell;
 }
 
 /** Sign in: Terminal runs the program's own sign-in, which opens the maker's own page. The app touches nothing. */
@@ -397,12 +411,12 @@ export async function openAgentSignIn(id) {
     const how = /\.(?:cmd|bat)$/i.test(cli.path) ? { cmd: cli.path, args: spec.login, env: {} } : starting(cli.path, spec.login);
     try {
       spawn('cmd.exe', ['/d', '/c', 'start', `${spec.label} sign-in`, 'cmd.exe', '/k', how.cmd, ...how.args], {
-        detached: true, stdio: 'ignore', windowsHide: false, env: childEnvironment({ shell: await loginShellVariables(), extra: how.env }),
+        detached: true, stdio: 'ignore', windowsHide: false, env: childEnvironment({ shell: agentShell(id, await loginShellVariables()), extra: how.env }),
       }).unref();
       return { ok: true };
     } catch (e) { return { ok: false, error: e instanceof Error ? e.message : String(e) }; }
   }
-  const r = await run('/usr/bin/osascript', ['-e', signInScript(cli.path, spec.login)], 15_000);
+  const r = await run('/usr/bin/osascript', ['-e', signInScript(cli.path, spec.login, spec.unsetEnv)], 15_000);
   return r.ok ? { ok: true } : { ok: false, error: r.out.trim() || 'Terminal did not open.' };
 }
 
@@ -581,11 +595,11 @@ export class AgentSession {
 
   /**
    * Start the adapter, shake hands, open (or resume) the session. The agent gets all the person's login shell sets
-   * (their keys, gateways, tokens), as in their terminal, and the app's `openfilm` first on its PATH; the app's ffmpeg
-   * (`fallbackDir`) last, for a computer that has none of its own.
+   * (their keys, gateways, tokens; Claude Code not the Anthropic ones, agentShell), as in their terminal, and the app's
+   * `openfilm` first on its PATH; the app's ffmpeg (`fallbackDir`) last, for a computer that has none of its own.
    */
   async start() {
-    const shell = await loginShellVariables({ staleOk: true });
+    const shell = agentShell(this.opts.agent, await loginShellVariables({ staleOk: true }));
     const harness = this.opts.harness ?? null;
     const cli = harness ? null : resolveAgentCli(this.opts.agent, { pathDirs: shell.PATH.split(PATH_SEP) });
     if (!harness && !cli) throw Object.assign(new Error(`${this.spec.label} is not installed on this computer.`), { code: 'not-installed' });

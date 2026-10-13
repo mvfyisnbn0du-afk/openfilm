@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { CLIENT_CAPABILITIES, allowOption, codexDeveloperInstructions, legacyOptions, readAgentStatus } from './agents.mjs';
+import { CLIENT_CAPABILITIES, agentShell, allowOption, codexDeveloperInstructions, legacyOptions, readAgentStatus, signInScript } from './agents.mjs';
 
 test('an agent that asks: yes for good where it offers that, else yes this once; nothing to say yes with is null', () => {
   const options = [
@@ -55,4 +55,15 @@ test('the chat says it shows notices, so an agent sends its warnings as notices 
   const notices = parsed.session?.notices;
   assert.ok(typeof notices === 'object' && notices !== null && !Array.isArray(notices));
   assert.deepEqual(parsed.elicitation, { form: {} });
+});
+
+test("Claude Code is not given a key or gateway from the shell: its own sign-in is the one used, and asked for when there is none", () => {
+  const shell = { PATH: '/bin', ANTHROPIC_API_KEY: 'k', ANTHROPIC_AUTH_TOKEN: 't', ANTHROPIC_BASE_URL: 'http://relay', ANTHROPIC_MODEL: 'm', OPENAI_API_KEY: 'o' };
+  assert.deepEqual(agentShell('claude', shell), { PATH: '/bin', ANTHROPIC_MODEL: 'm', OPENAI_API_KEY: 'o' });
+  assert.equal(agentShell('codex', shell), shell, 'the others have the shell as it is');
+  assert.equal(agentShell('byok', shell), shell);
+  /* its sign-in in Terminal, whose shell has them, runs without them too */
+  const script = signInScript('/x/claude', ['auth', 'login'], ['ANTHROPIC_API_KEY', 'ANTHROPIC_BASE_URL']);
+  assert.match(script, /do script "'\/usr\/bin\/env' '-u' 'ANTHROPIC_API_KEY' '-u' 'ANTHROPIC_BASE_URL' '\/x\/claude' 'auth' 'login'"/);
+  assert.match(signInScript('/x/codex', ['login']), /do script "'\/x\/codex' 'login'"/);
 });
