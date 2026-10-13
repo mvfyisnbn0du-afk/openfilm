@@ -146,7 +146,10 @@ export function registerLocalAgentIpc(ipcMain, { trusted, binDir = null, fallbac
       await Promise.race([heard, new Promise((done) => setTimeout(done, PROBE_COMMANDS_MS))]);
       return { ok: true, info: { ...info, ...(commands ? { commands } : {}) } };
     } catch (e) {
-      return { ok: false, error: e instanceof Error ? e.message : String(e), ...(e?.code ? { code: String(e.code) } : {}) };
+      const error = e instanceof Error ? e.message : String(e);
+      /* the model menu says only that it could not start: what went wrong is kept here (logs/studio.log) */
+      log(`probe ${agent}: ${error.replace(/\s+/g, ' ').slice(0, 500)}\n`);
+      return { ok: false, error, ...(e?.code ? { code: String(e.code) } : {}) };
     } finally {
       session?.close();
     }

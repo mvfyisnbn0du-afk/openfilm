@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { chosenProgram, claudeAppCli, cmdTarget, detectAgentInstallation, findExecutable, searchReport, windowsBinDirs } from './agent-installation.mjs';
+import { chosenProgram, claudeAppCli, cmdTarget, consoleProgram, detectAgentInstallation, findExecutable, searchReport, windowsBinDirs } from './agent-installation.mjs';
 
 test("an npm .cmd shim (Windows) runs its package's script: that is what gets started", () => {
   const npm = mkdtempSync(join(tmpdir(), 'of-npm-'));
@@ -140,6 +140,31 @@ test('the program the person chose comes first; it can be a shim, the .cmd besid
   assert.equal(chosenProgram(join(npm, 'claude.ps1'), { names: ['claude'], win: true }), script);
   assert.equal(chosenProgram(join(npm, 'claude.cmd'), { names: ['claude'], win: true }), script);
   assert.equal(chosenProgram('relative\\claude.exe', { names: ['claude'], win: true }), null);
+});
+
+/** A Windows program's header, enough to tell its subsystem: 3 the console, 2 a window. */
+function peProgram(subsystem, { wide = true } = {}) {
+  const bytes = Buffer.alloc(0x200);
+  bytes.write('MZ', 0, 'latin1');
+  bytes.writeUInt32LE(0x80, 0x3c);
+  bytes.write('PE\0\0', 0x80, 'latin1');
+  bytes.writeUInt16LE(wide ? 0x20b : 0x10b, 0x80 + 24);
+  bytes.writeUInt16LE(subsystem, 0x80 + 0x5c);
+  return bytes;
+}
+
+test('a console program is told from a window program by its header, without starting it', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'of-pe-'));
+  const at = (name, bytes) => { const file = join(dir, name); writeFileSync(file, bytes); return file; };
+  assert.equal(consoleProgram(at('codex.exe', peProgram(3))), true);
+  assert.equal(consoleProgram(at('codex32.exe', peProgram(3, { wide: false }))), true);
+  /* the Codex Store app's own Codex.exe: its window, not the CLI */
+  assert.equal(consoleProgram(at('Codex.exe', peProgram(2))), false);
+  /* the Linux CLI the same app carries for WSL, a script, a cut-off file, nothing */
+  assert.equal(consoleProgram(at('codex', Buffer.concat([Buffer.from([0x7f, 0x45, 0x4c, 0x46]), Buffer.alloc(60)]))), false);
+  assert.equal(consoleProgram(at('codex.cmd', '@echo off')), false);
+  assert.equal(consoleProgram(at('short.exe', peProgram(3).subarray(0, 0x90))), false);
+  assert.equal(consoleProgram(join(dir, 'missing.exe')), false);
 });
 
 test('a program found some other way (a Store app) is used last', () => {

@@ -5,7 +5,7 @@
  * cmd.exe (agents.mjs). A program the person chose themselves (Settings → Agents → Locate) comes before any of these.
  * Reads no Electron module, so `node --test` can use it.
  */
-import { accessSync, constants, lstatSync, readFileSync, readdirSync, statSync } from 'node:fs';
+import { accessSync, closeSync, constants, lstatSync, openSync, readFileSync, readSync, readdirSync, statSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { delimiter, dirname, isAbsolute, join } from 'node:path';
 
@@ -40,6 +40,28 @@ export const AGENT_PROGRAMS = Object.freeze({
 
 export function executableFile(path) {
   try { accessSync(path, constants.X_OK); return statSync(path).isFile(); } catch { return false; }
+}
+
+/**
+ * Whether a file is a Windows program for the console, by its header and without starting it: a window program (a
+ * desktop app's own, as `app\Codex.exe` in the Codex Store app is) would open its window, and answers nothing.
+ */
+export function consoleProgram(path) {
+  let fd;
+  try {
+    fd = openSync(path, 'r');
+    const head = Buffer.alloc(4096);
+    const read = readSync(fd, head, 0, head.length, 0);
+    if (read < 64 || head.toString('latin1', 0, 2) !== 'MZ') return false;
+    const pe = head.readUInt32LE(0x3c);
+    /* the subsystem sits at the same place in 32- and 64-bit headers: 3 is the console, 2 a window */
+    if (pe + 0x5e > read || head.toString('latin1', pe, pe + 4) !== 'PE\0\0') return false;
+    return head.readUInt16LE(pe + 0x5c) === 3;
+  } catch {
+    return false;
+  } finally {
+    if (fd !== undefined) closeSync(fd);
+  }
 }
 
 /**
