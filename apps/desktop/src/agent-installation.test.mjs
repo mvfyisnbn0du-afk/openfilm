@@ -55,12 +55,31 @@ test("npm's shim as it is written today: what it runs, never the node.exe it che
 });
 
 test("Codex's npm shim: its own program for this machine's chip, not the script that starts it", () => {
+  const triple = process.arch === 'arm64' ? 'aarch64-pc-windows-msvc' : 'x86_64-pc-windows-msvc';
+  /* where the package puts the program: in the platform package it installs, beside its script or hoisted one folder
+     up (`bin`, as the package's own script says), or in itself (`bin`, and `codex` in older ones) */
+  const layouts = [
+    ['node_modules', '@openai', 'codex', 'node_modules', '@openai', `codex-win32-${process.arch}`, 'vendor', triple, 'bin', 'codex.exe'],
+    ['node_modules', '@openai', `codex-win32-${process.arch}`, 'vendor', triple, 'bin', 'codex.exe'],
+    ['node_modules', '@openai', 'codex', 'vendor', triple, 'bin', 'codex.exe'],
+    ['node_modules', '@openai', 'codex', 'vendor', triple, 'codex', 'codex.exe'],
+    ['node_modules', '@openai', 'codex', 'node_modules', '@openai', `codex-win32-${process.arch}`, 'vendor', triple, 'codex', 'codex.exe'],
+  ];
+  for (const layout of layouts) {
+    const npm = mkdtempSync(join(tmpdir(), 'of-npm-'));
+    put(join(npm, 'node_modules', '@openai', 'codex', 'bin', 'codex.js'));
+    const exe = put(join(npm, ...layout));
+    put(join(npm, 'codex.cmd'), npmShim('node_modules\\@openai\\codex\\bin\\codex.js'));
+    assert.equal(cmdTarget(join(npm, 'codex.cmd')), exe, layout.join('/'));
+  }
+});
+
+test("Codex's shim with no program of its own: the shim itself, never its script, which a shell command cannot start", () => {
   const npm = mkdtempSync(join(tmpdir(), 'of-npm-'));
   put(join(npm, 'node_modules', '@openai', 'codex', 'bin', 'codex.js'));
-  const triple = process.arch === 'arm64' ? 'aarch64-pc-windows-msvc' : 'x86_64-pc-windows-msvc';
-  const exe = put(join(npm, 'node_modules', '@openai', 'codex', 'node_modules', '@openai', `codex-win32-${process.arch}`, 'vendor', triple, 'codex', 'codex.exe'));
   put(join(npm, 'codex.cmd'), npmShim('node_modules\\@openai\\codex\\bin\\codex.js'));
-  assert.equal(cmdTarget(join(npm, 'codex.cmd')), exe);
+  assert.equal(cmdTarget(join(npm, 'codex.cmd')), null);
+  assert.equal(findExecutable('codex', [], { PATH: npm }, { win: true }), join(npm, 'codex.cmd'));
 });
 
 test("pnpm's shim (%~dp0, node.exe beside it or not) and Yarn's, which runs another shim", () => {

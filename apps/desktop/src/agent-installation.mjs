@@ -133,7 +133,8 @@ const scriptFirst = (rel) => (/\.(?:c|m)?js$/i.test(rel) ? 0 : /\.exe$/i.test(re
 /**
  * What a `.cmd` shim runs (Windows): the package's script or program, which can be started without a shell (a `.cmd`
  * cannot be). Yarn's shim runs another shim, which is read in turn. Codex's script only starts its own program, so
- * the program itself, for this machine's chip. Null when the shim says nothing that is there.
+ * the program itself, for this machine's chip; when there is none, not the script (the chat starts Codex as a shell
+ * command, which a script is not): the shim it came from instead. Null when the shim says nothing that is there.
  */
 export function cmdTarget(cmd, depth = 0) {
   let text = '';
@@ -151,8 +152,18 @@ export function cmdTarget(cmd, depth = 0) {
     if (/[\\/]@openai[\\/]codex[\\/]/i.test(target) && /\.js$/i.test(target)) {
       const triple = process.arch === 'arm64' ? 'aarch64-pc-windows-msvc' : 'x86_64-pc-windows-msvc';
       const pkg = target.replace(/[\\/]bin[\\/][^\\/]+$/, '');
-      const exe = [join(pkg, 'vendor', triple, 'codex', 'codex.exe'), join(pkg, 'node_modules', '@openai', `codex-win32-${process.arch}`, 'vendor', triple, 'codex', 'codex.exe')].find(existsFile);
+      /* the platform package it installs beside its script, or one folder up when that was hoisted, and the one it
+         ships itself: `bin`, as the package's own script says, `codex` in older ones */
+      const exe = [
+        join(pkg, 'node_modules', '@openai', `codex-win32-${process.arch}`, 'vendor', triple, 'bin', 'codex.exe'),
+        join(pkg, '..', `codex-win32-${process.arch}`, 'vendor', triple, 'bin', 'codex.exe'),
+        join(pkg, 'vendor', triple, 'bin', 'codex.exe'),
+        join(pkg, 'vendor', triple, 'codex', 'codex.exe'),
+        join(pkg, 'node_modules', '@openai', `codex-win32-${process.arch}`, 'vendor', triple, 'codex', 'codex.exe'),
+      ].find(existsFile);
       if (exe) return exe;
+      /* a shell command cannot start the script, so the shim it came from (null here) is used instead */
+      continue;
     }
     if (existsFile(target)) return target;
   }
