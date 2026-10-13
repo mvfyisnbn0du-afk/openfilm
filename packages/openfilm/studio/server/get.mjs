@@ -36,6 +36,7 @@ import { inside } from './files.mjs';
 import { HttpError, json, readJson } from './http.mjs';
 import { kindOf, modelFor, providerKey } from './keys.mjs';
 import { chooseProvider, listProviders, providerSettings } from './providers/index.mjs';
+import { CALL_TIMEOUT_SEC, callService, servicesHelp } from './custom-services.mjs';
 
 /**
  * @typedef {import('./http.mjs').Req} Req @typedef {import('./http.mjs').Res} Res
@@ -114,6 +115,14 @@ export const VERBS = /** @type {Record<string, VerbSpec>} */ ({
     dir: 'assets/fetch', timeoutSec: 120,
     options: { url: { value: 'url', required: true, repeat: true } },
   },
+  call: {
+    help: 'A request to one of the person\'s own services (below), with its key added by Studio. Its answer comes back as it is: text or JSON here, a file saved under assets/<service>/. What it means is yours to read.',
+    timeoutSec: CALL_TIMEOUT_SEC,
+    options: { service: { value: 'id', required: true }, path: { value: '/path', default: '/' },
+      method: { value: 'method', choices: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE'] }, json: { value: 'json' },
+      form: { value: 'name=value', repeat: true }, file: { value: 'name=path', repeat: true }, body: { value: 'path' },
+      header: { value: 'Name: value', repeat: true }, out: { value: 'name' } },
+  },
 });
 
 /** Listed only for an agent without web tools of its own (see the top). */
@@ -136,6 +145,10 @@ const offered = (/** @type {string} */ verb) => listProviders().some((p) => /** 
 const nothing = () => 'Nothing is connected for media here: each kind works only once the person connects a service that makes it (below). '
   + 'Until then, make sound and pictures in code, or use a service the person has a key for (with its API docs), and save them under assets/. '
   + `\`openfilm get <what> --help\` shows what one kind takes (${Object.keys(VERBS).filter((v) => !WEB_VERBS.includes(v) && offered(v)).join(', ')}).`;
+
+/** What `call` says when the person has added no service of their own. */
+const NO_OWN_SERVICES = 'The person has added no services of their own. In Studio, the OpenFilm logo at the top left opens Settings: '
+  + 'they add one under Providers (its address, its key if it takes one, and what it does).';
 
 /** Each kind of media, in words (finding voices is part of voice-over). */
 const WORDS = /** @type {Record<string, string>} */ ({
@@ -256,6 +269,14 @@ async function projectFile(root, rel, name, want) {
  */
 export async function runGet(root, verb, given, { via, model, yes = false, ask, tell, signal = new AbortController().signal } = {}) {
   const args = await checkArgs(root, verb, given);
+  if (verb === 'call') {
+    const { custom } = await providerSettings();
+    const service = custom.find((s) => s.id === args.service);
+    if (!service) throw usage(custom.length ? `There is no service ${args.service}: there is ${custom.map((s) => s.id).join(', ')}` : NO_OWN_SERVICES);
+    const { service: _, ...rest } = args;
+    try { return await callService(root, service, /** @type {Parameters<typeof callService>[2]} */ (rest), signal); }
+    catch (e) { throw /** @type {{ status?: number }} */ (e)?.status === 400 ? usage(/** @type {Error} */ (e).message) : e; }
+  }
   if (verb === 'asr' && args.force !== true && await transcriptIsCurrent(root, String(args.src))) {
     return show(await speechReceipt(root, 'asr', String(args.src), { skip: true, note: 'It has a transcript already, made since the file last changed (--force makes it again).' }));
   }
@@ -487,16 +508,22 @@ function show(receipt) {
 export async function catalog(only, { web = false } = {}) {
   if (only !== undefined && !VERBS[only]) throw new HttpError(400, `there is no ${only}; there is ${Object.keys(VERBS).join(', ')}`);
   const settings = await providerSettings();
-  const listed = Object.entries(VERBS).filter(([verb]) => (only === undefined ? (web || !WEB_VERBS.includes(verb)) && offered(verb) : verb === only));
+  /* the person's own services: `call`, listed with each of them, whenever there is one */
+  const own = settings.custom;
+  const listed = Object.entries(VERBS).filter(([verb]) => (only === undefined
+    ? (verb === 'call' ? own.length > 0 : (web || !WEB_VERBS.includes(verb)) && offered(verb))
+    : verb === only));
   const all = await Promise.all(listed.map(async ([verb, spec]) => ({
-    verb, help: spec.help, ...(spec.dir ? { dir: spec.dir } : {}), options: spec.options,
-    usable: Boolean(await chooseProvider(/** @type {Verb} */ (verb), { settings })),
+    verb, help: verb === 'call' && own.length ? `${spec.help} The person's services: ${servicesHelp(own).join('; ')}` : spec.help,
+    ...(spec.dir ? { dir: spec.dir } : {}), options: spec.options,
+    usable: verb === 'call' ? own.length > 0 : Boolean(await chooseProvider(/** @type {Verb} */ (verb), { settings })),
   })));
-  const missing = all.filter((v) => !v.usable).map((v) => v.verb);
-  if (only === undefined && missing.length === all.length) return { verbs: [], note: nothing(), services: services() };
+  const missing = all.filter((v) => !v.usable && v.verb !== 'call').map((v) => v.verb);
+  if (only === undefined && !all.some((v) => v.usable)) return { verbs: [], note: nothing(), services: services() };
+  const notes = [...(missing.length ? [notConnected(missing)] : []), ...(only === 'call' && !own.length ? [NO_OWN_SERVICES] : [])];
   return {
     verbs: all.filter((v) => only !== undefined || v.usable).map(({ usable: _, ...v }) => v),
-    note: missing.length ? notConnected(missing) : null,
+    note: notes.length ? notes.join(' ') : null,
     services: services(),
   };
 }

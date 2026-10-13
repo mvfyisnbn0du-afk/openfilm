@@ -14,6 +14,7 @@
  */
 import { HttpError, json, readJson } from '../http.mjs';
 import { changeSettings, cleanKey, envKey, kindOf, modelFor, providerKey, readSettings } from '../keys.mjs';
+import { shownService, withService } from '../custom-services.mjs';
 import elevenlabs from './elevenlabs.mjs';
 import openai from './openai.mjs';
 import google from './google.mjs';
@@ -118,6 +119,7 @@ async function state() {
       return { id: p.id, name: p.name, verbs: p.verbs, models: p.models ?? {}, keysUrl: p.keysUrl, env: key?.env ?? inEnv?.env ?? p.env, envKey: Boolean(inEnv), source: key?.source ?? null, last4: key ? key.key.slice(-4) : null };
     }),
     ...shownChoices(settings),
+    custom: settings.custom.map(shownService),
   };
 }
 
@@ -134,11 +136,31 @@ async function state() {
  *   PUT    /api/providers/use       { verb, provider, model? }  who serves that kind of media (an id, or null: none),
  *                                       and with which of its models (its first when none is given)
  *   POST   /api/providers/:id/billing → {}, the provider's own page for its balance opened in the person's browser
+ *   POST   /api/providers/custom   { name, url, key?, auth?, note? }   one of the person's own services added
+ *                                       (custom-services.mjs); the state has `custom: [{ id, name, url, auth, note,
+ *                                       last4 }]`
+ *   PUT    /api/providers/custom/:id  the same fields, changed (no `key`: kept as it is; '': none)
+ *   DELETE /api/providers/custom/:id  taken away
  * @param {Req} req @param {Res} res @param {string[]} parts the path after /api/providers
  * @param {{ openBrowser: (url: string) => void }} options
  */
 export async function providersRoute(req, res, parts, { openBrowser }) {
   if (!parts.length && req.method === 'GET') return json(res, 200, await state());
+  if (parts[0] === 'custom' && parts.length <= 2) {
+    const id = parts[1] ?? null;
+    if (id === null ? req.method !== 'POST' : req.method !== 'PUT' && req.method !== 'DELETE') throw new HttpError(405, 'POST to add, PUT or DELETE one');
+    const input = req.method === 'DELETE' ? {} : /** @type {Record<string, unknown>} */ (await readJson(req));
+    try {
+      await changeSettings((s) => {
+        s.custom = req.method === 'DELETE' ? s.custom.filter((c) => c.id !== id) : withService(s.custom, id, input);
+      });
+    } catch (e) {
+      const status = /** @type {{ status?: number }} */ (e)?.status;
+      if (status) throw new HttpError(status, /** @type {Error} */ (e).message);
+      throw e;
+    }
+    return json(res, 200, await state());
+  }
   if (parts.length === 2 && parts[1] === 'billing' && req.method === 'POST') {
     const provider = OWN.find((p) => p.id === parts[0]);
     if (!provider) throw new HttpError(404, 'no such provider');

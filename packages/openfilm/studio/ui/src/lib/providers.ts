@@ -26,8 +26,26 @@ export interface OwnProvider {
   last4: string | null;
 }
 
+/**
+ * One of the person's own services (studio/server/custom-services.mjs): any service at an address, reached by their
+ * agent with `openfilm get call`. `auth`: the header its key goes in, `{key}` standing for it.
+ */
+export interface OwnService {
+  id: string;
+  name: string;
+  url: string;
+  auth: string;
+  note: string;
+  last4: string | null;
+}
+
+/** What Settings sends for a service: no `key` keeps the one it has, '' takes it away. */
+export type OwnServiceFields = { name: string; url: string; auth: string; note: string; key?: string };
+
 export interface ProvidersState {
   providers: OwnProvider[];
+  /** the person's own services */
+  custom: OwnService[];
   /** the person's choice for each kind of media: a provider id, or null (none) */
   use: Record<string, string | null>;
   /** the model each kind of media is made with */
@@ -70,6 +88,9 @@ export interface ProvidersHook {
   useEnvKey: (id: string) => Promise<boolean>;
   /** who makes that kind of media: a provider id with its model, or '' (none) */
   choose: (verb: ProviderVerb, provider: string, pick?: { model?: string }) => Promise<void>;
+  /** one of the person's own services added (id null) or changed; resolves whether it was kept */
+  saveService: (id: string | null, fields: OwnServiceFields) => Promise<boolean>;
+  removeService: (id: string) => Promise<void>;
 }
 
 /** The providers while Settings → Providers or Models is shown. */
@@ -111,5 +132,7 @@ export function useProviders(): ProvidersHook {
     removeKey: async (id) => { await change(id, `/${encodeURIComponent(id)}/key`, { method: 'DELETE' }); },
     useEnvKey: (id) => change(id, `/${encodeURIComponent(id)}/key`, { method: 'PUT', json: { env: true } }),
     choose: async (verb, provider, pick) => { await change(verb, '/use', { method: 'PUT', json: { verb, provider: provider || null, ...pick } }); },
+    saveService: (id, fields) => change(id ?? 'custom', id ? `/custom/${encodeURIComponent(id)}` : '/custom', { method: id ? 'PUT' : 'POST', json: fields }),
+    removeService: async (id) => { await change(id, `/custom/${encodeURIComponent(id)}`, { method: 'DELETE' }); },
   };
 }
