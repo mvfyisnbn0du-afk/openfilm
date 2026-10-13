@@ -29,7 +29,7 @@ import {
 } from '@/lib/subtitles';
 
 export function SubtitleOverlay({
-  cues, timeMs, style, onMove,
+  cues, timeMs, style, onMove, onPick,
 }: {
   /** The lines as shown (see useFilmSubtitles: the picked language already applied). */
   cues: readonly SubtitleCue[];
@@ -38,6 +38,8 @@ export function SubtitleOverlay({
   style: SubtitleStyle;
   /** Where it was dragged to (fractions of the frame). Without it the subtitle cannot be dragged (read only). */
   onMove?: (pos: { x: number; y: number }) => void;
+  /** The subtitle pressed: its look is shown (the inspector), as a layer pressed shows its own. */
+  onPick?: () => void;
 }): React.ReactElement | null {
   const cue = React.useMemo(() => (style.on ? cueAt(cues, timeMs) : null), [cues, timeMs, style.on]);
   const box = React.useRef<HTMLDivElement | null>(null);
@@ -54,6 +56,7 @@ export function SubtitleOverlay({
     if (!frame) return;
     e.preventDefault();
     e.stopPropagation();
+    onPick?.();
     setDragging(true);
     const rect = frame.getBoundingClientRect();
     /* how far from the anchor it was grabbed, or it would jump under the pointer. The anchor is `pos` itself (the line
@@ -92,7 +95,7 @@ export function SubtitleOverlay({
     };
     window.addEventListener('pointermove', move);
     window.addEventListener('pointerup', up);
-  }, [onMove, style.pos.x, style.pos.y]);
+  }, [onMove, onPick, style.pos.x, style.pos.y]);
 
   if (!cue) return null;
   /* position, size, color, stroke and box all come from the shared function; this layer adds only what editing has:

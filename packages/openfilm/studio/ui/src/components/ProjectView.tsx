@@ -657,6 +657,14 @@ export function ProjectView({ projectId, onProject, onLeave }: {
     setInspectorContent('subtitles');
     setInspectorOpen(!(inspectorOpen && inspectorContent === 'subtitles'));
   }, [inspectorOpen, inspectorContent]);
+  /* a subtitle picked (on the picture, or its line on the timeline) is what is selected now, as a layer picked is: the
+     clips let go, and the inspector shows the subtitles' look */
+  const showSubtitleLook = React.useCallback(() => {
+    setSelectedKeys([]);
+    setStageElement(null);
+    setInspectorContent('subtitles');
+    setInspectorOpen(true);
+  }, []);
   const pickMedia = React.useCallback((file: WorkspaceResource | null) => {
     setPickedMedia(file);
     if (file) { setInspectorContent(file); setInspectorOpen(true); }
@@ -986,7 +994,8 @@ export function ProjectView({ projectId, onProject, onLeave }: {
   const subtitleRow = React.useMemo<SubtitleRowSpec>(() => ({
     cues: subs.captions?.cues ?? [], edits: subtitleEdits,
     speakerAt: (ms) => speakerAt(tracksRef.current, subs.captions?.cues ?? [], ms),
-  }), [subs.captions, subtitleEdits]);
+    onPick: showSubtitleLook,
+  }), [subs.captions, subtitleEdits, showSubtitleLook]);
   const relinkInputRef = React.useRef<HTMLInputElement>(null);
   const relinkTarget = React.useRef<TimelineBlock | null>(null);
   const relinkBlock = React.useCallback(async (block: TimelineBlock, path: string | null) => {
@@ -2522,6 +2531,7 @@ export function ProjectView({ projectId, onProject, onLeave }: {
                             timeMs={liveMs}
                             style={filmSubtitleStyleFor(subs.style, frameBox)}
                             onMove={fullscreen ? undefined : subs.move}
+                            onPick={fullscreen ? undefined : showSubtitleLook}
                           />
                         )}</LiveTime>
                       </div>

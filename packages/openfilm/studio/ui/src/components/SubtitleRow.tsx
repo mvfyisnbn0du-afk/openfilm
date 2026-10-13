@@ -45,6 +45,8 @@ export interface SubtitleRowSpec {
   edits: SubtitleEdits;
   /** The clip a cue added at `ms` would be said by, or null: nothing heard there. */
   speakerAt: (ms: number) => { clipId: string; src: string; endMs: number } | null;
+  /** A cue pressed: the subtitles' look is shown (the inspector). */
+  onPick?: () => void;
 }
 
 /* ── shown or not: kept on this machine ── */
@@ -261,6 +263,7 @@ export const SubtitleRow = React.forwardRef<SubtitleRowHandle, {
     const key = cueKey(cue);
     setSelected(key);
     targeted.current = true;
+    spec.onPick?.();
     const fromX = e.clientX;
     const grabMs = msAt(e.clientX) - cue.startMs;
     const others = cuesRef.current.flatMap((c, j) => (j === i ? [] : [{ ms: c.startMs, kind: 'edge' as const }, { ms: cueEnd(c), kind: 'edge' as const }]));
