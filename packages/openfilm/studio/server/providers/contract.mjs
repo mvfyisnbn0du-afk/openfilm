@@ -78,12 +78,15 @@
  *   verbs: Verb[],
  *   models?: Partial<Record<Verb, { id: string, name: string }[]>>,
  *   checkKey?: (key: string) => void,
+ *   cleanKey?: (value: unknown) => string,
  *   run: (verb: Verb, args: Record<string, unknown>, ctx: RunContext) => Promise<RunResult>,
  * }} Provider
  * `models`: the models it can make each kind of media with, its default first, each with the name people know it by
  * (Settings → Models shows "ElevenLabs · Multilingual v2").
  * `checkKey`: throws a sentence when a pasted key cannot work as it is (Azure's must carry its region), shown where it
  * is pasted instead of at the first run. Only for what the provider knows without calling anyone: it must not fetch.
+ * `cleanKey`: how a pasted value is kept for this provider (the default `cleanKey` in keys.mjs takes API keys).
+ * A provider whose "key" is not a key (the local provider keeps a command) validates its own shape here.
  * `billingUrl`: the provider's own page where the person tops up its balance. A run that fails because the account has
  * no balance left throws an Error with `code: 'balance'` (common.mjs `noBalance`), the same for every provider: the
  * person is told in Studio, with this page, and the agent is told to stop.

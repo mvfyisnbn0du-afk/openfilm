@@ -3,8 +3,9 @@
  * Which provider serves each verb of `openfilm get`, and the API of Studio's Settings → Providers and Models.
  *
  * A person's own key for ElevenLabs, OpenAI, Google (the Gemini API), fal.ai, Groq, Azure Speech, Pexels, Pixabay,
- * Brave Search or Tavily pays that service directly for what it can do. Each makes a kind of media with the model the person chose for
- * it (the provider's first unless they did).
+ * Brave Search or Tavily pays that service directly for what it can do. Music and sound effects can also be made by
+ * a local model the person points at (the `local` provider, kept as a command, never a key). Each makes a kind of
+ * media with the model the person chose for it (the provider's first unless they did).
  * Who serves a verb: `--via <provider>` on the command, else the person's choice for that kind of media in Settings (`use`),
  * while it can; else nothing does. Every provider is treated alike: a kind with no choice goes to the first provider,
  * by name, that is connected and makes it (when one is connected, and when the one it had goes), and a choice the
@@ -24,6 +25,7 @@ import brave from './brave.mjs';
 import tavily from './tavily.mjs';
 import groq from './groq.mjs';
 import azure from './azure.mjs';
+import local from './local.mjs';
 
 /**
  * @typedef {import('./contract.mjs').Provider} Provider @typedef {import('./contract.mjs').Verb} Verb
@@ -31,8 +33,8 @@ import azure from './azure.mjs';
  * @typedef {import('../http.mjs').Req} Req @typedef {import('../http.mjs').Res} Res
  */
 
-/** The providers paid with the person's own key. */
-const OWN = [elevenlabs, openai, google, fal, pexels, pixabay, brave, tavily, groq, azure];
+/** The providers paid with the person's own key, plus the person's own computer. */
+const OWN = [elevenlabs, openai, google, fal, pexels, pixabay, brave, tavily, groq, azure, local];
 
 /** The kinds of media the person chooses a provider and model for (Settings → Models). */
 const USE_VERBS = /** @type {Verb[]} */ (['tts', 'music', 'sfx', 'asr', 'image', 'image-search', 'video', 'translate', 'web-search']);
@@ -157,7 +159,7 @@ export async function providersRoute(req, res, parts, { openBrowser }) {
         return json(res, 200, await state());
       }
       let key;
-      try { key = cleanKey(body.key); provider.checkKey?.(key); } catch (e) { throw new HttpError(400, /** @type {Error} */ (e).message); }
+      try { key = provider.cleanKey ? provider.cleanKey(body.key) : cleanKey(body.key); provider.checkKey?.(key); } catch (e) { throw new HttpError(400, /** @type {Error} */ (e).message); }
       await changeSettings((s) => { s.keys[provider.id] = key; on(s); fill(s); });
       return json(res, 200, await state());
     }
