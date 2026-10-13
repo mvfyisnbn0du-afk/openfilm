@@ -26,7 +26,7 @@ import { cutPoints, namedTrack, nextCut, trackNamesOf } from '@/lib/timeline-nav
 import { anyLocked, lockedEdits } from '@/lib/track-lock';
 import { placeMedia, type SourceRange } from '@/lib/media-place';
 import { apartOnTracks, type ClipEdit } from '@/lib/film-clip-edits';
-import { mediaFetch } from '@/lib/media-queue';
+import { mediaFetch, useMediaImages } from '@/lib/media-queue';
 import { clipboardItemsOf, clipboardNow, pasteEdit, type TimelineClipboardItem } from '@/lib/timeline-clipboard';
 import { editModelOf, freshLink, linkedIds, magnetOn, mainTrackOf, planMove, planRippleTrim, planRoom, planSpeed, soundTrackFor, type EditMode } from '@/lib/timeline-edit';
 import { followOf, readTimelinePrefs } from '@/lib/timeline-prefs';
@@ -1626,6 +1626,8 @@ export function ProjectView({ projectId, onProject, onLeave }: {
     return out;
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [timelineTracks, projectId, mtimeOf]);
+  /* each drawn once it has had its turn among Studio's media requests (lib/media-queue) */
+  const shownPosters = useMediaImages(posters);
   const waveUrl = React.useCallback((src: string) => `/api/projects/${encodeURIComponent(projectId)}/media?what=wave&path=${encodeURIComponent(src)}&v=${mtimeOf.get(src) ?? 0}`, [projectId, mtimeOf]);
   /* clips whose files are gone, and where the same name may be now */
   const mediaTrouble = React.useMemo(() => {
@@ -2653,7 +2655,7 @@ export function ProjectView({ projectId, onProject, onLeave }: {
                     onDuplicate={duplicateBlocks}
                     onPlayRange={playRange}
                     thumbs={shownThumbs}
-                    posters={posters}
+                    posters={shownPosters}
                     mediaTrouble={mediaTrouble}
                     relinkCandidates={relinkCandidates}
                     onRelink={(block, path) => void relinkBlock(block, path)}

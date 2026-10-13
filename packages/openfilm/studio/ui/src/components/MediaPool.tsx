@@ -63,7 +63,8 @@ import {
 } from '@/lib/workspace-resources';
 import { ConfirmDialog } from './ConfirmDialog';
 import { ContextMenu, type ContextMenuEntry } from './ContextMenu';
-import { KIND_ICON, MediaPreview } from './MediaPreview';
+import { KIND_ICON, MediaPreview, useNearViewport } from './MediaPreview';
+import { useMediaImage } from '@/lib/media-queue';
 import { Tooltip } from './Tooltip';
 import { retryImage } from '@/lib/retry-image';
 import { boxBetween, boxHits, boxPick, moveTargets, pickItem, type Box } from '@/lib/media-selection';
@@ -1349,16 +1350,19 @@ function PagePoster({ file, sources }: { file: WorkspaceResource; sources: Media
   const [loaded, setLoaded] = React.useState<string | null>(null);
   const [failed, setFailed] = React.useState<string | null>(null);
   const own = sources.pagePoster?.(file);
-  const src = own && failed !== own ? own : null;
+  /* drawn in the headless browser: asked for in turn with Studio's other media (lib/media-queue), once near the screen */
+  const [nearRef, near] = useNearViewport<HTMLSpanElement>();
+  const turn = useMediaImage(own && failed !== own ? own : null, near);
+  const src = turn && failed !== turn ? turn : null;
   const shown = src != null && loaded != null;
   return (
-    <>
+    <span ref={nearRef} className="absolute inset-0">
       {shown ? null : <span className="absolute inset-0 flex items-center justify-center"><Clapperboard size={20} className="text-[var(--text-muted)]" /></span>}
       {src ? (
-        <img src={src} alt="" loading="lazy" onLoad={() => setLoaded(src)}
+        <img src={src} alt="" onLoad={() => setLoaded(src)}
           onError={(e) => { setLoaded(null); retryImage(e.currentTarget, () => setFailed(src)); }}
           className={`absolute inset-0 h-full w-full object-cover ${shown ? '' : 'invisible'}`} />
       ) : null}
-    </>
+    </span>
   );
 }

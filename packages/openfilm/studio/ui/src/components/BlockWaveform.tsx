@@ -11,6 +11,7 @@
  */
 import * as React from 'react';
 import { normalizeWavePeaks, waveformColumns } from '@/lib/waveform-columns';
+import { mediaFetch } from '@/lib/media-queue';
 
 /** A sound's envelope: the whole file's peaks and its length (to turn peak indexes into ms). */
 interface Wave {
@@ -33,7 +34,7 @@ const PENDING = new Map<string, Promise<Wave | null>>();
  * About half a minute at most; after that the block stays plain until its address changes.
  */
 async function fetchWhenReady(url: string, tries = 30): Promise<Response> {
-  const res = await fetch(url);
+  const res = await mediaFetch(url);
   if (res.status !== 503 || tries <= 1) return res;
   const wait = Math.min(Math.max(Number(res.headers.get('retry-after')) || 1, 0.5), 5) * 1000;
   await new Promise((done) => setTimeout(done, wait));

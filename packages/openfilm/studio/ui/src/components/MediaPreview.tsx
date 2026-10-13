@@ -13,6 +13,7 @@ import {
   type WorkspaceResourceKind,
 } from '@/lib/workspace-resources';
 import { normalizeWavePeaks } from '@/lib/waveform-columns';
+import { useMediaImage } from '@/lib/media-queue';
 
 /** A file's icon by kind, where there is no picture of it. */
 export const KIND_ICON: Record<WorkspaceResourceKind, LucideIcon> = {
@@ -30,7 +31,7 @@ const extOf = (name: string) => /\.([^./\s]{1,8})$/.exec(name)?.[1] ?? '';
  * Has this element come near the viewport yet. A tile asks for its poster only then: a pane of eighty files would
  * otherwise send eighty requests at once, and the visible row would come in last. Latched: once near, it stays.
  */
-function useNearViewport<T extends Element>(margin = 200): [React.RefCallback<T>, boolean] {
+export function useNearViewport<T extends Element>(margin = 200): [React.RefCallback<T>, boolean] {
   const [near, setNear] = React.useState(false);
   const observer = React.useRef<IntersectionObserver | null>(null);
 
@@ -68,27 +69,29 @@ export function MediaPreview({
   const [failed, setFailed] = React.useState(false);
   const [boxRef, near] = useNearViewport<HTMLSpanElement>();
   React.useEffect(() => { setBroken(false); setFailed(false); }, [file.path, file.mtimeMs]);
+  const thumbable = !broken && (file.kind === 'image' || file.kind === 'video');
+  const poster = thumbable ? sources.poster?.(file) : undefined;
+  const picture = file.kind === 'image' ? (poster && !failed ? poster : sources.file(file)) : file.kind === 'video' ? poster : undefined;
+  /* asked for in turn with Studio's other media (lib/media-queue), once the tile is near the screen */
+  const shown = useMediaImage(thumbable ? picture : null, near);
 
   if (file.kind === 'audio') return <AudioPreview file={file} sources={sources} />;
 
   const Icon = KIND_ICON[file.kind] ?? FileIcon;
-  const thumbable = !broken && (file.kind === 'image' || file.kind === 'video');
-  const poster = thumbable ? sources.poster?.(file) : undefined;
   const IMG = 'absolute inset-0 h-full w-full min-w-0 object-contain';
 
   return (
     <span ref={boxRef} className="absolute inset-0 flex items-center justify-center">
-      {thumbable && file.kind === 'image' ? (
+      {thumbable && file.kind === 'image' && shown ? (
         /* the small picture when there is one; the original when not, or when it fails; broken only when both do */
         <img
-          src={poster && !failed ? poster : sources.file(file)}
+          src={shown}
           alt=""
-          loading="lazy"
           onError={() => (poster && !failed ? setFailed(true) : setBroken(true))}
           className={IMG}
         />
-      ) : thumbable && near && poster ? (
-        <img src={poster} alt="" onError={() => setBroken(true)} className={IMG} />
+      ) : thumbable && file.kind === 'video' && shown ? (
+        <img src={shown} alt="" onError={() => setBroken(true)} className={IMG} />
       ) : file.kind === 'other' ? (
         /* a file Studio does not play (a document, a model, data): its icon and its ending, which say what it is */
         <span className="flex flex-col items-center gap-1">

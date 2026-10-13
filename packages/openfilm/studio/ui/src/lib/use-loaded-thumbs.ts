@@ -8,6 +8,8 @@
  */
 import * as React from 'react';
 
+import { mediaImage } from './media-queue';
+
 /** `mtime:clipId` of a key (`mtime:clipId@intoMs#v`, see thumb-frame), and the clip id alone. */
 function versionOf(key: string): { version: string; clip: string } | null {
   const at = key.lastIndexOf('@', key.lastIndexOf('#'));
@@ -46,33 +48,37 @@ export function useLoadedThumbs(wanted: ReadonlyMap<string, string>): ReadonlyMa
     const load = (key: string, url: string) => {
       if (loadedRef.current.get(key) === url || pending.current.has(url)) return;
       pending.current.add(url);
-      const img = new Image();
-      img.onload = () => {
+      /* in turn with Studio's other media requests (lib/media-queue): a picture no longer wanted when its turn comes
+         (another zoom) is not asked for */
+      void mediaImage(url, () => wantedRef.current.get(key) === url).then((ok) => {
         pending.current.delete(url);
-        tries.current.delete(url);
-        arrived.current.set(key, url);
-        if (flush.current) return;
-        flush.current = requestAnimationFrame(() => {
-          flush.current = 0;
-          const batch = arrived.current; arrived.current = new Map();
-          setLoaded((prev) => { const next = new Map(prev); for (const [k, u] of batch) next.set(k, u); return next; });
-        });
-      };
-      /* not there (yet): asked again a little later while it is still wanted, and the next time it is wanted. Waiting
-         for the next zoom instead left a clip on the nearest other picture it had (a trimmed clip on its source's black
-         first frame) for as long as nobody zoomed */
-      img.onerror = () => {
-        pending.current.delete(url);
-        const n = (tries.current.get(url) ?? 0) + 1;
-        tries.current.set(url, n);
-        if (n > 6) return;
-        const timer = setTimeout(() => {
-          retries.current.delete(timer);
-          if (wantedRef.current.get(key) === url) load(key, url);
-        }, Math.min(8000, 1000 * 2 ** (n - 1)));
-        retries.current.add(timer);
-      };
-      img.src = url;
+        if (ok === null) return;
+        if (ok) arrive(key, url);
+        else failed(key, url);
+      });
+    };
+    const arrive = (key: string, url: string) => {
+      tries.current.delete(url);
+      arrived.current.set(key, url);
+      if (flush.current) return;
+      flush.current = requestAnimationFrame(() => {
+        flush.current = 0;
+        const batch = arrived.current; arrived.current = new Map();
+        setLoaded((prev) => { const next = new Map(prev); for (const [k, u] of batch) next.set(k, u); return next; });
+      });
+    };
+    /* not there (yet): asked again a little later while it is still wanted, and the next time it is wanted. Waiting
+       for the next zoom instead left a clip on the nearest other picture it had (a trimmed clip on its source's black
+       first frame) for as long as nobody zoomed */
+    const failed = (key: string, url: string) => {
+      const n = (tries.current.get(url) ?? 0) + 1;
+      tries.current.set(url, n);
+      if (n > 6) return;
+      const timer = setTimeout(() => {
+        retries.current.delete(timer);
+        if (wantedRef.current.get(key) === url) load(key, url);
+      }, Math.min(8000, 1000 * 2 ** (n - 1)));
+      retries.current.add(timer);
     };
     for (const [key, url] of wanted) load(key, url);
   }, [wanted]);
