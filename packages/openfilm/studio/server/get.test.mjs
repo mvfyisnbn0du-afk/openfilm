@@ -444,3 +444,19 @@ test('call: the person\'s own services are listed with what they do, and reached
   await assert.rejects(runGet(root, 'call', { service: 'nope' }), (e) => e.code === 2 && /There is no service nope: there is whisper/.test(e.message));
   await assert.rejects(runGet(root, 'call', { service: 'whisper', path: '//evil.com/' }), (e) => e.code === 2);
 });
+
+test('a voice-over spoken again without word timings: the last take\'s transcript goes, and the receipt says there is none', async () => {
+  process.env.OPENFILM_TRASH_DIR ??= mkdtempSync(join(tmpdir(), 'of-trash-'));
+  const root = project();
+  mkdirSync(join(root, 'assets/audio/vo'), { recursive: true });
+  writeFileSync(join(root, 'assets/audio/vo/intro.wav'), 'old take');
+  writeFileSync(join(root, 'assets/audio/vo/intro.vtt'), 'WEBVTT\n\n00:00.000 --> 00:09.000\nThe old take, spoken slower\n');
+  /* a WAV of a second of silence, as OpenAI answers */
+  const wav = Buffer.alloc(44 + 32000);
+  wav.write('RIFF', 0); wav.writeUInt32LE(36 + 32000, 4); wav.write('WAVEfmt ', 8); wav.writeUInt32LE(16, 16); wav.writeUInt16LE(1, 20); wav.writeUInt16LE(1, 22);
+  wav.writeUInt32LE(16000, 24); wav.writeUInt32LE(32000, 28); wav.writeUInt16LE(2, 32); wav.writeUInt16LE(16, 34); wav.write('data', 36); wav.writeUInt32LE(32000, 40);
+  refuse = (call) => (call.path === '/v1/audio/speech' ? [200, wav] : [404, {}]);
+  const said = await runGet(root, 'tts', { text: 'Hello', voice: 'alloy', out: 'intro' }, { via: 'openai' });
+  assert.equal(existsSync(join(root, 'assets/audio/vo/intro.vtt')), false);
+  assert.match(said, /"transcript": "none: the service does not time words/);
+});

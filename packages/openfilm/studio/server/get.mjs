@@ -31,7 +31,7 @@ import { tmpdir } from 'node:os';
 import { basename, dirname, extname, join, resolve, sep } from 'node:path';
 import { FILM_FILE, clipKind } from '../../src/film-doc.mjs';
 import { spokenLines } from './captions.mjs';
-import { readTranscript, transcriptIsCurrent, transcriptPath, writeTranscript } from './transcripts.mjs';
+import { dropTranscripts, readTranscript, transcriptIsCurrent, transcriptPath, writeTranscript } from './transcripts.mjs';
 import { inside } from './files.mjs';
 import { HttpError, json, readJson } from './http.mjs';
 import { kindOf, modelFor, providerKey } from './keys.mjs';
@@ -448,6 +448,9 @@ async function land(root, verb, args, result) {
     if ((await lstat(abs).catch(() => null))?.isSymbolicLink()) await rm(abs);
     await mkdir(dirname(abs), { recursive: true });
     await writeFile(abs, file.bytes);
+    /* a sound or video made again under its name: the old take's subtitles go (its own are written below) */
+    const kind = clipKind(file.path);
+    if (kind === 'sound' || kind === 'video') await dropTranscripts(root, file.path);
   }
   if (verb !== 'tts' && verb !== 'asr') return;
   for (const row of result.index ?? []) {

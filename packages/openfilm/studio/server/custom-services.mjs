@@ -16,7 +16,9 @@ import { mkdir, readFile, rename, rm, stat } from 'node:fs/promises';
 import { basename, dirname, extname, join } from 'node:path';
 import { Readable } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
+import { clipKind } from '../../src/film-doc.mjs';
 import { inside } from './files.mjs';
+import { dropTranscripts } from './transcripts.mjs';
 
 /**
  * `auth`: the header the key goes in, `{key}` standing for it (`Authorization: Bearer {key}`, `x-api-key: {key}`).
@@ -237,6 +239,9 @@ export async function callService(root, service, args, signal) {
   }
   const rel = `${dir}/${name}${extFor(type)}`;
   const size = await land(root, rel, stream ?? Readable.fromWeb(/** @type {import('node:stream/web').ReadableStream} */ (res.body)), signal);
+  /* a sound or video saved over the last one: the old take's subtitles are not this one's */
+  const kind = clipKind(rel);
+  if (kind === 'sound' || kind === 'video') await dropTranscripts(root, rel);
   return `${head}: saved as ${rel} (${size < 1e6 ? `${Math.max(1, Math.round(size / 1000))} kB` : `${(size / 1e6).toFixed(1)} MB`}).`;
 }
 

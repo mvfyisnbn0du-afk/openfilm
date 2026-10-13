@@ -1,7 +1,7 @@
 import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { createServer } from 'node:http';
-import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { callService, shownService, targetOf, withService } from './custom-services.mjs';
@@ -78,6 +78,20 @@ test('a file comes back into assets/<service>/; text without a type is read as t
   assert.equal(seen.at(-1).headers['x-api-key'], 'della-key');
   assert.equal(seen.at(-1).headers['content-type'], 'application/json');
   assert.match(await callService(root, s, { path: '/v1/plain' }, signal), /answered 200:\n\{"words":\[\]\}/);
+});
+
+test('a voice saved over the last take takes the last take\'s subtitles to the trash', async () => {
+  process.env.OPENFILM_TRASH_DIR ??= mkdtempSync(join(tmpdir(), 'of-trash-'));
+  const root = project();
+  const [s] = withService([], null, { name: 'Della', url: base });
+  mkdirSync(join(root, 'assets/della'), { recursive: true });
+  writeFileSync(join(root, 'assets/della/line-1.vtt'), 'WEBVTT\n\n00:00.000 --> 00:05.000\nThe last take\n');
+  writeFileSync(join(root, 'assets/della/line-1.fr.vtt'), 'WEBVTT\n\n00:00.000 --> 00:05.000\nLa dernière\n');
+  writeFileSync(join(root, 'assets/della/line-10.vtt'), 'WEBVTT\n');
+  await callService(root, s, { path: '/v1/speak', json: '{}', out: 'line-1' }, signal);
+  assert.equal(existsSync(join(root, 'assets/della/line-1.vtt')), false);
+  assert.equal(existsSync(join(root, 'assets/della/line-1.fr.vtt')), false);
+  assert.equal(existsSync(join(root, 'assets/della/line-10.vtt')), true, 'another file\'s stays');
 });
 
 test('only the project\'s files are sent, and one body at a time', async () => {

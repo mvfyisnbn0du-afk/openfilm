@@ -17,7 +17,7 @@
 import { readdir, readFile, stat } from 'node:fs/promises';
 import { basename, dirname, extname, join } from 'node:path';
 import { writeAtomic } from './atomic.mjs';
-import { inProject, inside } from './files.mjs';
+import { inProject, inside, trashFile } from './files.mjs';
 import { alignTranslation, replacePiece, segmentLine } from './subtitle-segments.mjs';
 
 /** @typedef {{ token: string, startSec: number, endSec?: number }} Word */
@@ -202,6 +202,19 @@ export async function transcriptIsCurrent(root, src) {
   if (!file || !vtt) return false;
   const [media, words] = await Promise.all([stat(file).catch(() => null), stat(vtt).catch(() => null)]);
   return Boolean(media && words && words.mtimeMs >= media.mtimeMs);
+}
+
+/**
+ * A sound or video made again in place (a voice-over spoken again under its name, a service's answer saved over the
+ * last one): its transcript and translations are the old take's, and go to the trash. Subtitles are never timed by
+ * another take's words; when the new one came with timed words, its own transcript is written after.
+ * @param {string} root @param {string} src
+ */
+export async function dropTranscripts(root, src) {
+  for (const rel of [transcriptPath(src), ...(await translationsOf(root, src)).map((language) => transcriptPath(src, language))]) {
+    const abs = inProject(root, rel);
+    if (abs && await stat(abs).catch(() => null)) await trashFile(root, rel).catch(() => {});
+  }
 }
 
 /** The languages `src` has a translation in (`name.<language>.vtt` beside it). @param {string} root @param {string} src */
