@@ -96,6 +96,7 @@ import { FontScopeContext, type FontScope } from '@/lib/use-fonts';
 import { stageMenu, stageRecoveryMenu, type StageArrangeResult, type StageMenuContext } from './stage-menu';
 import type { StageEditFailure, StageTextEdit } from './FilmInspector';
 import { layerTarget, pageClipOf, recoverLayer } from '@/lib/stage-layers';
+import { pageClips, pageMayHave, similarEdits } from '@/lib/similar-layers';
 import type { MaskSession } from '@/lib/stage-mask';
 import type { MaskShape } from '@/lib/clip-mask';
 import { nextOverrides, overrideOf, type OverrideGeometry } from '@/lib/film-overrides';
@@ -1320,6 +1321,32 @@ export function ProjectView({ projectId, onProject, onLeave }: {
     if (!message) setStageElement((cur) => (cur && (cur.loc === loc || cur.loc?.split('#')[0] === loc) ? { ...cur, style: { ...cur.style, ...patch } } : cur));
     return message;
   }, [t]);
+  /* "All like it": the style for every layer of its tag and classes, in each page clip that may have one
+     (lib/similar-layers), read from the pages' own files */
+  const similarClips = React.useCallback(async (element: StageElement): Promise<{ doc: FilmDoc; holds: Set<string> } | null> => {
+    const doc = filmRef.current as unknown as FilmDoc | null;
+    if (!doc || !element.similar) return null;
+    const srcs = [...new Set(pageClips(doc).map((c) => c.src))];
+    const sources = await Promise.all(srcs.map((src) => fetch(`${folder}${src.split('/').map(encodeURIComponent).join('/')}`, { cache: 'no-store' })
+      .then((r) => (r.ok ? r.text() : ''), () => '')));
+    return { doc, holds: new Set(srcs.filter((_, i) => pageMayHave(sources[i]!, element.similar!))) };
+  }, [folder]);
+  const countSimilar = React.useCallback(async (element: StageElement): Promise<number> => {
+    const found = await similarClips(element);
+    const own = found ? pageClipOf(found.doc, element)?.loc : undefined;
+    return found ? pageClips(found.doc).filter((c) => c.loc === own || found.holds.has(c.src)).length : 0;
+  }, [similarClips]);
+  const editStageStyleSimilar = React.useCallback(async (element: StageElement, patch: StageElementStyle): Promise<string | null> => {
+    const found = await similarClips(element);
+    const own = found ? pageClipOf(found.doc, element) : null;
+    if (!found || !own || !element.similar) return t('timeline.editFail');
+    const clean: Record<string, string | number | null> = {};
+    for (const [key, v] of Object.entries(patch)) clean[key] = v ?? null;
+    const edits = similarEdits(found.doc, element.similar, clean, (src) => found.holds.has(src), own.loc);
+    const message = await editBlocks(edits.map((e) => ({ loc: e.loc, prop: 'overrides', value: e.value as unknown as Record<string, unknown> | null })));
+    if (!message) setStageElement((cur) => (cur && cur.loc === element.loc ? { ...cur, style: { ...cur.style, ...patch } } : cur));
+    return message;
+  }, [similarClips, editBlocks, t]);
   const previewStageStyle = React.useCallback((_loc: string, patch: StageElementStyle) => {
     const held = stageElementRef.current;
     if (held) stageControl.current?.previewStyle(held, patch);
@@ -2602,6 +2629,8 @@ export function ProjectView({ projectId, onProject, onLeave }: {
                       width={inspectorShownWidth}
                       onClose={closeInspector}
                       onEditStyle={editStageStyle}
+                      onEditSimilar={editStageStyleSimilar}
+                      countSimilar={countSimilar}
                       onPreviewStyle={previewStageStyle}
                       onPreviewText={previewStageText}
                       onEditText={editStageText}

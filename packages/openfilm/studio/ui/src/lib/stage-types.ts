@@ -75,6 +75,8 @@ export type StageElement = {
   /** This layer's override now. */
   override?: NodeOverride | null;
   tag?: string;
+  /** The selector of layers like it in any page (its tag and classes: `h2.title`); none when it has no class. */
+  similar?: string;
   /** The layer's computed style; `declaredStyle` lists the keys its own code sets. */
   style?: StageElementStyle;
   declaredStyle?: readonly string[];

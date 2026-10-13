@@ -125,6 +125,8 @@ export interface StageLayer {
   instances?: number;
   kind: StageNodeKind;
   tag: string;
+  /** layers like it in any page: its tag and classes (none: it has no class) */
+  similar?: string;
   label: string;
   text?: { value: string; shape: 'children' | 'prop' | 'value' };
   style: StageElementStyle;
@@ -588,6 +590,7 @@ function FilmStageSelectImpl({
     clipKind: 'mg',
     ...(layer.text ? { text: { loc: layer.loc, value: layer.text.value, shape: layer.text.shape } } : {}),
     tag: layer.tag,
+    ...(layer.similar ? { similar: layer.similar } : {}),
     style: layer.style,
     declaredStyle: [],
     parents: layer.parents,

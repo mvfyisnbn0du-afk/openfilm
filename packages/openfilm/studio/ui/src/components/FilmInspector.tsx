@@ -142,6 +142,8 @@ export const FilmInspector = React.memo(function FilmInspector({
   width,
   onClose,
   onEditStyle,
+  onEditSimilar,
+  countSimilar,
   onPreviewStyle,
   onEditText,
   onPreviewText,
@@ -185,6 +187,10 @@ export const FilmInspector = React.memo(function FilmInspector({
   onClose: () => void;
   /** Writes a style. Resolves to an error when refused (the panel then paints the old value back). */
   onEditStyle: (loc: string, patch: StageElementStyle) => Promise<string | null>;
+  /** A style for every layer like this one (its tag and classes) in the film's pages: "All like it". */
+  onEditSimilar?: (element: StageElement, patch: StageElementStyle) => Promise<string | null>;
+  /** How many page clips "All like it" reaches. */
+  countSimilar?: (element: StageElement) => Promise<number>;
   /** Paints a style on the picture without writing it. */
   onPreviewStyle: (loc: string, patch: StageElementStyle) => void;
   onEditText: (edit: StageTextEdit) => Promise<StageEditFailure | null>;
@@ -286,6 +292,8 @@ export const FilmInspector = React.memo(function FilmInspector({
             geometry={geometry}
             inlineTextFailure={inlineTextFailure}
             onEditStyle={onEditStyle}
+            {...(onEditSimilar ? { onEditSimilar } : {})}
+            {...(countSimilar ? { countSimilar } : {})}
             onPreviewStyle={onPreviewStyle}
             onEditText={onEditText}
             onPreviewText={onPreviewText}
@@ -732,16 +740,20 @@ function layerStyle(element: StageElement, set: LookSet): Record<string, string 
  * Which copies a style change goes to when a list renders several. Words are not scoped: copies showing the same
  * words come from one template, so changing them changes all (see TextSection).
  */
-type Scope = 'one' | 'all';
+type Scope = 'one' | 'all' | 'similar';
 
 function LayerPanel({
-  element, geometry, inlineTextFailure, onEditStyle, onPreviewStyle, onEditText, onPreviewText,
+  element, geometry, inlineTextFailure, onEditStyle, onEditSimilar, countSimilar, onPreviewStyle, onEditText, onPreviewText,
   onEditOverride, onPreviewOverride, onSelectParent, onSelectClip, onEditMask,
 }: {
   element: StageElement;
   geometry?: StageGeometry | null;
   inlineTextFailure?: InlineTextFailure | null;
   onEditStyle: (loc: string, patch: StageElementStyle) => Promise<string | null>;
+  /** A style for every layer like this one (its tag and classes) in the film's pages: "All like it". */
+  onEditSimilar?: (element: StageElement, patch: StageElementStyle) => Promise<string | null>;
+  /** How many page clips "All like it" reaches. */
+  countSimilar?: (element: StageElement) => Promise<number>;
   onPreviewStyle: (loc: string, patch: StageElementStyle) => void;
   onEditText: (edit: StageTextEdit) => Promise<StageEditFailure | null>;
   onPreviewText?: (loc: string, value: string) => void;
@@ -766,6 +778,15 @@ function LayerPanel({
   };
   const copies = element.instances != null && element.instances > 1 ? element.instances : 0;
   const [scope, setScope] = React.useState<Scope>('one');
+  /* "All like it": text with a class to go by; how many page clips it reaches, once counted */
+  const likeIt = element.kind === 'text' && Boolean(element.similar) && Boolean(onEditSimilar);
+  const [likeCount, setLikeCount] = React.useState<number | null>(null);
+  React.useEffect(() => {
+    if (!likeIt || !countSimilar) return undefined;
+    let live = true;
+    void countSimilar(element).then((n) => { if (live) setLikeCount(n); });
+    return () => { live = false; };
+  }, [likeIt, countSimilar, element.similar, element.clipLoc]); // eslint-disable-line react-hooks/exhaustive-deps
   const loc = element.loc;
   const bare = sourceLocBare(loc) ?? loc;
 
@@ -802,7 +823,7 @@ function LayerPanel({
     previewedKeys.current.clear();
     onPreviewStyle(styleLoc, patch);
     setRefusal(null);
-    const failed = await onEditStyle(styleLoc, patch);
+    const failed = scope === 'similar' && onEditSimilar ? await onEditSimilar(element, patch) : await onEditStyle(styleLoc, patch);
     if (!failed) return;
     /* refused: take the change back off the picture, or it keeps a look the film does not have */
     const back: StageElementStyle = {};
@@ -916,15 +937,22 @@ function LayerPanel({
     <>
       <Header icon={kindIcon(kind, 13)} name={element.label} meta={layerKindLabel(t, kind)} />
       <Breadcrumb element={element} onSelectParent={onSelectParent} onSelectClip={onSelectClip} />
-      {copies ? (
+      {copies || likeIt ? (
         <div className="px-3 pb-2.5">
           <Segmented
             label={t('inspector.scope')}
             value={scope}
             onChange={(v) => setScope(v as Scope)}
             options={[
-              { value: 'one', label: t('inspector.scopeOne').replace('{i}', String(element.instance ?? 1)) },
-              { value: 'all', label: t('inspector.scopeAll').replace('{n}', String(copies)) },
+              copies
+                ? { value: 'one', label: t('inspector.scopeOne').replace('{i}', String(element.instance ?? 1)) }
+                : { value: 'one', label: t('inspector.scopeThis') },
+              ...(copies ? [{ value: 'all', label: t('inspector.scopeAll').replace('{n}', String(copies)) }] : []),
+              /* the look of every title like it, in every page that has one (lib/similar-layers); words and places stay each one's */
+              ...(likeIt ? [{
+                value: 'similar', title: t('inspector.scopeSimilarHint'),
+                label: likeCount && likeCount > 1 ? t('inspector.scopeSimilarIn').replace('{n}', String(likeCount)) : t('inspector.scopeSimilar'),
+              }] : []),
             ]}
           />
         </div>

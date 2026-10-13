@@ -306,6 +306,11 @@
     return { at, n, loc: `${at}#${n}`, instance: n, instances: all.length };
   };
   const targetOf = (el) => { const { at, n } = locOf(el); return n ? { at, n } : { at }; };
+  /** Layers like it, wherever they are: its tag and classes (`h2.title`), or null when it has no class to go by. */
+  const similarOf = (el) => {
+    const classes = [...el.classList].filter((c) => /^[A-Za-z_][\w-]*$/.test(c)).slice(0, 3);
+    return classes.length ? el.localName + classes.map((c) => `.${CSS.escape(c)}`).join('') : null;
+  };
 
   /** The clip's kept override that applies to this element (the last one that finds it). */
   const overrideOf = (c, el) => {
@@ -563,6 +568,7 @@
       ...where,
       kind,
       tag: el.localName.toLowerCase(),
+      ...(similarOf(el) ? { similar: similarOf(el) } : {}),
       label: labelOf(el, kind),
       ...(words ? { text: { value: words, shape: 'value' } } : {}),
       style: styleOf(el, kind),
