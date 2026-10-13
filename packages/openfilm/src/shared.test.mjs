@@ -1,11 +1,11 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { audioClips, checkSound, fadeFilter, ffmpeg, fileOf, mix } from './shared.mjs';
-import { mkdirSync, symlinkSync, writeFileSync } from 'node:fs';
+import { addLinkedPlaces } from './media-links.mjs';
 
 test('an ffmpeg that does not end is stopped, and says what did not finish', { timeout: 20_000 }, async () => {
   /* an endless silent source, written nowhere: it never ends by itself */
@@ -99,6 +99,36 @@ test('fileOf: a sound stays inside the film\'s folder, however its path is writt
     symlinkSync(join(root, 'outside.mp3'), join(ws, 'assets', 'link.mp3'));
     assert.throws(() => fileOf(ws, 'film.html', 'assets/link.mp3'), /link out of the film's folder/);
   } finally { rmSync(root, { recursive: true, force: true }); }
+});
+
+test('fileOf: a link to media the person linked is followed; a link a project brought from elsewhere is not', () => {
+  /* the places the person linked are kept in Studio's home: this test's own */
+  const home = process.env.OPENFILM_HOME;
+  const root = mkdtempSync(join(tmpdir(), 'openfilm-fileof-links-'));
+  process.env.OPENFILM_HOME = join(root, 'home');
+  try {
+    const ws = join(root, 'ws'), nas = join(root, 'nas'), away = join(root, 'away');
+    mkdirSync(join(ws, 'assets'), { recursive: true });
+    mkdirSync(nas); mkdirSync(away);
+    writeFileSync(join(nas, 'bed.mp3'), 'on the nas');
+    writeFileSync(join(away, 'secret.mp3'), 'theirs');
+    symlinkSync(join(nas, 'bed.mp3'), join(ws, 'assets', 'bed.mp3'));
+    symlinkSync(join(away, 'secret.mp3'), join(ws, 'assets', 'secret.mp3'));
+    /* nothing linked yet: neither is followed */
+    assert.throws(() => fileOf(ws, 'film.html', 'assets/bed.mp3'), /link out of the film's folder/);
+    /* the person links the NAS file: its link in assets/ is read, as the file server reads it */
+    addLinkedPlaces([join(nas, 'bed.mp3')]);
+    assert.equal(fileOf(ws, 'film.html', 'assets/bed.mp3'), join(ws, 'assets', 'bed.mp3'));
+    assert.equal(readFileSync(fileOf(ws, 'scenes/one.html', '../assets/bed.mp3'), 'utf8'), 'on the nas');
+    /* a link a project brought from elsewhere, to a place never linked, still is not */
+    assert.throws(() => fileOf(ws, 'film.html', 'assets/secret.mp3'), /link out of the film's folder/);
+    /* outside assets/ no link is followed, linked or not */
+    symlinkSync(join(nas, 'bed.mp3'), join(ws, 'bed.mp3'));
+    assert.throws(() => fileOf(ws, 'film.html', 'bed.mp3'), /link out of the film's folder/);
+  } finally {
+    if (home === undefined) delete process.env.OPENFILM_HOME; else process.env.OPENFILM_HOME = home;
+    rmSync(root, { recursive: true, force: true });
+  }
 });
 
 test('checkSound: a sound\'s numbers are numbers before they reach ffmpeg', () => {
