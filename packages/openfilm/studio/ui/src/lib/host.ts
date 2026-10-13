@@ -64,9 +64,10 @@ export interface StudioHost {
   /**
    * The agents the app's chat can use, for Settings → Agents: connected or not, shown in the chat's menu or not, and
    * the person's own key for the one that takes one. `onChange` tells of every change (a sign-in finished, a key set up)
-   * and returns a way to stop listening. One of the person's own agents not found can be pointed at (`locate`: the
-   * system's file dialog, with Studio's words; `{ ok: false }` and no error when cancelled) and set back to being
-   * found (`useAutomatic`); `diagnose` says what was searched (an older app has none of these).
+   * and returns a way to stop listening. One of the person's own agents, found or not, can be pointed at a program
+   * of the person's choosing (`locate`: the system's file dialog, with Studio's words; `{ ok: false }` and no error
+   * when cancelled) and set back to being found (`useAutomatic`); `diagnose` says what was searched (an older app
+   * has none of these).
    */
   agents?: {
     list: () => Promise<HostAgent[]>;

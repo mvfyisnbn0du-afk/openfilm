@@ -180,11 +180,21 @@ export function AgentsSection() {
   const action = (agent: HostAgent, chosen = true) => {
     const working = busy === agent.id;
     if (agent.status === 'ready' && chosen) {
+      /* the program can be pointed at even when one was found: a particular version, another install; byok has none */
+      const canLocate = host.locate && agent.id !== 'byok';
       return (
-        <SettingsButton variant="quiet" disabled={working} title={agent.id === 'byok' ? undefined : t('settings.agents.disconnectHint').replaceAll('{name}', agent.name)}
-          onClick={() => act(agent.id, () => host.disconnect(agent.id))}>
-          {t('settings.agents.disconnect')}
-        </SettingsButton>
+        <>
+          {canLocate ? (
+            <SettingsButton variant="quiet" disabled={working} onClick={() => locate(agent)}>
+              {working ? <Loader2 size={16} className="animate-spin" aria-hidden /> : null}
+              {t('settings.agents.locate')}
+            </SettingsButton>
+          ) : null}
+          <SettingsButton variant="quiet" disabled={working} title={agent.id === 'byok' ? undefined : t('settings.agents.disconnectHint').replaceAll('{name}', agent.name)}
+            onClick={() => act(agent.id, () => host.disconnect(agent.id))}>
+            {t('settings.agents.disconnect')}
+          </SettingsButton>
+        </>
       );
     }
     if (agent.status === 'missing') {
