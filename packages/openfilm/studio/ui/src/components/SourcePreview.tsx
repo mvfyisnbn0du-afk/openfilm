@@ -190,8 +190,7 @@ function MediaPreviewPane({ file, sources, onClose, onPlace }: SourcePreviewProp
 
   React.useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      const tag = (e.target as HTMLElement | null)?.tagName;
-      if (tag === 'INPUT' || tag === 'TEXTAREA') return;
+      if (isTypingTarget(e.target)) return;
       if (e.key === 'Escape') { e.preventDefault(); onClose(); }
       /* space plays the source while it is up, not the film behind it */
       if (e.key === ' ' && timed) { e.preventDefault(); e.stopPropagation(); toggle(); }
@@ -366,8 +365,7 @@ function PagePreview({ file, sources, onClose, onPlace }: SourcePreviewProps) {
 
   React.useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      const tag = (e.target as HTMLElement | null)?.tagName;
-      if (tag === 'INPUT' || tag === 'TEXTAREA') return;
+      if (isTypingTarget(e.target)) return;
       if (e.key === 'Escape') { e.preventDefault(); onClose(); }
       if (e.key === ' ') { e.preventDefault(); e.stopPropagation(); toggle(); }
     };

@@ -12,15 +12,9 @@
  * constructors, so a cross-document instanceof is always false.
  */
 export function isTypingTarget(target: EventTarget | null): boolean {
-  if (!target || !('nodeType' in target)) return false;
-  const node = target as Node;
-  const el = node.nodeType === 1
-    ? node as HTMLElement
-    : node.nodeType === 3
-      ? node.parentElement
-      : null;
+  const el = elementOf(target);
   if (!el) return false;
-  if (typeof el.closest === 'function' && el.closest('[data-studio-host-panel]')) return true;
+  if (inHostPanel(el)) return true;
   const field = typeof el.closest === 'function' ? el.closest('input, textarea, select') : null;
   if (field) {
     /* A focused slider, color swatch or checkbox is not typing: after dragging a volume or
@@ -31,6 +25,21 @@ export function isTypingTarget(target: EventTarget | null): boolean {
     return true;
   }
   return Boolean(el.isContentEditable);
+}
+
+/**
+ * Whether an event happened in an app's own panel inside Studio's page (lib/host.ts `panel`): its keys and presses are
+ * the app's, and leave Studio as it was (what is selected stays selected, nothing plays).
+ */
+export function inHostPanel(target: EventTarget | null): boolean {
+  const el = elementOf(target);
+  return Boolean(el && typeof el.closest === 'function' && el.closest('[data-studio-host-panel]'));
+}
+
+function elementOf(target: EventTarget | null): HTMLElement | null {
+  if (!target || !('nodeType' in target)) return null;
+  const node = target as Node;
+  return node.nodeType === 1 ? node as HTMLElement : node.nodeType === 3 ? node.parentElement : null;
 }
 
 const NON_TEXT_INPUTS = new Set(['range', 'color', 'checkbox', 'radio', 'button', 'submit', 'reset', 'file', 'image']);

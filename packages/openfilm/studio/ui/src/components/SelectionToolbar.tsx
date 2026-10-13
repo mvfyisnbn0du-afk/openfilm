@@ -18,6 +18,7 @@ import * as React from 'react';
 import { createPortal } from 'react-dom';
 
 import { Tooltip } from '@/components/Tooltip';
+import { inHostPanel } from '@/components/typing-target';
 import { placeToolbar, type ScreenBox, type ToolbarPlacement } from '@/lib/selection-toolbar';
 
 export interface SelectionTool {
@@ -67,7 +68,8 @@ export function SelectionToolbar({
 
   React.useEffect(() => {
     if (!shown) return undefined;
-    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') setDismissed(selection); };
+    /* an Esc pressed in an app's own panel is the app's (its chat's: stop the agent) */
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape' && !inHostPanel(e.target)) setDismissed(selection); };
     const again = () => setTick((n) => n + 1);
     window.addEventListener('keydown', onKey);
     window.addEventListener('resize', again);

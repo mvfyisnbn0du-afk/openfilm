@@ -17,9 +17,11 @@
 </head>
 <body>
 <div id="root"></div>
-<!-- the chat's column beside Studio (the panel Studio leaves room for), and its layer for what floats -->
-<div id="of-chat" class="of-chat" data-studio-host-panel></div>
-<div id="of-chat-layer" class="of-chat"></div>
+<!-- the chat's column beside Studio (the panel Studio leaves room for), and its layer for what floats. Both are
+     Studio's host panel (its keys leave them alone) and take focus: a click anywhere in the chat, not only in its
+     fields, keeps the keyboard in the chat (Space, Delete, ⌘A there never reach Studio). -->
+<div id="of-chat" class="of-chat" data-studio-host-panel tabindex="-1"></div>
+<div id="of-chat-layer" class="of-chat" data-studio-host-panel tabindex="-1"></div>
 <script type="module" src="./main.tsx"></script>
 </body>
 </html>
