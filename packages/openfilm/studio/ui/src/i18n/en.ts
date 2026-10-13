@@ -739,7 +739,7 @@ export const en = {
     copyPath: 'Copy path',
     dropHint: 'Drop to import into this project',
     sort_name: 'Name',
-    sort_time: 'Date modified',
+    sort_time: 'Date added',
     sort_duration: 'Duration',
     sort_type: 'Type',
     moveTo: "Move to",
@@ -1279,6 +1279,9 @@ export const en = {
     replaceNone: "No file in the project can take its place",
     replaceKind: "A picture is replaced by a picture, a sound by a sound",
     replaceShort: "The new file is shorter: the clip is {s} s shorter",
+    replaceButton: "Replace",
+    replaceFromComputer: "From your computer…",
+    replacePick: "Choose a file to replace the clip",
   },
   /* a clip's attributes copied onto others (lib/clip-attrs, components/PasteAttrsDialog), as CapCut's */
   clipAttrs: {

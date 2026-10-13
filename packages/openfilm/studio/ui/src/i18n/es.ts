@@ -738,7 +738,7 @@ export const es: Words = {
     copyPath: 'Copiar ruta',
     dropHint: 'Suelta para importar a este proyecto',
     sort_name: 'Nombre',
-    sort_time: 'Fecha de modificación',
+    sort_time: 'Fecha de incorporación',
     sort_duration: 'Duración',
     sort_type: 'Tipo',
     moveTo: "Mover a",
@@ -1278,6 +1278,9 @@ export const es: Words = {
     replaceNone: "Ningún archivo del proyecto puede ocupar su lugar",
     replaceKind: "Una imagen se reemplaza por una imagen, un sonido por un sonido",
     replaceShort: "El archivo nuevo es más corto: el clip dura {s} s menos",
+    replaceButton: "Reemplazar",
+    replaceFromComputer: "Desde tu ordenador…",
+    replacePick: "Elige un archivo para reemplazar el clip",
   },
   /* a clip's attributes copied onto others (lib/clip-attrs, components/PasteAttrsDialog), as CapCut's */
   clipAttrs: {

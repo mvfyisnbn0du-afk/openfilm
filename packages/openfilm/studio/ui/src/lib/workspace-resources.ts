@@ -22,6 +22,8 @@ export interface WorkspaceResource {
   size: number;
   kind: WorkspaceResourceKind;
   mtimeMs: number;
+  /** When it came into the project (a link: when it was made); its mtime when the server does not say */
+  addedMs?: number;
   /**
    * The probed length. Dragging a clip onto the timeline needs it (a clip cannot be pulled longer than its source);
    * missing when it could not be probed, and the timeline then uses a cautious default.
@@ -97,7 +99,7 @@ export interface MediaFacts {
 
 /** Studio's `GET files` answer. */
 export interface FilesListing {
-  files: readonly { path: string; kind: string; size: number; mtime: number }[];
+  files: readonly { path: string; kind: string; size: number; mtime: number; added?: number }[];
   folders: readonly string[];
   pages: readonly { path: string; size: number; mtime: number }[];
   /** Links to media kept elsewhere, by project path (files and folders). */
@@ -150,6 +152,7 @@ export function mediaListingOf(
       size: f.size,
       kind: (f.kind === 'page' ? 'mg' : MEDIA_KINDS.includes(f.kind) ? f.kind : 'other') as WorkspaceResourceKind,
       mtimeMs: f.mtime,
+      addedMs: f.added ?? f.mtime,
       ...facts?.(f.path),
       ...(raw.links?.[f.path] ? { link: raw.links[f.path]! } : {}),
     })),
@@ -163,6 +166,7 @@ export function mediaListingOf(
       size: p.size,
       kind: 'mg' as const,
       mtimeMs: p.mtime,
+      addedMs: p.mtime,
       ...facts?.(p.path),
     })),
   };

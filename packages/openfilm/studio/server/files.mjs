@@ -11,7 +11,7 @@
 import { execFile } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { constants, createReadStream, createWriteStream, existsSync, lstatSync, realpathSync, statSync } from 'node:fs';
-import { copyFile, cp, lstat, mkdir, readFile, readdir, readlink, rename, rm, stat, symlink, unlink, writeFile } from 'node:fs/promises';
+import { copyFile, cp, lstat, mkdir, readFile, readdir, readlink, rename, rm, stat, symlink, unlink, utimes, writeFile } from 'node:fs/promises';
 import { basename, dirname, extname, isAbsolute, join, normalize, relative, sep } from 'node:path';
 import { Transform } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
@@ -166,7 +166,8 @@ function kindOf(/** @type {string} */ name) {
 export async function listFiles(root) {
   /** @type {string[]} */
   const made = [];
-  /** @type {{ path: string, kind: string, size: number, mtime: number }[]} */
+  /** `added`: when it came into the project (a link: when it was made), for listing the newest last
+   * @type {{ path: string, kind: string, size: number, mtime: number, added: number }[]} */
   const files = [];
   /** @type {string[]} */
   const folders = [];
@@ -190,8 +191,10 @@ export async function listFiles(root) {
         const info = readableLink(root, abs) ? await stat(abs).catch(() => null) : null;
         links[rel] = { to: isAbsolute(to) ? to : join(dir, to), ...(info ? {} : { missing: true }) };
         if (info?.isDirectory()) { folders.push(rel); if (depth < 8) await walk(abs, depth + 1, true); continue; }
-        const at = info ?? await lstat(abs).catch(() => null);
-        if (at) files.push({ path: rel, kind: kindOf(entry.name), size: info ? info.size : 0, mtime: Math.round(at.mtimeMs) });
+        const own = await lstat(abs).catch(() => null);
+        const at = info ?? own;
+        /* `added`: when the link was made, not when what it leads to last changed */
+        if (at) files.push({ path: rel, kind: kindOf(entry.name), size: info ? info.size : 0, mtime: Math.round(at.mtimeMs), added: Math.round((own ?? at).mtimeMs) });
         continue;
       }
       if (entry.isDirectory()) {
@@ -202,7 +205,7 @@ export async function listFiles(root) {
       if (!entry.isFile()) continue;
       const info = await stat(abs).catch(() => null);
       if (!info) continue;
-      if (media) files.push({ path: rel, kind: kindOf(entry.name), size: info.size, mtime: Math.round(info.mtimeMs) });
+      if (media) files.push({ path: rel, kind: kindOf(entry.name), size: info.size, mtime: Math.round(info.mtimeMs), added: Math.round(info.mtimeMs) });
       /* the film is not one of its pages */
       else if (/\.html?$/i.test(entry.name) && rel !== FILM_FILE) pages.push({ path: rel, size: info.size, mtime: Math.round(info.mtimeMs) });
     }
@@ -513,7 +516,12 @@ export async function bringIn(root, into, paths, mode) {
     const part = join(dir, `.${basename(at)}.${process.pid}.importing`);
     try {
       if (info.isDirectory()) await cp(from, part, { recursive: true, mode: constants.COPYFILE_FICLONE, filter: (src) => !basename(src).startsWith('.') });
-      else await copyFile(from, part, constants.COPYFILE_FICLONE);
+      else {
+        await copyFile(from, part, constants.COPYFILE_FICLONE);
+        /* dated now, as it came in (a copy on Windows keeps the original's date): the pane lists it after the rest */
+        const now = new Date();
+        await utimes(part, now, now);
+      }
       await rename(part, at);
     } catch (e) {
       await rm(part, { recursive: true, force: true });

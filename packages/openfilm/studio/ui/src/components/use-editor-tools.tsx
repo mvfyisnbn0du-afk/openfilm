@@ -5,11 +5,11 @@
  * here; the edits go through the page's own edit, one write and one undo step each.
  */
 import * as React from 'react';
-import { AudioLines, Flag, Replace, Snowflake } from 'lucide-react';
+import { AudioLines, Flag, HardDriveUpload, Replace, Snowflake } from 'lucide-react';
 
 import { api, type Clip, type Film, type Op, type ProjectSettings } from '@/api';
 import { useT } from '@/i18n';
-import { canReplace, replaceClip, type ReplaceFile } from '@/lib/clip-replace';
+import { canReplace, familyOfClip, replaceClip, type ReplaceFamily, type ReplaceFile } from '@/lib/clip-replace';
 import { freezeSourceMs, planFreeze } from '@/lib/freeze-frame';
 import { LOUDNESS_TARGETS, measuredSpan, normalizeVolume } from '@/lib/loudness';
 import {
@@ -30,6 +30,10 @@ import { ClipMarkers, MarkersButton, RulerMarkers, type MarkerActions } from './
 
 type Toast = { show: (text: string) => void; showError: (text: string) => void };
 
+/** A file brought in to replace a clip: how long its length is waited for, and how long the file itself. */
+const REPLACE_PROBE_MS = 8000;
+const REPLACE_GIVE_UP_MS = 30_000;
+
 /** The timeline's own heights, by kind of track (Timeline's TRACK_H). */
 const OWN_H = TRACK_SIZES.medium;
 
@@ -39,7 +43,7 @@ const sounding = (b: TimelineBlock) => Boolean(b.clipId && b.loc && b.src) && (
 ) && b.volume !== 0;
 
 export function useEditorTools({
-  projectId, tracks, film, settings, patchSettings, player, timeRef, seek, edit, record, editModel, selectedClipIds, listing, toast,
+  projectId, tracks, film, settings, patchSettings, player, timeRef, seek, edit, record, editModel, selectedClipIds, listing, toast, pickFile,
 }: {
   projectId: string;
   tracks: readonly TimelineTrack[];
@@ -58,6 +62,11 @@ export function useEditorTools({
   /** the project's media and pages, with their lengths as probed */
   listing: MediaListing | null;
   toast: Toast;
+  /**
+   * A file from this computer, to replace a clip with: the person picks it, it is brought into the project, and its
+   * path there comes back (null: cancelled). Missing: the replace menu has only the project's files.
+   */
+  pickFile?: (family: ReplaceFamily) => Promise<string | null>;
 }) {
   const t = useT();
   /* what can take a clip's place: the media and the pages */
@@ -271,6 +280,54 @@ export function useEditorTools({
   }, [edit, toast, t]);
   const onReplaceDrop = React.useCallback((block: TimelineBlock, file: ReplaceFile) => { void replace(block, file); }, [replace]);
 
+  /* a file from this computer: brought in first, then put in the clip's place once the listing has it with its length
+     (probed after it lands); a file whose length never comes is used as it is after a while */
+  const pendingReplace = React.useRef<{ block: TimelineBlock; path: string; since: number } | null>(null);
+  const [replaceWait, setReplaceWait] = React.useState(0);
+  const tryPendingReplace = React.useCallback(() => {
+    const wait = pendingReplace.current;
+    if (!wait) return;
+    const file = media.find((f) => f.path === wait.path);
+    const late = Date.now() - wait.since > REPLACE_PROBE_MS;
+    if (!file) {
+      if (Date.now() - wait.since > REPLACE_GIVE_UP_MS) { pendingReplace.current = null; toast.showError(t('assets.uploadFailed')); }
+      return;
+    }
+    const timed = file.kind === 'video' || file.kind === 'audio';
+    if (timed && !(file.durationMs && file.durationMs > 0) && !late) return;
+    pendingReplace.current = null;
+    void replace(wait.block, file);
+  }, [media, replace, toast, t]);
+  React.useEffect(() => { tryPendingReplace(); }, [tryPendingReplace, replaceWait]);
+  React.useEffect(() => {
+    if (!replaceWait) return undefined;
+    const timer = window.setInterval(() => { if (pendingReplace.current) tryPendingReplace(); else window.clearInterval(timer); }, 500);
+    return () => window.clearInterval(timer);
+  }, [replaceWait, tryPendingReplace]);
+  const replaceFromComputer = React.useCallback(async (block: TimelineBlock) => {
+    const clip: Clip | undefined = filmRef.current?.tracks.flatMap((tr) => tr.clips).find((c) => c.id === block.clipId);
+    if (!clip || !pickFile) return;
+    let path: string | null;
+    try { path = await pickFile(familyOfClip(clip)); } catch (e) { toast.showError(e instanceof Error && e.message ? e.message : t('assets.uploadFailed')); return; }
+    if (!path) return;
+    pendingReplace.current = { block, path, since: Date.now() };
+    setReplaceWait((n) => n + 1);
+  }, [pickFile, toast, t]);
+
+  /** What can take a clip's place: the project's files that fit, then one from this computer. */
+  const replaceEntries = React.useCallback((block: TimelineBlock): ContextMenuEntry[] => {
+    const clip = block.clipId ? filmRef.current?.tracks.flatMap((tr) => tr.clips).find((c) => c.id === block.clipId) : undefined;
+    if (!clip) return [];
+    const fits = media.filter((f) => canReplace(clip, f));
+    return [
+      ...fits.slice(0, 20).map((f) => ({ id: `replace:${f.path}`, label: f.name, onSelect: () => { void replace(block, f); } })),
+      ...(pickFile ? [
+        ...(fits.length ? [{ id: 'replace-sep', separator: true as const }] : []),
+        { id: 'replace-computer', label: t('editorTools.replaceFromComputer'), icon: <HardDriveUpload size={14} />, onSelect: () => { void replaceFromComputer(block); } },
+      ] : []),
+    ];
+  }, [media, replace, replaceFromComputer, pickFile, t]);
+
   /** What the tools add to a clip's menu. */
   const menuExtra = React.useCallback((blocks: readonly TimelineBlock[]): ContextMenuEntry[] => {
     const out: ContextMenuEntry[] = [];
@@ -294,21 +351,20 @@ export function useEditorTools({
       out.push({ id: 'freeze', label: t('editorTools.freeze'), icon: <Snowflake size={14} />, disabled: !inside, hint: t('editorTools.freezeOutside'), onSelect: () => { void freeze(one); } });
     }
     if (one?.clipId) {
-      const clip = filmRef.current?.tracks.flatMap((tr) => tr.clips).find((c) => c.id === one.clipId);
-      const fits = clip ? media.filter((f) => canReplace(clip, f)) : [];
+      const choices = replaceEntries(one);
       out.push({
         id: 'replace',
         label: t('editorTools.replace'),
         icon: <Replace size={14} />,
-        disabled: !fits.length,
+        disabled: !choices.length,
         hint: t('editorTools.replaceNone'),
-        submenu: fits.slice(0, 20).map((f) => ({ id: `replace:${f.path}`, label: f.name, onSelect: () => { void replace(one, f); } })),
+        submenu: choices,
       });
       const on = atMs >= one.startMs && atMs < one.endMs;
       out.push({ id: 'clip-marker', label: t('editorTools.markerAddClip'), icon: <Flag size={14} />, shortcut: 'M', disabled: !on, hint: t('editorTools.freezeOutside'), onSelect: () => addMarkerHere(one) });
     }
     return out;
-  }, [measuring, media, normalize, freeze, replace, addMarkerHere, timeRef, t]);
+  }, [measuring, media, normalize, freeze, replaceEntries, addMarkerHere, timeRef, t]);
 
   /* ── what the timeline draws ── */
   const clipMarkersByTrack = React.useMemo(() => {
@@ -340,6 +396,8 @@ export function useEditorTools({
     tracks: shownTracks,
     timeline: { solo: soloProp, rulerOverlay, trackOverlay, toolbarExtra, snapPointsMs, onResizeTrack, onReplaceDrop },
     menuExtra,
+    /** what can replace a clip (the inspector's Replace) */
+    replaceEntries,
     headMenuExtra,
     onKey,
     levels,

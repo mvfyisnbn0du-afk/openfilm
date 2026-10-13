@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { readFilm } from '../../../../src/film-doc.mjs';
 import { applyOps } from '../../../server/ops.mjs';
 import type { Clip } from '../api.ts';
-import { canReplace, replaceClip } from './clip-replace.ts';
+import { canReplace, familyOfClip, replaceClip } from './clip-replace.ts';
 
 /* the edits applied by the server's own code, and the film read back strictly, as a host reads film.html */
 const replaced = (clip: Clip, durMs: number, file: Parameters<typeof replaceClip>[2]) => {
@@ -51,4 +51,11 @@ test('a sound takes a sound, or a video\'s own sound; never a picture', () => {
   assert.deepEqual(replaceClip(bed, 10_000, { path: 'assets/still.png', kind: 'image' }), { error: 'kind' });
   assert.equal(canReplace(shot, { path: 'assets/bed.mp3', kind: 'audio' }), false);
   assert.deepEqual(replaceClip(shot, 2000, { path: 'assets/a.mp4', kind: 'video' }), { error: 'same' });
+});
+
+test('a clip is replaced from its family: a sound by a sound, a picture by a picture', () => {
+  assert.equal(familyOfClip({ src: 'assets/bed.m4a' }), 'sound');
+  assert.equal(familyOfClip({ src: 'assets/take.mp4', sound: true }), 'sound');
+  assert.equal(familyOfClip({ src: 'assets/take.mp4' }), 'picture');
+  assert.equal(familyOfClip({ src: 'scenes/title.html' }), 'picture');
 });

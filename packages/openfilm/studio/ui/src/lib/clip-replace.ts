@@ -14,10 +14,11 @@ export type ReplacePlan =
   | { edits: { prop: string; value: PropValue }[]; shortMs: number }
   | { error: 'kind' | 'same' };
 
-type Family = 'picture' | 'sound';
+export type ReplaceFamily = 'picture' | 'sound';
 
 const isSoundFile = (f: ReplaceFile) => f.kind === 'audio';
-const familyOfClip = (clip: Pick<Clip, 'src' | 'sound'>): Family => (clip.sound || /\.(mp3|m4a|aac|wav|ogg|oga|opus|flac|aif|aiff)$/i.test(clip.src) ? 'sound' : 'picture');
+/** What can take a clip's place: a picture (a video, a still, a page) or a sound (a sound file, a video's sound). */
+export const familyOfClip = (clip: Pick<Clip, 'src' | 'sound'>): ReplaceFamily => (clip.sound || /\.(mp3|m4a|aac|wav|ogg|oga|opus|flac|aif|aiff)$/i.test(clip.src) ? 'sound' : 'picture');
 
 /** Whether `file` can take the place of `clip`. */
 export function canReplace(clip: Pick<Clip, 'src' | 'sound'>, file: ReplaceFile): boolean {

@@ -1,6 +1,6 @@
 import { test, beforeEach } from 'node:test';
 import assert from 'node:assert/strict';
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, symlinkSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, symlinkSync, utimesSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { Readable } from 'node:stream';
@@ -342,4 +342,23 @@ test('files copied in from this computer: a copy each under a free name, the ori
   assert.equal(readFileSync(join(disk, 'a.png'), 'utf8'), 'pic');
   await assert.rejects(bringIn(root, 'scenes', [join(disk, 'a.png')], 'copy'), FileError);
   await assert.rejects(bringIn(root, 'assets', ['a.png'], 'copy'), FileError);
+});
+
+test('media is dated when it came into the project: a copy now, a link when it was made', links, async () => {
+  const away = mkdtempSync(join(tmpdir(), 'of-away-'));
+  for (const name of ['old.mp4', 'linked.mp4']) {
+    writeFileSync(join(away, name), name);
+    utimesSync(join(away, name), new Date('2020-01-01'), new Date('2020-01-01'));
+  }
+  put('assets/here.png');
+  const before = Date.now() - 2000;
+  await bringIn(root, 'assets', [join(away, 'old.mp4')], 'copy');
+  await bringIn(root, 'assets', [join(away, 'linked.mp4')], 'link');
+  const { files } = await listFiles(root);
+  const of = (path) => files.find((f) => f.path === path);
+  assert.ok(of('assets/old.mp4').added >= before, 'a copy is dated now, not as the original');
+  assert.ok(of('assets/linked.mp4').added >= before, 'a link is dated when it was made');
+  /* what a link leads to keeps its own date: its pictures are made again when it changes */
+  assert.equal(of('assets/linked.mp4').mtime, new Date('2020-01-01').getTime());
+  assert.equal(of('assets/here.png').added, of('assets/here.png').mtime);
 });

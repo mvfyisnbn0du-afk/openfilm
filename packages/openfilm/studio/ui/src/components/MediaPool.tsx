@@ -88,16 +88,20 @@ const filterOf = (f: WorkspaceResource): Filter => (f.kind === 'mg' ? 'page' : f
 
 /** `layout`: tiles in a grid, or rows of a list (name, length, kind). */
 interface ViewState { sort: SortKey; filter: Filter; layout: 'grid' | 'list' }
-const viewKey = (projectId: string) => `openfilm.media.${projectId}`;
+/* v2: the order became "as added" by default. A view kept before it (saved whether chosen or not) keeps its filter and
+   layout, not its order */
+const viewKey = (projectId: string) => `openfilm.media.v2.${projectId}`;
+const oldViewKey = (projectId: string) => `openfilm.media.${projectId}`;
 function loadView(projectId: string): ViewState {
   try {
-    const raw = JSON.parse(window.localStorage.getItem(viewKey(projectId)) ?? 'null') as Partial<ViewState> | null;
+    const kept = window.localStorage.getItem(viewKey(projectId));
+    const raw = JSON.parse(kept ?? window.localStorage.getItem(oldViewKey(projectId)) ?? 'null') as Partial<ViewState> | null;
     return {
-      sort: SORTS.includes(raw?.sort as SortKey) ? raw!.sort as SortKey : 'name',
+      sort: kept && SORTS.includes(raw?.sort as SortKey) ? raw!.sort as SortKey : 'time',
       filter: FILTERS.includes(raw?.filter as Filter) ? raw!.filter as Filter : 'all',
       layout: raw?.layout === 'list' ? 'list' : 'grid',
     };
-  } catch { return { sort: 'name', filter: 'all', layout: 'grid' }; }
+  } catch { return { sort: 'time', filter: 'all', layout: 'grid' }; }
 }
 
 type Item = { type: 'folder'; rel: string; name: string; count: number; covers: WorkspaceResource[] } | { type: 'file'; file: WorkspaceResource };
@@ -258,7 +262,8 @@ export function MediaPool({
     if (!allFiles) return null;
     const q = query.trim();
     const order = (a: WorkspaceResource, b: WorkspaceResource) => {
-      if (view.sort === 'time') return b.mtimeMs - a.mtimeMs;
+      /* as added: the oldest first, what comes in goes last */
+      if (view.sort === 'time') return (a.addedMs ?? a.mtimeMs) - (b.addedMs ?? b.mtimeMs) || a.name.localeCompare(b.name, undefined, { numeric: true });
       if (view.sort === 'duration') return (b.durationMs ?? -1) - (a.durationMs ?? -1);
       if (view.sort === 'type') return filterOf(a).localeCompare(filterOf(b)) || a.name.localeCompare(b.name);
       return a.name.localeCompare(b.name, undefined, { numeric: true });
@@ -372,11 +377,22 @@ export function MediaPool({
       return all.filter((u) => !gone(u));
     });
   }, []);
-  /* a card gives way to the file once the listing has it (or a while after it landed, if it never shows here) */
+  const uploadsRef = React.useRef(uploads);
+  uploadsRef.current = uploads;
+  /* a card gives way to the file once the listing has it (or a while after it landed, if it never shows here); what
+     came in is selected and scrolled to, so it is found among many */
   React.useEffect(() => {
     if (!media) return;
     const have = new Set([...media.files.map((f) => f.path), ...media.dirs.map((d) => `${media.dir}/${d}`)]);
+    const arrived = uploadsRef.current.flatMap((u) => (u.landed && have.has(u.landed) ? [u.landed] : []));
     dropUploads((u) => Boolean(u.landed && have.has(u.landed)));
+    if (!arrived.length) return undefined;
+    setPicked(arrived);
+    anchor.current = arrived[arrived.length - 1]!;
+    const frame = requestAnimationFrame(() => {
+      gridRef.current?.querySelector(`[data-media-key="${CSS.escape(arrived[arrived.length - 1]!)}"]`)?.scrollIntoView({ block: 'nearest' });
+    });
+    return () => cancelAnimationFrame(frame);
   }, [media, dropUploads]);
   const landedCount = uploads.filter((u) => u.landed).length;
   React.useEffect(() => {
@@ -384,8 +400,6 @@ export function MediaPool({
     const timer = window.setTimeout(() => dropUploads((u) => Boolean(u.landed)), 5000);
     return () => window.clearTimeout(timer);
   }, [landedCount, dropUploads]);
-  const uploadsRef = React.useRef(uploads);
-  uploadsRef.current = uploads;
   React.useEffect(() => () => { for (const u of uploadsRef.current) if (u.preview) URL.revokeObjectURL(u.preview); }, []);
   /** Files on their way into a folder or one inside it: their progress together, for its cover. */
   const progressInto = (rel: string) => {

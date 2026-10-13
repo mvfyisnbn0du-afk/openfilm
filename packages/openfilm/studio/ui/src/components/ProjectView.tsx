@@ -16,6 +16,7 @@ import { Player } from '@/editor/player';
 import { Preview, type FilmInfo, type PreviewHandle } from '@/editor/Preview';
 import { filmShape, type MediaFacts } from '@/lib/film-shape';
 import { changesPicture } from '@/lib/picture-files';
+import type { ReplaceFamily } from '@/lib/clip-replace';
 import { layoutTracks, type TimelineBlock, type TimelineTrack } from '@/lib/timeline-layout';
 import { filmClipKind, filmSrcIsPage, filmSrcKind, filmTrackBadges, parseFilmDocLoc, type FilmBox, type FilmDoc } from '@/lib/film';
 import { footageFps, setTimecodeFps, snapToFrame, stepFrames } from '@/lib/timecode';
@@ -999,10 +1000,13 @@ export function ProjectView({ projectId, onProject, onLeave }: {
     const doomed = blocksRef.current.filter((b) => !!b.src && paths.some((p) => srcHitsAsset(b.src!, p)));
     return doomed.length ? removeBlocks(doomed) : Promise.resolve(null);
   }, [removeBlocks]);
-  /* markers, solo, track heights, loudness, freeze frame, replace (use-editor-tools) */
+  /* markers, solo, track heights, loudness, freeze frame, replace (use-editor-tools); a replacement from this computer
+     is picked and brought in as the media pane's Import does (pickReplacement, below) */
+  const pickReplacementRef = React.useRef<(family: ReplaceFamily) => Promise<string | null>>(async () => null);
+  const pickReplacement = React.useCallback((family: ReplaceFamily) => pickReplacementRef.current(family), []);
   const tools = useEditorTools({
     projectId, tracks: timelineTracks, film: film.film, settings, patchSettings, player, timeRef, seek, edit: editOps, record: film.record,
-    editModel, selectedClipIds: selectedKeys, listing, toast,
+    editModel, selectedClipIds: selectedKeys, listing, toast, pickFile: pickReplacement,
   });
 
   /* how many of the person's edits an outside write undid: edits inside pages it left out, and clip edits it changed */
@@ -1717,6 +1721,26 @@ export function ProjectView({ projectId, onProject, onLeave }: {
     }
     return landed;
   }, [projectApi, t, toast, onBring]);
+  pickReplacementRef.current = async (family) => {
+    /* the system's dialog where there is one (the app, or Studio on this computer), else the browser's */
+    const picked = await onPick(t('editorTools.replacePick'), false);
+    if (picked !== 'no-dialog') {
+      if (!picked.length) return null;
+      const [at] = await onBring([picked[0]!], 'assets', 'copy');
+      return at ?? null;
+    }
+    const file = await new Promise<File | null>((done) => {
+      const input = document.createElement('input');
+      input.type = 'file';
+      input.accept = family === 'sound' ? 'audio/*,video/*' : 'video/*,image/*,.html,.htm';
+      input.addEventListener('change', () => done(input.files?.[0] ?? null));
+      input.addEventListener('cancel', () => done(null));
+      input.click();
+    });
+    if (!file) return null;
+    const [at] = await onImport([file], 'assets', () => {});
+    return at ?? null;
+  };
 
   /* ── files dropped from the computer: imported into assets/ (the media pane's own import), then put on the film ── */
   /** A file just imported, as the media pane would hand it to a drop: its kind from its name, its length and size probed. */
@@ -2576,6 +2600,7 @@ export function ProjectView({ projectId, onProject, onLeave }: {
                       onSelectClip={selectStageClip}
                       onPreviewClip={previewClip}
                       pageChangesOf={pageChangesOf}
+                      replaceEntries={tools.replaceEntries}
                       clipLookOf={clipLookOf}
                       onPreviewLook={previewLook}
                       onStartCrop={startStageCrop}

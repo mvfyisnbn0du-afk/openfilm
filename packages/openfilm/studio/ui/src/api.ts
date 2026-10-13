@@ -22,7 +22,7 @@ export type Track = { clips: Clip[]; locked?: boolean; hidden?: boolean; muted?:
 export type Film = { stage?: { w: number; h: number }; tracks: Track[] };
 /** `value`: film.html as read, every clip named (a clip with no id takes its file's name, as the server and preview do). */
 export type ProjectFilm = { project: Project; folder: string; text: string; rev: string; value: Film | null; doc: Film | null; problems: string[] };
-export type MediaFile = { path: string; kind: 'video' | 'image' | 'audio' | 'page' | 'other'; size: number; mtime: number };
+export type MediaFile = { path: string; kind: 'video' | 'image' | 'audio' | 'page' | 'other'; size: number; mtime: number; added?: number };
 /** A project's editor settings (studio/server/project-settings.mjs). */
 export type ProjectSettings = { fps?: number; trackNames?: { name: string; index: number; clips: string[] }[]; trackHeights?: { height: number; index: number; clips: string[] }[] };
 export type Listing = { files: MediaFile[]; folders: string[]; pages: { path: string; size: number; mtime: number }[] };

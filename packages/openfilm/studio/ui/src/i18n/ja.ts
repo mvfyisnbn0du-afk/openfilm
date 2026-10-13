@@ -738,7 +738,7 @@ export const ja: Words = {
     copyPath: 'パスをコピー',
     dropHint: 'ドロップしてこのプロジェクトに読み込み',
     sort_name: '名前',
-    sort_time: '変更日',
+    sort_time: '追加日',
     sort_duration: 'デュレーション',
     sort_type: '種類',
     moveTo: "移動先",
@@ -1278,6 +1278,9 @@ export const ja: Words = {
     replaceNone: "置き換えられるファイルがプロジェクトにありません",
     replaceKind: "映像は映像で、音は音で置き換えます",
     replaceShort: "新しいファイルのほうが短いため、クリップが {s} 秒短くなりました",
+    replaceButton: "置き換え",
+    replaceFromComputer: "このコンピュータから…",
+    replacePick: "クリップと置き換えるファイルを選択",
   },
   /* a clip's attributes copied onto others (lib/clip-attrs, components/PasteAttrsDialog), as CapCut's */
   clipAttrs: {

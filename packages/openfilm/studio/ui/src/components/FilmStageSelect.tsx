@@ -1967,7 +1967,10 @@ function FilmStageSelectImpl({
       const d = draftRef.current = { ...draftRef.current, x2: x, y2: y };
       setDraft(d);
       const area = { x: Math.min(d.x1, d.x2) / vs, y: Math.min(d.y1, d.y2) / vs, w: Math.abs(d.x2 - d.x1) / vs, h: Math.abs(d.y2 - d.y1) / vs };
-      marqueeQueue.push(area.w >= MARQUEE_MIN_PX && area.h >= MARQUEE_MIN_PX ? area : null);
+      const open = area.w >= MARQUEE_MIN_PX && area.h >= MARQUEE_MIN_PX;
+      /* a box pulled open from the dark around the picture: the film stops now (see pressDown) */
+      if (open && pauseWhenOpen.current) { pauseWhenOpen.current = false; onPause?.(); }
+      marqueeQueue.push(open ? area : null);
       return;
     }
     /* with a clip in hand too: what is in it and around it is still found (its own outline is its frame) */
@@ -2209,6 +2212,7 @@ function FilmStageSelectImpl({
     }
     const start = draftRef.current;
     if (!start) return;
+    pauseWhenOpen.current = false;
     e.stopPropagation();
     const p = local(e);
     const box = { left: Math.min(start.x1, p.x), top: Math.min(start.y1, p.y), width: Math.abs(p.x - start.x1), height: Math.abs(p.y - start.y1) };
@@ -2426,18 +2430,24 @@ function FilmStageSelectImpl({
   /**
    * A press: on the picture, or on the dark around it (a marquee starts there too, as on Figma's canvas, so what sits
    * at an edge can be boxed whole). The moves and the release then come to the overlay, which holds the pointer.
+   * `outside`: in the dark, where nothing can be clicked, only a box drawn: the film plays on until the box is pulled
+   * open (a click there only lets the selection go).
    */
-  const pressDown = (e: PressEvent) => {
+  const pauseWhenOpen = React.useRef(false);
+  const pressDown = (e: PressEvent, outside = false) => {
       if (e.button !== 0) return;
       e.stopPropagation();
       /* pause at the press, not the release: a clock still running would move the selection off under the hand */
-      onPause?.();
+      pauseWhenOpen.current = outside;
+      if (!outside) onPause?.();
       const p = local(e);
       /* the first press of a double-click is kept: the second one lands where the picture has moved to */
       const prev = lastPressRef.current;
       if (!prev || e.timeStamp - prev.at > DOUBLE_PRESS_MS) lastPressRef.current = { x: p.x / viewScaleNow(), y: p.y / viewScaleNow(), at: e.timeStamp };
       /* ⌘ held: a box to point at in the chat, whatever is under the press (nothing is selected or moved) */
       if (onRegion && regionKeyHeld(e)) {
+        /* a box for the chat is meant at once, wherever it starts */
+        if (outside) { pauseWhenOpen.current = false; onPause?.(); }
         host.current?.setPointerCapture(e.pointerId);
         regionDraftRef.current = { x1: p.x, y1: p.y, x2: p.x, y2: p.y };
         setRegionDraft(regionDraftRef.current);
@@ -2661,7 +2671,7 @@ function FilmStageSelectImpl({
       /* only the dark around the picture: what lies over the picture (the subtitles) has its own presses */
       const r = filmRect();
       if (r && e.clientX >= r.left && e.clientX <= r.right && e.clientY >= r.top && e.clientY <= r.bottom) return;
-      pressDownRef.current(e);
+      pressDownRef.current(e, true);
     };
     area.addEventListener('pointerdown', onDown);
     return () => area.removeEventListener('pointerdown', onDown);

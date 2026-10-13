@@ -19,7 +19,7 @@ import {
   AlignCenterHorizontal, AlignCenterVertical, AlignEndHorizontal, AlignEndVertical, AlignHorizontalDistributeCenter,
   AlignStartHorizontal, AlignStartVertical, AlignVerticalDistributeCenter, ArrowRightToLine, AudioLines, Captions,
   Check, ChevronRight, CircleAlert, Clapperboard, Copy, Film, Gauge, Image as ImageIcon, Link2, Maximize2, MousePointerClick,
-  Lock, MoveHorizontal, Music, RotateCcw, Scissors, Shapes, Sparkles, Square, Type, Unlink2, Video, Volume2, X,
+  Lock, MoveHorizontal, Music, Replace, RotateCcw, Scissors, Shapes, Sparkles, Square, Type, Unlink2, Video, Volume2, X,
 } from 'lucide-react';
 
 import {
@@ -46,6 +46,7 @@ import { CANVAS_RATIOS, canvasRatioLabel, shaped } from './FramePicker';
 import { declared, withDeclarations, type ClipLook } from '@/lib/clip-look';
 import { PANE_BAR, PANE_BTN, PANE_ICON, PANE_TITLE } from './dock-pane-bar';
 import { Tooltip } from './Tooltip';
+import { ContextMenu, type ContextMenuEntry } from './ContextMenu';
 import {
   ICON, MIXED, NumField, Row, RotateGlyph, Section, SectionAction, Segmented, SliderField,
   useTimeUnit, type FieldApply, type Mixed,
@@ -152,6 +153,7 @@ export const FilmInspector = React.memo(function FilmInspector({
   onSelectClip,
   onPreviewClip,
   pageChangesOf,
+  replaceEntries,
   clipLookOf,
   onPreviewLook,
   stage,
@@ -207,6 +209,8 @@ export const FilmInspector = React.memo(function FilmInspector({
   onPreviewClip?: (clipLoc: string, patch: Partial<MgTransform> | null) => void;
   /** A page clip's in-page changes (film.html `overrides`) and which of them its page no longer has. */
   pageChangesOf?: (clipLoc: string) => PageChanges | null;
+  /** What can take a clip's place (the project's files, one from this computer): the clip's Replace button. */
+  replaceEntries?: (block: TimelineBlock) => ContextMenuEntry[];
   /** A clip's own CSS and `class` in film.html and how it looks now (see clip-look): its look sections read them. */
   clipLookOf?: (clipLoc: string) => { css: string; look: ClipLook | null; cls?: string } | null;
   /** Shows a clip in CSS not kept yet while a look value is dragged (null: its own again). */
@@ -300,6 +304,7 @@ export const FilmInspector = React.memo(function FilmInspector({
             onEdit={onEditClips}
             onPreviewClip={onPreviewClip}
             {...(pageChangesOf ? { pageChangesOf } : {})}
+            {...(replaceEntries ? { replaceEntries } : {})}
             {...(clipLookOf ? { clipLookOf } : {})}
             {...(onPreviewLook ? { onPreviewLook } : {})}
             {...(onStartCrop ? { onStartCrop } : {})}
@@ -520,7 +525,7 @@ function clipKindLabel(t: T, what: ClipWhat): string {
  * badge; the rest (kind, time, source file) is one gray line under it.
  */
 function Header({
-  icon, name, meta, mono, badge,
+  icon, name, meta, mono, badge, action,
 }: {
   icon: React.ReactNode;
   name: string;
@@ -529,6 +534,8 @@ function Header({
   mono?: string;
   /** The track it is on (V1). */
   badge?: string;
+  /** A button at the right (a clip's Replace). */
+  action?: React.ReactNode;
 }) {
   return (
     <div className="flex items-center gap-2 px-3 pb-2 pt-2.5">
@@ -546,6 +553,7 @@ function Header({
           {mono ? `${meta} · ${mono}` : meta}
         </div>
       </div>
+      {action}
     </div>
   );
 }
@@ -1334,9 +1342,10 @@ function clipsLook(
  * can only be looked at.
  */
 function ClipPanel({
-  block, onMain, geometry, stage, badges, onEdit, onPreviewClip, pageChangesOf, clipLookOf, onPreviewLook, onStartCrop, onEditMask, maskAsk, onMaskAsked, fades,
+  block, onMain, geometry, stage, badges, onEdit, onPreviewClip, pageChangesOf, replaceEntries, clipLookOf, onPreviewLook, onStartCrop, onEditMask, maskAsk, onMaskAsked, fades,
 }: {
   fades?: ReadonlyMap<string, FadeMs>;
+  replaceEntries?: (block: TimelineBlock) => ContextMenuEntry[];
   block: TimelineBlock;
   /** On the main track, where the magnet acts. */
   onMain: boolean;
@@ -1389,6 +1398,7 @@ function ClipPanel({
         meta={`${clipKindLabel(t, what)} · ${formatTimecode(block.startMs)} – ${formatTimecode(block.endMs)}`}
         {...(block.src ? { mono: block.src } : {})}
         {...(badge ? { badge } : {})}
+        {...(editable && block.clipId && replaceEntries ? { action: <ReplaceButton block={block} entries={replaceEntries} t={t} /> } : {})}
       />
       {refusal ? (
         <RefusalBanner message={refusal} onDismiss={() => setRefusal(null)} t={t} />
@@ -1470,6 +1480,32 @@ function ClipPanel({
           ) : null}
         </>
       )}
+    </>
+  );
+}
+
+/** A clip's Replace: another file of the project in its place, or one from this computer (use-editor-tools). */
+function ReplaceButton({ block, entries, t }: { block: TimelineBlock; entries: (block: TimelineBlock) => ContextMenuEntry[]; t: T }) {
+  const ref = React.useRef<HTMLButtonElement>(null);
+  const [menu, setMenu] = React.useState<{ x: number; y: number; top: number; items: ContextMenuEntry[] } | null>(null);
+  return (
+    <>
+      <button
+        ref={ref}
+        type="button"
+        aria-haspopup="menu"
+        aria-expanded={Boolean(menu)}
+        onClick={() => {
+          if (menu) { setMenu(null); return; }
+          const r = ref.current!.getBoundingClientRect();
+          setMenu({ x: r.right, y: r.bottom + 4, top: r.top - 4, items: entries(block) });
+        }}
+        className="flex h-6 shrink-0 items-center gap-1 rounded-[5px] px-1.5 text-[11px] text-[var(--text-muted)] transition hover:bg-[var(--fill-tsp)] hover:text-[var(--text)]"
+      >
+        <Replace size={12} />
+        {t('editorTools.replaceButton')}
+      </button>
+      {menu ? <ContextMenu x={menu.x} y={menu.y} flipTo={menu.top} align="end" dense items={menu.items} trigger={ref} onClose={() => setMenu(null)} /> : null}
     </>
   );
 }

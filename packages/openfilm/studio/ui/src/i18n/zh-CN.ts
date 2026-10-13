@@ -739,7 +739,7 @@ export const zhCN: Words = {
     copyPath: '复制路径',
     dropHint: '松开即可导入到此项目',
     sort_name: '名称',
-    sort_time: '修改日期',
+    sort_time: '添加时间',
     sort_duration: '时长',
     sort_type: '类型',
     moveTo: "移动到",
@@ -1279,6 +1279,9 @@ export const zhCN: Words = {
     replaceNone: "项目里没有可以替换它的文件",
     replaceKind: "画面只能用画面替换，声音只能用声音替换",
     replaceShort: "新文件更短：片段短了 {s} 秒",
+    replaceButton: "替换",
+    replaceFromComputer: "从电脑选择…",
+    replacePick: "选择用来替换的文件",
   },
   /* a clip's attributes copied onto others (lib/clip-attrs, components/PasteAttrsDialog), as CapCut's */
   clipAttrs: {

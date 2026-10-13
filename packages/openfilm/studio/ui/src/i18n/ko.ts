@@ -738,7 +738,7 @@ export const ko: Words = {
     copyPath: '경로 복사',
     dropHint: '놓으면 이 프로젝트로 가져옵니다',
     sort_name: '이름',
-    sort_time: '수정한 날짜',
+    sort_time: '추가한 날짜',
     sort_duration: '길이',
     sort_type: '유형',
     moveTo: "이동",
@@ -1278,6 +1278,9 @@ export const ko: Words = {
     replaceNone: "프로젝트에 대신할 수 있는 파일이 없습니다",
     replaceKind: "화면은 화면으로, 소리는 소리로 바꿉니다",
     replaceShort: "새 파일이 더 짧아 클립이 {s}초 짧아졌습니다",
+    replaceButton: "바꾸기",
+    replaceFromComputer: "이 컴퓨터에서…",
+    replacePick: "클립을 바꿀 파일 선택",
   },
   /* a clip's attributes copied onto others (lib/clip-attrs, components/PasteAttrsDialog), as CapCut's */
   clipAttrs: {
