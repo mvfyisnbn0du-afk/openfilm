@@ -317,12 +317,13 @@ export class LocalAgentTurn {
     this.lastEventAt = Date.now();
     const kind = update.sessionUpdate;
     const closed = kind !== 'agent_thought_chunk' && this.closeThought();
-    if (kind === 'tool_call' || kind === 'agent_thought_chunk' || kind === 'plan') {
+    if (kind === 'tool_call' || kind === 'agent_thought_chunk' || kind === 'plan' || kind === 'notice') {
       if (this.lastWasText) this.part += 1;
       this.lastWasText = false;
     }
     if (kind === 'agent_thought_chunk') { this.think(update); return; }
     if (kind === 'plan') { this.plan(update); return; }
+    if (kind === 'notice') { this.agentNotice(update); return; }
     const callId = (update as { toolCallId?: unknown }).toolCallId;
     const tool = kind === 'tool_call_update' && callId != null
       ? this.calls.get(String(callId))?.tool
@@ -430,6 +431,25 @@ export class LocalAgentTurn {
     else if (plan.length) this.items = [...this.items, { id, kind: 'plan', plan, turnNo: this.turnNo, pending: false, startedAt: Date.now() }];
     this.emit();
   }
+
+  /**
+   * A note from the agent itself (ACP `notice`: Codex's warnings, its context compaction), in its own words. It
+   * is not part of the reply, so it gets its own row.
+   */
+  private agentNotice(update: AcpUpdate): void {
+    const { title, description } = update as { title?: unknown; description?: unknown };
+    const text = [title, description]
+      .filter((s): s is string => typeof s === 'string' && s.trim() !== '')
+      .map((s) => s.trim())
+      .join(' — ');
+    if (text) {
+      this.noticeNo += 1;
+      this.items = [...this.items, { id: `notice:${this.turnNo}:agent:${this.noticeNo}`, kind: 'notice', text, turnNo: this.turnNo, pending: false, startedAt: Date.now() }];
+    }
+    this.emit();
+  }
+
+  private noticeNo = 0;
 
   /** Later fields make the row clearer (Codex sends an edit's diff later, and the title may change). */
   private refineAct(update: AcpUpdate): void {

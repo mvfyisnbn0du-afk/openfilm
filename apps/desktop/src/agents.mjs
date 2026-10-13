@@ -509,6 +509,16 @@ export function formContent(questions, answers) {
   return content;
 }
 
+/** What the app tells each agent, as it shakes hands, that the chat can do. */
+export const CLIENT_CAPABILITIES = {
+  fs: { readTextFile: false, writeTextFile: false }, terminal: false, elicitation: { form: {} },
+  /* the agent's own warnings (Codex: "Falling back from WebSockets…") come as notices, not as words in its reply */
+  session: { notices: {} },
+  /* Claude Code's "recommended value" extension: its model and effort lists come without a "Default" row, the
+     current value named for what it is */
+  _meta: { jetbrains: { air: { version: 1, capabilities: ['recommendedValue'] } } },
+};
+
 /** ACP's auth_required: the agent wants its own sign-in first. */
 const AUTH_REQUIRED = -32000;
 
@@ -626,12 +636,7 @@ export class AgentSession {
 
     const init = await this.conn.agent.request(acp.methods.agent.initialize, {
       protocolVersion: acp.PROTOCOL_VERSION,
-      clientCapabilities: {
-        fs: { readTextFile: false, writeTextFile: false }, terminal: false, elicitation: { form: {} },
-        /* Claude Code's "recommended value" extension: its model and effort lists come without a "Default" row, the
-           current value named for what it is */
-        _meta: { jetbrains: { air: { version: 1, capabilities: ['recommendedValue'] } } },
-      },
+      clientCapabilities: CLIENT_CAPABILITIES,
       clientInfo: { name: 'openfilm-desktop', title: 'OpenFilm', version: '0.1.0' },
     });
 

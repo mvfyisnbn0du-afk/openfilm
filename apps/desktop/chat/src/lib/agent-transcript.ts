@@ -54,6 +54,8 @@ export interface TranscriptItem {
    * These rows are not the agent speaking but a note the platform leaves in the conversation; today
    * there is one: earlier messages were summarized. It belongs in the conversation, because what it
    * says is that the agent no longer has the original of the text above it.
+   *
+   * A local agent's own notice (ACP `notice`, such as a Codex warning) has no key: its words are in `text`.
    */
   noticeKey?: string;
   text?: string;
@@ -260,7 +262,7 @@ export function toTraceLogItems(items: TranscriptItem[]): AgentActivityItem[] {
 
 function traceLogItem(item: TranscriptItem): AgentActivityItem {
   if (item.kind === 'notice') {
-    return { kind: 'notice' as const, id: item.id, label: item.noticeKey ?? '' };
+    return { kind: 'notice' as const, id: item.id, label: item.noticeKey ?? '', ...(item.text ? { text: item.text } : {}) };
   }
   if (item.kind === 'thought') {
     return {

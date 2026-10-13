@@ -33,7 +33,7 @@ export interface AgentActivityItem {
   /**
    * i18n token.
    *   · act    — `act.<name>`, a closed set (see AGENT_ACTS in @openfilm/shared)
-   *   · notice — the note the platform leaves
+   *   · notice — the note the platform leaves (empty for an agent's own notice: its words are in `text`)
    *   · text   — unused; the body is in `text`
    */
   label: string;
@@ -143,6 +143,8 @@ const AgentActivityRow = React.memo(function AgentActivityRow({
   /* A note the platform leaves in the conversation (today only "earlier messages were summarized").
      Drawn as a labeled divider: it marks that the agent no longer sees the original text above it. */
   if (item.kind === 'notice') {
+    /* A local agent's own notice (a Codex warning): its words, quiet, apart from what it says to the person */
+    if (item.text) return <p className="break-words py-1 text-[12px] leading-relaxed text-[var(--chat-hint)]">{item.text}</p>;
     return (
       <div className="flex items-center gap-2.5 py-1.5">
         <span className="h-px flex-1 bg-[var(--border)]" />

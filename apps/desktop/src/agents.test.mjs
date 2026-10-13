@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { allowOption, codexDeveloperInstructions, legacyOptions, readAgentStatus } from './agents.mjs';
+import { CLIENT_CAPABILITIES, allowOption, codexDeveloperInstructions, legacyOptions, readAgentStatus } from './agents.mjs';
 
 test('an agent that asks: yes for good where it offers that, else yes this once; nothing to say yes with is null', () => {
   const options = [
@@ -45,4 +45,14 @@ test("the person's own developer_instructions in Codex's config, read as TOML wr
   assert.equal(codexDeveloperInstructions('[profiles.work]\ndeveloper_instructions = "not at the top"\n'), null);
   assert.equal(codexDeveloperInstructions('model = "gpt"\n'), null);
   assert.equal(codexDeveloperInstructions(''), null);
+});
+
+test('the chat says it shows notices, so an agent sends its warnings as notices and not as words in its reply', async () => {
+  /* the SDK's own parser, which drops a malformed capability without a word */
+  const { zClientCapabilities } = await import(new URL('../node_modules/@agentclientprotocol/sdk/dist/schema/zod.gen.js', import.meta.url).href);
+  const parsed = zClientCapabilities.parse(CLIENT_CAPABILITIES);
+  /* the check Codex's adapter makes (codex-acp: clientSupportsNotices) */
+  const notices = parsed.session?.notices;
+  assert.ok(typeof notices === 'object' && notices !== null && !Array.isArray(notices));
+  assert.deepEqual(parsed.elicitation, { form: {} });
 });
