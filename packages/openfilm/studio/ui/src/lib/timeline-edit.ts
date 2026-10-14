@@ -902,9 +902,10 @@ export function planMove(model: EditModel, spec: MoveSpec): (EditPlan & { landMs
     : spec.magnet && mainIndex != null && spans.has(mainIndex) ? new Map([[mainIndex, spans.get(mainIndex)!]]) : null;
   const shifts = closing ? closeSpans(d, closing, spec) : [];
   if (spec.mode === 'insert' && typeof mainDest === 'number') {
-    /* the insert point, worked out on the track as it was (where the hand is), then carried through the lift */
-    const point = insertPointOn(model, mainDest, spec.pointerMs, landMs, hand);
-    landMs = Math.max(-minOffset, mapThrough(point, mainDest, shifts));
+    /* the insert point, worked out on the track as it was (where the hand is), then carried through the lift; the
+       first of them goes in there, whichever is in hand (the group keeps its shape after it) */
+    const point = insertPointOn(model, mainDest, spec.pointerMs, landMs + minOffset, hand);
+    landMs = Math.max(-minOffset, mapThrough(point, mainDest, shifts) - minOffset);
     const starts = [...lifted.values()].map((c) => landMs + offset(c));
     const at = Math.min(...starts);
     const durMs = Math.max(...[...lifted.values()].map((c) => landMs + offset(c) + lenOf(c))) - at;

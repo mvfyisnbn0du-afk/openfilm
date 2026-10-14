@@ -296,6 +296,16 @@ test('with the magnet a clip taken off the main track closes it up, wherever it 
   assert.deepEqual(after(t, moved), [[['t2', 2, 3], ['t1', 3, 4]], [['a', 0, 4]]]);
 });
 
+test('with the magnet clips moved together go in at the insert point by the first of them, whichever is in hand', () => {
+  /* b and c (a gap between them) in hand by c, dragged on past the end: back after a, the gap kept, a not cut */
+  const m = film([], [['a', 0, 10], ['b', 10, 20], ['c', 25, 30]]);
+  const plan = planMove(m, { ids: ['c', 'b'], deltaMs: 5000, pointerMs: 32_000, mode: 'insert', magnet: true, ...LINK })!;
+  assert.deepEqual(after(m, plan).flat(), [['a', 0, 10], ['b', 10, 20], ['c', 25, 30]]);
+  /* in hand by c, let go on a's first half: they go in before a */
+  const front = planMove(m, { ids: ['c', 'b'], deltaMs: -24_000, pointerMs: 2000, mode: 'insert', magnet: true, ...LINK })!;
+  assert.deepEqual(after(m, front).flat(), [['b', 0, 10], ['c', 15, 20], ['a', 20, 30]]);
+});
+
 test('with the magnet a clip let go on another off the main track covers nothing: it goes to a free track', () => {
   /* two title tracks; t3 dragged onto t1's time on the lower one goes up to the free one */
   const m = model({ role: 'mg', clips: [['t2', 4, 5]] }, { role: 'mg', clips: [['t1', 0, 2], ['t3', 3, 4]] }, { role: 'video', clips: [['a', 0, 6]] });

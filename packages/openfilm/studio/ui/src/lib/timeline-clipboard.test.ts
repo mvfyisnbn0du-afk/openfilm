@@ -196,6 +196,16 @@ test('⌥-drag copies, as CapCut: the clip stays and a copy lands where it is le
   assert.deepEqual(run(planCopies(model, { ids: ['t1'], deltaMs: 1000, pointerMs: 1500, magnet: false, sync: false }))[0], [['t1', 0, null], ['t1-2', 1, null]]);
 });
 
+test('⌥-drag copies of clips with the magnet go in at the insert point by the first of them, whichever is in hand', () => {
+  const film: Film = { tracks: [{ clips: [filmClip('a', 0, 2), filmClip('b', 2, 2), filmClip('c', 5, 1)] }] };
+  const tracks = [track(0, [blockOf('a', 0, 0, 0, 2000), blockOf('b', 0, 1, 2000, 4000), blockOf('c', 0, 2, 5000, 6000)], { role: 'video' })];
+  const model = editModelOf(tracks);
+  const run = (plan: { ops: unknown[] } | null) => spans(applyOps(structuredClone(film) as never, plan!.ops as never) as unknown as Film);
+  /* b and c in hand by c, let go past the end: the copies go on after c, b's first, the gap between them kept */
+  assert.deepEqual(run(planCopies(model, { ids: ['c', 'b'], deltaMs: 1000, pointerMs: 6500, magnet: true, sync: false, linkage: true }))[0],
+    [['a', 0, null], ['b', 2, null], ['c', 5, null], ['b-2', 6, null], ['c-2', 9, null]]);
+});
+
 test('copies of linked clips pasted together are linked to each other, not to the originals', () => {
   const tracks = [track(0, [blockOf('v', 0, 0, 0, 2000)]), track(1, [blockOf('s', 1, 0, 0, 2000), blockOf('t', 1, 1, 3000, 4000)])];
   const model = editModelOf(tracks, new Map([['v', 'v'], ['s', 'v'], ['t', 'x']]));

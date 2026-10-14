@@ -417,10 +417,11 @@ export function useBlockDrag(opts: {
         ? flushShiftMs({ startMs: out.startMs, endMs: out.endMs }, destLane?.occupied ?? [], SNAP_THRESHOLD_PX / pxPerMs)
         : null;
       /* along its own track (alone, or with its linked clips, none changing track), onto another clip: it goes in
-         between instead of cutting it (moveEditMode) */
+         between instead of cutting it (moveEditMode). Onto another, not one in hand: those move with it (dragged past
+         the gap to the next selected clip, it is not landing on that one) */
       const alongOwnTrack = grouped ? shift.ok && shift.delta === 0 : drop.action === 'stay';
       const wouldLand = { startMs: out.startMs + (flush?.shiftMs ?? 0), endMs: out.endMs + (flush?.shiftMs ?? 0) };
-      const overlaps = alongOwnTrack && rangeOverlaps(wouldLand, singleLanes[homeLaneIndex]?.occupied ?? []);
+      const overlaps = alongOwnTrack && rangeOverlaps(wouldLand, groupLanes[homeLaneIndex]?.occupied ?? []);
       /* the track it lands on: the magnet inserts on the main track; elsewhere with the magnet it covers nothing (a clip
          landing on another goes to a free track, see planMove), ⌥ inserting there */
       const landsOn = groupOpens != null ? null : drop.action === 'move' ? drop.trackIndex : drop.action === 'insert' ? null : homeLane?.docIndex;

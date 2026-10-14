@@ -323,10 +323,12 @@ export function planCopies(
   const main = mainTrackOf(model);
   const lead = picked[0]!;
   const offset = Math.max(spec.deltaMs, -Math.min(...picked.map((x) => x.c.startMs)));
-  /* the group keeps its shape; on the main track it goes in at the insert point under the hand */
+  /* the group keeps its shape; on the main track its first clip goes in at the insert point under the hand, whichever
+     is in hand */
   const leadDest = spec.to?.get(lead.c.id) ?? lead.track;
+  const firstMs = Math.min(...picked.map((x) => x.c.startMs));
   let shift = offset;
-  if (spec.magnet && leadDest === main) shift = insertPointOn(model, main, spec.pointerMs, lead.c.startMs + offset) - lead.c.startMs;
+  if (spec.magnet && leadDest === main) shift = insertPointOn(model, main, spec.pointerMs, firstMs + offset) - firstMs;
   const spans = picked.map(({ c, track }) => {
     const startMs = Math.max(0, c.startMs + shift);
     return { id: c.id, startMs, endMs: startMs + c.endMs - c.startMs, dest: spec.to?.get(c.id) ?? (track as TrackDest) };
