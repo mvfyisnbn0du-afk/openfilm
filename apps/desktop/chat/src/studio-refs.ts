@@ -55,8 +55,9 @@ export function refPill(id: string | undefined, ref: StudioRef): PromptReference
   const picture = ref.image?.src ? { image: { ...ref.image, src: ref.image.src } } : {};
   const base = { id: id ?? idOf(ref), target: targetOf(ref), ...picture };
   switch (ref.kind) {
-    case 'clip': return { ...base, kind: CLIP_KIND[ref.clipKind] ?? 'clipMg', label: ref.id ?? ref.label, detail: `${clock(ref.start)}–${clock(ref.end)}` };
-    /* a thing in the picture is named by what it is; its moment is on the card */
+    /* a thing on the timeline or in the picture is named by what it is; its span or moment is on the card. A pill shows
+       time only when it is time (a moment or a span picked on the ruler) */
+    case 'clip': return { ...base, kind: CLIP_KIND[ref.clipKind] ?? 'clipMg', label: ref.id ?? ref.label };
     case 'layer': return { ...base, kind: 'element', label: ref.text ? words(ref.text, 40) : ref.label };
     case 'region': return { ...base, kind: 'region', label: ref.texts[0] ? words(ref.texts[0], 40) : ref.clipIds.join(', ') || `${Math.round(ref.box.w)}×${Math.round(ref.box.h)}` };
     case 'time': return { ...base, kind: 'time', label: clock(ref.time) };
@@ -68,7 +69,7 @@ export function refPill(id: string | undefined, ref: StudioRef): PromptReference
       label: ref.path.split('/').pop() || ref.path,
       ...(ref.w && ref.h ? { detail: `${ref.w}×${ref.h}` } : ref.duration ? { detail: clock(ref.duration) } : {}),
     };
-    case 'subtitle': return { ...base, kind: 'subtitle', label: clipped(ref.text, 40) || span(ref.start, ref.end), detail: span(ref.start, ref.end) };
+    case 'subtitle': return { ...base, kind: 'subtitle', label: clipped(ref.text, 40) || span(ref.start, ref.end) };
   }
 }
 

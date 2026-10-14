@@ -1539,6 +1539,12 @@ export function ProjectView({ projectId, onProject, onLeave }: {
     for (const b of what.blocks) refer(refOfBlock(b));
     if (what.range) refer(rangeRef(projectId, what.range, blocksRef.current));
   }, [projectId]); // eslint-disable-line react-hooks/exhaustive-deps
+  /* the ruler points at time for the chat: a click, that moment; a drag, that span */
+  const referRuler = React.useCallback((what: { atMs: number } | { range: FilmRange }) => {
+    const refer = studioHost?.refer;
+    if (!refer) return;
+    refer('atMs' in what ? momentRef(projectId, what.atMs) : rangeRef(projectId, what.range, blocksRef.current));
+  }, [projectId]); // eslint-disable-line react-hooks/exhaustive-deps
   const referFromStage = React.useCallback((picks: StagePick[]) => {
     const refer = studioHost?.refer;
     if (!refer) return;
@@ -2706,7 +2712,7 @@ export function ProjectView({ projectId, onProject, onLeave }: {
                     onRangeChange={setMarkedRange}
                     trackMenuExtra={trackMenuExtra}
                     {...(studioHost?.refer ? {
-                      onReferBlocks: referBlocks, rangeRef: markedRangeRef, onReferSelection: referFromTimeline,
+                      onReferBlocks: referBlocks, rangeRef: markedRangeRef, onReferSelection: referFromTimeline, onReferRuler: referRuler,
                     } : {})}
                     commandsRef={timelineCommands}
                     trackNames={trackNames}

@@ -45,6 +45,7 @@ test('a pill keeps its picture and what it points at, and the pill alone takes t
   assert.equal('image' in pill.target, false);
   assert.deepEqual(refFromPill(JSON.parse(JSON.stringify(pill))), { kind: 'region', time: 15.4, box: region.box, clipIds: ['s3'], texts: ['OpenFilm'] });
   assert.equal(refPill(undefined, range).label, '12.6–17.2 s');
+  assert.equal(refPill(undefined, clip).detail, undefined, 'a clip on the timeline: no time on its pill');
   assert.equal(refPill(undefined, track).kind, 'track');
   assert.equal(refPill(undefined, file).detail, '1200×400');
   assert.equal(refPill('kept', moment).id, 'kept');
@@ -91,7 +92,7 @@ test('a subtitle line, or words picked in it, is its span, its words, its langua
   const pill = refPill(undefined, { ...line, text: 'a line far longer than any pill has room for, said slowly' });
   assert.equal(pill.kind, 'subtitle');
   assert.equal(pill.label, 'a line far longer than any pill has roo…');
-  assert.equal(pill.detail, '12.4–15.1 s');
+  assert.equal(pill.detail, undefined, 'its span is on the card, not the pill');
   assert.notEqual(refPill(undefined, words).id, refPill(undefined, line).id);
   const card = pillCard(refPill(undefined, words), (path) => path);
   assert.equal(card.title, 'refCard.title.subtitle');

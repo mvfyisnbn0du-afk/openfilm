@@ -535,6 +535,12 @@ export interface TimelineProps {
    * at the playhead (`atMs`) for a point picked on the ruler. Without it the bar has no such button.
    */
   onReferSelection?: (what: { blocks: readonly TimelineBlock[]; range: FilmRange | null; atMs: number | null }) => void;
+  /**
+   * With the app's chat: the ruler points at time for it. A click there is that moment, a drag that span, each one
+   * a pill in the chat; the playhead does not go there (it is dragged by its knob, or a click in the tracks' empty
+   * space). Without it the ruler moves the playhead.
+   */
+  onReferRuler?: (what: { atMs: number } | { range: FilmRange }) => void;
   /** The bar's Duplicate: copies of the clips right after them. */
   onDuplicate?: (blocks: readonly TimelineBlock[]) => Promise<string | null>;
   /** The bar's Play range: from the range's start, stopping at its end. */
@@ -885,6 +891,7 @@ export const Timeline = React.memo(function Timeline({
   rangeRef,
   selectionBar = false,
   onReferSelection,
+  onReferRuler,
   onDuplicate,
   onPlayRange,
   totalMs,
@@ -1607,6 +1614,42 @@ export const Timeline = React.memo(function Timeline({
     window.addEventListener('pointermove', move);
     window.addEventListener('pointerup', up);
   }, [playable, msAtClientX, laneAtY, contentY, tracks, selectOne, onScrubCommit, warmPlayheadAt, setSelected, withLinked, onEditOps, pxPerMs]);
+
+  /*
+   * With the app's chat, the ruler points at time for it (onReferRuler): a click there is that moment, a drag that
+   * span, drawn as it is pulled. A press on the playhead (its knob, ±4 px) still drags it.
+   */
+  const startRefer = React.useCallback((e: React.PointerEvent) => {
+    if (e.button !== 0 || !playable || !onReferRuler) return;
+    e.preventDefault();
+    const startX = e.clientX;
+    const at = (clientX: number) => Math.max(0, Math.min(totalMs, msAtClientX(clientX)));
+    const fromMs = at(e.clientX);
+    let dragged = false;
+    let atX = e.clientX;
+    let raf = 0;
+    const flush = (): void => { raf = 0; setRangeDraft(orderedRange(fromMs, at(atX))); };
+    const edge = edgeAutoScroll(scrollRef, () => { if (!raf) raf = requestAnimationFrame(flush); });
+    const move = (ev: PointerEvent) => {
+      atX = ev.clientX;
+      if (!dragged && Math.abs(ev.clientX - startX) < DRAG_THRESHOLD_PX) return;
+      dragged = true;
+      if (!raf) raf = requestAnimationFrame(flush);
+      edge.at(ev.clientX);
+    };
+    const up = (ev: PointerEvent) => {
+      window.removeEventListener('pointermove', move);
+      window.removeEventListener('pointerup', up);
+      edge.stop();
+      if (raf) cancelAnimationFrame(raf);
+      setRangeDraft(null);
+      const range = orderedRange(fromMs, at(ev.clientX));
+      if (!dragged) onReferRuler({ atMs: fromMs });
+      else if (range) onReferRuler({ range });
+    };
+    window.addEventListener('pointermove', move, { passive: true });
+    window.addEventListener('pointerup', up);
+  }, [msAtClientX, onReferRuler, playable, totalMs]);
 
   /**
    * A press within ±4 px of the playhead line in the empty track space grabs the playhead. Not over a clip: a clip a
@@ -3707,12 +3750,15 @@ export const Timeline = React.memo(function Timeline({
               aria-valuemax={Math.round(totalMs)}
               aria-valuenow={Math.round(timeMs)}
               aria-valuetext={`${formatTimecode(timeMs)} / ${formatTimecode(totalMs)}`}
-              onPointerDown={(e) => (e.shiftKey && onRangeChange ? startRange(e) : startScrub(e, true))}
+              onPointerDown={(e) => (e.shiftKey && onRangeChange ? startRange(e)
+                : onReferRuler && playheadGapPx(e.clientX, timeMsRef.current) > PLAYHEAD_GRAB_PX ? startRefer(e)
+                  : startScrub(e, true))}
               onKeyDown={onKeyDown}
               /* the point picked on the ruler is let go with the timeline's focus */
               onBlur={() => setBarFocus((f) => (f === 'point' ? null : f))}
               className="relative h-full touch-none select-none outline-none"
-              style={{ width: trackPx, cursor: 'col-resize' }}
+              /* pointing at time for the chat: the cursor of adding (the playhead's knob keeps its own) */
+              style={{ width: trackPx, cursor: onReferRuler ? 'copy' : 'col-resize' }}
             >
               {tickMarks}
               {rulerOverlay?.(pxPerMs)}
