@@ -151,11 +151,11 @@
   const ICON = new Set(['svg', 'img']);
   /** Words alone, or lines between <br>s: a `text` override changes all of them, a <br> at each line break. */
   const onlyBreaks = (el) => [...el.children].every((ch) => ch.localName === 'br');
-  const textOf = (el) => {
-    if (onlyBreaks(el)) return stageText(el);
-    if (![...el.children].every((c) => INLINE.has(c.tagName) || ICON.has(c.localName))) return '';
-    return ownWords(el);
-  };
+  /* words of its own beside blocks of their own (a title with its subtitle written inside it) are its text too: the
+     blocks are layers of their own, and a text override changes its own words only */
+  const textOf = (el) => (onlyBreaks(el) ? stageText(el) : ownWords(el));
+  /** The blocks inside a line of words (a subtitle inside its title): shown while the line's own words are typed. */
+  const blocksIn = (el) => [...el.children].filter((ch) => !INLINE.has(ch.tagName) && !ICON.has(ch.localName) && css(ch).visibility === 'visible');
 
   const transparent = (color) => {
     const c = color.trim();
@@ -749,6 +749,7 @@
     put('contenteditable', edit.attrs.contentEditable);
     put('style', edit.attrs.style);
     put('spellcheck', edit.attrs.spellcheck);
+    for (const [b, style] of edit.blocks) { if (style == null) b.removeAttribute('style'); else b.setAttribute('style', style); }
     el.replaceChildren(...edit.children);
     edit.data.forEach((text, n) => { n.data = text; });
     el.ownerDocument.getSelection()?.removeAllRanges();
@@ -799,7 +800,10 @@
     };
     const onInput = () => { if (search && editing) editing.hold = search(holdInline); };
     const host = overlay ? openOverlay(el) : el;
+    /* the line hidden under its overlay, the blocks in it still shown (they are not what is typed) */
+    const blocks = overlay ? blocksIn(el).map((b) => [b, b.getAttribute('style')]) : [];
     if (overlay) el.style.setProperty('visibility', 'hidden', 'important');
+    for (const [b] of blocks) b.style.setProperty('visibility', 'visible', 'important');
     try { host.contentEditable = 'plaintext-only'; } catch { host.contentEditable = 'true'; }
     if (host.contentEditable !== 'plaintext-only') host.contentEditable = 'true';
     host.spellcheck = false;
@@ -818,7 +822,7 @@
     host.addEventListener('blur', onBlur);
     host.addEventListener('input', onInput);
     editing = {
-      el, host, c, handle, overlay, data, attrs, target: targetOf(el),
+      el, host, c, handle, overlay, data, attrs, blocks, target: targetOf(el),
       children: [...el.childNodes],
       before: textOf(el),
       hold: null,

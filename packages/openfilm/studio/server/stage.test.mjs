@@ -119,6 +119,29 @@ test('a click on words takes them, though a line drawn behind runs across its ow
   }
 });
 
+test('a title with its subtitle written inside it: its own words are a layer, typed over with the subtitle still shown', { timeout: 60_000 }, async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'of-stage-own-words-'));
+  writeFileSync(join(dir, 'title.html'), `<!doctype html><body style="margin:0">
+<div id="title" style="position:absolute;left:20px;top:20px;font:700 40px sans-serif;line-height:1.15">Test video<div id="sub" style="font:400 14px sans-serif;margin-top:10px">picture · motion</div></div>
+<script>window.film={duration:2,frame(){}}</script></body>`);
+  writeFileSync(join(dir, 'film.html'), filmHtml({ stage: { w: 320, h: 180 }, tracks: [{ clips: [{ id: 'title', src: 'title.html' }] }] }));
+  const stage = await stageOf(dir);
+  try {
+    const title = await stage.ask('hit', { x: 40, y: 40, detail: true });
+    assert.equal(title?.kind, 'text');
+    assert.equal(title?.text?.value, 'Test video');
+    assert.equal((await stage.ask('hit', { x: 40, y: 82, detail: true }))?.text?.value, 'picture · motion');
+    assert.equal(await stage.ask('textStart', { handle: title.handle }), true);
+    const page = stage.page.frames().find((f) => f.url().endsWith('title.html'));
+    const sub = () => page.evaluate(() => { const el = document.getElementById('sub'); return { shown: getComputedStyle(el).visibility, style: el.getAttribute('style') }; });
+    assert.equal((await sub()).shown, 'visible', 'the subtitle stays while the title is typed');
+    await stage.page.mouse.click(250, 150);
+    assert.deepEqual(await sub(), { shown: 'visible', style: 'font:400 14px sans-serif;margin-top:10px' });
+  } finally {
+    await stage.close();
+  }
+});
+
 test('a layer restyled leaves the others where they are, and takes its new size: the words beside a number stay put', { timeout: 60_000 }, async () => {
   const dir = mkdtempSync(join(tmpdir(), 'of-stage-hold-'));
   writeFileSync(join(dir, 'row.html'), `<!doctype html><body style="margin:0">
