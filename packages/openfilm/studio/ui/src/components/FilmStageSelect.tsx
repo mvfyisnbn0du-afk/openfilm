@@ -64,7 +64,7 @@ import {
   positionOf, roundOf, transformOfVisible, visibleFrame, type CropAspect, type Rect,
 } from '@/lib/stage-crop';
 import {
-  alignShift, groupDragged, type GroupDrag, HANDLE_AT, insideBox, insideFrame, movedOffset, pivotCenter, resizedFrame, sameClientRect, sameGuides,
+  alignShift, groupDragged, type GroupDrag, type GroupPull, HANDLE_AT, insideBox, layerInGroup, pullGroup, insideFrame, movedOffset, pivotCenter, resizedFrame, sameClientRect, sameGuides,
   sameLayerGeometry, scaledLayer, turnedLayer, unionRect, type AlignEdge, type ClientBox, type FramePivot,
   type LayerGeometry, type StageFrame,
 } from '@/lib/stage-gesture';
@@ -655,6 +655,10 @@ function FilmStageSelectImpl({
   /* ── several layers moved together ── */
   type MultiDragItem = MultiItem & { base: LayerGeometry; scale: number; now: LayerGeometry };
   const multiDrag = React.useRef<{ x: number; y: number; moved: boolean; rect0: ClientBox; items: MultiDragItem[] } | null>(null);
+  /* several layers scaled or turned by their box's handles (Figma's): each one's center at the press (stage px) */
+  const layersPull = React.useRef<(GroupPull & { x: number; y: number; moved: boolean; box0: ClientBox; items: MultiDragItem[]; centers: { x: number; y: number }[] }) | null>(null);
+  /** The box around several layers while they are turned: the box they had, turned as far. */
+  const [layersTurn, setLayersTurn] = React.useState<{ box: ClientBox; turn: number } | null>(null);
   /* several whole clips selected (on the timeline, or by a marquee): a press on one of them drags them all */
   const clipsDrag = React.useRef<(GroupDrag & {
     x: number; y: number; moved: boolean; items: ClipsDragItem[];
@@ -682,7 +686,7 @@ function FilmStageSelectImpl({
       return p ? { ...it, layer: { ...it.layer, rect: p.rect, frame: p.frame, geo: { ...it.layer.geo, g: items[i]!.now } } } : it;
     });
     setMulti(next);
-    if (!multiDrag.current) setPicked((cur) => (cur ? { ...cur, rect: unionRect(next.map((i) => i.layer.rect)) } : cur));
+    if (!multiDrag.current && !layersPull.current?.moved) setPicked((cur) => (cur ? { ...cur, rect: unionRect(next.map((i) => i.layer.rect)) } : cur));
   }), [ask, setMulti, setPicked]);
   /** Each layer moved by a screen offset (turned back by each one's parents' turn, at each one's scale), shown. */
   const shiftLayers = (items: MultiDragItem[], dxOf: (i: number) => number, dyOf: (i: number) => number) => {
@@ -735,7 +739,7 @@ function FilmStageSelectImpl({
       const fresh = await ask<(StageLayer | null)[]>('layers', {
         refs: many.map((it) => ({ handle: it.layer.handle, clip: it.layer.clip, at: it.layer.at, n: it.layer.n })),
       });
-      if (!fresh || multiRef.current !== many || multiDrag.current) return;
+      if (!fresh || multiRef.current !== many || multiDrag.current || layersPull.current) return;
       const next = many.flatMap((it, i) => {
         const layer = fresh[i];
         if (!layer) return [];
@@ -1795,7 +1799,7 @@ function FilmStageSelectImpl({
   }), [ask, stage]);
   /** Measured only with nothing being dragged, drawn or cropped. */
   const measureAt = (p: { x: number; y: number } | null) => {
-    const busy = gestureRef.current || layerDrag.current || multiDrag.current || draftRef.current || cropRef.current || textEdit.current;
+    const busy = gestureRef.current || layerDrag.current || multiDrag.current || layersPull.current || draftRef.current || cropRef.current || textEdit.current;
     if (!p || !pickedRef.current || busy) {
       altHeld.current = false;
       setMeasure(null);
@@ -2152,6 +2156,16 @@ function FilmStageSelectImpl({
         clipsPlace.push(cd.items.map((it) => ({ clip: it.id, box: null })));
         setLinkedMarks((marks) => marks.map((m) => cd.items.find((it) => it.loc === m.loc) ? { ...m, t: cd.items.find((it) => it.loc === m.loc)!.t0 } : m));
       });
+      return;
+    }
+    const lp = layersPull.current;
+    if (lp) {
+      layersPull.current = null;
+      e.stopPropagation();
+      setDragging(false);
+      setLayersTurn(null);
+      if (!lp.moved) return;
+      void multiPaint.idle().then(() => onTransformLayers?.(lp.items.map((it) => ({ element: it.element, g: it.now }))));
       return;
     }
     const md = multiDrag.current;
@@ -2589,9 +2603,31 @@ function FilmStageSelectImpl({
         currentTarget.setPointerCapture(pointerId);
         return;
       }
-      /* several selected: a press inside their box drags them all (Shift adds / takes away instead) */
+      /* several selected: a press inside their box drags them all (Shift adds / takes away instead); its handles scale
+         them or turn them together, as Figma does a selection */
       const many = multiRef.current;
       const held0 = pickedRef.current;
+      const pullKind = groupHit?.getAttribute('data-group-kind');
+      if (many && held0 && onTransformLayers && !many.some((it) => lockedClip(it.element.clipLoc)) && (pullKind === 'scale' || pullKind === 'stretch' || pullKind === 'rotate')) {
+        const handle = pullKind === 'rotate' ? null : groupHit!.getAttribute('data-group-handle');
+        const g = held0.rect;
+        const mid = { x: g.left + g.width / 2, y: g.top + g.height / 2 };
+        const at = (h: string, far: boolean) => ({
+          x: h.includes('e') || h.includes('w') ? g.left + (h.includes('e') !== far ? g.width : 0) : mid.x,
+          y: h.includes('n') || h.includes('s') ? g.top + (h.includes('s') !== far ? g.height : 0) : mid.y,
+        });
+        const items = multiItemsNow();
+        layersPull.current = {
+          kind: pullKind === 'rotate' ? 'rotate' : 'scale', handle,
+          x: p.x, y: p.y, moved: false, items, centers: items.map((it) => ({ x: it.layer.frame.cx, y: it.layer.frame.cy })),
+          dx: 0, dy: 0, kx: 1, ky: 1, turn: 0, box0: g,
+          anchor: pullKind === 'rotate' ? mid : handle ? at(handle, true) : mid,
+          from: handle ? at(handle, false) : { x: 0, y: 0 },
+          a0: Math.atan2(stagePt.y - mid.y, stagePt.x - mid.x),
+        };
+        currentTarget.setPointerCapture(pointerId);
+        return;
+      }
       if (many && held0 && !e.shiftKey && onTransformLayers && !many.some((it) => lockedClip(it.element.clipLoc)) && insideBox(scaleBox(held0.rect, vs), p.x, p.y)) {
         multiDrag.current = { x: p.x, y: p.y, moved: false, rect0: held0.rect, items: multiItemsNow() };
         currentTarget.setPointerCapture(pointerId);
@@ -2718,13 +2754,13 @@ function FilmStageSelectImpl({
             setRegionDraft(regionDraftRef.current);
             return;
           }
-          const held = regionKeyHeld(e) && !gestureRef.current && !layerDrag.current && !multiDrag.current && !draftRef.current;
+          const held = regionKeyHeld(e) && !gestureRef.current && !layerDrag.current && !multiDrag.current && !layersPull.current && !draftRef.current;
           setModAt(held ? p : null);
           /* nothing is hovered while ⌘ is held: what a box takes in is not one layer */
           if (held) { setHover(null); return; }
         }
         /* Alt held with something in hand: measuring, not hovering */
-        if (e.altKey && pickedRef.current && !gestureRef.current && !layerDrag.current && !multiDrag.current && !draftRef.current && !cropRef.current) {
+        if (e.altKey && pickedRef.current && !gestureRef.current && !layerDrag.current && !multiDrag.current && !layersPull.current && !draftRef.current && !cropRef.current) {
           measureAt(local(e));
           setHover(null);
           return;
@@ -2740,24 +2776,36 @@ function FilmStageSelectImpl({
           if (d.kind === 'move') {
             d.dx = (p.x - d.x) / vs;
             d.dy = (p.y - d.y) / vs;
-          } else if (d.kind === 'rotate') {
-            /* Shift: in steps of 15°, as a single clip turns */
-            const turn = ((Math.atan2(at.y - d.anchor.y, at.x - d.anchor.x) - d.a0) * 180) / Math.PI;
-            d.turn = e.shiftKey ? Math.round(turn / 15) * 15 : turn;
-            setGroupTurn({ box: d.box0, turn: d.turn });
           } else {
-            const ux = d.from.x - d.anchor.x, uy = d.from.y - d.anchor.y;
-            const along = (v: number, u: number, a: number) => Math.max(0.02, (v - a) / (Math.abs(u) > 1e-6 ? u : 1e-6));
-            if (d.handle && d.handle.length === 2) {
-              /* a corner: along the frame's diagonal, both ways alike (a page is never stretched) */
-              const k = Math.max(0.02, ((at.x - d.anchor.x) * ux + (at.y - d.anchor.y) * uy) / Math.max(1e-6, ux * ux + uy * uy));
-              d.kx = d.ky = k;
-            } else if (d.handle === 'e' || d.handle === 'w') d.kx = along(at.x, ux, d.anchor.x);
-            else d.ky = along(at.y, uy, d.anchor.y);
+            /* a corner scales both ways alike (a page is never stretched); Shift turns in steps of 15° */
+            pullGroup(d, at, e.shiftKey);
+            if (d.kind === 'rotate') setGroupTurn({ box: d.box0, turn: d.turn });
           }
           const moved = d.items.map((it) => ({ loc: it.loc, box: it.box, t: groupDragged(d, it.t0, it.box) }));
           setClipsMoved(moved);
           clipsPlace.push(d.items.map((it, i) => ({ clip: it.id, box: compactBox(moved[i]!.t, it.box) })));
+          return;
+        }
+        if (layersPull.current) {
+          const d = layersPull.current;
+          const p = local(e);
+          const vs = viewScaleNow();
+          if (!d.moved && Math.hypot(p.x - d.x, p.y - d.y) < 4) return;
+          if (!d.moved) { d.moved = true; setDragging(true); setHover(null); }
+          pullGroup(d, { x: p.x / vs, y: p.y / vs }, e.shiftKey);
+          if (d.kind === 'rotate') setLayersTurn({ box: d.box0, turn: d.turn });
+          /* each one's center goes with the box, each one scaled or turned as much */
+          d.items.forEach((it, i) => {
+            const m = layerInGroup(d, d.centers[i]!, it.base);
+            it.now = { ...it.base, t: movedOffset(it.base, m.dx * vs, m.dy * vs, it.layer.geo.parentR, it.scale), s: m.s, r: m.r };
+          });
+          multiPaint.push(d.items.map((it) => ({ ...it })));
+          /* scaled: the box goes with the hand (turned, it is drawn turned, layersTurn) */
+          if (d.kind === 'scale') {
+            const b = d.box0;
+            const left = d.anchor.x + (b.left - d.anchor.x) * d.kx, top = d.anchor.y + (b.top - d.anchor.y) * d.ky;
+            setPicked((cur) => (cur ? { ...cur, rect: { left, top, width: b.width * d.kx, height: b.height * d.ky } } : cur));
+          }
           return;
         }
         if (multiDrag.current) {
@@ -2900,7 +2948,20 @@ function FilmStageSelectImpl({
               maskBox ? outline(layerFrame) : (
                 <StageTransformFrame frame={layerFrame} scope="layer" edges moving={dragging} label={sizeLabel(layerFrame)} bounds={stageBounds} />
               )
-            ) : (
+            ) : multi && onTransformLayers && !multi.some((it) => lockedClip(it.element.clipLoc)) ? (() => {
+              /* several layers: their box's handles scale and turn them together (layersPull) */
+              const g = layersTurn?.box ?? picked.rect;
+              return (
+                <StageTransformFrame
+                  frame={{ cx: (g.left + g.width / 2) * vsNow, cy: (g.top + g.height / 2) * vsNow, w: g.width * vsNow, h: g.height * vsNow, r: layersTurn?.turn ?? 0 }}
+                  scope="group"
+                  edges
+                  moving={dragging}
+                  label={layersTurn ? `${Math.round(layersTurn.turn)}°` : `${Math.round(g.width)} × ${Math.round(g.height)}`}
+                  bounds={stageBounds}
+                />
+              );
+            })() : (
               /* what cannot be moved (a locked layer, a group, a clip without its size yet): its drawn shape */
               <Box
                 rect={scaleBox(picked.layer?.rect ?? picked.rect, vsNow)}

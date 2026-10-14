@@ -213,6 +213,49 @@ export interface GroupDrag {
   anchor: { x: number; y: number };
 }
 
+/** A selection's box pulled by one of its handles: where the pull started (`from`, the handle; `a0`, the angle to it). */
+export interface GroupPull extends GroupDrag {
+  handle: string | null;
+  from: { x: number; y: number };
+  a0: number;
+}
+
+/**
+ * The box of several things pulled by a handle to `at` (stage px): a corner scales both ways alike (along the box's
+ * diagonal), an edge one way, the ring turns it about its middle (Shift: in steps of 15°, as one thing turns).
+ */
+export function pullGroup(d: GroupPull, at: { x: number; y: number }, shift: boolean): void {
+  if (d.kind === 'rotate') {
+    const turn = ((Math.atan2(at.y - d.anchor.y, at.x - d.anchor.x) - d.a0) * 180) / Math.PI;
+    d.turn = shift ? Math.round(turn / 15) * 15 : turn;
+    return;
+  }
+  if (d.kind !== 'scale') return;
+  const ux = d.from.x - d.anchor.x, uy = d.from.y - d.anchor.y;
+  const along = (v: number, u: number, a: number) => Math.max(0.02, (v - a) / (Math.abs(u) > 1e-6 ? u : 1e-6));
+  if (d.handle && d.handle.length === 2) {
+    const k = Math.max(0.02, ((at.x - d.anchor.x) * ux + (at.y - d.anchor.y) * uy) / Math.max(1e-6, ux * ux + uy * uy));
+    d.kx = d.ky = k;
+  } else if (d.handle === 'e' || d.handle === 'w') d.kx = along(at.x, ux, d.anchor.x);
+  else d.ky = along(at.y, uy, d.anchor.y);
+}
+
+/**
+ * One of several layers scaled or turned together by their box's handles (as Figma does a selection): its center
+ * (`center`, stage px) goes with the box, scaled or turned about the same point, and it takes the same scale or turn
+ * itself. How far its center goes (stage px), and its own scale and angle after.
+ */
+export function layerInGroup(d: GroupDrag, center: { x: number; y: number }, g: LayerGeometry): { dx: number; dy: number; s: [number, number]; r: number } {
+  const cx = center.x - d.anchor.x, cy = center.y - d.anchor.y;
+  const round = (n: number) => Math.round(n * 10000) / 10000;
+  if (d.kind === 'scale') return { dx: cx * (d.kx - 1), dy: cy * (d.ky - 1), s: [round(g.s[0] * d.kx), round(g.s[1] * d.ky)], r: g.r };
+  if (d.kind === 'rotate') {
+    const a = (d.turn * Math.PI) / 180;
+    return { dx: cx * Math.cos(a) - cy * Math.sin(a) - cx, dy: cx * Math.sin(a) + cy * Math.cos(a) - cy, s: g.s, r: Math.round((g.r + d.turn) * 10) / 10 };
+  }
+  return { dx: d.dx, dy: d.dy, s: g.s, r: g.r };
+}
+
 /**
  * Where one of several clips dragged together is now. `t0` is where it was (its unturned top left, stage px, and its
  * scale), `size` its picture's own size: its center moves with the others, scaled or turned about the same point, so
