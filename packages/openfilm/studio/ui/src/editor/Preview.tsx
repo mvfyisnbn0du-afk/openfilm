@@ -52,7 +52,8 @@ export type PreviewHandle = {
  * while the picture had focus (not while typing in it), or another load of the film is shown (its handles are new).
  */
 export type StageEvent =
-  | { event: 'text'; handle: number; commit: boolean; value?: string; before?: string }
+  /* `hold`: what kept the other layers in place as the words were typed (style for the same override, null takes a key away) */
+  | { event: 'text'; handle: number; commit: boolean; value?: string; before?: string; hold?: Record<string, string | null> }
   | { event: 'key'; key: KeyboardEvent }
   | { event: 'reset' };
 
@@ -229,7 +230,11 @@ export const Preview = forwardRef<PreviewHandle, Props>(function Preview({ folde
           tell({ event: 'key', key });
           onKeyRef.current?.(key);
         } else if (m.event === 'text') {
-          tell({ event: 'text', handle: Number(m.handle), commit: Boolean(m.commit), ...(typeof m.value === 'string' ? { value: m.value, before: String(m.before ?? '') } : {}) });
+          tell({
+            event: 'text', handle: Number(m.handle), commit: Boolean(m.commit),
+            ...(typeof m.value === 'string' ? { value: m.value, before: String(m.before ?? '') } : {}),
+            ...(m.hold && typeof m.hold === 'object' ? { hold: m.hold as Record<string, string | null> } : {}),
+          });
         }
       } else if (m.type === 'error') {
         setFrames((list) => list.map((f) => (f.key === key ? { ...f, error: String(m.message) } : f)));

@@ -185,7 +185,7 @@ export interface FilmStageControl {
    * What a layer needs besides `style` so that no other layer moves when it is kept (its place in the page held, as
    * Figma keeps a restyled layer from moving the others): style to write with it, {} when nothing else moves.
    */
-  holdStyle(element: StageElement, style: Record<string, string | number | null>): Promise<Record<string, string>>;
+  holdStyle(element: StageElement, style: Record<string, string | number | null>, text?: string): Promise<Record<string, string | null>>;
   /** Show a layer's words before they are kept. */
   previewText(element: StageElement, value: string): void;
   /**
@@ -379,7 +379,8 @@ interface FilmStageSelectProps {
   /** Several layers moved or aligned together: written in one go (one undo step). */
   onTransformLayers?: (list: ReadonlyArray<{ element: StageElement; g: LayerGeometry }>) => void;
   /** A line typed in place: its words written. Refused: a message (the words go back). */
-  onEditTextInline?: (element: StageElement, value: string) => Promise<string | null>;
+  /** `hold`: what kept the other layers in place as the words were typed, written with them. */
+  onEditTextInline?: (element: StageElement, value: string, hold?: Record<string, string | null>) => Promise<string | null>;
   /** Where the thing in hand is now (stage px), for the inspector's X / Y / W / H / turn; reported when it changes. */
   onGeometry?: (geometry: StageGeometry | null) => void;
   /** The context menu's entries for what was right-clicked (see components/stage-menu). */
@@ -1033,7 +1034,7 @@ function FilmStageSelectImpl({
     const value = e.value;
     const nextElement = { ...element, ...(element.text ? { text: { ...element.text, value } } : {}) };
     setPicked((cur) => (cur?.element?.loc === element.loc ? { ...cur, element: nextElement } : cur));
-    void onEditTextInline(element, value).then((failed) => {
+    void onEditTextInline(element, value, e.hold).then((failed) => {
       if (!failed) return;
       void ask('release', { clip: layer.clip });
       setPicked((cur) => (cur?.element?.loc === element.loc ? { ...cur, element } : cur));
@@ -1330,9 +1331,9 @@ function FilmStageSelectImpl({
         const at = named(element);
         if (at) void ask('tweak', { ...at, patch: { style: clean(patch as Record<string, string | number | null | undefined>) } }).then(syncGeomSoon);
       },
-      async holdStyle(element, style) {
+      async holdStyle(element, style, text) {
         const at = named(element);
-        return (at ? await ask<Record<string, string>>('hold', { ...at, style: clean(style) }) : null) ?? {};
+        return (at ? await ask<Record<string, string | null>>('hold', { ...at, style: clean(style), ...(text != null ? { text } : {}) }) : null) ?? {};
       },
       previewText(element, value) {
         const at = named(element);

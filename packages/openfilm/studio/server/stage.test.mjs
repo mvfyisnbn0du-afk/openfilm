@@ -222,3 +222,40 @@ test('words in a block as wide as their box restyled: the box hugs them, they st
     await stage.close();
   }
 });
+
+test('more words leave the others where they are: previewed, and typed in place', { timeout: 60_000 }, async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'of-stage-words-'));
+  writeFileSync(join(dir, 'row.html'), `<!doctype html><body style="margin:0">
+<div id="row" style="position:absolute;left:10px;top:40px;display:flex;align-items:baseline;gap:10px">
+  <b id="num" style="font:700 40px monospace;line-height:1">18</b><span id="words" style="font:600 20px sans-serif">founders</span>
+</div>
+<script>window.film={duration:2,frame(){}}</script></body>`);
+  writeFileSync(join(dir, 'film.html'), filmHtml({ stage: { w: 320, h: 180 }, tracks: [{ clips: [{ id: 'row', src: 'row.html' }] }] }));
+  const stage = await stageOf(dir);
+  try {
+    const page = stage.page.frames().find((f) => f.url().endsWith('row.html'));
+    const read = () => page.evaluate(() => {
+      const w = document.getElementById('words').getBoundingClientRect();
+      const n = document.getElementById('num');
+      return { words: [Math.round(w.left * 10) / 10, Math.round(w.top * 10) / 10], num: n.textContent, width: n.offsetWidth };
+    });
+    const was = await read();
+    assert.equal(await stage.ask('tweak', { clip: 'row', at: '#num', patch: { text: '1999' } }), true);
+    const previewed = await read();
+    assert.equal(previewed.num, '1999');
+    assert.ok(previewed.width > was.width, 'its box took the longer words');
+    assert.deepEqual(previewed.words, was.words, 'the words beside it did not move');
+    await stage.ask('release', { clip: 'row' });
+    /* typed in place: the same as each key goes */
+    const num = await stage.ask('hit', { x: 20, y: 60, detail: true });
+    assert.equal(await stage.ask('textStart', { handle: num.handle }), true);
+    await stage.page.keyboard.type('2026');
+    const typing = await read();
+    assert.equal(typing.num, '2026');
+    assert.deepEqual(typing.words, was.words, 'typing, the words beside it stay');
+    await stage.ask('textFinish', { commit: true });
+    assert.deepEqual((await read()).words, was.words, 'kept, they stay');
+  } finally {
+    await stage.close();
+  }
+});

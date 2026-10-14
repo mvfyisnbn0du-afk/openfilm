@@ -753,9 +753,11 @@
     edit.data.forEach((text, n) => { n.data = text; });
     el.ownerDocument.getSelection()?.removeAllRanges();
     const kept = commit && value && value !== edit.before;
-    /* the new words stay on screen until the edit is kept (or refused: the editor releases the clip) */
-    if (kept) draft(c, edit.target, { text: value });
-    post({ type: 'stage-event', event: 'text', handle: edit.handle, commit: Boolean(kept), ...(kept ? { value, before: edit.before } : {}) });
+    /* the new words stay on screen until the edit is kept (or refused: the editor releases the clip), with what held
+       the others in place as they were typed (kept with them) */
+    const hold = kept && edit.hold && Object.keys(edit.hold).length ? edit.hold : null;
+    if (kept) draft(c, edit.target, { text: value, ...(hold ? { style: hold } : {}) });
+    post({ type: 'stage-event', event: 'text', handle: edit.handle, commit: Boolean(kept), ...(kept ? { value, before: edit.before, ...(hold ? { hold } : {}) } : {}) });
   };
   /**
    * Only `el` takes the pointer in its document until the returned function is called. While a line is typed in, a
@@ -782,6 +784,20 @@
     const attrs = { contentEditable: el.getAttribute('contenteditable'), style: el.getAttribute('style'), spellcheck: el.getAttribute('spellcheck') };
     /* typed in place, lines and all, where it can be: the line keeps its own width and wraps as it does */
     const overlay = isSvgText(el) || !onlyBreaks(el);
+    /* typed in place, the words beside it and under it stay where they are as it grows (holdSearch), its box hugging
+       them: worked out from the page as it is now, and shown on it as each word is typed */
+    const search = !overlay && el instanceof c.win.HTMLElement ? holdSearch(c.win, el, keptHold(c, targetOf(el)).unheld) : null;
+    const kebab = (k) => k.replace(/[A-Z]/g, (ch) => '-' + ch.toLowerCase());
+    const inlineWas = new Map(HOLD_KEYS.map((k) => [k, [el.style.getPropertyValue(kebab(k)), el.style.getPropertyPriority(kebab(k))]]));
+    const holdInline = (extra) => {
+      for (const k of HOLD_KEYS) {
+        const prop = kebab(k);
+        if (!(k in extra)) { const [v, pr] = inlineWas.get(k); if (v) el.style.setProperty(prop, v, pr); else el.style.removeProperty(prop); }
+        else if (extra[k] == null) el.style.removeProperty(prop);
+        else el.style.setProperty(prop, extra[k], 'important');
+      }
+    };
+    const onInput = () => { if (search && editing) editing.hold = search(holdInline); };
     const host = overlay ? openOverlay(el) : el;
     if (overlay) el.style.setProperty('visibility', 'hidden', 'important');
     try { host.contentEditable = 'plaintext-only'; } catch { host.contentEditable = 'true'; }
@@ -800,11 +816,13 @@
     const onBlur = () => finishText(true);
     host.addEventListener('keydown', onKey);
     host.addEventListener('blur', onBlur);
+    host.addEventListener('input', onInput);
     editing = {
       el, host, c, handle, overlay, data, attrs, target: targetOf(el),
       children: [...el.childNodes],
       before: textOf(el),
-      cleanup: () => { host.removeEventListener('keydown', onKey); host.removeEventListener('blur', onBlur); release(); },
+      hold: null,
+      cleanup: () => { host.removeEventListener('keydown', onKey); host.removeEventListener('blur', onBlur); host.removeEventListener('input', onInput); release(); },
     };
     /* the line in its page, and its page in the film */
     const hits = [onlyHit(host), onlyHit(c.el)];
@@ -908,70 +926,46 @@
   const HOLD_KEYS = ['marginTop', 'marginRight', 'marginBottom', 'marginLeft', 'width'];
   const SIDES = ['Top', 'Right', 'Bottom', 'Left'];
   /**
-   * What the layer at `target` needs besides `style` so that no other layer of its page moves. The layer takes its
-   * new size (its box grows with a larger font, as a text box in Figma does); margins give back to the page's flow the
-   * room it gained or lost, on the side the flow lays it out from, so what is beside it, under it or lined up with
-   * its baseline stays put. As style for the same override; {} when nothing else moves, or nothing found keeps them
-   * (then the style alone is kept). Measured against the page as shown without this style (the kept overrides, and
-   * other changes not kept yet).
+   * The search for a hold, begun while the page shows `el` as it was: what the other layers' places are, the room `el`
+   * takes in the page's flow, where its words sit. Returned: the search itself, given how to show `el` changed with a
+   * hold's style on it (`show`, style keys to null take a kept one away). `unheld`: a hold kept before, taken away
+   * first (it was for the change before).
+   *
+   * The layer takes its new size (its box grows with a larger font or more words, as a text box in Figma does); margins
+   * give back to the page's flow the room it gained or lost, on the side the flow lays it out from, so what is beside
+   * it, under it or lined up with its baseline stays put. Words in a block as wide as what holds it get a box that hugs
+   * them, and stay where they were set in it (centered, at its end).
    */
-  const holdFor = (c, target, style) => {
-    const doc = c.win?.document;
-    /* a size or margin the person sets is meant to move what is around it */
-    if (!doc || ['width', 'height', ...HOLD_KEYS, 'margin'].some((k) => k in style)) return {};
-    const had = drafts.get(c.id);
-    const kept = had && new Map(had.items);
-    const key = draftKey(target);
-    const own = kept?.get(key)?.patch;
-    const ownStyle = { ...(own?.style ?? {}) };
-    for (const k of [...Object.keys(style), ...HOLD_KEYS]) delete ownStyle[k];
-    const showWith = (extra) => {
-      const items = new Map(kept ?? []);
-      items.set(key, { target, patch: { ...(own ?? {}), style: { ...ownStyle, ...extra } } });
-      drafts.set(c.id, { base: had?.base ?? JSON.stringify(c.overrides ?? []), items });
-      show(c);
+  const holdSearch = (win, el, unheld) => {
+    const others = layersOf(el.ownerDocument).filter((o) => o !== el && !o.contains(el) && !el.contains(o));
+    const before = others.map((o) => o.getBoundingClientRect());
+    const marginsNow = () => {
+      const cs = win.getComputedStyle(el);
+      return Object.fromEntries(SIDES.map((side) => [side, Number.parseFloat(cs[`margin${side}`]) || 0]));
     };
-    /* a hold kept before was for the style before: worked out again from the page's own margins, and taken away when
-       none is needed now (null takes a kept key away) */
-    const keptStyle = (c.overrides ?? []).find((o) => o.at === target.at && (o.n ?? null) === (target.n ?? null))?.style ?? {};
-    /* the style kept already (a preview taken back): the hold kept with it stands */
-    if (Object.entries(style).every(([k, v]) => k in keptStyle && String(keptStyle[k]) === String(v))) return {};
-    const unheld = Object.fromEntries(HOLD_KEYS.filter((k) => k in keptStyle).map((k) => [k, null]));
-    try {
-      showWith({});
-      const el = matches(doc, target)[0];
-      if (!el || !(el instanceof c.win.HTMLElement)) return {};
-      const others = layersOf(doc).filter((o) => o !== el && !o.contains(el) && !el.contains(o));
-      const before = others.map((o) => o.getBoundingClientRect());
-      const marginsNow = () => {
-        const cs = c.win.getComputedStyle(el);
-        return Object.fromEntries(SIDES.map((side) => [side, Number.parseFloat(cs[`margin${side}`]) || 0]));
-      };
-      /* the room it takes in the page's flow now: its box and its margins */
-      const was = marginsNow();
-      const roomW = el.offsetWidth + was.Left + was.Right;
-      const roomH = el.offsetHeight + was.Top + was.Bottom;
-      /* how far the others went, the furthest, and which way up or down */
-      const moved = () => {
-        let far = 0;
-        let dy = 0;
-        others.forEach((o, i) => {
-          const r = o.getBoundingClientRect();
-          const d = Math.max(Math.abs(r.left - before[i].left), Math.abs(r.top - before[i].top));
-          if (d > far) { far = d; dy = r.top - before[i].top; }
-        });
-        return { far, dy };
-      };
-      /* words in a block as wide as what holds it: the box hugs them (as a text box in Figma does, its size its
-         words'), and they stay where they were set in it (centered, at its end) */
-      const cs = c.win.getComputedStyle(el);
-      const fit = Boolean(textOf(el)) && !isGroup(el) && /^(block|flow-root|list-item)$/.test(cs.display) ? { width: 'fit-content' } : {};
-      const align = cs.textAlign;
-      const anchorOf = () => (/center/.test(align) ? el.offsetLeft + el.offsetWidth / 2 : /right|end/.test(align) ? el.offsetLeft + el.offsetWidth : el.offsetLeft);
-      const anchor0 = anchorOf();
+    const was = marginsNow();
+    const roomW = el.offsetWidth + was.Left + was.Right;
+    const roomH = el.offsetHeight + was.Top + was.Bottom;
+    const cs = win.getComputedStyle(el);
+    const fit = Boolean(textOf(el)) && !isGroup(el) && /^(block|flow-root|list-item)$/.test(cs.display) ? { width: 'fit-content' } : {};
+    const align = cs.textAlign;
+    const anchorOf = () => (/center/.test(align) ? el.offsetLeft + el.offsetWidth / 2 : /right|end/.test(align) ? el.offsetLeft + el.offsetWidth : el.offsetLeft);
+    const anchor0 = anchorOf();
+    /* how far the others went, the furthest, and which way up or down */
+    const moved = () => {
+      let far = 0;
+      let dy = 0;
+      others.forEach((o, i) => {
+        const r = o.getBoundingClientRect();
+        const d = Math.max(Math.abs(r.left - before[i].left), Math.abs(r.top - before[i].top));
+        if (d > far) { far = d; dy = r.top - before[i].top; }
+      });
+      return { far, dy };
+    };
+    return (show) => {
       const base = { ...unheld, ...fit };
-      showWith({ ...style, ...base });
-      /* restyled, with the page's own margins: the room it would take, more or less than it takes now */
+      show(base);
+      /* changed, with the page's own margins: the room it would take, more or less than it takes now */
       const margin = marginsNow();
       const shift = fit.width ? anchor0 - anchorOf() : 0;
       const dw = el.offsetWidth + margin.Left + margin.Right - roomW;
@@ -980,13 +974,13 @@
         const side = { ...give, Left: (give.Left ?? 0) - shift, Right: (give.Right ?? 0) + shift };
         return { ...base, ...Object.fromEntries(SIDES.filter((k) => side[k]).map((k) => [`margin${k}`, `${Math.round((margin[k] - side[k]) * 100) / 100}px`])) };
       };
-      showWith({ ...style, ...hold({}) });
+      show(hold({}));
       const alone = moved().far;
       if (alone < 0.5) return hold({});
       let best = { hold: hold({}), far: alone };
       const tryGive = (give) => {
         const h = hold(give);
-        showWith({ ...style, ...h });
+        show(h);
         const m = moved();
         if (m.far < best.far) best = { hold: h, far: m.far };
         return m;
@@ -1007,9 +1001,48 @@
           if (best.far < 0.5) return best.hold;
         }
       }
+      show(best.hold);
       return best.hold;
+    };
+  };
+  /** The style keys of a hold kept for this layer, to null: taken away before a hold is worked out again. */
+  const keptHold = (c, target) => {
+    const kept = (c.overrides ?? []).find((o) => o.at === target.at && (o.n ?? null) === (target.n ?? null));
+    return { style: kept?.style ?? {}, text: kept?.text, unheld: Object.fromEntries(HOLD_KEYS.filter((k) => k in (kept?.style ?? {})).map((k) => [k, null])) };
+  };
+  /**
+   * What the layer at `target` needs besides `style` (and new words, `text`) so that no other layer of its page moves
+   * (holdSearch): style for the same override; {} when it needs none, or the change is what is kept already (a preview
+   * taken back: the hold kept with it stands). Measured against the page as shown without this change (the kept
+   * overrides, and other changes not kept yet).
+   */
+  const holdFor = (c, target, style, text) => {
+    const doc = c.win?.document;
+    /* a size or margin the person sets is meant to move what is around it */
+    if (!doc || ['width', 'height', ...HOLD_KEYS, 'margin'].some((k) => k in style)) return {};
+    const kept = keptHold(c, target);
+    if (Object.entries(style).every(([k, v]) => k in kept.style && String(kept.style[k]) === String(v)) && (text == null || text === kept.text)) return {};
+    const had = drafts.get(c.id);
+    const items0 = had && new Map(had.items);
+    const key = draftKey(target);
+    const own = items0?.get(key)?.patch;
+    const ownStyle = { ...(own?.style ?? {}) };
+    for (const k of [...Object.keys(style), ...HOLD_KEYS]) delete ownStyle[k];
+    const { text: _ownText, ...ownRest } = own ?? {};
+    const showWith = (extra, changed) => {
+      const items = new Map(items0 ?? []);
+      const patch = { ...(changed || text == null ? own ?? {} : ownRest), style: { ...ownStyle, ...(changed ? style : {}), ...extra }, ...(changed && text != null ? { text } : {}) };
+      items.set(key, { target, patch });
+      drafts.set(c.id, { base: had?.base ?? JSON.stringify(c.overrides ?? []), items });
+      show(c);
+    };
+    try {
+      showWith({}, false);
+      const el = matches(doc, target)[0];
+      if (!el || !(el instanceof c.win.HTMLElement)) return {};
+      return holdSearch(c.win, el, kept.unheld)((extra) => showWith(extra, true));
     } finally {
-      if (had) { had.items = new Map(kept); drafts.set(c.id, had); show(c); } else release(c.id);
+      if (had) { had.items = new Map(items0); drafts.set(c.id, had); show(c); } else release(c.id);
     }
   };
 
@@ -1187,18 +1220,19 @@
       const c = clipById(clip);
       if (!c || c.kind !== 'page') return false;
       const target = n ? { at, n } : { at };
-      if (!patch.style) { draft(c, target, patch); return true; }
-      /* restyled, held in place (holdFor): the hold shown before gives way to this one */
-      const hold = holdFor(c, target, patch.style);
+      if (!patch.style && typeof patch.text !== 'string') { draft(c, target, patch); return true; }
+      /* restyled or retyped, held in place (holdFor): the hold shown before gives way to this one */
+      const style = patch.style ?? {};
+      const hold = holdFor(c, target, style, typeof patch.text === 'string' ? patch.text : undefined);
       const shown = drafts.get(c.id)?.items.get(draftKey(target))?.patch.style;
-      if (shown) for (const k of HOLD_KEYS) if (!(k in patch.style)) delete shown[k];
-      draft(c, target, { ...patch, style: { ...patch.style, ...hold } });
+      if (shown) for (const k of HOLD_KEYS) if (!(k in style)) delete shown[k];
+      draft(c, target, { ...patch, style: { ...style, ...hold } });
       return true;
     },
-    /** What keeps the other layers in place when this style is kept for the layer at `at` (holdFor). */
-    hold({ clip, at, n, style }) {
+    /** What keeps the other layers in place when this style (and these words) is kept for the layer at `at` (holdFor). */
+    hold({ clip, at, n, style, text }) {
       const c = clipById(clip);
-      return c?.kind === 'page' ? holdFor(c, n ? { at, n } : { at }, style ?? {}) : {};
+      return c?.kind === 'page' ? holdFor(c, n ? { at, n } : { at }, style ?? {}, typeof text === 'string' ? text : undefined) : {};
     },
     /**
      * The inspector's scale / turn of a layer about a pivot (a corner of its box, or its center): the offset that keeps

@@ -1359,11 +1359,14 @@ export function ProjectView({ projectId, onProject, onLeave }: {
   }, []);
   /* `on`: the element typed in, when it is known (typing in place); the inspector edits the one it shows. A double-click
      selects and types at once, so the element held may still be the one before: written to that, the edit failed */
-  const editStageText = React.useCallback(async (e: StageTextEdit, on?: StageElement): Promise<StageEditFailure | null> => {
+  /* kept with what holds the other layers where they are (more words would push those beside them on): `hold`, worked
+     out as the words were typed in place, else asked for now */
+  const editStageText = React.useCallback(async (e: StageTextEdit, on?: StageElement, typedHold?: Record<string, string | null>): Promise<StageEditFailure | null> => {
     const held = on ?? stageElementRef.current;
     if (!held?.clipLoc) return { error: t('timeline.editFail') };
+    const hold = typedHold ?? await stageControl.current?.holdStyle(held, {}, e.value) ?? {};
     stageControl.current?.previewText(held, e.value);
-    const failed = await editStageOverrideRef.current(held, { text: e.value } as OverrideGeometry);
+    const failed = await editStageOverrideRef.current(held, { text: e.value, ...(Object.keys(hold).length ? { style: hold } : {}) } as OverrideGeometry);
     if (failed) { stageControl.current?.previewText(held, e.expect); return { error: failed }; }
     setStageElement((el) => (el?.text?.loc === e.loc ? { ...el, text: { ...el.text, value: e.value }, label: e.value.slice(0, 40) } : el));
     return null;
@@ -1380,10 +1383,10 @@ export function ProjectView({ projectId, onProject, onLeave }: {
     void editStageOverrides(list.map(({ element, g }) => ({ element, patch: { t: g.t, s: compactScale(g.s[0], g.s[1]), r: g.r } })))
       .then((failed) => { if (failed) toast.show(failed); });
   }, [editStageOverrides, toast]);
-  const editStageTextInline = React.useCallback(async (element: StageElement, v: string) => {
+  const editStageTextInline = React.useCallback(async (element: StageElement, v: string, hold?: Record<string, string | null>) => {
     const text = element.text;
     if (!text) return t('timeline.editFail');
-    const failed = await editStageText({ loc: text.loc, value: v, expect: text.value }, element);
+    const failed = await editStageText({ loc: text.loc, value: v, expect: text.value }, element, hold ?? {});
     if (failed) {
       setInlineTextFailure((cur) => ({ loc: text.loc, value: v, failure: failed, seq: (cur?.seq ?? 0) + 1 }));
       return failed.error;
