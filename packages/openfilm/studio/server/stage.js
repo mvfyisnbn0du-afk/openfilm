@@ -517,11 +517,16 @@
 
   /** All layers under a point of a clip's page, the smallest first (equal areas: the one drawn later first). */
   const layersAt = (c, x, y, includeLocked) => {
+    const doc = c.win.document;
+    /* what is really at the point: a line's own stroke, not the box around it (a diagonal line's box covers the words
+       beside it, and as the smaller box it was taken for them) */
+    const under = seeingAll(doc, () => doc.elementsFromPoint(x, y));
     const hits = [];
-    layersOf(c.win.document).forEach((el, order) => {
+    layersOf(doc).forEach((el, order) => {
       const rect = el.getBoundingClientRect();
       if (rect.width < 1 || rect.height < 1) return;
       if (x < rect.left || x > rect.right || y < rect.top || y > rect.bottom) return;
+      if (!under.some((u) => el === u || el.contains(u))) return;
       const frame = frameOf(el, rect);
       if (frame.r && !inFrame(frame, x, y)) return;
       const kind = kindOf(el);
@@ -751,7 +756,26 @@
     if (kept) draft(c, edit.target, { text: value });
     post({ type: 'stage-event', event: 'text', handle: edit.handle, commit: Boolean(kept), ...(kept ? { value, before: edit.before } : {}) });
   };
-  const startText = ({ handle }) => {
+  /**
+   * Where in `host`'s words a point (page px) falls, as a range, or null. Only the line is hit there: what the page
+   * lays over it (a grain, a wipe gone transparent) or its pointer-events taken off would put the point elsewhere.
+   */
+  const caretIn = (host, x, y) => {
+    const doc = host.ownerDocument;
+    const probe = doc.createElement('style');
+    probe.textContent = '* { pointer-events: none !important; } [data-of-caret], [data-of-caret] * { pointer-events: auto !important; }';
+    host.setAttribute('data-of-caret', '');
+    (doc.head ?? doc.documentElement).append(probe);
+    try {
+      const range = doc.caretRangeFromPoint?.(x, y);
+      return range && host.contains(range.startContainer) ? range : null;
+    } finally {
+      probe.remove();
+      host.removeAttribute('data-of-caret');
+    }
+  };
+  /** `at`: the stage point a double-click was aimed at, where the caret goes; without it all of the line is selected. */
+  const startText = ({ handle, at }) => {
     const el = nodeOf(handle);
     const c = el && clipOfNode(el);
     if (!el || !c || editing) return false;
@@ -789,7 +813,10 @@
     window.focus();
     c.win.focus();
     host.focus({ preventScroll: true });
-    doc.getSelection()?.selectAllChildren(host);
+    const p = at && matrixOf(c).inverse().transformPoint(new DOMPoint(at.x, at.y));
+    const caret = p && caretIn(host, p.x, p.y);
+    if (caret) doc.getSelection()?.setBaseAndExtent(caret.startContainer, caret.startOffset, caret.startContainer, caret.startOffset);
+    else doc.getSelection()?.selectAllChildren(host);
     return true;
   };
 

@@ -997,9 +997,10 @@ function FilmStageSelectImpl({
 
   /* ── typing a line in place ── */
   /**
-   * Double-click a line (or select it and press Enter): the line itself becomes typeable in the picture, all of it
-   * selected (an SVG text, or a line with inline parts, gets a box of its own type over it). Esc cancels; a click
-   * elsewhere (blur) or Enter commits (⌘Enter where Enter breaks a line).
+   * Double-click a line (or select it and press Enter): the line itself becomes typeable in the picture (an SVG text,
+   * or a line with inline parts, gets a box of its own type over it). A double-click puts the caret where it was aimed,
+   * as Figma does; Enter selects all of it. Esc cancels; a click elsewhere (blur) or Enter commits (⌘Enter where Enter
+   * breaks a line).
    */
   const finishTextEdit = (commit: boolean) => {
     if (!textEdit.current) return;
@@ -1025,7 +1026,8 @@ function FilmStageSelectImpl({
       syncGeomSoon();
     });
   };
-  const startTextEdit = (): boolean => {
+  /** `at`: where a double-click was aimed (stage px), for the caret; without it all of the line is selected. */
+  const startTextEdit = (at?: { x: number; y: number }): boolean => {
     const held = pickedRef.current;
     const element = held?.element;
     const layer = held?.layer;
@@ -1035,7 +1037,7 @@ function FilmStageSelectImpl({
     setEditingText(element.loc);
     setHover(null);
     previewRef.current?.focus?.();
-    void ask<boolean>('textStart', { handle: layer.handle }).then((started) => {
+    void ask<boolean>('textStart', { handle: layer.handle, ...(at ? { at } : {}) }).then((started) => {
       if (started || textEdit.current?.layer.handle !== layer.handle) return;
       textEdit.current = null;
       setEditingText(null);
@@ -1948,7 +1950,7 @@ function FilmStageSelectImpl({
         if (token !== pressSeq.current || !layer?.text) return;
         commitHit(hitOf(layer));
       }
-      startTextEditRef.current();
+      startTextEditRef.current(at);
     })();
   };
 

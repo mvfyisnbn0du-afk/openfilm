@@ -43,7 +43,7 @@ async function stageOf(dir) {
     window.addEventListener('message', hear);
     window.postMessage({ source: 'openfilm-studio', type: 'stage', seq, op, ...args }, '*');
   }), { op, args, seq: ++seq });
-  return { ask, close };
+  return { ask, page, close };
 }
 
 test('a click on a page\'s backdrop (a box filling the page) takes the clip, not the box; a smaller box is taken', { timeout: 60_000 }, async () => {
@@ -66,6 +66,53 @@ test('a click on a page\'s backdrop (a box filling the page) takes the clip, not
     assert.equal(root?.kind, 'box');
     assert.notEqual(root.handle, card.handle);
     assert.equal((await stage.ask('hit', { x: 150, y: 160, from: root.handle, detail: true }))?.handle, root.handle);
+  } finally {
+    await stage.close();
+  }
+});
+
+test('a double-click types where it was aimed, under a grain laid over the page; Enter (no point) selects all of the line', { timeout: 60_000 }, async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'of-stage-caret-'));
+  writeFileSync(join(dir, 'title.html'), `<!doctype html><body style="margin:0">
+<h1 id="title" style="position:absolute;left:20px;top:20px;margin:0;font:700 24px monospace">Every parcel</h1>
+<div id="grain" style="position:absolute;inset:0;opacity:.05;background:#888"></div>
+<script>window.film={duration:2,frame(){}}</script></body>`);
+  writeFileSync(join(dir, 'film.html'), filmHtml({ stage: { w: 320, h: 180 }, tracks: [{ clips: [{ id: 'title', src: 'title.html' }] }] }));
+  const stage = await stageOf(dir);
+  try {
+    const title = await stage.ask('hit', { x: 40, y: 30, detail: true });
+    const selected = () => stage.page.frames().find((f) => f.url().endsWith('title.html')).evaluate(() => {
+      const s = document.getSelection();
+      return { collapsed: s.isCollapsed, offset: s.anchorOffset, text: s.toString() };
+    });
+    assert.equal(await stage.ask('textStart', { handle: title.handle, at: { x: 80, y: 32 } }), true);
+    const caret = await selected();
+    assert.equal(caret.collapsed, true, 'a caret, nothing selected');
+    assert.ok(caret.offset > 0 && caret.offset < 'Every parcel'.length, `the caret is in the line where it was aimed (${caret.offset})`);
+    await stage.ask('textFinish', { commit: false });
+    assert.equal(await stage.ask('textStart', { handle: title.handle }), true);
+    assert.equal((await selected()).text, 'Every parcel');
+    await stage.ask('textFinish', { commit: false });
+  } finally {
+    await stage.close();
+  }
+});
+
+test('a click on words takes them, though a line drawn behind runs across its own box there', { timeout: 60_000 }, async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'of-stage-line-'));
+  writeFileSync(join(dir, 'net.html'), `<!doctype html><body style="margin:0">
+<svg style="position:absolute;left:0;top:0" width="320" height="180"><line x1="100" y1="40" x2="130" y2="70" stroke="#888" stroke-width="2"/></svg>
+<div id="card" style="position:absolute;left:30px;top:40px;width:200px;height:60px;background:rgba(255,255,255,.07)">
+  <h3 id="name" style="margin:0;font:600 30px sans-serif;width:200px">Cloud</h3>
+</div>
+<script>window.film={duration:2,frame(){}}</script></body>`);
+  writeFileSync(join(dir, 'film.html'), filmHtml({ stage: { w: 320, h: 180 }, tracks: [{ clips: [{ id: 'net', src: 'net.html' }] }] }));
+  const stage = await stageOf(dir);
+  try {
+    /* (125, 45): inside the line's box (100…130 × 40…70, smaller than the words'), off its stroke, on the words */
+    assert.equal((await stage.ask('hit', { x: 125, y: 45, detail: true }))?.text?.value, 'Cloud');
+    /* on the stroke itself: the line, the smaller of what is there */
+    assert.equal((await stage.ask('hit', { x: 115, y: 55, detail: true }))?.kind, 'shape');
   } finally {
     await stage.close();
   }
