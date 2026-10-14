@@ -24,7 +24,7 @@
  * Reads no Electron module, so `node --test` can use it.
  */
 import { execFile, spawn } from 'node:child_process';
-import { existsSync, mkdtempSync, readFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { arch, homedir, release, tmpdir } from 'node:os';
 import { createRequire } from 'node:module';
 import { dirname, isAbsolute, join } from 'node:path';
@@ -390,6 +390,15 @@ export function signInScript(cliPath, args) {
   return `tell application "Terminal"\nactivate\ndo script "${command.replace(/\\/g, '\\\\').replace(/"/g, '\\"')}"\nend tell`;
 }
 
+/**
+ * A PowerShell script that names its window and runs one program (`& 'program' 'arg'…`, each in single quotes, as
+ * PowerShell quotes): Windows sign-in. With a BOM, so Windows PowerShell reads a path with Chinese in it as UTF-8.
+ */
+export function powerShellScript(title, cmd, args) {
+  const q = (s) => `'${String(s).replace(/'/g, "''")}'`;
+  return `\ufeff$Host.UI.RawUI.WindowTitle = ${q(title)}\r\n& ${[cmd, ...args].map(q).join(' ')}\r\n`;
+}
+
 /** The person's shell variables as this agent is given them (`fromShell`; all of them, for most). */
 export function agentShell(id, shell) {
   return AGENTS[id]?.fromShell?.(shell) ?? shell;
@@ -445,12 +454,20 @@ export async function openAgentSignIn(id) {
     how = { cmd: launch.cmd, args: [...launch.args, ...way.args], env: { ...launch.env, ...way.env } };
   }
   if (process.platform === 'win32') {
-    /* a command window of its own, left open so its sign-in can be read and answered (it runs a shim itself) */
+    /* a PowerShell window of its own running a script, as ChatCut does: no command line for cmd.exe to unquote (a path
+       with a space in it), and left open so its sign-in can be read and answered (it runs a shim itself) */
     how ??= /\.(?:cmd|bat)$/i.test(cli.path) ? { cmd: cli.path, args: spec.login, env: {} } : starting(cli.path, spec.login);
     try {
-      spawn('cmd.exe', ['/d', '/c', 'start', `${spec.label} sign-in`, 'cmd.exe', '/k', how.cmd, ...how.args], {
+      const dir = join(tmpdir(), 'openfilm-sign-in');
+      mkdirSync(dir, { recursive: true });
+      const file = join(dir, `${id}.ps1`);
+      writeFileSync(file, powerShellScript(`${spec.label} sign-in`, how.cmd, how.args), 'utf8');
+      const powershell = join(process.env.SystemRoot ?? 'C:\\Windows', 'System32', 'WindowsPowerShell', 'v1.0', 'powershell.exe');
+      const child = spawn(powershell, ['-NoLogo', '-NoExit', '-ExecutionPolicy', 'Bypass', '-File', file], {
         detached: true, stdio: 'ignore', windowsHide: false, env: childEnvironment({ shell: agentShell(id, await loginShellVariables()), extra: how.env }),
-      }).unref();
+      });
+      await new Promise((done, fail) => { child.once('spawn', done); child.once('error', fail); });
+      child.unref();
       return { ok: true };
     } catch (e) { return { ok: false, error: e instanceof Error ? e.message : String(e) }; }
   }

@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { CLIENT_CAPABILITIES, agentShell, allowOption, codexDeveloperInstructions, legacyOptions, readAgentStatus } from './agents.mjs';
+import { CLIENT_CAPABILITIES, agentShell, allowOption, codexDeveloperInstructions, legacyOptions, powerShellScript, readAgentStatus } from './agents.mjs';
 
 test('an agent that asks: yes for good where it offers that, else yes this once; nothing to say yes with is null', () => {
   const options = [
@@ -72,4 +72,14 @@ test('the chat says it signs in in Terminal, so Claude Code offers its subscript
   const { zClientCapabilities } = await import(new URL('../node_modules/@agentclientprotocol/sdk/dist/schema/zod.gen.js', import.meta.url).href);
   /* the check Claude Code's adapter makes before it offers its terminal sign-ins */
   assert.equal(zClientCapabilities.parse(CLIENT_CAPABILITIES).auth?.terminal, true);
+});
+
+test('a Windows sign-in is a PowerShell script: each path whole however it is spelled, read as UTF-8', () => {
+  const script = powerShellScript('Claude Code sign-in', 'C:\\Program Files\\OpenFilm\\OpenFilm.exe',
+    ['C:\\Program Files\\OpenFilm\\app.asar\\src\\as-node.mjs', 'D:\\用户\\it\'s\\index.js', '--cli', 'auth', 'login', '--claudeai']);
+  assert.ok(script.startsWith('\ufeff'), 'a BOM: Windows PowerShell reads it as UTF-8');
+  const lines = script.slice(1).split('\r\n');
+  assert.equal(lines[0], "$Host.UI.RawUI.WindowTitle = 'Claude Code sign-in'");
+  assert.equal(lines[1], "& 'C:\\Program Files\\OpenFilm\\OpenFilm.exe' 'C:\\Program Files\\OpenFilm\\app.asar\\src\\as-node.mjs' "
+    + "'D:\\用户\\it''s\\index.js' '--cli' 'auth' 'login' '--claudeai'");
 });
