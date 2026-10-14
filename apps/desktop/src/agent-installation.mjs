@@ -5,7 +5,7 @@
  * cmd.exe (agents.mjs). A program the person chose themselves (Settings → Agents → Locate) comes before any of these.
  * Reads no Electron module, so `node --test` can use it.
  */
-import { accessSync, closeSync, constants, lstatSync, openSync, readFileSync, readSync, readdirSync, statSync } from 'node:fs';
+import { accessSync, closeSync, constants, lstatSync, openSync, readFileSync, readSync, readdirSync, realpathSync, statSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { delimiter, dirname, isAbsolute, join } from 'node:path';
 
@@ -82,6 +82,33 @@ export function claudeAppCli(home = homedir()) {
       .sort((a, b) => b.localeCompare(a, undefined, { numeric: true }))
       .map((v) => inside(join(root, v))).find(Boolean) ?? null;
   } catch { return null; /* the Claude app has not downloaded Claude Code */ }
+}
+
+/**
+ * Which Claude Code a program is, told from where it is installed without starting it: the Claude app's and Homebrew's
+ * folders and the official installer's file are named for the version (`claude-code/2.1.295/…`,
+ * `Caskroom/claude-code/2.1.295/…`, `claude/versions/2.1.295`); npm's has its package.json. Null when it can't be told.
+ */
+export function claudeVersion(file) {
+  let real;
+  try { real = realpathSync(file); } catch { return null; }
+  /* npm's first: its folders can be named for Node's version (Homebrew's Cellar/node/26.0.0/lib/node_modules/…) */
+  for (let dir = dirname(real), up = 0; up < 3; dir = dirname(dir), up += 1) {
+    try {
+      const pkg = JSON.parse(readFileSync(join(dir, 'package.json'), 'utf8'));
+      if (pkg.name === '@anthropic-ai/claude-code' && typeof pkg.version === 'string') return pkg.version;
+    } catch { /* not here */ }
+  }
+  return real.split(/[\\/]/).reverse().find((part) => /^\d+\.\d+\.\d+$/.test(part)) ?? null;
+}
+
+/** Whether version `a` is later than `b` (dotted numbers); false when either is unknown. */
+export function laterVersion(a, b) {
+  if (!a || !b) return false;
+  const x = a.split('.').map(Number);
+  const y = b.split('.').map(Number);
+  for (let i = 0; i < Math.max(x.length, y.length); i += 1) if ((x[i] ?? 0) !== (y[i] ?? 0)) return (x[i] ?? 0) > (y[i] ?? 0);
+  return false;
 }
 
 const windows = process.platform === 'win32';
@@ -237,7 +264,13 @@ export function detectAgentInstallation(id, { home = homedir(), env = process.en
   const dirs = [...pathDirs, ...(program.dirs?.(home) ?? [])];
   let cli = null;
   for (const name of program.names) if (!cli) cli = findExecutable(name, dirs, env, { win });
-  if (cli) return { installed: true, cli, source: 'path', install };
+  if (cli) {
+    /* Claude Code both on the PATH (an npm install that is never updated, say) and in the Claude app, which keeps its
+       own up to date: the later one, whose models are the current ones. One whose version can't be told stays. */
+    const inApp = id === 'claude' ? claudeAppCli(home) : null;
+    if (inApp && laterVersion(claudeVersion(inApp), claudeVersion(cli))) return { installed: true, cli: inApp, source: 'app', install };
+    return { installed: true, cli, source: 'path', install };
+  }
   if (id === 'codex') {
     cli = applicationDirs.flatMap((dir) => ['Codex.app', 'ChatGPT.app'].flatMap((app) => CODEX_IN_APP.map((p) => join(dir, app, p)))).find(executableFile) ?? null;
   }

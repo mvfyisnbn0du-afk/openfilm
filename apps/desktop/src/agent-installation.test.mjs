@@ -1,9 +1,9 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { chosenProgram, claudeAppCli, cmdTarget, consoleProgram, detectAgentInstallation, findExecutable, searchReport, windowsBinDirs } from './agent-installation.mjs';
+import { chosenProgram, claudeAppCli, claudeVersion, cmdTarget, consoleProgram, detectAgentInstallation, findExecutable, laterVersion, searchReport, windowsBinDirs } from './agent-installation.mjs';
 
 test("an npm .cmd shim (Windows) runs its package's script: that is what gets started", () => {
   const npm = mkdtempSync(join(tmpdir(), 'of-npm-'));
@@ -190,4 +190,38 @@ test('the report: every folder searched, each file with the name, what a shim ru
     { file: join(npm, 'gemini.cmd'), runs: script, usable: true },
     { file: join(npm, 'gemini.ps1'), runs: null, usable: false },
   ]);
+});
+
+test('Claude Code on the PATH and in the Claude app: the later one is used, told from where each is installed', () => {
+  if (process.platform === 'win32') return;
+  const home = mkdtempSync(join(tmpdir(), 'of-home-'));
+  const exe = (file) => { mkdirSync(join(file, '..'), { recursive: true }); writeFileSync(file, '', { mode: 0o755 }); return file; };
+  const inApp = exe(join(home, 'Library/Application Support/Claude/claude-code/2.1.295/abc/claude.app/Contents/MacOS/claude'));
+  assert.equal(claudeVersion(inApp), '2.1.295');
+
+  /* an npm install never updated, under a Node whose folder is named for its own version */
+  const npm = join(home, 'Cellar/node/26.0.0/lib/node_modules/@anthropic-ai/claude-code');
+  const cliJs = exe(join(npm, 'cli.js'));
+  writeFileSync(join(npm, 'package.json'), JSON.stringify({ name: '@anthropic-ai/claude-code', version: '2.1.280' }));
+  const bin = join(home, 'bin');
+  mkdirSync(bin);
+  symlinkSync(cliJs, join(bin, 'claude'));
+  assert.equal(claudeVersion(join(bin, 'claude')), '2.1.280', "npm's own version, not Node's");
+  const found = detectAgentInstallation('claude', { home, env: { PATH: '' }, pathDirs: [bin] });
+  assert.deepEqual([found.cli, found.source], [inApp, 'app']);
+
+  /* the official installer's, later than the app's: the one on the PATH */
+  const native = exe(join(home, '.local/share/claude/versions/2.1.300'));
+  const local = join(home, 'local-bin');
+  mkdirSync(local);
+  symlinkSync(native, join(local, 'claude'));
+  assert.equal(detectAgentInstallation('claude', { home, env: { PATH: '' }, pathDirs: [local] }).cli, join(local, 'claude'));
+
+  /* one whose version can't be told stays as it is found */
+  const plain = join(home, 'plain-bin');
+  exe(join(plain, 'claude'));
+  assert.equal(claudeVersion(join(plain, 'claude')), null);
+  assert.equal(detectAgentInstallation('claude', { home, env: { PATH: '' }, pathDirs: [plain] }).source, 'path');
+  assert.equal(laterVersion('2.1.10', '2.1.9'), true);
+  assert.equal(laterVersion('2.1.9', '2.1.9'), false);
 });

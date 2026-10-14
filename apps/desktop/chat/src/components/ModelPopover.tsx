@@ -19,7 +19,7 @@ import { Tooltip } from '@/components/Tooltip';
 import { AgentIcon } from '@/components/AgentIcons';
 import { POPOVER_CHROME } from '@/components/ComposerCard';
 import { desktopBridge, type LocalAgentId, type RosterAgent } from '@/lib/desktop-bridge';
-import { agentModelSummary, agentOptions, currentAgent, effectivePrefs, offeredOption, optionLabel, optionValue, shownAgents, useLocalAgents } from '@/state/local-agent-store';
+import { agentModelSummary, agentOptions, currentAgent, effectivePrefs, offeredChoices, offeredOption, optionLabel, optionValue, shownAgents, useLocalAgents } from '@/state/local-agent-store';
 import { chatLayer } from '@/lib/chat-layer';
 
 /** the card, wider when it lists the agents; the side menu's least width; the gap between them; the window's margin */
@@ -155,8 +155,8 @@ export function ModelPopover({ placement = 'bottom', align = 'start' }: { placem
   const sideMenu = open && choosing && typeof document !== 'undefined' ? createPortal(
     <div ref={sideRef} onMouseEnter={() => showSide(choosing.id)} onMouseLeave={hideSideSoon}
       style={{ ...POPOVER_CHROME, padding: 4, overflowY: 'auto', ...(sideStyle ?? { position: 'fixed', left: -9999, top: 0 }) }}>
-      {/* the names only: no descriptions, and no "Default" row (a default is one of the others) */}
-      {(choosing.options ?? []).filter((choice) => choice.value !== 'default').map((choice) => {
+      {/* the names only: no descriptions, and the choices the menu offers (offeredChoices) */}
+      {offeredChoices(agent, choosing, chosenValue(choosing)).map((choice) => {
         const selected = chosenValue(choosing) === choice.value;
         return (
           <button key={String(choice.value)} type="button" onMouseDown={keepFocus}

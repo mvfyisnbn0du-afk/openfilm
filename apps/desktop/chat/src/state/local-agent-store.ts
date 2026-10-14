@@ -104,6 +104,20 @@ export function offeredOption(agent: LocalAgentId, roster: RosterAgent[] | null,
   return true;
 }
 
+/* Claude Code's own model picker shows four above its line, the newest of each family; the ones it lists after them
+   are older models */
+const CLAUDE_MODELS_OFFERED = 4;
+
+/**
+ * The choices a menu row offers, in the agent's order, without a "Default" row (a default is one of the others). Of
+ * Claude Code's models, the first four it lists, as its own picker shows them, and the one in use if it is further down.
+ */
+export function offeredChoices<T extends { value: unknown }>(agent: LocalAgentId, option: { id: string; category?: string; options?: T[] }, chosen: unknown): T[] {
+  const choices = (option.options ?? []).filter((choice) => choice.value !== 'default');
+  if (agent !== 'claude' || (option.category !== 'model' && option.id !== 'model')) return choices;
+  return choices.filter((choice, i) => i < CLAUDE_MODELS_OFFERED || choice.value === chosen);
+}
+
 /** The agents the menu lists: the ones switched on in Settings, in the roster's order. */
 export function shownAgents(roster: RosterAgent[] | null): RosterAgent[] {
   return (roster ?? []).filter((a) => a.shown);
