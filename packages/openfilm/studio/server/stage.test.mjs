@@ -118,3 +118,34 @@ test('a click on words takes them, though a line drawn behind runs across its ow
     await stage.close();
   }
 });
+
+test('a layer restyled leaves the others where they are: the words beside a number set larger stay put', { timeout: 60_000 }, async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'of-stage-hold-'));
+  writeFileSync(join(dir, 'row.html'), `<!doctype html><body style="margin:0">
+<div id="row" style="position:absolute;left:10px;top:40px;display:flex;align-items:baseline;gap:10px">
+  <b id="num" style="font:700 60px monospace;line-height:1">18</b><span id="words" style="font:600 20px sans-serif">founders</span>
+</div>
+<script>window.film={duration:2,frame(){}}</script></body>`);
+  writeFileSync(join(dir, 'film.html'), filmHtml({ stage: { w: 320, h: 180 }, tracks: [{ clips: [{ id: 'row', src: 'row.html' }] }] }));
+  const stage = await stageOf(dir);
+  try {
+    const page = stage.page.frames().find((f) => f.url().endsWith('row.html'));
+    const place = () => page.evaluate(() => {
+      const w = document.getElementById('words').getBoundingClientRect();
+      const n = document.getElementById('num');
+      return { words: [Math.round(w.left * 10) / 10, Math.round(w.top * 10) / 10], size: getComputedStyle(n).fontSize };
+    });
+    const was = await place();
+    const style = { fontSize: '90px' };
+    const hold = await stage.ask('hold', { clip: 'row', at: '#num', style });
+    assert.ok(hold.width && hold.height, `its place is held (${JSON.stringify(hold)})`);
+    assert.equal(await stage.ask('tweak', { clip: 'row', at: '#num', patch: { style } }), true);
+    const now = await place();
+    assert.equal(now.size, '90px', 'the number is larger');
+    assert.deepEqual(now.words, was.words, 'the words beside it did not move');
+    /* a size the person sets is meant to move what is around it */
+    assert.deepEqual(await stage.ask('hold', { clip: 'row', at: '#num', style: { width: '200px' } }), {});
+  } finally {
+    await stage.close();
+  }
+});

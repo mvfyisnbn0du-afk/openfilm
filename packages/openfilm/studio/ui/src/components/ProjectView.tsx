@@ -1317,7 +1317,9 @@ export function ProjectView({ projectId, onProject, onLeave }: {
     if (!held?.clipLoc) return t('timeline.editFail');
     const clean: Record<string, string | number | null> = {};
     for (const [key, v] of Object.entries(patch)) clean[key] = v ?? null;
-    const message = await editStageOverrideRef.current(held, { style: clean } as OverrideGeometry);
+    /* kept with what holds the other layers where they are (a wider font would push the words beside it on) */
+    const hold = await stageControl.current?.holdStyle(held, clean) ?? {};
+    const message = await editStageOverrideRef.current(held, { style: { ...clean, ...hold } } as OverrideGeometry);
     if (!message) setStageElement((cur) => (cur && (cur.loc === loc || cur.loc?.split('#')[0] === loc) ? { ...cur, style: { ...cur.style, ...patch } } : cur));
     return message;
   }, [t]);

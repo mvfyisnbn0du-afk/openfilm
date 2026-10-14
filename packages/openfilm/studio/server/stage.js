@@ -635,10 +635,11 @@
     }
     editor()?.preview(c.id, list);
   };
+  const draftKey = (target) => `${target.at}\u0000${target.n ?? ''}`;
   const draft = (c, target, patch) => {
     let d = drafts.get(c.id);
     if (!d) { d = { base: JSON.stringify(c.overrides ?? []), items: new Map() }; drafts.set(c.id, d); }
-    const key = `${target.at}\u0000${target.n ?? ''}`;
+    const key = draftKey(target);
     const prev = d.items.get(key)?.patch ?? {};
     d.items.set(key, { target, patch: { ...prev, ...patch, ...(prev.style || patch.style ? { style: { ...(prev.style ?? {}), ...(patch.style ?? {}) } } : {}) } });
     show(c);
@@ -902,6 +903,73 @@
     return pinned.some((e) => e.style.position) && holds(pinned) ? pinned : null;
   };
 
+  /* ── a layer restyled: the others stay where they are, as in Figma, where one layer's look never moves another ── */
+  /** The style a hold sets (holdFor): kept apart from what the person set, so a new hold replaces the one before. */
+  const HOLD_KEYS = ['width', 'height', 'flex', 'boxSizing', 'lineHeight'];
+  /**
+   * What the layer at `target` needs besides `style` so that no other layer of its page moves: its place in the page's
+   * flow kept at the size it had (a wider font would push the words beside it on), and for words whose new font sits
+   * higher or lower, a line height that keeps the baseline the words beside them line up with. As style for the same
+   * override; {} when nothing else moves, or when nothing found keeps them in place (then the style alone is kept).
+   * Measured against the page as shown without this style (the kept overrides, and other changes not kept yet).
+   */
+  const holdFor = (c, target, style) => {
+    const doc = c.win?.document;
+    /* a size the person sets is meant to move what is around it */
+    if (!doc || 'width' in style || 'height' in style) return {};
+    const had = drafts.get(c.id);
+    const kept = had && new Map(had.items);
+    const key = draftKey(target);
+    const own = kept?.get(key)?.patch;
+    const ownStyle = { ...(own?.style ?? {}) };
+    for (const k of [...Object.keys(style), ...HOLD_KEYS]) delete ownStyle[k];
+    const showWith = (extra) => {
+      const items = new Map(kept ?? []);
+      items.set(key, { target, patch: { ...(own ?? {}), style: { ...ownStyle, ...extra } } });
+      drafts.set(c.id, { base: had?.base ?? JSON.stringify(c.overrides ?? []), items });
+      show(c);
+    };
+    try {
+      showWith({});
+      const el = matches(doc, target)[0];
+      if (!el || !(el instanceof c.win.HTMLElement)) return {};
+      const others = layersOf(doc).filter((o) => o !== el && !o.contains(el) && !el.contains(o));
+      const before = others.map((o) => o.getBoundingClientRect());
+      /* how far the others went, the furthest, and which way up or down */
+      const moved = () => {
+        let far = 0;
+        let dy = 0;
+        others.forEach((o, i) => {
+          const r = o.getBoundingClientRect();
+          const d = Math.max(Math.abs(r.left - before[i].left), Math.abs(r.top - before[i].top));
+          if (d > far) { far = d; dy = r.top - before[i].top; }
+        });
+        return { far, dy };
+      };
+      const size = { width: `${el.offsetWidth}px`, height: `${el.offsetHeight}px`, flex: 'none', boxSizing: 'border-box' };
+      showWith(style);
+      const alone = moved().far;
+      if (alone < 0.5) return {};
+      let best = { hold: {}, far: alone };
+      const tryHold = (hold) => {
+        showWith({ ...style, ...hold });
+        const m = moved();
+        if (m.far < best.far) best = { hold, far: m.far };
+        return m;
+      };
+      let m = tryHold(size);
+      /* the baseline moves by half what the line height does: brought back in a step or two */
+      let line = Number.parseFloat(c.win.getComputedStyle(el).lineHeight);
+      for (let i = 0; i < 3 && m.far >= 0.5 && !('lineHeight' in style) && Number.isFinite(line) && Math.abs(m.dy) >= 0.5; i++) {
+        line -= 2 * m.dy;
+        m = tryHold({ ...size, lineHeight: `${Math.round(line * 100) / 100}px` });
+      }
+      return best.hold;
+    } finally {
+      if (had) { had.items = new Map(kept); drafts.set(c.id, had); show(c); } else release(c.id);
+    }
+  };
+
   /* ── the Layers panel's tree ── */
   const ROWS = 800;
   /** Per element, whether the clip's kept overrides hide it (the panel's eye) or lock it: the last one to say counts. */
@@ -1075,8 +1143,19 @@
     tweak({ clip, at, n, patch }) {
       const c = clipById(clip);
       if (!c || c.kind !== 'page') return false;
-      draft(c, n ? { at, n } : { at }, patch);
+      const target = n ? { at, n } : { at };
+      if (!patch.style) { draft(c, target, patch); return true; }
+      /* restyled, held in place (holdFor): the hold shown before gives way to this one */
+      const hold = holdFor(c, target, patch.style);
+      const shown = drafts.get(c.id)?.items.get(draftKey(target))?.patch.style;
+      if (shown) for (const k of HOLD_KEYS) if (!(k in patch.style)) delete shown[k];
+      draft(c, target, { ...patch, style: { ...patch.style, ...hold } });
       return true;
+    },
+    /** What keeps the other layers in place when this style is kept for the layer at `at` (holdFor). */
+    hold({ clip, at, n, style }) {
+      const c = clipById(clip);
+      return c?.kind === 'page' ? holdFor(c, n ? { at, n } : { at }, style ?? {}) : {};
     },
     /**
      * The inspector's scale / turn of a layer about a pivot (a corner of its box, or its center): the offset that keeps

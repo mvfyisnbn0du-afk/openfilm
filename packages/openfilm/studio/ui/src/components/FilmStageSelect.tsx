@@ -175,6 +175,11 @@ export interface StageClipEdit {
 export interface FilmStageControl {
   /** Show style keys on a layer before they are kept (`null` takes a key back to the page's own). */
   previewStyle(element: StageElement, patch: StageElementStyle | Record<string, string | number | null>): void;
+  /**
+   * What a layer needs besides `style` so that no other layer moves when it is kept (its place in the page held, as
+   * Figma keeps a restyled layer from moving the others): style to write with it, {} when nothing else moves.
+   */
+  holdStyle(element: StageElement, style: Record<string, string | number | null>): Promise<Record<string, string>>;
   /** Show a layer's words before they are kept. */
   previewText(element: StageElement, value: string): void;
   /**
@@ -1313,6 +1318,10 @@ function FilmStageSelectImpl({
       previewStyle(element, patch) {
         const at = named(element);
         if (at) void ask('tweak', { ...at, patch: { style: clean(patch as Record<string, string | number | null | undefined>) } }).then(syncGeomSoon);
+      },
+      async holdStyle(element, style) {
+        const at = named(element);
+        return (at ? await ask<Record<string, string>>('hold', { ...at, style: clean(style) }) : null) ?? {};
       },
       previewText(element, value) {
         const at = named(element);
