@@ -756,6 +756,20 @@
     if (kept) draft(c, edit.target, { text: value });
     post({ type: 'stage-event', event: 'text', handle: edit.handle, commit: Boolean(kept), ...(kept ? { value, before: edit.before } : {}) });
   };
+  /**
+   * Only `el` takes the pointer in its document until the returned function is called. While a line is typed in, a
+   * press on its words moves the caret or selects them, though the page draws something over it there (a number still
+   * to come in, at opacity 0; a grain) or another clip lies on top; a press anywhere else blurs it, which keeps it.
+   */
+  const TYPING_ATTR = 'data-openfilm-typing';
+  const onlyHit = (el) => {
+    const doc = el.ownerDocument;
+    const style = doc.createElement('style');
+    style.textContent = `* { pointer-events: none !important; } [${TYPING_ATTR}], [${TYPING_ATTR}] * { pointer-events: auto !important; }`;
+    el.setAttribute(TYPING_ATTR, '');
+    (doc.head ?? doc.documentElement).append(style);
+    return () => { style.remove(); el.removeAttribute(TYPING_ATTR); };
+  };
   const startText = ({ handle }) => {
     const el = nodeOf(handle);
     const c = el && clipOfNode(el);
@@ -789,8 +803,11 @@
       el, host, c, handle, overlay, data, attrs, target: targetOf(el),
       children: [...el.childNodes],
       before: textOf(el),
-      cleanup: () => { host.removeEventListener('keydown', onKey); host.removeEventListener('blur', onBlur); },
+      cleanup: () => { host.removeEventListener('keydown', onKey); host.removeEventListener('blur', onBlur); release(); },
     };
+    /* the line in its page, and its page in the film */
+    const hits = [onlyHit(host), onlyHit(c.el)];
+    const release = () => { for (const off of hits) off(); };
     window.focus();
     c.win.focus();
     host.focus({ preventScroll: true });

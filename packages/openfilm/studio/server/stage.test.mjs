@@ -71,19 +71,29 @@ test('a click on a page\'s backdrop (a box filling the page) takes the clip, not
   }
 });
 
-test('a line typed in place starts with all of its words selected', { timeout: 60_000 }, async () => {
+test('a line typed in place starts with all of its words selected; a click on them moves the caret, though something unseen lies over them', { timeout: 60_000 }, async () => {
   const dir = mkdtempSync(join(tmpdir(), 'of-stage-select-'));
   writeFileSync(join(dir, 'title.html'), `<!doctype html><body style="margin:0">
 <h1 id="title" style="position:absolute;left:20px;top:20px;margin:0;font:700 24px monospace">Every parcel</h1>
+<div id="later" style="position:absolute;left:0;top:0;width:320px;height:90px;opacity:0">3800</div>
 <script>window.film={duration:2,frame(){}}</script></body>`);
   writeFileSync(join(dir, 'film.html'), filmHtml({ stage: { w: 320, h: 180 }, tracks: [{ clips: [{ id: 'title', src: 'title.html' }] }] }));
   const stage = await stageOf(dir);
   try {
     const title = await stage.ask('hit', { x: 40, y: 30, detail: true });
     assert.equal(await stage.ask('textStart', { handle: title.handle }), true);
-    const selected = await stage.page.frames().find((f) => f.url().endsWith('title.html')).evaluate(() => document.getSelection().toString());
-    assert.equal(selected, 'Every parcel');
-    await stage.ask('textFinish', { commit: false });
+    const page = stage.page.frames().find((f) => f.url().endsWith('title.html'));
+    const state = () => page.evaluate(() => {
+      const s = document.getSelection();
+      return { typing: document.getElementById('title').isContentEditable, selected: s.toString(), collapsed: s.isCollapsed };
+    });
+    assert.deepEqual(await state(), { typing: true, selected: 'Every parcel', collapsed: false });
+    /* on the words, under the unseen box: the caret moves there, the line is still typed in */
+    await stage.page.mouse.click(80, 34);
+    assert.deepEqual(await state(), { typing: true, selected: '', collapsed: true });
+    /* elsewhere: let go */
+    await stage.page.mouse.click(250, 150);
+    assert.equal((await state()).typing, false);
   } finally {
     await stage.close();
   }
