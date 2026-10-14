@@ -905,18 +905,20 @@
 
   /* ── a layer restyled: the others stay where they are, as in Figma, where one layer's look never moves another ── */
   /** The style a hold sets (holdFor): kept apart from what the person set, so a new hold replaces the one before. */
-  const HOLD_KEYS = ['width', 'height', 'flex', 'boxSizing', 'lineHeight'];
+  const HOLD_KEYS = ['marginTop', 'marginRight', 'marginBottom', 'marginLeft'];
+  const SIDES = ['Top', 'Right', 'Bottom', 'Left'];
   /**
-   * What the layer at `target` needs besides `style` so that no other layer of its page moves: its place in the page's
-   * flow kept at the size it had (a wider font would push the words beside it on), and for words whose new font sits
-   * higher or lower, a line height that keeps the baseline the words beside them line up with. As style for the same
-   * override; {} when nothing else moves, or when nothing found keeps them in place (then the style alone is kept).
-   * Measured against the page as shown without this style (the kept overrides, and other changes not kept yet).
+   * What the layer at `target` needs besides `style` so that no other layer of its page moves. The layer takes its
+   * new size (its box grows with a larger font, as a text box in Figma does); margins give back to the page's flow the
+   * room it gained or lost, on the side the flow lays it out from, so what is beside it, under it or lined up with
+   * its baseline stays put. As style for the same override; {} when nothing else moves, or nothing found keeps them
+   * (then the style alone is kept). Measured against the page as shown without this style (the kept overrides, and
+   * other changes not kept yet).
    */
   const holdFor = (c, target, style) => {
     const doc = c.win?.document;
-    /* a size the person sets is meant to move what is around it */
-    if (!doc || 'width' in style || 'height' in style) return {};
+    /* a size or margin the person sets is meant to move what is around it */
+    if (!doc || ['width', 'height', ...HOLD_KEYS, 'margin'].some((k) => k in style)) return {};
     const had = drafts.get(c.id);
     const kept = had && new Map(had.items);
     const key = draftKey(target);
@@ -935,6 +937,10 @@
       if (!el || !(el instanceof c.win.HTMLElement)) return {};
       const others = layersOf(doc).filter((o) => o !== el && !o.contains(el) && !el.contains(o));
       const before = others.map((o) => o.getBoundingClientRect());
+      const cs = c.win.getComputedStyle(el);
+      const margin = Object.fromEntries(SIDES.map((side) => [side, Number.parseFloat(cs[`margin${side}`]) || 0]));
+      const w0 = el.offsetWidth;
+      const h0 = el.offsetHeight;
       /* how far the others went, the furthest, and which way up or down */
       const moved = () => {
         let far = 0;
@@ -946,23 +952,35 @@
         });
         return { far, dy };
       };
-      const size = { width: `${el.offsetWidth}px`, height: `${el.offsetHeight}px`, flex: 'none', boxSizing: 'border-box' };
       showWith(style);
       const alone = moved().far;
       if (alone < 0.5) return {};
+      const dw = el.offsetWidth - w0;
+      const dh = el.offsetHeight - h0;
+      const hold = (give) => Object.fromEntries(SIDES.filter((side) => give[side]).map((side) => [`margin${side}`, `${Math.round((margin[side] - give[side]) * 100) / 100}px`]));
       let best = { hold: {}, far: alone };
-      const tryHold = (hold) => {
-        showWith({ ...style, ...hold });
+      const tryGive = (give) => {
+        const h = hold(give);
+        showWith({ ...style, ...h });
         const m = moved();
-        if (m.far < best.far) best = { hold, far: m.far };
+        if (m.far < best.far) best = { hold: h, far: m.far };
         return m;
       };
-      let m = tryHold(size);
-      /* the baseline moves by half what the line height does: brought back in a step or two */
-      let line = Number.parseFloat(c.win.getComputedStyle(el).lineHeight);
-      for (let i = 0; i < 3 && m.far >= 0.5 && !('lineHeight' in style) && Number.isFinite(line) && Math.abs(m.dy) >= 0.5; i++) {
-        line -= 2 * m.dy;
-        m = tryHold({ ...size, lineHeight: `${Math.round(line * 100) / 100}px` });
+      /* laid out from the start, the middle or the end of its row and of its column */
+      const across = [{ Right: dw }, { Left: dw / 2, Right: dw / 2 }, { Left: dw }];
+      const down = [{ Bottom: dh }, { Top: dh / 2, Bottom: dh / 2 }, { Top: dh }];
+      for (const x of across) {
+        for (const y of down) {
+          const give = { ...x, ...y };
+          let m = tryGive(give);
+          /* lined up by its baseline: the words sit higher or lower in the new box, the room above them gives that back */
+          for (let i = 0; i < 2 && m.far >= 0.5 && Math.abs(m.dy) >= 0.5; i++) {
+            give.Top = (give.Top ?? 0) + m.dy;
+            give.Bottom = (give.Bottom ?? 0) - m.dy;
+            m = tryGive(give);
+          }
+          if (best.far < 0.5) return best.hold;
+        }
       }
       return best.hold;
     } finally {
