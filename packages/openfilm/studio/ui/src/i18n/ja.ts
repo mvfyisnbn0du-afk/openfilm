@@ -1462,6 +1462,7 @@ export const ja: Words = {
       accountChatgpt: 'ChatGPT アカウント',
       accountApiKey: 'API キー',
       accountConsole: 'Anthropic Console',
+      accountGateway: 'カスタムゲートウェイ',
       usage: '使用量',
       usageLoading: '残りの利用枠を読み込み中…',
       usageFiveHour: '5 時間',

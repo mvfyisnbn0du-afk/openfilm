@@ -1461,6 +1461,7 @@ export const ko: Words = {
       accountChatgpt: 'ChatGPT 계정',
       accountApiKey: 'API 키',
       accountConsole: 'Anthropic Console',
+      accountGateway: '사용자 지정 게이트웨이',
       usage: '사용량',
       usageLoading: '남은 사용량을 읽는 중…',
       usageFiveHour: '5시간',

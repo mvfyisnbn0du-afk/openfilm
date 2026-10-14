@@ -191,7 +191,7 @@ export interface HostAgentUsage {
 }
 
 /** Whose sign-in an agent uses: how (a claude.ai or ChatGPT account, an API key…), and what the program tells of it. */
-export interface HostAgentAccount { method: 'claude.ai' | 'console' | 'api-key' | 'chatgpt' | 'other'; email?: string; org?: string; plan?: string }
+export interface HostAgentAccount { method: 'claude.ai' | 'console' | 'api-key' | 'gateway' | 'chatgpt' | 'other'; email?: string; org?: string; plan?: string }
 
 /** A box on the picture, in the film's stage pixels (the stage is `stage.w` × `stage.h`, film.html's stage). */
 export interface StageBox { x: number; y: number; w: number; h: number }

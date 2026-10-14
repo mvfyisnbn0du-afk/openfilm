@@ -169,6 +169,8 @@ export function AgentsSection() {
     const told = usage[agent.id]?.account;
     const a = agent.account ? { ...agent.account, ...(told?.email ? { email: told.email } : {}), ...(told?.plan && !agent.account.plan ? { plan: told.plan } : {}) } : null;
     if (!a) return null;
+    /* its requests go through a gateway the person set (ANTHROPIC_BASE_URL or ANTHROPIC_AUTH_TOKEN), whatever account it says */
+    if (a.method === 'gateway') return t('settings.agents.accountGateway');
     const how = a.method === 'chatgpt' ? t('settings.agents.accountChatgpt') : a.method === 'api-key' ? t('settings.agents.accountApiKey')
       : a.method === 'console' ? t('settings.agents.accountConsole') : null;
     const plan = a.plan ? a.plan.charAt(0).toUpperCase() + a.plan.slice(1) : null;

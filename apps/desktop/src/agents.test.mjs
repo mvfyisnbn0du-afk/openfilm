@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { CLIENT_CAPABILITIES, agentShell, allowOption, codexDeveloperInstructions, legacyOptions, readAgentStatus, signInScript } from './agents.mjs';
+import { CLIENT_CAPABILITIES, agentShell, allowOption, claudeKeyAnswer, claudeShell, codexDeveloperInstructions, legacyOptions, readAgentStatus } from './agents.mjs';
 
 test('an agent that asks: yes for good where it offers that, else yes this once; nothing to say yes with is null', () => {
   const options = [
@@ -57,13 +57,30 @@ test('the chat says it shows notices, so an agent sends its warnings as notices 
   assert.deepEqual(parsed.elicitation, { form: {} });
 });
 
-test("Claude Code is not given a key or gateway from the shell: its own sign-in is the one used, and asked for when there is none", () => {
-  const shell = { PATH: '/bin', ANTHROPIC_API_KEY: 'k', ANTHROPIC_AUTH_TOKEN: 't', ANTHROPIC_BASE_URL: 'http://relay', ANTHROPIC_MODEL: 'm', OPENAI_API_KEY: 'o' };
-  assert.deepEqual(agentShell('claude', shell), { PATH: '/bin', ANTHROPIC_MODEL: 'm', OPENAI_API_KEY: 'o' });
+test('Claude Code takes the shell\'s API key as its terminal does: only once the person said yes to it there', () => {
+  const key = 'sk-ant-api03-aaaaaaaaaaaaaaaaaaaaaaaaaaaa';
+  const said = (approved, rejected = []) => JSON.stringify({ customApiKeyResponses: { approved, rejected } });
+  assert.equal(claudeKeyAnswer(said([key.slice(-20)]), key), 'approved');
+  assert.equal(claudeKeyAnswer(said([], [key.slice(-20)]), key), 'rejected');
+  assert.equal(claudeKeyAnswer(said([]), key), 'new');
+  assert.equal(claudeKeyAnswer('', key), 'new', 'no config: never asked');
+  assert.equal(claudeKeyAnswer('{not json', key), 'new');
+
+  const shell = { PATH: '/bin', ANTHROPIC_API_KEY: key, ANTHROPIC_AUTH_TOKEN: 't', ANTHROPIC_BASE_URL: 'http://relay', OPENAI_API_KEY: 'o' };
+  assert.equal(claudeShell(shell, said([key.slice(-20)])), shell, 'said yes to: given as it is');
+  /* said no to, or never asked: left out, its own sign-in is used; a gateway and its token as the terminal has them */
+  const { ANTHROPIC_API_KEY: _, ...rest } = shell;
+  assert.deepEqual(claudeShell(shell, said([], [key.slice(-20)])), rest);
+  assert.deepEqual(claudeShell(shell, ''), rest);
   assert.equal(agentShell('codex', shell), shell, 'the others have the shell as it is');
-  assert.equal(agentShell('byok', shell), shell);
-  /* its sign-in in Terminal, whose shell has them, runs without them too */
-  const script = signInScript('/x/claude', ['auth', 'login'], ['ANTHROPIC_API_KEY', 'ANTHROPIC_BASE_URL']);
-  assert.match(script, /do script "'\/usr\/bin\/env' '-u' 'ANTHROPIC_API_KEY' '-u' 'ANTHROPIC_BASE_URL' '\/x\/claude' 'auth' 'login'"/);
-  assert.match(signInScript('/x/codex', ['login']), /do script "'\/x\/codex' 'login'"/);
+});
+
+test("Claude Code's status says when its requests go through a gateway the person set", () => {
+  const json = JSON.stringify({ loggedIn: true, authMethod: 'claude.ai', email: 'a@b.test' });
+  assert.equal(readAgentStatus('claude', json, json).account.method, 'claude.ai');
+  assert.equal(readAgentStatus('claude', json, json, { gateway: true }).account.method, 'gateway');
+  const token = JSON.stringify({ loggedIn: true, authMethod: 'oauth_token' });
+  assert.equal(readAgentStatus('claude', token, token, { gateway: true }).account.method, 'gateway');
+  const out = JSON.stringify({ loggedIn: false, authMethod: 'none' });
+  assert.deepEqual(readAgentStatus('claude', out, out, { gateway: true }), { signedIn: false, account: null });
 });
