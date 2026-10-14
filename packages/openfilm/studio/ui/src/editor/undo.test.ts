@@ -73,6 +73,24 @@ test('a track the edit emptied comes back with its flags: muted stays muted, hid
   roundTrip(locked, [{ op: 'remove', clip: 'v' }]);
 });
 
+test('a whole track deleted comes back as one track, its clips in their places, not a track each', () => {
+  const pages = [{ src: 'p1.html', id: 'p1' }, { src: 'p2.html', id: 'p2', at: 8 }, { src: 'p3.html', id: 'p3', at: 12 }, { src: 'p4.html', id: 'p4', at: 26 }];
+  const f = film(pages, [{ src: 'v.mp4', id: 'v', time: [0, 90] }], [{ src: 'w.wav', id: 'w1', at: 7 }, { src: 'w.wav', id: 'w2', at: 11 }], [{ src: 'm.wav', id: 'm' }]);
+  const remove = (...clips: string[]): Op[] => clips.map((clip) => ({ op: 'remove', clip }));
+  const gone = apply(f, remove('p1', 'p2', 'p3', 'p4'));
+  assert.equal(gone.tracks.length, 3);
+  assert.equal(apply(gone, inverse(f, gone, remove('p1', 'p2', 'p3', 'p4'))).tracks.length, 4);
+  roundTrip(f, remove('p1', 'p2', 'p3', 'p4'));
+  /* two whole tracks, one between tracks still there, in any order */
+  roundTrip(f, remove('w2', 'p3', 'p1', 'w1', 'p4', 'p2'));
+  /* and with a clip left on the track below moved meanwhile (its index is the one after the delete) */
+  roundTrip(f, [...remove('p4', 'p1', 'p2', 'p3', 'w1', 'w2'), ...props(['m', 'at', 2])]);
+  /* a muted track emptied keeps its flag, once */
+  const muted = structuredClone(f);
+  muted.tracks[2].muted = true;
+  roundTrip(muted, remove('w1', 'w2'));
+});
+
 test('undoing a delete the agent already put back: the clip is not put back twice', () => {
   const f = film([{ src: 'a.html', id: 'a' }, { src: 'a.html', id: 'a2', at: 7.5 }]);
   const after = apply(f, [{ op: 'remove', clip: 'a2' }]);

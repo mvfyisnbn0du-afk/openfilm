@@ -94,25 +94,63 @@ export function inverse(before: Film, after: Film, ops: Op[]): Op[] {
   const flagsBack = (home: ReturnType<typeof trackNow>, track: number) => {
     if (!('newTrack' in home)) return;
     for (const field of ['locked', 'hidden', 'muted'] as const) {
-      if (before.tracks[track]?.[field]) undo.push({ op: 'track', track: home.newTrack, field, value: true });
+      if (before.tracks[track]?.[field]) undo.push(goneTrack({ op: 'track', track: home.newTrack, field, value: true }, track));
     }
   };
+  /* the ops that make a track the edit left empty again, by the track it was in `before` */
+  const gone = new Map<Op, number>();
+  const goneTrack = (op: Op, track: number): Op => { gone.set(op, track); return op; };
   for (const id of ids) {
     const old = was.get(id);
     const cur = now.get(id);
     if (!old && cur) { undo.push({ op: 'remove', clip: id }); continue; }
     if (!old) continue;
     const home = trackNow(before, after, old.track, ids);
-    if (!cur) { flagsBack(home, old.track); undo.push({ op: 'insert', clip: copy(old.row), ...home }); continue; }
+    if (!cur) {
+      flagsBack(home, old.track);
+      const op: Op = { op: 'insert', clip: copy(old.row), ...home };
+      undo.push('newTrack' in home ? goneTrack(op, old.track) : op);
+      continue;
+    }
     if (!('track' in home && home.track === cur.track) || (old.row.at ?? 0) !== (cur.row.at ?? 0)) {
       flagsBack(home, old.track);
-      undo.push({ op: 'move', clip: id, at: old.row.at ?? 0, ...home });
+      const op: Op = { op: 'move', clip: id, at: old.row.at ?? 0, ...home };
+      undo.push('newTrack' in home ? goneTrack(op, old.track) : op);
     }
     const then = old.row as Record<string, unknown>;
     const nowRow = cur.row as Record<string, unknown>;
     const changed = [...new Set([...fieldsOf(old.row), ...fieldsOf(cur.row)])].filter((field) => JSON.stringify(then[field]) !== JSON.stringify(nowRow[field]));
     if (changed.length) undo.push({ op: 'fields', clip: id, fields: Object.fromEntries(changed.map((field) => [field, field in then ? copy(then[field]) : null])) });
   }
-  return undo.reverse();
+  return reopenTracks(undo.reverse(), gone);
 }
 
+/**
+ * A track the edit left empty comes back once, with all of its clips: the first of them opens it (`newTrack`), the
+ * others go onto it (`track`), or each would open a track of its own (deleting a whole track's clips and undoing put
+ * every clip on a new track). These go last, after what works on tracks still there (their indexes are `after`'s, and
+ * a track opened before them would shift them), from the top track down: a `newTrack` is a place among `after`'s
+ * tracks, and each track reopened above it moves it down one.
+ */
+function reopenTracks(ops: Op[], gone: ReadonlyMap<Op, number>): Op[] {
+  const out: Op[] = ops.filter((op) => !gone.has(op));
+  const byTrack = new Map<number, Op[]>();
+  for (const op of ops) {
+    const was = gone.get(op);
+    if (was != null) byTrack.set(was, [...(byTrack.get(was) ?? []), op]);
+  }
+  let above = 0;
+  for (const was of [...byTrack.keys()].sort((a, b) => a - b)) {
+    let at: number | null = null;
+    for (const op of byTrack.get(was)!) {
+      if (op.op === 'track') { if (at != null) out.push({ ...op, track: at }); continue; }
+      if (op.op !== 'insert' && op.op !== 'move') continue;
+      const { newTrack, ...rest } = op;
+      if (at != null) { out.push({ ...rest, track: at }); continue; }
+      at = (newTrack ?? 0) + above;
+      out.push({ ...rest, newTrack: at });
+    }
+    if (at != null) above += 1;
+  }
+  return out;
+}
