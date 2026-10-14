@@ -154,8 +154,46 @@
   /* words of its own beside blocks of their own (a title with its subtitle written inside it) are its text too: the
      blocks are layers of their own, and a text override changes its own words only */
   const textOf = (el) => (onlyBreaks(el) ? stageText(el) : ownWords(el));
-  /** The blocks inside a line of words (a subtitle inside its title): shown while the line's own words are typed. */
-  const blocksIn = (el) => [...el.children].filter((ch) => !INLINE.has(ch.tagName) && !ICON.has(ch.localName) && css(ch).visibility === 'visible');
+  /** The blocks written inside a line of words (a subtitle inside its title): layers of their own. */
+  const blocksOf = (el) => [...el.children].filter((ch) => !INLINE.has(ch.tagName) && !ICON.has(ch.localName) && !SKIP.has(ch.localName.toLowerCase()));
+  /** Those shown now: still shown while the line's own words are typed. */
+  const blocksIn = (el) => blocksOf(el).filter((ch) => css(ch).visibility === 'visible');
+  /**
+   * A line of words with blocks written inside it: its own words are the layer (its box hugs them, the inspector shows
+   * them), and the blocks in it stay where they are and as they look when it is moved or restyled (holdBlocks).
+   */
+  const mixedText = (el) => el.namespaceURI !== SVG_NS && !onlyBreaks(el) && blocksOf(el).length > 0 && Boolean(ownWords(el));
+  /** The box of an element's own words on its page (the union of their lines' boxes). */
+  const wordsRect = (el) => {
+    const range = el.ownerDocument.createRange();
+    let l = Infinity; let t = Infinity; let r = -Infinity; let b = -Infinity;
+    for (const n of el.childNodes) {
+      if (n.nodeType !== 3 || !n.data.trim()) continue;
+      range.selectNodeContents(n);
+      for (const x of range.getClientRects()) {
+        if (x.width < 0.5 && x.height < 0.5) continue;
+        l = Math.min(l, x.left); t = Math.min(t, x.top); r = Math.max(r, x.right); b = Math.max(b, x.bottom);
+      }
+    }
+    if (l < r && t < b) return { left: l, top: t, width: r - l, height: b - t };
+    const x = el.getBoundingClientRect();
+    return { left: x.left, top: x.top, width: x.width, height: x.height };
+  };
+  /** The size of an element's own words as laid out, before any transform (each run measured in a span of its own). */
+  const wordsSize = (el) => {
+    const doc = el.ownerDocument;
+    let l = Infinity; let t = Infinity; let r = -Infinity; let b = -Infinity;
+    for (const n of [...el.childNodes]) {
+      if (n.nodeType !== 3 || !n.data.trim()) continue;
+      const span = doc.createElement('span');
+      n.before(span);
+      span.append(n);
+      l = Math.min(l, span.offsetLeft); t = Math.min(t, span.offsetTop);
+      r = Math.max(r, span.offsetLeft + span.offsetWidth); b = Math.max(b, span.offsetTop + span.offsetHeight);
+      span.replaceWith(n);
+    }
+    return l < r && t < b ? { w: r - l, h: b - t } : { w: el.offsetWidth, h: el.offsetHeight };
+  };
 
   const transparent = (color) => {
     const c = color.trim();
@@ -228,6 +266,7 @@
       }
       if (l < r && t < b) return { left: l, top: t, width: r - l, height: b - t };
     }
+    if (mixedText(el)) return wordsRect(el);
     const x = el.getBoundingClientRect();
     return { left: x.left, top: x.top, width: x.width, height: x.height };
   };
@@ -237,11 +276,12 @@
    * aspect (times the override's scale) and its turn, so whatever scaled it is counted.
    */
   const measureFrame = (el, s, r) => {
-    const box = el.getBoundingClientRect();
+    const mixed = mixedText(el);
+    const box = mixed ? wordsRect(el) : el.getBoundingClientRect();
     const cx = box.left + box.width / 2;
     const cy = box.top + box.height / 2;
-    let lw = el.offsetWidth;
-    let lh = el.offsetHeight;
+    if (mixed && Math.abs(r % 360) < 0.01) return { cx, cy, w: box.width, h: box.height, r: 0 };
+    let { w: lw, h: lh } = mixed ? wordsSize(el) : { w: el.offsetWidth, h: el.offsetHeight };
     if (!(lw > 0 && lh > 0)) {
       try { const bb = el.getBBox?.(); lw = bb?.width ?? 0; lh = bb?.height ?? 0; } catch { lw = 0; lh = 0; }
     }
@@ -523,7 +563,7 @@
     const under = seeingAll(doc, () => doc.elementsFromPoint(x, y));
     const hits = [];
     layersOf(doc).forEach((el, order) => {
-      const rect = el.getBoundingClientRect();
+      const rect = mixedText(el) ? wordsRect(el) : el.getBoundingClientRect();
       if (rect.width < 1 || rect.height < 1) return;
       if (x < rect.left || x > rect.right || y < rect.top || y > rect.bottom) return;
       if (!under.some((u) => el === u || el.contains(u))) return;
@@ -621,6 +661,8 @@
     if (!d) return;
     const list = (c.overrides ?? []).map((o) => ({ ...o, ...(o.style ? { style: { ...o.style } } : {}) }));
     for (const { target, patch } of d.items.values()) {
+      /* null: the override taken away */
+      if (patch === null) { const i = list.findIndex((x) => sameTarget(x, target)); if (i >= 0) list.splice(i, 1); continue; }
       let o = list.find((x) => sameTarget(x, target));
       if (!o) { o = { at: target.at, ...(target.n ? { n: target.n } : {}) }; list.push(o); }
       if (patch.t) o.t = patch.t;
@@ -636,13 +678,66 @@
     editor()?.preview(c.id, list);
   };
   const draftKey = (target) => `${target.at}\u0000${target.n ?? ''}`;
+  /** Show a change of a layer (`patch` null: its override taken away); the blocks written inside it stay put. */
   const draft = (c, target, patch) => {
     let d = drafts.get(c.id);
     if (!d) { d = { base: JSON.stringify(c.overrides ?? []), items: new Map() }; drafts.set(c.id, d); }
+    const el = c.win ? matches(c.win.document, target)[0] : null;
+    const blocks = el && mixedText(el) ? blocksOf(el).map(blockNow) : null;
+    const g0 = blocks ? paintedOf(el) : null;
     const key = draftKey(target);
     const prev = d.items.get(key)?.patch ?? {};
-    d.items.set(key, { target, patch: { ...prev, ...patch, ...(prev.style || patch.style ? { style: { ...(prev.style ?? {}), ...(patch.style ?? {}) } } : {}) } });
+    d.items.set(key, { target, patch: patch === null ? null : { ...prev, ...patch, ...(prev.style || patch.style ? { style: { ...(prev.style ?? {}), ...(patch.style ?? {}) } } : {}) } });
     show(c);
+    if (blocks) holdBlocks(c, blocks, g0, paintedOf(el));
+  };
+  /* what a block keeps when the line it is written in changes: its look (the type it takes from the line) and its place */
+  const INHERITED = ['color', 'fontFamily', 'fontSize', 'fontWeight', 'fontStyle', 'letterSpacing', 'lineHeight', 'wordSpacing', 'textTransform', 'textAlign', 'textShadow', 'fontVariant'];
+  const blockNow = (b) => {
+    const cs = css(b);
+    const turn = totalTurn(b);
+    const f = measureFrame(b, paintedOf(b).s, turn);
+    const box = b.getBoundingClientRect();
+    /* held by the side its words start from (a block's width follows the line's, its words do not) */
+    const align = cs.textAlign;
+    const ax = /center/.test(align) ? 0.5 : /right|end/.test(align) ? 1 : 0;
+    return {
+      b, turn, ax, look: Object.fromEntries(INHERITED.map((k) => [k, cs[k]])),
+      box: { left: box.left, top: box.top, width: box.width, height: box.height },
+      frame: { w: f.w, h: f.h, ow: b.offsetWidth, oh: b.offsetHeight },
+    };
+  };
+  /**
+   * The blocks inside a line put back as they were: the type they took from it written on them, then their move, scale
+   * and turn undone around where they were (their own overrides, drafted: written with the line's edit, see riders).
+   */
+  const holdBlocks = (c, before, g0, g1) => {
+    /* the line's own scale and turn, undone on each block (exact: from its overrides, not measured) */
+    const ks = [g1.s[0] ? g0.s[0] / g1.s[0] : 1, g1.s[1] ? g0.s[1] / g1.s[1] : 1];
+    const dr = g0.r - g1.r;
+    for (const was of before) {
+      const { b } = was;
+      const own = overrideOf(c, b)?.style ?? {};
+      const cs = css(b);
+      const look = {};
+      for (const k of INHERITED) if (!(k in own) && cs[k] !== was.look[k]) look[k] = was.look[k];
+      if (Object.keys(look).length) draft(c, targetOf(b), { style: look });
+      const now = blockNow(b);
+      const g = paintedOf(b);
+      /* its anchor (the start of its words, its top) where it was, with its box as it will be: its laid-out size at
+         the scale and turn it had */
+      const rad = (was.turn * Math.PI) / 180;
+      const fw = was.frame.ow > 0 ? (was.frame.w * b.offsetWidth) / was.frame.ow : 0;
+      const fh = was.frame.oh > 0 ? (was.frame.h * b.offsetHeight) / was.frame.oh : 0;
+      const flat = Math.abs(was.turn % 360) < 0.01;
+      const w = flat ? (was.box.width * b.offsetWidth) / (was.frame.ow || 1) : Math.abs(fw * Math.cos(rad)) + Math.abs(fh * Math.sin(rad));
+      const h = flat ? (was.box.height * b.offsetHeight) / (was.frame.oh || 1) : Math.abs(fw * Math.sin(rad)) + Math.abs(fh * Math.cos(rad));
+      const center = { x: was.box.left + was.ax * was.box.width + (0.5 - was.ax) * w, y: was.box.top + h / 2 };
+      const moved = Math.hypot(now.box.left + now.box.width / 2 - center.x, now.box.top + now.box.height / 2 - center.y);
+      if (Math.abs(ks[0] - 1) < 1e-4 && Math.abs(ks[1] - 1) < 1e-4 && Math.abs(dr) < 0.01 && moved < 0.05) continue;
+      const round = (n) => Math.round(n * 10000) / 10000;
+      paintAround(b, c, { t: g.t, s: [round(g.s[0] * ks[0]), round(g.s[1] * ks[1])], r: Math.round((g.r + dr) * 100) / 100 }, center);
+    }
   };
   const release = (id) => {
     if (!drafts.delete(id)) return;
@@ -663,15 +758,23 @@
    * scale or turn in place. The offset is outermost, a pure shift: paint, measure, correct, two or three times.
    */
   const paintAround = (el, c, g, target) => {
-    const k = localScale(el) || 1;
-    let t = [g.t[0], g.t[1]];
-    for (let i = 0; i < 3; i++) {
+    /* the center moves with the offset as an affine map (whatever turns and scales the parents): measured at the offset
+       and one px along each axis, then solved for the offset that puts it at `target` */
+    const centerAt = (t) => {
       paint(el, c, { ...g, t });
-      const box = el.getBoundingClientRect();
-      const dx = target.x - (box.left + box.width / 2);
-      const dy = target.y - (box.top + box.height / 2);
-      if (Math.abs(dx) < 0.05 && Math.abs(dy) < 0.05) break;
-      t = [t[0] + dx / k, t[1] + dy / k];
+      const box = mixedText(el) ? wordsRect(el) : el.getBoundingClientRect();
+      return [box.left + box.width / 2, box.top + box.height / 2];
+    };
+    const t0 = [g.t[0], g.t[1]];
+    const p0 = centerAt(t0);
+    let t = t0;
+    if (Math.abs(target.x - p0[0]) >= 0.05 || Math.abs(target.y - p0[1]) >= 0.05) {
+      const px = centerAt([t0[0] + 1, t0[1]]);
+      const py = centerAt([t0[0], t0[1] + 1]);
+      const a = px[0] - p0[0]; const b = py[0] - p0[0]; const cy = px[1] - p0[1]; const d = py[1] - p0[1];
+      const det = a * d - b * cy;
+      const ex = target.x - p0[0]; const ey = target.y - p0[1];
+      if (Math.abs(det) > 1e-9) t = [t0[0] + (d * ex - b * ey) / det, t0[1] + (a * ey - cy * ex) / det];
     }
     t = [Math.round(t[0] * 10) / 10, Math.round(t[1] * 10) / 10];
     paint(el, c, { ...g, t });
@@ -1232,6 +1335,24 @@
       if (shown) for (const k of HOLD_KEYS) if (!(k in style)) delete shown[k];
       draft(c, target, { ...patch, style: { ...style, ...hold } });
       return true;
+    },
+    /**
+     * What goes with an edit of a line that has blocks written inside it (`patch` null: its override taken away): the
+     * edit shown, the overrides of the layers inside it that keep them where they were and as they looked, to be
+     * written with it ([] for any other layer).
+     */
+    riders({ clip, at, n, patch }) {
+      const c = clipById(clip);
+      const target = n ? { at, n } : { at };
+      const el = c?.win ? matches(c.win.document, target)[0] : null;
+      if (!c || !el || !mixedText(el)) return [];
+      draft(c, target, patch ?? null);
+      const out = [];
+      for (const item of drafts.get(c.id)?.items.values() ?? []) {
+        const inner = matches(c.win.document, item.target)[0];
+        if (inner && inner !== el && el.contains(inner) && item.patch) out.push({ ...item.target, patch: item.patch });
+      }
+      return out;
     },
     /** What keeps the other layers in place when this style (and these words) is kept for the layer at `at` (holdFor). */
     hold({ clip, at, n, style, text }) {

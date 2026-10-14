@@ -193,6 +193,11 @@ export interface FilmStageControl {
    * box stays put (CSS scales and turns about its unmoved box), and returned with the patch, to be written so.
    */
   previewOverride(element: StageElement, patch: OverrideGeometry, pivot?: FramePivot): Promise<OverrideGeometry>;
+  /**
+   * What is written with an edit of a layer (`patch` null: its override taken away), besides it: for a line with blocks
+   * written inside it (a subtitle inside its title), the overrides that keep those where they were and as they looked.
+   */
+  riders(element: StageElement, patch: OverrideGeometry | null): Promise<{ at: string; n?: number; patch: OverrideGeometry }[]>;
   /** Stop showing what was not kept on the element's clip (an edit was refused). */
   release(element: StageElement): void;
   /** The layer read again (its style after an override was taken away). */
@@ -1352,6 +1357,10 @@ function FilmStageSelectImpl({
         await ask('tweak', { ...at, patch: geometry });
         syncGeomSoon();
         return patch;
+      },
+      async riders(element, patch) {
+        const at = named(element);
+        return (at ? await ask<{ at: string; n?: number; patch: OverrideGeometry }[]>('riders', { ...at, patch }) : null) ?? [];
       },
       release(element) {
         if (element.clipId) void ask('release', { clip: element.clipId }).then(syncGeomSoon);
@@ -2684,13 +2693,14 @@ function FilmStageSelectImpl({
           return;
         }
       }
-      /* about to draw: the previous selection goes first (two boxes on screen would read as two selected), and the
-         timeline's with it; but a press on a clip selected there (several: no handles) is not a press elsewhere */
+      /* about to draw: the previous selection's box goes first (two boxes on screen would read as two selected); the
+         inspector and the timeline keep it until the release says what is selected instead (or nothing), so the
+         inspector goes from one layer to the next, not through the film's settings. A press on a clip selected on
+         the timeline (several: no handles) is not a press elsewhere */
       cycleFrom.current = e.altKey ? pickedRef.current?.layer?.handle ?? null : null;
       pressedFrom.current = pickedRef.current?.layer?.handle ?? null;
       const clearPrevious = () => {
         dropPick();
-        onSelectElement?.(null);
         setHover(null);
       };
       const linked = linkedLocs ?? [];

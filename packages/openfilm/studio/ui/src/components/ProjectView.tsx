@@ -1272,7 +1272,11 @@ export function ProjectView({ projectId, onProject, onLeave }: {
     const found = doc ? pageClipOf(doc, element) : null;
     const target = layerTarget(element, allCopies);
     if (!found || !target) return t('timeline.editFail');
-    const next = nextOverrides(found.clip.overrides, target, patch);
+    let next = nextOverrides(found.clip.overrides, target, patch);
+    /* the blocks written inside a line keep their place and look: their overrides go with it, one edit */
+    for (const r of await stageControl.current?.riders(element, patch) ?? []) {
+      next = nextOverrides(next ?? undefined, { at: r.at, ...(r.n != null ? { n: r.n } : {}) }, r.patch);
+    }
     /* the panel shows the new numbers at once; refused, they go back */
     const now = next ? overrideOf(next, target) : null;
     const before = element.override ?? null;
@@ -1307,7 +1311,11 @@ export function ProjectView({ projectId, onProject, onLeave }: {
       const target = layerTarget(element);
       if (!found || !target) continue;
       const prev = byClip.has(found.loc) ? byClip.get(found.loc) ?? undefined : found.clip.overrides;
-      byClip.set(found.loc, nextOverrides(prev, target, patch));
+      let next = nextOverrides(prev, target, patch);
+      for (const r of await stageControl.current?.riders(element, patch) ?? []) {
+        next = nextOverrides(next ?? undefined, { at: r.at, ...(r.n != null ? { n: r.n } : {}) }, r.patch);
+      }
+      byClip.set(found.loc, next);
     }
     if (!byClip.size) return t('timeline.editFail');
     return editBlocks([...byClip].map(([loc, value]) => ({ loc, prop: 'overrides', value: value as unknown as Record<string, unknown> | null })));

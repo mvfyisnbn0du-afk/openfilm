@@ -142,6 +142,47 @@ test('a title with its subtitle written inside it: its own words are a layer, ty
   }
 });
 
+test('a title with its subtitle inside it: its box hugs its own words, and moved or restyled the subtitle stays as it was', { timeout: 60_000 }, async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'of-stage-own-box-'));
+  writeFileSync(join(dir, 'title.html'), `<!doctype html><body style="margin:0">
+<div id="title" style="position:absolute;left:20px;top:20px;font:700 40px sans-serif;line-height:1.15;color:#fff">Test video<div id="sub" style="font-size:14px;margin-top:10px">picture · motion</div></div>
+<script>window.film={duration:2,frame(){}}</script></body>`);
+  writeFileSync(join(dir, 'film.html'), filmHtml({ stage: { w: 320, h: 180 }, tracks: [{ clips: [{ id: 'title', src: 'title.html' }] }] }));
+  const stage = await stageOf(dir);
+  try {
+    const page = stage.page.frames().find((f) => f.url().endsWith('title.html'));
+    const subNow = () => page.evaluate(() => {
+      const el = document.getElementById('sub');
+      const r = el.getBoundingClientRect();
+      return { x: Math.round(r.left * 10) / 10, y: Math.round(r.top * 10) / 10, w: Math.round(r.width * 10) / 10, color: getComputedStyle(el).color };
+    });
+    const title = await stage.ask('hit', { x: 40, y: 40, detail: true });
+    /* the box is the words', not the subtitle's too */
+    assert.ok(title.rect.height < 50, `the box hugs the words (${title.rect.height})`);
+    /* beside the words, on the title's box but on no word: not the title */
+    assert.notEqual((await stage.ask('hit', { x: 250, y: 40, detail: true }))?.text?.value, 'Test video');
+    const was = await subNow();
+    assert.equal(await stage.ask('tweak', { clip: 'title', at: '#title', patch: { t: [30, 12] } }), true);
+    assert.deepEqual(await subNow(), was, 'moved, the subtitle stays');
+    assert.equal(await stage.ask('tweak', { clip: 'title', at: '#title', patch: { style: { color: '#ff0000', fontSize: '60px' } } }), true);
+    const after = await subNow();
+    assert.equal(after.color, was.color, 'recolored, the subtitle keeps its color');
+    /* its words start where they did (its block is as wide as the title, which grew) */
+    assert.ok(Math.abs(after.x - was.x) < 0.2 && Math.abs(after.y - was.y) < 0.2, `restyled, the subtitle stays (${JSON.stringify(after)})`);
+    /* scaled and turned: the subtitle neither grows nor turns */
+    const flat = await subNow();
+    assert.equal(await stage.ask('tweak', { clip: 'title', at: '#title', patch: { s: 1.5, r: 20 } }), true);
+    const turned = await subNow();
+    for (const k of ['x', 'y', 'w']) assert.ok(Math.abs(turned[k] - flat[k]) < 0.5, `scaled and turned, the subtitle stays (${k}: ${flat[k]} → ${turned[k]})`);
+    /* what is written with the title's edit: the subtitle's override */
+    const riders = await stage.ask('riders', { clip: 'title', at: '#title', patch: { t: [30, 12] } });
+    assert.deepEqual(riders.map((r) => r.at), ['#sub']);
+    assert.ok(riders[0].patch.t && riders[0].patch.style?.color);
+  } finally {
+    await stage.close();
+  }
+});
+
 test('a layer restyled leaves the others where they are, and takes its new size: the words beside a number stay put', { timeout: 60_000 }, async () => {
   const dir = mkdtempSync(join(tmpdir(), 'of-stage-hold-'));
   writeFileSync(join(dir, 'row.html'), `<!doctype html><body style="margin:0">
