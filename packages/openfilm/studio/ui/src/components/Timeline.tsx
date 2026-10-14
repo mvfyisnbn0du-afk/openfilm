@@ -18,6 +18,7 @@ import {
   Download,
   Eye,
   EyeOff,
+  Film,
   ListRestart,
   Lock,
   LockOpen,
@@ -251,7 +252,9 @@ const TL = {
 
 function laneTone(track: TimelineTrack, selected: boolean): string {
   if (track.hidden) return TL.head;
-  return selected ? TL.laneOn : TL.lane;
+  const tone = selected ? TL.laneOn : TL.lane;
+  /* the main track: a band of its own, a shade toward the text (lighter in the dark, darker in the light) */
+  return track.main ? `color-mix(in srgb, ${tone} 93%, var(--tl-text))` : tone;
 }
 
 /** A row's height: the person's for its track (lib/track-heights), else the timeline's own (the main track taller). */
@@ -2308,9 +2311,10 @@ export const Timeline = React.memo(function Timeline({
     const lit = selectedLanes.has(track.lane);
     const targeted = targetLane === track.lane;
     const renamingHere = renaming != null && renaming === track.docIndex && track.index === 1;
-    /* typing a name always has its field; a name given shows when the row has room for it; the main track says so */
-    const mainHere = Boolean(track.main) && track.index === 1 && !given;
-    const nameLine = renamingHere || ((Boolean(given) || mainHere) && h >= HEAD_NAME_MIN_H);
+    /* typing a name always has its field; a name given shows when the row has room for it */
+    const nameLine = renamingHere || (Boolean(given) && h >= HEAD_NAME_MIN_H);
+    /* the main track is marked by its look (its band, the magnet by its badge), not by a name that reads as one */
+    const mainHead = Boolean(track.main) && track.index === 1;
     /* the track a pill hovered in the app's chat points at */
     const chatLit = chatTrack != null && track.docIndex === chatTrack;
     return (
@@ -2329,7 +2333,8 @@ export const Timeline = React.memo(function Timeline({
         onPointerDown={(e) => startLaneReorder(e, laneIndex)}
         onDoubleClick={() => { if (onRenameTrack && track.docIndex != null && track.index === 1) setRenaming(track.docIndex); }}
         onContextMenu={(e) => openHeadMenu(e, track)}
-        title={laneTitle}
+        title={mainHead ? `${laneTitle} · ${t('timeline.mainTrack')}` : laneTitle}
+        data-main-track={mainHead ? '' : undefined}
         style={{
           marginTop: GAP,
           height: h,
@@ -2422,12 +2427,9 @@ export const Timeline = React.memo(function Timeline({
           />
         ) : nameLine && given ? (
           <span className="col-span-full w-full min-w-0 justify-self-stretch truncate px-1 text-[10.5px] font-medium leading-[14px]" style={{ color: TL.text }} data-track-name="">{given}</span>
-        ) : nameLine && mainHere ? (
-          /* the main track, named as the magnet calls it: what the magnet keeps end to end */
-          <span className="col-span-full flex w-full min-w-0 items-center gap-1 justify-self-stretch truncate px-1 text-[10.5px] font-medium leading-[14px]"
-            style={{ color: 'var(--tl-accent)' }} data-main-track="">
-            <Magnet size={10} aria-hidden className="shrink-0" />{t('timeline.mainTrack')}
-          </span>
+        ) : null}
+        {mainHead ? (
+          <Magnet size={10} aria-label={t('timeline.mainTrack')} className="pointer-events-none absolute bottom-1 left-1.5" style={{ color: 'var(--tl-accent)' }} />
         ) : null}
         {onResizeTrack && track.docIndex != null ? <TrackResizeHandle height={h} onResize={(height, done) => onResizeTrack(track, height, done)} /> : null}
       </div>
@@ -3749,7 +3751,7 @@ export const Timeline = React.memo(function Timeline({
           {/* as tall as the ruler, so heads line up with rows; no bottom line, it is not a column of its own */}
           <div style={{ height: RULER_H }} />
           {subRowShown ? <SubtitleRowHead onAdd={() => subRowRef.current?.addAtPlayhead()} /> : null}
-          {markerRowH ? <div className="border-b" style={{ height: markerRowH, borderColor: TL.line }} /> : null}
+          {markerRowH ? <div style={{ height: markerRowH }} /> : null}
           <div
             ref={headRef}
             className="relative overflow-hidden"
@@ -3839,8 +3841,8 @@ export const Timeline = React.memo(function Timeline({
           {markerRowH && markerLane ? (
             <div
               data-marker-lane=""
-              className="relative shrink-0 overflow-hidden border-b select-none"
-              style={{ height: markerRowH, background: TL.head, borderColor: TL.line }}
+              className="relative shrink-0 overflow-hidden select-none"
+              style={{ height: markerRowH, background: TL.head }}
               onContextMenu={rulerMenu ? (e) => {
                 e.preventDefault();
                 const items = rulerMenu(Math.max(0, Math.min(totalMs, msAtClientX(e.clientX))));
@@ -3885,10 +3887,14 @@ export const Timeline = React.memo(function Timeline({
             {!hasLanes && !landings.length ? (
               /* empty timeline: a dashed drop hint. Drops are handled on the whole right column, so dropping on the
                  hint adds the first clip and its track. */
-              <div className="flex h-full w-full items-center justify-center px-6">
-                <div className="pointer-events-none flex h-[44px] w-full max-w-[720px] items-center gap-2.5 rounded-[6px] border border-dashed border-[var(--border)] px-4">
-                  <Video size={15} className="shrink-0 text-[var(--text-faint)]" aria-hidden />
-                  <p className="truncate text-[11px] leading-relaxed text-[var(--text-faint)]">
+              <div className="flex h-full w-full items-center py-3 pl-1 pr-3">
+                <div
+                  data-timeline-empty=""
+                  className="pointer-events-none flex h-[60px] w-full items-center gap-2 rounded-[4px] border border-dashed px-4"
+                  style={{ background: TL.lane, borderColor: TL.line }}
+                >
+                  <Film size={15} className="shrink-0" style={{ color: TL.faint }} aria-hidden />
+                  <p className="truncate text-[12px]" style={{ color: TL.text }}>
                     {t('timeline.emptyStudio')}
                   </p>
                 </div>
@@ -4001,10 +4007,10 @@ export const Timeline = React.memo(function Timeline({
         >
           <div
             data-marker-guide=""
-            className="absolute inset-y-0 left-0 w-px"
+            className="absolute inset-y-0 left-0 w-0"
             style={{
-              background: markerGuide.color,
-              opacity: markerGuide.held ? 1 : 0.55,
+              borderLeft: `1px dashed ${markerGuide.color}`,
+              opacity: markerGuide.held ? 1 : 0.6,
               transform: `translate3d(${markerGuide.ms * pxPerMs - scrollLeft + PLAYHEAD_BLEED}px,0,0)`,
             }}
           />

@@ -227,13 +227,17 @@ export function LaneMarkers({ placed, lane, actions }: { placed: readonly Placed
     el.addEventListener('pointerup', up);
     el.addEventListener('pointercancel', up);
   };
+  const film = placed.filter((p) => !p.clip);
+  /* where each pin is drawn, left to right: a name runs up to the next pin */
+  const xs = film.map((p) => (moving?.id === p.marker.id ? moving.ms : p.ms) * pxPerMs).sort((a, b) => a - b);
   return (
     <>
-      {placed.filter((p) => !p.clip).map((p) => {
+      {film.map((p) => {
         const ms = moving?.id === p.marker.id ? moving.ms : p.ms;
         const x = ms * pxPerMs;
         const on = open?.id === p.marker.id;
         const tagged = moving?.id === p.marker.id || (hover === p.marker.id && !on);
+        const room = Math.min(160, (xs.find((o) => o > x) ?? widthPx) - x - 14);
         return (
           <div
             key={p.marker.id}
@@ -265,6 +269,15 @@ export function LaneMarkers({ placed, lane, actions }: { placed: readonly Placed
             {tagged ? (
               <span className="absolute inset-y-0 left-1/2">
                 <MarkerTag marker={p.marker} ms={ms} flip={x > widthPx - 180} />
+              </span>
+            ) : p.marker.name && room >= 16 ? (
+              /* its name beside it, as far as the next pin */
+              <span
+                className="pointer-events-none absolute left-[12px] top-1/2 -translate-y-1/2 truncate whitespace-nowrap text-[10px] leading-none"
+                style={{ maxWidth: room, color: 'var(--tl-text)' }}
+                data-marker-name=""
+              >
+                {p.marker.name}
               </span>
             ) : null}
           </div>
