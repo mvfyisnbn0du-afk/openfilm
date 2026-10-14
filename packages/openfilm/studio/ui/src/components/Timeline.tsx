@@ -55,6 +55,7 @@ import {
 } from 'lucide-react';
 import { useT } from '@/i18n';
 import { shortcutHint } from '@/lib/shortcut-hint';
+import { ownTrackHeight } from '@/lib/track-heights';
 import type { Op } from '@/api';
 import type { ClipEdit } from '@/lib/film-clip-edits';
 import { laneOfBlock } from '@/lib/timeline-clipboard';
@@ -236,16 +237,16 @@ function laneTone(track: TimelineTrack, selected: boolean): string {
   return selected ? TL.laneOn : TL.lane;
 }
 
-/** A row's height: the person's for its track (lib/track-heights), else the timeline's own for its kind. */
-function rowH(track: Pick<TimelineTrack, 'kind' | 'height'>): number {
-  return track.height ?? TRACK_H[track.kind];
+/** A row's height: the person's for its track (lib/track-heights), else the timeline's own (the main track taller). */
+function rowH(track: Pick<TimelineTrack, 'kind' | 'height' | 'main'>): number {
+  return track.height ?? ownTrackHeight(track);
 }
 
 /**
  * The height that shows every row (toolbar + ruler + rows + padding + range bar). The editor uses it for the
  * timeline's default height.
  */
-export function timelineFitHeight(tracks: readonly Pick<TimelineTrack, 'kind' | 'height'>[]): number {
+export function timelineFitHeight(tracks: readonly Pick<TimelineTrack, 'kind' | 'height' | 'main'>[]): number {
   const lanes = tracks.reduce((h, tr) => h + rowH(tr) + GAP, 0);
   return TOOLBAR_H + RULER_H + lanes + GAP + 2 * TL_VPAD + H_SCROLL_H;
 }
@@ -652,12 +653,12 @@ export interface TimelineProps {
   subtitleRow?: SubtitleRowSpec;
   /** Solo (Studio's playback only): the tracks soloed (film.html indexes), and a click on a head's S (⌥: alone). */
   solo?: { tracks: ReadonlySet<number>; onToggle: (docIndex: number, only: boolean) => void };
-  /** Drawn on the ruler, scrolling with it (the markers, components/TimelineMarkers). */
-  rulerOverlay?: (pxPerMs: number) => React.ReactNode;
+  /** Drawn on the ruler, scrolling with it (the markers, components/TimelineMarkers); `widthPx`: the ruler's length. */
+  rulerOverlay?: (pxPerMs: number, widthPx: number) => React.ReactNode;
+  /** The ruler's own right-click menu, at a moment (film ms): adding a marker there. */
+  rulerMenu?: (atMs: number) => ContextMenuEntry[];
   /** Drawn on each row, over its clips (the clips' markers). */
   trackOverlay?: (track: TimelineTrack, pxPerMs: number) => React.ReactNode;
-  /** More buttons in the toolbar, before the zoom (the markers' list). */
-  toolbarExtra?: React.ReactNode;
   /** More times a drag snaps to (the markers), ms. */
   snapPointsMs?: readonly number[];
   /** A track's head edge dragged (a height, `done` at the end) or double-clicked (null: its own height). */
@@ -931,8 +932,8 @@ export const Timeline = React.memo(function Timeline({
   subtitleRow,
   solo,
   rulerOverlay,
+  rulerMenu,
   trackOverlay,
-  toolbarExtra,
   snapPointsMs,
   onResizeTrack,
   onReplaceDrop,
@@ -1623,8 +1624,12 @@ export const Timeline = React.memo(function Timeline({
   /* where the pointer is on the ruler (film ms), shown as the moment a click would refer; not near the playhead (its
      knob is dragged there) */
   const [rulerHoverMs, setRulerHoverMs] = React.useState<number | null>(null);
+  /* the ruler's own menu, open (rulerMenu) */
+  const [rulerMenuAt, setRulerMenuAt] = React.useState<{ x: number; y: number; items: ContextMenuEntry[] } | null>(null);
   const hoverRuler = React.useCallback((e: React.PointerEvent) => {
     if (!onReferRuler || !playable) return;
+    /* on a marker's pin: the pin is what a click there is about */
+    if ((e.target as Element | null)?.closest?.('[data-marker]')) { setRulerHoverMs(null); return; }
     setRulerHoverMs(playheadGapPx(e.clientX, timeMsRef.current) > PLAYHEAD_GRAB_PX ? Math.max(0, Math.min(totalMs, msAtClientX(e.clientX))) : null);
   }, [onReferRuler, playable, playheadGapPx, totalMs, msAtClientX]);
   const startRefer = React.useCallback((e: React.PointerEvent) => {
@@ -2122,6 +2127,8 @@ export const Timeline = React.memo(function Timeline({
   const seekRef = React.useRef<HTMLDivElement | null>(null);
   const focusTimeline = React.useCallback((e: React.PointerEvent) => {
     if (e.button !== 0 || isTypingTarget(e.target)) return;
+    /* a press in something portaled out of the timeline (a marker's card) is not on it */
+    if (!e.currentTarget.contains(e.target as Node)) return;
     window.setTimeout(() => {
       if (!isTypingTarget(document.activeElement)) seekRef.current?.focus({ preventScroll: true });
     }, 0);
@@ -2272,8 +2279,9 @@ export const Timeline = React.memo(function Timeline({
     const lit = selectedLanes.has(track.lane);
     const targeted = targetLane === track.lane;
     const renamingHere = renaming != null && renaming === track.docIndex && track.index === 1;
-    /* typing a name always has its field; a name given shows when the row has room for it */
-    const nameLine = renamingHere || (Boolean(given) && h >= HEAD_NAME_MIN_H);
+    /* typing a name always has its field; a name given shows when the row has room for it; the main track says so */
+    const mainHere = Boolean(track.main) && track.index === 1 && !given;
+    const nameLine = renamingHere || ((Boolean(given) || mainHere) && h >= HEAD_NAME_MIN_H);
     /* the track a pill hovered in the app's chat points at */
     const chatLit = chatTrack != null && track.docIndex === chatTrack;
     return (
@@ -2385,6 +2393,12 @@ export const Timeline = React.memo(function Timeline({
           />
         ) : nameLine && given ? (
           <span className="col-span-full w-full min-w-0 justify-self-stretch truncate px-1 text-[10.5px] font-medium leading-[14px]" style={{ color: TL.text }} data-track-name="">{given}</span>
+        ) : nameLine && mainHere ? (
+          /* the main track, named as the magnet calls it: what the magnet keeps end to end */
+          <span className="col-span-full flex w-full min-w-0 items-center gap-1 justify-self-stretch truncate px-1 text-[10.5px] font-medium leading-[14px]"
+            style={{ color: 'var(--tl-accent)' }} data-main-track="">
+            <Magnet size={10} aria-hidden className="shrink-0" />{t('timeline.mainTrack')}
+          </span>
         ) : null}
         {onResizeTrack && track.docIndex != null ? <TrackResizeHandle height={h} onResize={(height, done) => onResizeTrack(track, height, done)} /> : null}
       </div>
@@ -3639,7 +3653,6 @@ export const Timeline = React.memo(function Timeline({
             </ToolButton>
           </span>
         </> : null}
-        {toolbarExtra}
 
         <ToolButton
           onClick={() => zoomBy(1 / ZOOM_STEP)}
@@ -3764,6 +3777,11 @@ export const Timeline = React.memo(function Timeline({
               onKeyDown={onKeyDown}
               onPointerMove={hoverRuler}
               onPointerLeave={() => setRulerHoverMs(null)}
+              onContextMenu={rulerMenu ? (e) => {
+                e.preventDefault();
+                const items = rulerMenu(Math.max(0, Math.min(totalMs, msAtClientX(e.clientX))));
+                if (items.length) setRulerMenuAt({ x: e.clientX, y: e.clientY, items });
+              } : undefined}
               /* the point picked on the ruler is let go with the timeline's focus */
               onBlur={() => setBarFocus((f) => (f === 'point' ? null : f))}
               className="relative h-full touch-none select-none outline-none"
@@ -3771,7 +3789,7 @@ export const Timeline = React.memo(function Timeline({
               style={{ width: trackPx, cursor: onReferRuler ? (rulerHoverMs == null && !referDraft ? 'col-resize' : 'pointer') : 'col-resize' }}
             >
               {tickMarks}
-              {rulerOverlay?.(pxPerMs)}
+              {rulerOverlay?.(pxPerMs, trackPx)}
               {onReferRuler ? <RulerRefer hoverMs={rulerHoverMs} draft={referDraft} pxPerMs={pxPerMs} widthPx={trackPx} /> : null}
             </div>
           </div>
@@ -3913,7 +3931,15 @@ export const Timeline = React.memo(function Timeline({
                 few pixels. Through the rows the line takes no pointer events: grabbing there is grabPlayhead's. */}
             <span
               role="presentation"
-              onPointerDown={startScrub}
+              onPointerDown={(e) => {
+                /* stopped on a marker, the knob covers its pin: a drag still scrubs, a click is the pin's */
+                const pin = e.button === 0 ? markerPinAt(e.clientX, e.clientY) : null;
+                if (pin) {
+                  const x0 = e.clientX;
+                  window.addEventListener('pointerup', (ev) => { if (Math.abs(ev.clientX - x0) < 4) pin.click(); }, { once: true });
+                }
+                startScrub(e);
+              }}
               className="pointer-events-auto absolute top-0 left-1/2 flex h-[20px] w-[24px] -translate-x-1/2 cursor-col-resize items-start justify-center"
             >
               <PlayheadKnob filled={scrubbing} />
@@ -4013,6 +4039,7 @@ export const Timeline = React.memo(function Timeline({
       {menu && menuItems.length ? (
         <ContextMenu x={menu.x} y={menu.y} items={menuItems} onClose={closeMenu} />
       ) : null}
+      {rulerMenuAt ? <ContextMenu x={rulerMenuAt.x} y={rulerMenuAt.y} items={rulerMenuAt.items} onClose={() => setRulerMenuAt(null)} /> : null}
     </div>
   );
 });
@@ -4039,6 +4066,15 @@ function GestureLabel({ tip, left, top }: { tip: GestureTip; left: number; top: 
       {tip.sourceEnd ? <span> · {t('timeline.tip.sourceEnd')}</span> : null}
     </div>
   );
+}
+
+/** A marker's pin on the ruler at a point on the screen (under the playhead's knob, say), if there is one. */
+function markerPinAt(x: number, y: number): HTMLElement | null {
+  for (const el of document.elementsFromPoint(x, y)) {
+    const pin = el.closest<HTMLElement>('[data-marker]');
+    if (pin) return pin;
+  }
+  return null;
 }
 
 /**

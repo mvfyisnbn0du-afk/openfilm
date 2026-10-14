@@ -22,11 +22,11 @@ import type { KeyCommand } from '@/lib/timeline-keys';
 import type { TimelineBlock, TimelineTrack } from '@/lib/timeline-layout';
 import type { MediaListing } from '@/lib/workspace-resources';
 import { followOf, readTimelinePrefs } from '@/lib/timeline-prefs';
-import { sizeOf, trackHeightsOf, withTrackHeight, TRACK_SIZES, type TrackSize } from '@/lib/track-heights';
+import { ownTrackHeight, sizeOf, trackHeightsOf, withTrackHeight, TRACK_SIZES, type TrackSize } from '@/lib/track-heights';
 import type { Player } from '@/editor/player';
 import type { OutsideStep } from '@/editor/use-film';
 import type { ContextMenuEntry } from './ContextMenu';
-import { ClipMarkers, MarkersButton, RulerMarkers, type MarkerActions } from './TimelineMarkers';
+import { ClipMarkers, RulerMarkers, type MarkerActions } from './TimelineMarkers';
 
 type Toast = { show: (text: string) => void; showError: (text: string) => void };
 
@@ -34,8 +34,6 @@ type Toast = { show: (text: string) => void; showError: (text: string) => void }
 const REPLACE_PROBE_MS = 8000;
 const REPLACE_GIVE_UP_MS = 30_000;
 
-/** The timeline's own heights, by kind of track (Timeline's TRACK_H). */
-const OWN_H = TRACK_SIZES.medium;
 
 /** Whether a clip on the timeline is heard: a sound, or a video with a sound of its own that is not turned off. */
 const sounding = (b: TimelineBlock) => Boolean(b.clipId && b.loc && b.src) && (
@@ -110,8 +108,9 @@ export function useEditorTools({
   placedRef.current = placed;
   const snapPointsMs = React.useMemo(() => placed.map((p) => p.ms), [placed]);
 
-  const addMarkerHere = React.useCallback((on?: TimelineBlock | null) => {
-    const atMs = timeRef.current;
+  /* `atMs`: where (the playhead when not said) */
+  const addMarkerHere = React.useCallback((on?: TimelineBlock | null, at?: number) => {
+    const atMs = at ?? timeRef.current;
     const clip = on === undefined ? markerClip(tracksRef.current, selectedClipIds, atMs) : on;
     const { list, added } = addMarker(markersRef.current, atMs, clip);
     /* one there already: M again names it, as Premiere's */
@@ -171,12 +170,12 @@ export function useEditorTools({
     if (track.docIndex == null) return;
     if (!done && height != null) { setLive({ docIndex: track.docIndex, height }); return; }
     /* back to its own height, or the one dragged to (the timeline's own one is not kept) */
-    setHeights([track.docIndex], height == null || height === OWN_H[track.kind] ? null : height);
+    setHeights([track.docIndex], height == null || height === ownTrackHeight(track) ? null : height);
   }, [setHeights]);
   const headMenuExtra = React.useCallback((track: TimelineTrack): ContextMenuEntry[] => {
     const docIndex = track.docIndex;
     if (docIndex == null) return [];
-    const now = heights.get(docIndex) ?? OWN_H[track.kind];
+    const now = heights.get(docIndex) ?? ownTrackHeight(track);
     const size = sizeOf(now, track.kind);
     const sizes = (Object.keys(TRACK_SIZES) as TrackSize[]);
     const all = filmRef.current?.tracks.map((_, i) => i) ?? [];
@@ -376,17 +375,15 @@ export function useEditorTools({
     }
     return by;
   }, [placed, tracks]);
-  const rulerOverlay = React.useCallback((pxPerMs: number) => <RulerMarkers placed={placed} pxPerMs={pxPerMs} actions={markerActions} />, [placed, markerActions]);
+  const rulerOverlay = React.useCallback((pxPerMs: number, widthPx: number) => <RulerMarkers placed={placed} pxPerMs={pxPerMs} widthPx={widthPx} actions={markerActions} />, [placed, markerActions]);
+  /* the ruler's own menu: a marker there (on the film), as M puts one at the playhead */
+  const rulerMenu = React.useCallback((atMs: number): ContextMenuEntry[] => [
+    { id: 'add-marker', label: t('editorTools.markerAdd'), icon: <Flag size={14} />, shortcut: 'M', onSelect: () => addMarkerHere(null, atMs) },
+  ], [addMarkerHere, t]);
   const trackOverlay = React.useCallback((track: TimelineTrack, pxPerMs: number) => {
     const here = clipMarkersByTrack.get(track.lane);
-    return here ? <ClipMarkers placed={here} pxPerMs={pxPerMs} height={track.height ?? OWN_H[track.kind]} actions={markerActions} /> : null;
+    return here ? <ClipMarkers placed={here} pxPerMs={pxPerMs} height={track.height ?? ownTrackHeight(track)} actions={markerActions} /> : null;
   }, [clipMarkersByTrack, markerActions]);
-  const [nowMs, setNowMs] = React.useState(0);
-  const toolbarExtra = (
-    <span onPointerDown={() => setNowMs(timeRef.current)}>
-      <MarkersButton placed={placed} actions={markerActions} onAdd={() => addMarkerHere()} nowMs={nowMs} />
-    </span>
-  );
 
   /** the mix's level now, for the meters */
   const levels = React.useCallback(() => player.current.levels(), [player]);
@@ -394,7 +391,7 @@ export function useEditorTools({
   return {
     /** the timeline's tracks with the heights they are drawn at */
     tracks: shownTracks,
-    timeline: { solo: soloProp, rulerOverlay, trackOverlay, toolbarExtra, snapPointsMs, onResizeTrack, onReplaceDrop },
+    timeline: { solo: soloProp, rulerOverlay, rulerMenu, trackOverlay, snapPointsMs, onResizeTrack, onReplaceDrop },
     menuExtra,
     /** what can replace a clip (the inspector's Replace) */
     replaceEntries,

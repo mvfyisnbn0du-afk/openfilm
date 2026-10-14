@@ -20,6 +20,14 @@ export const TRACK_SIZES = {
 } as const;
 export type TrackSize = keyof typeof TRACK_SIZES;
 
+/** The main track's own height: taller than the others, as CapCut draws its main track. */
+export const MAIN_TRACK_H = 68;
+
+/** A track's own height (none set by the person): the main track's, else medium for its kind. */
+export function ownTrackHeight(track: { kind: TimelineLaneKind; main?: boolean }): number {
+  return track.main ? MAIN_TRACK_H : TRACK_SIZES.medium[track.kind];
+}
+
 export function clampTrackHeight(h: number): number {
   return Math.round(Math.max(TRACK_MIN_H, Math.min(TRACK_MAX_H, h)));
 }
