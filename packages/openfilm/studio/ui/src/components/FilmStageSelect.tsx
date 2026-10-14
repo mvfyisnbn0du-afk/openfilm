@@ -92,6 +92,12 @@ const PICK_BLUE = FRAME_BLUE;
 /** Snap this close (screen px: the feel must not change with the picture's scale). */
 const SNAP_PX = 6;
 const NO_GUIDES: readonly MgGuide[] = [];
+/**
+ * A key pressed in the inspector (a menu gone through with the arrows, a field): its own, not a nudge. Heard first by
+ * the nudges (they listen in the capture phase), the arrows moved the layer while a menu was gone through, and the
+ * write took back what the menu showed.
+ */
+const inspectorKey = (target: EventTarget | null): boolean => Boolean((target as Element | null)?.closest?.('[data-film-inspector], [role="listbox"], [role="menu"]'));
 /** A selected layer lost in a redraw is let go after this long without finding it again. */
 const LOST_PICK_GRACE_MS = 1200;
 /** The selection is measured again each time the playhead enters another half second. */
@@ -1082,6 +1088,7 @@ function FilmStageSelectImpl({
       }
       /* the arrows are the playhead's unless the picture has the keyboard (arrowsMove) */
       if (e.key.startsWith('Arrow') && !arrowsMoveRef.current) return;
+      if (e.key.startsWith('Arrow') && inspectorKey(e.target)) return;
       if (e.key.startsWith('Arrow') && multiRef.current && onTransformLayers && !multiRef.current.some((it) => lockedClip(it.element.clipLoc)) && !e.metaKey && !e.ctrlKey && !e.altKey) {
         if (!typingNow()) {
           e.preventDefault();
@@ -1612,7 +1619,7 @@ function FilmStageSelectImpl({
     const onKey = (e: KeyboardEvent) => {
       if (!e.key.startsWith('Arrow') || !arrowsMoveRef.current || e.defaultPrevented || e.metaKey || e.ctrlKey || e.altKey) return;
       const el = e.target as HTMLElement | null;
-      if (inHostPanel(el) || el?.closest('input, textarea, select, [contenteditable="true"], [data-timeline]')) return;
+      if (inHostPanel(el) || inspectorKey(el) || el?.closest('input, textarea, select, [contenteditable="true"], [data-timeline]')) return;
       nudgeGroupRef.current(e);
     };
     window.addEventListener('keydown', onKey, true);

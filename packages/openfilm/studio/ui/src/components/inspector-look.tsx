@@ -589,7 +589,34 @@ function CornerGlyph({ corner }: { corner: Corner }) {
  * Opacity, corner radius (`radius`: for what has corners — a box, a picture, a line with its own fill) and blend,
  * as Figma's Appearance.
  */
+/**
+ * What the things in hand looked like before a menu showed something else on the picture (a hovered font, weight,
+ * size or blend mode, as Figma shows one on the canvas before it is picked): the stage measures a layer again after
+ * each preview, so by then it reads as the preview. Giving up (`restore`) paints that back; a pick (`commit`) keeps it.
+ */
+function usePreviewed(look: Look) {
+  const before = React.useRef<Record<string, string> | null>(null);
+  const remember = (props: readonly string[]) => {
+    const now = look.common((read) => Object.fromEntries(props.map((p) => [p, read(p) ?? TYPE_NEUTRAL[p] ?? ''])));
+    if (now !== MIXED) before.current = { ...now, ...before.current };
+  };
+  const restore = () => {
+    const was = before.current;
+    before.current = null;
+    if (was) { look.preview(() => was); previewSettled(); } else look.revert();
+  };
+  /** Show an edit, what it changes remembered first. */
+  const preview = (edit: LookEdit) => {
+    const keys = look.common((read) => Object.keys(edit(read)).sort());
+    remember(keys === MIXED ? [] : keys);
+    look.preview(edit);
+  };
+  const commit = (edit: LookEdit) => { before.current = null; look.commit(edit); };
+  return { before, remember, restore, preview, commit };
+}
+
 export function AppearanceSection({ look, t, children, radius = false }: { look: Look; t: T; children?: React.ReactNode; radius?: boolean }) {
+  const previewed = usePreviewed(look);
   const opacity = look.common((read) => {
     const v = Number(read('opacity') ?? 1);
     return Number.isFinite(v) ? round(v * 100) : 100;
@@ -619,7 +646,9 @@ export function AppearanceSection({ look, t, children, radius = false }: { look:
         prefix={t('inspector.blendShort')}
         value={blend}
         options={BLEND_MODES.map((b) => ({ value: b, label: t(`inspector.blendModes.${b}`) }))}
-        onCommit={(v) => look.commit(() => ({ 'mix-blend-mode': v === 'normal' ? null : v }))}
+        onPreview={(v) => previewed.preview(() => ({ 'mix-blend-mode': v }))}
+        onRevert={previewed.restore}
+        onCommit={(v) => previewed.commit(() => ({ 'mix-blend-mode': v === 'normal' ? null : v }))}
       />
       {children}
     </Section>
@@ -677,6 +706,7 @@ export function FillSection({ look, t, fills, add }: {
  * so the layout does not move as it is added or thickened.
  */
 export function StrokeSection({ look, t }: { look: Look; t: T }) {
+  const previewed = usePreviewed(look);
   const stroke = look.common((read) => placedStrokeOf(read));
   const has = stroke !== undefined;
   const edit = (part: Partial<PlacedStroke> | ((now: PlacedStroke) => Partial<PlacedStroke>)): LookEdit => (read) => {
@@ -722,7 +752,9 @@ export function StrokeSection({ look, t }: { look: Look; t: T }) {
               options={(['inside', 'center', 'outside'] as const)
                 .filter((p) => cut === false || p === 'inside' || p === position)
                 .map((p) => ({ value: p, label: t(`inspector.strokePositions.${p}`) }))}
-              onCommit={(v) => look.commit(edit({ position: v as StrokePosition }))}
+              onPreview={(v) => previewed.preview(edit({ position: v as StrokePosition }))}
+              onRevert={previewed.restore}
+              onCommit={(v) => previewed.commit(edit({ position: v as StrokePosition }))}
             />
             <NumField
               label={t('inspector.strokeWidth')}
@@ -1115,20 +1147,12 @@ export function TypographySection({ look, t, svg, sample }: { look: Look; t: T; 
     const known = knownAvailable(family, installed, project, page);
     return known == null ? !familyRenders(family) : !known;
   }, [family, installed, project, page, ready]);
-  /*
-   * What the type was before a preview showed something else on the picture: the stage measures the layer again after
-   * each preview, so its values are the preview's by then. Families tried are worked out from it, and giving up paints
-   * it back.
-   */
-  const before = React.useRef<Record<string, string> | null>(null);
-  const remember = (props: readonly string[]) => {
-    const now = look.common((read) => Object.fromEntries(props.map((p) => [p, read(p) ?? TYPE_NEUTRAL[p] ?? ''])));
-    if (now !== MIXED) before.current = { ...now, ...before.current };
-  };
-  const restore = () => {
-    const was = before.current;
-    before.current = null;
-    if (was) { look.preview(() => was); previewSettled(); } else look.revert();
+  /* families tried are worked out from what the type was before (usePreviewed) */
+  const { before, remember, restore, preview, commit } = usePreviewed(look);
+  /* a weight (and its slant) from the menu's value; italic taken off a style that had it */
+  const weightEdit = (v: string): LookEdit | null => {
+    const next = parseStyleValue(v);
+    return next ? (read) => ({ 'font-weight': String(next.weight), 'font-style': next.italic ? 'italic' : isItalic(read('font-style')) ? 'normal' : null }) : null;
   };
   /**
    * A new family, the fallbacks kept; a weight or an italic it does not have snapped to what it has. Shown only
@@ -1191,10 +1215,9 @@ export function TypographySection({ look, t, svg, sample }: { look: Look; t: T; 
           label={t('inspector.fontWeight')}
           value={style === MIXED ? MIXED : styleValue(style)}
           options={weightOptions(styles, t)}
-          onCommit={(v) => {
-            const next = parseStyleValue(v);
-            if (next) look.commit((read) => ({ 'font-weight': String(next.weight), 'font-style': next.italic ? 'italic' : isItalic(read('font-style')) ? 'normal' : null }));
-          }}
+          onPreview={(v) => { const edit = weightEdit(v); if (edit) preview(edit); }}
+          onRevert={restore}
+          onCommit={(v) => { const edit = weightEdit(v); if (edit) commit(edit); }}
         />
         <NumField
           label={t('inspector.fontSize')}
@@ -1204,7 +1227,14 @@ export function TypographySection({ look, t, svg, sample }: { look: Look; t: T; 
           min={1}
           max={5000}
           {...bind(sizeEdit)}
-          trailing={<FontSizeMenu t={t} onPick={(n) => look.commit(() => ({ 'font-size': `${n}px` }))} />}
+          trailing={(
+            <FontSizeMenu
+              t={t}
+              onPreview={(n) => preview(() => ({ 'font-size': `${n}px` }))}
+              onRevert={restore}
+              onPick={(n) => commit(() => ({ 'font-size': `${n}px` }))}
+            />
+          )}
         />
       </Row>
       <Row>
@@ -1256,13 +1286,18 @@ export function TypographySection({ look, t, svg, sample }: { look: Look; t: T; 
   );
 }
 
-/** The font size field's menu: the common sizes, as Figma's. */
-function FontSizeMenu({ t, onPick }: { t: T; onPick: (n: number) => void }) {
+/** The font size field's menu: the common sizes, as Figma's; the one under the pointer shown before it is picked. */
+function FontSizeMenu({ t, onPick, onPreview, onRevert }: { t: T; onPick: (n: number) => void; onPreview: (n: number) => void; onRevert: () => void }) {
   const [open, setOpen] = React.useState(false);
+  const previewing = React.useRef(false);
+  const show = (n: number | null) => {
+    if (n != null) { previewing.current = true; onPreview(n); }
+    else if (previewing.current) { previewing.current = false; onRevert(); }
+  };
   return (
     <Popover
       open={open}
-      onOpenChange={setOpen}
+      onOpenChange={(next) => { if (!next) show(null); setOpen(next); }}
       placement="auto"
       align="end"
       trigger={(
@@ -1281,6 +1316,7 @@ function FontSizeMenu({ t, onPick }: { t: T; onPick: (n: number) => void }) {
         data-film-inspector=""
         role="listbox"
         aria-label={t('inspector.fontSizes')}
+        onMouseLeave={() => show(null)}
         className="w-[72px] overflow-y-auto rounded-[8px] border border-[var(--border)] bg-[var(--panel)] py-1 shadow-[var(--shadow-lg)]"
         style={{ maxHeight: 'min(320px, var(--popover-max-h, 320px))' }}
       >
@@ -1290,7 +1326,8 @@ function FontSizeMenu({ t, onPick }: { t: T; onPick: (n: number) => void }) {
             type="button"
             role="option"
             aria-selected={false}
-            onClick={() => { setOpen(false); onPick(n); }}
+            onMouseEnter={() => show(n)}
+            onClick={() => { previewing.current = false; setOpen(false); onPick(n); }}
             className="block w-full px-3 py-[3px] text-left text-[11.5px] tabular-nums text-[var(--text)] hover:bg-[var(--bg-hover)]"
           >
             {n}

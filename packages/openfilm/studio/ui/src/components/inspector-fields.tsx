@@ -641,12 +641,15 @@ export function Segmented({
 
 /** A menu of named choices, as a field. */
 export function SelectField({
-  label, value, options, onCommit, prefix,
+  label, value, options, onCommit, onPreview, onRevert, prefix,
 }: {
   label: string;
   value: string | Mixed;
   options: { value: string; label: string }[];
   onCommit: (next: string) => void;
+  /** Show a choice on the picture while it is hovered in the menu; `onRevert` takes it back. */
+  onPreview?: (next: string) => void;
+  onRevert?: () => void;
   /** A word before the menu (Blend), as the other fields have their mark. */
   prefix?: string;
 }) {
@@ -663,7 +666,9 @@ export function SelectField({
           prefix={prefix}
           value={current}
           groups={[{ choices: [...extra, ...options] }]}
-          onPick={(next) => { if (next !== '' && next !== current) onCommit(next); }}
+          /* MenuSelect picks only a choice other than the one when it opened; while one is shown, `current` is that one */
+          onPick={(next) => { if (next !== '' && (onPreview || next !== current)) onCommit(next); }}
+          {...(onPreview ? { onPreview: (next: string) => { if (next !== '') onPreview(next); }, ...(onRevert ? { onRevert } : {}) } : {})}
         />
       </div>
     </Tooltip>

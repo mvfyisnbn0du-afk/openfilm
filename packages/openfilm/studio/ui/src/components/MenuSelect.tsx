@@ -2,7 +2,9 @@
  * A field that opens a menu of choices, drawn as Studio's own menus are (a card in the panel's colors, the chosen one
  * checked), in place of the browser's own list: that one is drawn by the system, light in a dark Studio, and with
  * the field's text color it read as if every choice were disabled. Choices may come in groups, each under a small
- * heading. The arrow keys move through them, Enter picks, Esc closes.
+ * heading. The arrow keys move through them, Enter picks, Esc closes. With `onPreview`, the choice under the pointer (or
+ * the keys) is shown before it is picked, as Figma shows a font or a blend mode on the canvas; closing without a pick
+ * takes it back (`onRevert`).
  */
 import React from 'react';
 import { Check, ChevronDown } from 'lucide-react';
@@ -12,13 +14,17 @@ export type MenuChoice = { value: string; label: string };
 export type MenuGroup = { label?: string; choices: MenuChoice[] };
 
 export function MenuSelect({
-  label, value, groups, onPick, disabled = false, className = '', size = 'sm', prefix,
+  label, value, groups, onPick, onPreview, onRevert, disabled = false, className = '', size = 'sm', prefix,
 }: {
   /** what it chooses, for screen readers (the field shows the choice) */
   label: string;
   value: string;
   groups: MenuGroup[];
   onPick: (value: string) => void;
+  /** Show a choice before it is picked (hovered, or reached with the keys). */
+  onPreview?: (value: string) => void;
+  /** Take the shown choice back: the menu closed without a pick, or the pointer left the list. */
+  onRevert?: () => void;
   disabled?: boolean;
   className?: string;
   /** `sm`: the inspector's fields; `md`: a dialog's (the export's) */
@@ -33,6 +39,20 @@ export function MenuSelect({
   const listRef = React.useRef<HTMLDivElement | null>(null);
   const all = React.useMemo(() => groups.flatMap((g) => g.choices), [groups]);
   const current = all.find((c) => c.value === value);
+  /* a choice is shown on the picture (onPreview), not picked yet. What was chosen when the menu opened: the field
+     reads what is on the picture, so while a choice is shown, `value` is that one */
+  const previewing = React.useRef(false);
+  const origin = React.useRef(value);
+  if (!open) origin.current = value;
+  const show = (choice: MenuChoice | undefined) => {
+    if (!onPreview) return;
+    if (choice && choice.value !== origin.current) { previewing.current = true; onPreview(choice.value); }
+    else if (previewing.current) { previewing.current = false; onRevert?.(); }
+  };
+  /* closed without a pick: what was shown goes */
+  React.useEffect(() => {
+    if (!open && previewing.current) { previewing.current = false; onRevert?.(); }
+  }, [open]); // eslint-disable-line react-hooks/exhaustive-deps
 
   /* opened: as wide as the field, the chosen one in view and lit for the keys */
   React.useLayoutEffect(() => {
@@ -53,9 +73,12 @@ export function MenuSelect({
   }, [open, active]);
 
   const pick = (choice: MenuChoice) => {
+    /* picked: the preview is the pick now (a pick of the one chosen before only takes the preview back) */
+    const changed = choice.value !== origin.current;
+    if (changed) previewing.current = false;
     setOpen(false);
     triggerRef.current?.focus();
-    if (choice.value !== value) onPick(choice.value);
+    if (changed) onPick(choice.value);
   };
   const onKeyDown = (e: React.KeyboardEvent) => {
     if (disabled) return;
@@ -63,10 +86,11 @@ export function MenuSelect({
       if (e.key === 'ArrowDown' || e.key === 'ArrowUp' || e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setOpen(true); }
       return;
     }
-    if (e.key === 'ArrowDown') { e.preventDefault(); setActive((i) => Math.min(all.length - 1, i + 1)); }
-    else if (e.key === 'ArrowUp') { e.preventDefault(); setActive((i) => Math.max(0, i - 1)); }
-    else if (e.key === 'Home') { e.preventDefault(); setActive(0); }
-    else if (e.key === 'End') { e.preventDefault(); setActive(all.length - 1); }
+    const go = (i: number) => { e.preventDefault(); setActive(i); show(all[i]); };
+    if (e.key === 'ArrowDown') go(Math.min(all.length - 1, active + 1));
+    else if (e.key === 'ArrowUp') go(Math.max(0, active - 1));
+    else if (e.key === 'Home') go(0);
+    else if (e.key === 'End') go(all.length - 1);
     else if ((e.key === 'Enter' || e.key === ' ') && all[active]) { e.preventDefault(); pick(all[active]); }
     else if (e.key === 'Tab') setOpen(false);
   };
@@ -97,6 +121,7 @@ export function MenuSelect({
         role="listbox"
         aria-label={label}
         onKeyDown={onKeyDown}
+        onMouseLeave={() => show(undefined)}
         className="relative overflow-y-auto rounded-[8px] border border-[var(--border)] bg-[var(--panel)] p-1 shadow-[var(--shadow-lg)]"
         style={{ width: Math.max(width, 160), maxHeight: 'min(320px, var(--popover-max-h, 320px))' }}
       >
@@ -118,7 +143,7 @@ export function MenuSelect({
                   role="option"
                   aria-selected={chosen}
                   data-index={i}
-                  onMouseEnter={() => setActive(i)}
+                  onMouseEnter={() => { setActive(i); show(choice); }}
                   onMouseDown={(e) => e.preventDefault()}
                   onClick={() => pick(choice)}
                   className={`flex w-full items-center gap-2 rounded-[5px] px-2 text-left text-[var(--text)] ${size === 'md' ? 'h-8 text-[13px]' : 'h-7 text-[11.5px]'} ${i === active ? 'bg-[var(--bg-hover)]' : ''}`}
