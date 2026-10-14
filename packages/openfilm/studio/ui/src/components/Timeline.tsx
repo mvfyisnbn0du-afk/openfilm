@@ -1619,6 +1619,14 @@ export const Timeline = React.memo(function Timeline({
    * With the app's chat, the ruler points at time for it (onReferRuler): a click there is that moment, a drag that
    * span, drawn as it is pulled. A press on the playhead (its knob, ±4 px) still drags it.
    */
+  const [referDraft, setReferDraft] = React.useState<FilmRange | null>(null);
+  /* where the pointer is on the ruler (film ms), shown as the moment a click would refer; not near the playhead (its
+     knob is dragged there) */
+  const [rulerHoverMs, setRulerHoverMs] = React.useState<number | null>(null);
+  const hoverRuler = React.useCallback((e: React.PointerEvent) => {
+    if (!onReferRuler || !playable) return;
+    setRulerHoverMs(playheadGapPx(e.clientX, timeMsRef.current) > PLAYHEAD_GRAB_PX ? Math.max(0, Math.min(totalMs, msAtClientX(e.clientX))) : null);
+  }, [onReferRuler, playable, playheadGapPx, totalMs, msAtClientX]);
   const startRefer = React.useCallback((e: React.PointerEvent) => {
     if (e.button !== 0 || !playable || !onReferRuler) return;
     e.preventDefault();
@@ -1628,7 +1636,7 @@ export const Timeline = React.memo(function Timeline({
     let dragged = false;
     let atX = e.clientX;
     let raf = 0;
-    const flush = (): void => { raf = 0; setRangeDraft(orderedRange(fromMs, at(atX))); };
+    const flush = (): void => { raf = 0; setReferDraft(orderedRange(fromMs, at(atX))); };
     const edge = edgeAutoScroll(scrollRef, () => { if (!raf) raf = requestAnimationFrame(flush); });
     const move = (ev: PointerEvent) => {
       atX = ev.clientX;
@@ -1642,7 +1650,7 @@ export const Timeline = React.memo(function Timeline({
       window.removeEventListener('pointerup', up);
       edge.stop();
       if (raf) cancelAnimationFrame(raf);
-      setRangeDraft(null);
+      setReferDraft(null);
       const range = orderedRange(fromMs, at(ev.clientX));
       if (!dragged) onReferRuler({ atMs: fromMs });
       else if (range) onReferRuler({ range });
@@ -3754,14 +3762,17 @@ export const Timeline = React.memo(function Timeline({
                 : onReferRuler && playheadGapPx(e.clientX, timeMsRef.current) > PLAYHEAD_GRAB_PX ? startRefer(e)
                   : startScrub(e, true))}
               onKeyDown={onKeyDown}
+              onPointerMove={hoverRuler}
+              onPointerLeave={() => setRulerHoverMs(null)}
               /* the point picked on the ruler is let go with the timeline's focus */
               onBlur={() => setBarFocus((f) => (f === 'point' ? null : f))}
               className="relative h-full touch-none select-none outline-none"
-              /* pointing at time for the chat: the cursor of adding (the playhead's knob keeps its own) */
-              style={{ width: trackPx, cursor: onReferRuler ? 'copy' : 'col-resize' }}
+              /* pointing at time for the chat: a hand, and the moment under it drawn (the playhead's knob keeps its own) */
+              style={{ width: trackPx, cursor: onReferRuler ? (rulerHoverMs == null && !referDraft ? 'col-resize' : 'pointer') : 'col-resize' }}
             >
               {tickMarks}
               {rulerOverlay?.(pxPerMs)}
+              {onReferRuler ? <RulerRefer hoverMs={rulerHoverMs} draft={referDraft} pxPerMs={pxPerMs} widthPx={trackPx} /> : null}
             </div>
           </div>
 
@@ -4391,4 +4402,49 @@ function edgeAutoScroll(
       raf = 0;
     },
   };
+}
+
+/** A moment as the chat's pills write it: m:ss.s. */
+const chatClock = (ms: number): string => {
+  const tenths = Math.round(ms / 100);
+  const m = Math.floor(tenths / 600);
+  return `${m}:${String(((tenths % 600) / 10).toFixed(1)).padStart(4, '0')}`;
+};
+
+/**
+ * What a click or a drag on the ruler gives the chat, drawn where it will be: under the pointer a line and a tag with
+ * the moment (the chat's mark and its time, as its pill will read), while dragged the span and its two ends. In the
+ * timeline's accent, as its switches; it takes no pointer.
+ */
+function RulerRefer({ hoverMs, draft, pxPerMs, widthPx }: { hoverMs: number | null; draft: FilmRange | null; pxPerMs: number; widthPx: number }) {
+  if (!draft && hoverMs == null) return null;
+  const tag = (x: number, text: string) => {
+    const flip = x > widthPx - 96;
+    return (
+      <span
+        className="absolute top-1/2 flex h-[15px] items-center gap-[3px] whitespace-nowrap rounded-[4px] px-[5px] text-[10px] font-medium leading-none tabular-nums text-white shadow-[0_1px_3px_rgba(0,0,0,.35)]"
+        style={{ left: x, background: 'var(--tl-accent)', transform: `translate(${flip ? 'calc(-100% - 5px)' : '5px'}, -50%)` }}
+      >
+        <MessageSquarePlus size={9} aria-hidden />
+        {text}
+      </span>
+    );
+  };
+  if (draft) {
+    const left = draft.startMs * pxPerMs;
+    const width = Math.max(1, (draft.endMs - draft.startMs) * pxPerMs);
+    return (
+      <div aria-hidden className="pointer-events-none absolute inset-0">
+        <div className="absolute inset-y-0" style={{ left, width, background: 'color-mix(in srgb, var(--tl-accent) 22%, transparent)', boxShadow: 'inset 1px 0 var(--tl-accent), inset -1px 0 var(--tl-accent)' }} />
+        {tag(left + width, `${chatClock(draft.startMs)}–${chatClock(draft.endMs)}`)}
+      </div>
+    );
+  }
+  const x = hoverMs! * pxPerMs;
+  return (
+    <div aria-hidden className="pointer-events-none absolute inset-0">
+      <div className="absolute inset-y-0 w-px" style={{ left: x, background: 'var(--tl-accent)' }} />
+      {tag(x, chatClock(hoverMs!))}
+    </div>
+  );
 }
