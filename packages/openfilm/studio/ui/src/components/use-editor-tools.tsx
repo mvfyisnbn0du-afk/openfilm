@@ -5,7 +5,7 @@
  * here; the edits go through the page's own edit, one write and one undo step each.
  */
 import * as React from 'react';
-import { AudioLines, Flag, HardDriveUpload, Replace, Snowflake } from 'lucide-react';
+import { AudioLines, HardDriveUpload, Replace, Snowflake } from 'lucide-react';
 
 import { api, type Clip, type Film, type Op, type ProjectSettings } from '@/api';
 import { useT } from '@/i18n';
@@ -26,7 +26,8 @@ import { ownTrackHeight, sizeOf, trackHeightsOf, withTrackHeight, TRACK_SIZES, t
 import type { Player } from '@/editor/player';
 import type { OutsideStep } from '@/editor/use-film';
 import type { ContextMenuEntry } from './ContextMenu';
-import { ClipMarkers, RulerMarkers, type MarkerActions } from './TimelineMarkers';
+import type { MarkerLaneView } from './Timeline';
+import { ClipMarkers, LaneMarkers, MarkerGlyph, type MarkerActions } from './TimelineMarkers';
 
 type Toast = { show: (text: string) => void; showError: (text: string) => void };
 
@@ -360,7 +361,7 @@ export function useEditorTools({
         submenu: choices,
       });
       const on = atMs >= one.startMs && atMs < one.endMs;
-      out.push({ id: 'clip-marker', label: t('editorTools.markerAddClip'), icon: <Flag size={14} />, shortcut: 'M', disabled: !on, hint: t('editorTools.freezeOutside'), onSelect: () => addMarkerHere(one) });
+      out.push({ id: 'clip-marker', label: t('editorTools.markerAddClip'), icon: <MarkerGlyph size={14} />, shortcut: 'M', disabled: !on, hint: t('editorTools.freezeOutside'), onSelect: () => addMarkerHere(one) });
     }
     return out;
   }, [measuring, media, normalize, freeze, replaceEntries, addMarkerHere, timeRef, t]);
@@ -375,10 +376,14 @@ export function useEditorTools({
     }
     return by;
   }, [placed, tracks]);
-  const rulerOverlay = React.useCallback((pxPerMs: number, widthPx: number) => <RulerMarkers placed={placed} pxPerMs={pxPerMs} widthPx={widthPx} actions={markerActions} />, [placed, markerActions]);
+  const markerLane = React.useMemo(() => ({
+    shown: placed.some((p) => !p.clip),
+    render: (lane: MarkerLaneView) => <LaneMarkers placed={placed} lane={lane} actions={markerActions} />,
+  }), [placed, markerActions]);
+  const onAddMarker = React.useCallback(() => addMarkerHere(), [addMarkerHere]);
   /* the ruler's own menu: a marker there (on the film), as M puts one at the playhead */
   const rulerMenu = React.useCallback((atMs: number): ContextMenuEntry[] => [
-    { id: 'add-marker', label: t('editorTools.markerAdd'), icon: <Flag size={14} />, shortcut: 'M', onSelect: () => addMarkerHere(null, atMs) },
+    { id: 'add-marker', label: t('editorTools.markerAdd'), icon: <MarkerGlyph size={14} />, shortcut: 'M', onSelect: () => addMarkerHere(null, atMs) },
   ], [addMarkerHere, t]);
   const trackOverlay = React.useCallback((track: TimelineTrack, pxPerMs: number) => {
     const here = clipMarkersByTrack.get(track.lane);
@@ -391,7 +396,7 @@ export function useEditorTools({
   return {
     /** the timeline's tracks with the heights they are drawn at */
     tracks: shownTracks,
-    timeline: { solo: soloProp, rulerOverlay, rulerMenu, trackOverlay, snapPointsMs, onResizeTrack, onReplaceDrop },
+    timeline: { solo: soloProp, markerLane, onAddMarker, rulerMenu, trackOverlay, snapPointsMs, onResizeTrack, onReplaceDrop },
     menuExtra,
     /** what can replace a clip (the inspector's Replace) */
     replaceEntries,

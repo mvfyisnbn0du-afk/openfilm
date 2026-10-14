@@ -145,6 +145,7 @@ import type { PlaybackClock } from './LiveTime';
 import { CaptionsIcon } from './player-controls/controls-bar';
 import { isTypingTarget } from './typing-target';
 import { Popover } from './Popover';
+import { MarkerGlyph } from './TimelineMarkers';
 import { SUBTITLE_ROW_H, SubtitleRow, SubtitleRowHead, useSubtitleRowShown, type SubtitleRowHandle, type SubtitleRowSpec } from './SubtitleRow';
 import { SoloButton, TrackResizeHandle } from './timeline-head-extras';
 import { clipAtPoint, markReplaceTarget } from './replace-drop';
@@ -179,6 +180,22 @@ const PLAYHEAD_GRAB_PX = 4;
 /* the range bar's hit height (the visible bar is thinner, see .tl-range-thumb; 5 px could hardly be hit) */
 const H_SCROLL_H = 10;
 const RULER_H = 20;
+/** The markers' row under the ruler (only while there are markers). */
+const MARKER_ROW_H = 16;
+
+/** A marker's line through the timeline: where, in its color; `held` while it is dragged (else hovered, fainter). */
+export interface MarkerGuide { ms: number; color: string; held: boolean }
+
+/** What the markers' row is drawn with (Timeline's `markerLane`). */
+export interface MarkerLaneView {
+  pxPerMs: number;
+  /** the row's length, px */
+  widthPx: number;
+  /** a time a marker is dragged to, snapped as clips are (when snapping is on) */
+  snap: (ms: number) => number;
+  /** the line through the timeline where a marker is hovered or dragged (null: none) */
+  guide: (g: MarkerGuide | null) => void;
+}
 /**
  * Row heights. A clip is three layers — info strip (name + length), preview band (thumbnails / waveform), audio band —
  * and a low waveform shows nothing, while "did this cut land mid-word" can only be seen on it.
@@ -653,8 +670,10 @@ export interface TimelineProps {
   subtitleRow?: SubtitleRowSpec;
   /** Solo (Studio's playback only): the tracks soloed (film.html indexes), and a click on a head's S (⌥: alone). */
   solo?: { tracks: ReadonlySet<number>; onToggle: (docIndex: number, only: boolean) => void };
-  /** Drawn on the ruler, scrolling with it (the markers, components/TimelineMarkers); `widthPx`: the ruler's length. */
-  rulerOverlay?: (pxPerMs: number, widthPx: number) => React.ReactNode;
+  /** The markers' row under the ruler (under the subtitle row when it shows), while there are any. */
+  markerLane?: { shown: boolean; render: (lane: MarkerLaneView) => React.ReactNode };
+  /** The toolbar's Add marker (left of split); M does the same. */
+  onAddMarker?: () => void;
   /** The ruler's own right-click menu, at a moment (film ms): adding a marker there. */
   rulerMenu?: (atMs: number) => ContextMenuEntry[];
   /** Drawn on each row, over its clips (the clips' markers). */
@@ -931,7 +950,8 @@ export const Timeline = React.memo(function Timeline({
   onRenameTrack,
   subtitleRow,
   solo,
-  rulerOverlay,
+  markerLane,
+  onAddMarker,
   rulerMenu,
   trackOverlay,
   snapPointsMs,
@@ -1270,6 +1290,15 @@ export const Timeline = React.memo(function Timeline({
   const subRowRef = React.useRef<SubtitleRowHandle | null>(null);
   const subRowShown = Boolean(subtitleRow) && subRowOn && hasLanes;
   const subRowH = subRowShown ? SUBTITLE_ROW_H : 0;
+  const markerRowH = markerLane?.shown ? MARKER_ROW_H : 0;
+  /* a marker hovered or dragged: its line through the whole timeline */
+  const [markerGuide, setMarkerGuide] = React.useState<MarkerGuide | null>(null);
+  React.useEffect(() => { if (!markerRowH) setMarkerGuide(null); }, [markerRowH]);
+  /* a marker dragged snaps as a clip does (to clip edges and the playhead), while snapping is on */
+  const snapMarker = React.useCallback((ms: number) => {
+    if (!snap) return ms;
+    return snapMs(ms, snapTargetsFor(allBlocks, null, timeMsRef.current), pxPerMs).ms;
+  }, [snap, allBlocks, pxPerMs]);
   const drag = useBlockDrag({
     allBlocks,
     lanes: tracks,
@@ -1629,7 +1658,6 @@ export const Timeline = React.memo(function Timeline({
   const hoverRuler = React.useCallback((e: React.PointerEvent) => {
     if (!onReferRuler || !playable) return;
     /* on a marker's pin: the pin is what a click there is about */
-    if ((e.target as Element | null)?.closest?.('[data-marker]')) { setRulerHoverMs(null); return; }
     setRulerHoverMs(playheadGapPx(e.clientX, timeMsRef.current) > PLAYHEAD_GRAB_PX ? Math.max(0, Math.min(totalMs, msAtClientX(e.clientX))) : null);
   }, [onReferRuler, playable, playheadGapPx, totalMs, msAtClientX]);
   const startRefer = React.useCallback((e: React.PointerEvent) => {
@@ -2127,8 +2155,9 @@ export const Timeline = React.memo(function Timeline({
   const seekRef = React.useRef<HTMLDivElement | null>(null);
   const focusTimeline = React.useCallback((e: React.PointerEvent) => {
     if (e.button !== 0 || isTypingTarget(e.target)) return;
-    /* a press in something portaled out of the timeline (a marker's card) is not on it */
-    if (!e.currentTarget.contains(e.target as Node)) return;
+    /* a press in something portaled out of the timeline (a marker's card) is not on it; a marker's pin opens its card,
+       which takes the keys */
+    if (!e.currentTarget.contains(e.target as Node) || (e.target as Element).closest?.('[data-marker-lane]')) return;
     window.setTimeout(() => {
       if (!isTypingTarget(document.activeElement)) seekRef.current?.focus({ preventScroll: true });
     }, 0);
@@ -3590,6 +3619,12 @@ export const Timeline = React.memo(function Timeline({
           </>
         ) : null}
 
+        {onAddMarker ? (
+          <ToolButton onClick={onAddMarker} disabled={!playable} label={t('editorTools.markerAdd')} hint={shortcutHint('M')}>
+            <MarkerGlyph size={16} />
+          </ToolButton>
+        ) : null}
+
         {onSplit ? (
           <ToolButton
             onClick={() => { void runSplit(selectedBlocks.filter((b) => drag.can(b).resize)); }}
@@ -3714,12 +3749,13 @@ export const Timeline = React.memo(function Timeline({
           {/* as tall as the ruler, so heads line up with rows; no bottom line, it is not a column of its own */}
           <div style={{ height: RULER_H }} />
           {subRowShown ? <SubtitleRowHead onAdd={() => subRowRef.current?.addAtPlayhead()} /> : null}
+          {markerRowH ? <div className="border-b" style={{ height: markerRowH, borderColor: TL.line }} /> : null}
           <div
             ref={headRef}
             className="relative overflow-hidden"
             /* the same padding as the track area, so both scroll the same height and scrollTop stays in sync */
             style={{
-              height: `calc(100% - ${RULER_H + subRowH}px - ${H_SCROLL_H}px)`,
+              height: `calc(100% - ${RULER_H + subRowH + markerRowH}px - ${H_SCROLL_H}px)`,
               paddingTop: padTop,
               paddingBottom: TL_VPAD,
             }}
@@ -3789,7 +3825,6 @@ export const Timeline = React.memo(function Timeline({
               style={{ width: trackPx, cursor: onReferRuler ? (rulerHoverMs == null && !referDraft ? 'col-resize' : 'pointer') : 'col-resize' }}
             >
               {tickMarks}
-              {rulerOverlay?.(pxPerMs, trackPx)}
               {onReferRuler ? <RulerRefer hoverMs={rulerHoverMs} draft={referDraft} pxPerMs={pxPerMs} widthPx={trackPx} /> : null}
             </div>
           </div>
@@ -3798,6 +3833,24 @@ export const Timeline = React.memo(function Timeline({
             <SubtitleRow ref={subRowRef} spec={subtitleRow} pxPerMs={pxPerMs} scrollLeft={view.left} width={trackPx}
               playheadMs={() => timeMsRef.current} snap={snap} snapTargets={() => snapTargetsFor(allBlocks, null, timeMsRef.current)}
               onError={setDropError} />
+          ) : null}
+
+          {/* the markers' row: pins along it, scrolling with the tracks; a right-click adds one there */}
+          {markerRowH && markerLane ? (
+            <div
+              data-marker-lane=""
+              className="relative shrink-0 overflow-hidden border-b select-none"
+              style={{ height: markerRowH, background: TL.head, borderColor: TL.line }}
+              onContextMenu={rulerMenu ? (e) => {
+                e.preventDefault();
+                const items = rulerMenu(Math.max(0, Math.min(totalMs, msAtClientX(e.clientX))));
+                if (items.length) setRulerMenuAt({ x: e.clientX, y: e.clientY, items });
+              } : undefined}
+            >
+              <div className="absolute inset-y-0 left-0" style={{ width: trackPx, transform: `translate3d(${-view.left}px,0,0)` }}>
+                {markerLane.render({ pxPerMs, widthPx: trackPx, snap: snapMarker, guide: setMarkerGuide })}
+              </div>
+            </div>
           ) : null}
 
           {/* track area: backgrounds fixed to the view, clips scroll horizontally above them */}
@@ -3931,20 +3984,30 @@ export const Timeline = React.memo(function Timeline({
                 few pixels. Through the rows the line takes no pointer events: grabbing there is grabPlayhead's. */}
             <span
               role="presentation"
-              onPointerDown={(e) => {
-                /* stopped on a marker, the knob covers its pin: a drag still scrubs, a click is the pin's */
-                const pin = e.button === 0 ? markerPinAt(e.clientX, e.clientY) : null;
-                if (pin) {
-                  const x0 = e.clientX;
-                  window.addEventListener('pointerup', (ev) => { if (Math.abs(ev.clientX - x0) < 4) pin.click(); }, { once: true });
-                }
-                startScrub(e);
-              }}
+              onPointerDown={startScrub}
               className="pointer-events-auto absolute top-0 left-1/2 flex h-[20px] w-[24px] -translate-x-1/2 cursor-col-resize items-start justify-center"
             >
               <PlayheadKnob filled={scrubbing} />
             </span>
           </PlayheadTrack>
+        </div>
+      ) : null}
+
+      {/* a marker's guide, through the ruler and every row: where it is while it is hovered or dragged */}
+      {markerGuide ? (
+        <div
+          className="pointer-events-none absolute inset-y-0 z-[25] overflow-hidden"
+          style={{ left: headW - PLAYHEAD_BLEED, right: 0, top: TOOLBAR_H, bottom: H_SCROLL_H }}
+        >
+          <div
+            data-marker-guide=""
+            className="absolute inset-y-0 left-0 w-px"
+            style={{
+              background: markerGuide.color,
+              opacity: markerGuide.held ? 1 : 0.55,
+              transform: `translate3d(${markerGuide.ms * pxPerMs - scrollLeft + PLAYHEAD_BLEED}px,0,0)`,
+            }}
+          />
         </div>
       ) : null}
 
@@ -4066,15 +4129,6 @@ function GestureLabel({ tip, left, top }: { tip: GestureTip; left: number; top: 
       {tip.sourceEnd ? <span> · {t('timeline.tip.sourceEnd')}</span> : null}
     </div>
   );
-}
-
-/** A marker's pin on the ruler at a point on the screen (under the playhead's knob, say), if there is one. */
-function markerPinAt(x: number, y: number): HTMLElement | null {
-  for (const el of document.elementsFromPoint(x, y)) {
-    const pin = el.closest<HTMLElement>('[data-marker]');
-    if (pin) return pin;
-  }
-  return null;
 }
 
 /**

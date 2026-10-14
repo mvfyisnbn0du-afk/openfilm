@@ -1,7 +1,8 @@
 /**
- * Markers on the timeline (lib/markers): pins on the ruler for the film's, notches on the clips for a clip's. A click
- * goes to a marker and opens its card (its name, its color, delete), a drag moves a pin along the ruler, a right-click
- * opens the card too. M adds one at the playhead (M on one opens its card), ⇧M / ⌥M go to the next / the one before.
+ * Markers on the timeline (lib/markers): pins on their own row under the ruler for the film's, notches on the clips for
+ * a clip's. A click goes to a marker and opens its card (its name, its color, delete), a drag moves a pin along its
+ * row, a right-click opens the card too. M (or the toolbar's button) adds one at the playhead (M on one opens its card),
+ * ⇧M / ⌥M go to the next / the one before.
  */
 import * as React from 'react';
 import { createPortal } from 'react-dom';
@@ -10,6 +11,8 @@ import { Trash2 } from 'lucide-react';
 import { useT } from '@/i18n';
 import { MARKER_COLORS, MARKER_NAME_MAX, MARKER_PAINT, type Marker, type MarkerColor, type PlacedMarker } from '@/lib/markers';
 import { formatTimecode, snapToFrame } from '@/lib/timecode';
+
+import type { MarkerLaneView } from './Timeline';
 
 export interface MarkerActions {
   onSeek: (ms: number) => void;
@@ -100,7 +103,7 @@ function MarkerCard({ placed, x, y, focusName, actions, onClose }: {
       style={{ left: Math.max(8, Math.min(x - W / 2, window.innerWidth - W - 8)), top: y + 6, width: W, background: 'var(--tl-head)', borderColor: 'var(--tl-line)' }}
     >
       <div className="flex items-center gap-1.5">
-        <span aria-hidden className="h-2.5 w-2.5 shrink-0 rotate-45 rounded-[2px]" style={{ background: MARKER_PAINT[marker.color] }} />
+        <span className="shrink-0"><MarkerGlyph size={13} fill={MARKER_PAINT[marker.color]} /></span>
         <input
           ref={field}
           defaultValue={marker.name ?? ''}
@@ -152,8 +155,8 @@ function MarkerTag({ marker, ms, flip }: { marker: Marker; ms: number; flip: boo
   const t = useT();
   return (
     <span
-      className="pointer-events-none absolute top-1/2 flex h-[15px] items-center gap-1 whitespace-nowrap rounded-[4px] px-[5px] text-[10px] font-medium leading-none tabular-nums shadow-[0_1px_3px_rgba(0,0,0,.35)]"
-      style={{ left: 0, background: MARKER_PAINT[marker.color], color: '#111', transform: `translate(${flip ? 'calc(-100% - 7px)' : '7px'}, -50%)` }}
+      className="pointer-events-none absolute top-1/2 z-[3] flex h-[14px] items-center gap-1 whitespace-nowrap rounded-[3px] px-[5px] text-[10px] font-medium leading-none tabular-nums shadow-[0_1px_3px_rgba(0,0,0,.35)]"
+      style={{ left: 0, background: MARKER_PAINT[marker.color], color: '#111', transform: `translate(${flip ? 'calc(-100% - 9px)' : '9px'}, -50%)` }}
     >
       <span className="max-w-[160px] truncate">{marker.name || t('editorTools.markerUntitled')}</span>
       <span style={{ opacity: 0.65 }}>{formatTimecode(ms, { hours: false })}</span>
@@ -161,35 +164,63 @@ function MarkerTag({ marker, ms, flip }: { marker: Marker; ms: number; flip: boo
   );
 }
 
-/** The film's markers on the ruler, inside its scrolled strip: a pin each, a thin pole down the ruler. */
-export function RulerMarkers({ placed, pxPerMs, widthPx, actions }: { placed: readonly PlacedMarker[]; pxPerMs: number; widthPx?: number; actions: MarkerActions }) {
+/** The marker's shape: a tab pointing down at its moment. Outlined for the toolbar's button, filled for a pin. */
+export function MarkerGlyph({ size = 16, fill, ring }: { size?: number; fill?: string; ring?: boolean }) {
+  if (!fill) {
+    return (
+      <svg width={size} height={size} viewBox="0 0 16 16" fill="none" aria-hidden>
+        <path d="M4 2.5h8a1 1 0 0 1 1 1v6.3a1 1 0 0 1-.38.78l-4 3.2a1 1 0 0 1-1.24 0l-4-3.2A1 1 0 0 1 3 9.8V3.5a1 1 0 0 1 1-1Z" stroke="currentColor" strokeWidth="1.5" strokeLinejoin="round" />
+      </svg>
+    );
+  }
+  return (
+    <svg width={size * 0.8} height={size} viewBox="0 0 10 12.5" aria-hidden className="block overflow-visible">
+      <path
+        d="M1.2.5h7.6a.7.7 0 0 1 .7.7v6.9a.7.7 0 0 1-.26.54L5.44 11.8a.7.7 0 0 1-.88 0L.76 8.64A.7.7 0 0 1 .5 8.1V1.2a.7.7 0 0 1 .7-.7Z"
+        fill={fill}
+        stroke={ring ? '#fff' : 'rgba(0,0,0,.4)'}
+        strokeWidth={ring ? 1.4 : 0.8}
+      />
+    </svg>
+  );
+}
+
+/**
+ * The film's markers on their row under the ruler: a pin each. Hovered: its name and time, and its line through the
+ * timeline. Dragged: it moves (snapping as clips do), its line and time shown all the way. A click goes there and
+ * opens its card; a right-click opens the card with its name ready.
+ */
+export function LaneMarkers({ placed, lane, actions }: { placed: readonly PlacedMarker[]; lane: MarkerLaneView; actions: MarkerActions }) {
   const { open, openAt, card } = useMarkerCard(placed, actions);
   const [moving, setMoving] = React.useState<{ id: string; ms: number } | null>(null);
   const [hover, setHover] = React.useState<string | null>(null);
+  const { pxPerMs, widthPx, snap, guide } = lane;
   /* the click after a drag is not one */
   const wasDragged = React.useRef(false);
   const press = (e: React.PointerEvent, p: PlacedMarker) => {
-    /* the ruler under it points at time (or scrubs): a pin is pressed on its own */
     e.preventDefault();
     e.stopPropagation();
     if (e.button !== 0) return;
     const el = e.currentTarget as HTMLElement;
     el.setPointerCapture(e.pointerId);
     const x0 = e.clientX;
+    const color = MARKER_PAINT[p.marker.color];
     let to = p.ms;
     let dragged = false;
     const move = (ev: PointerEvent) => {
       if (!dragged && Math.abs(ev.clientX - x0) < 4) return;
       dragged = true;
-      to = snapToFrame(Math.max(0, p.ms + (ev.clientX - x0) / pxPerMs));
+      to = snapToFrame(snap(Math.max(0, p.ms + (ev.clientX - x0) / pxPerMs)));
       setMoving({ id: p.marker.id, ms: to });
+      guide({ ms: to, color, held: true });
     };
     const up = () => {
       el.removeEventListener('pointermove', move);
       el.removeEventListener('pointerup', up);
       el.removeEventListener('pointercancel', up);
       setMoving(null);
-      if (dragged) actions.onChange(p.marker.id, { t: to / 1000 });
+      guide(null);
+      if (dragged && to !== p.ms) actions.onChange(p.marker.id, { t: to / 1000 });
       wasDragged.current = dragged;
     };
     el.addEventListener('pointermove', move);
@@ -200,22 +231,28 @@ export function RulerMarkers({ placed, pxPerMs, widthPx, actions }: { placed: re
     <>
       {placed.filter((p) => !p.clip).map((p) => {
         const ms = moving?.id === p.marker.id ? moving.ms : p.ms;
-        const color = MARKER_PAINT[p.marker.color];
         const x = ms * pxPerMs;
         const on = open?.id === p.marker.id;
         const tagged = moving?.id === p.marker.id || (hover === p.marker.id && !on);
         return (
           <div
             key={p.marker.id}
-            className="absolute top-0 z-[2] h-full w-[13px] -translate-x-1/2 cursor-pointer"
-            style={{ left: x }}
+            className="absolute inset-y-0 z-[2] flex w-[14px] -translate-x-1/2 cursor-ew-resize items-center justify-center"
+            /* one at the very start is drawn whole, a few px in (its line stays on the moment) */
+            style={{ left: Math.max(x, 7) }}
             data-marker={p.marker.id}
             aria-label={p.marker.name || undefined}
             onPointerDown={(e) => press(e, p)}
-            onPointerEnter={() => setHover(p.marker.id)}
-            onPointerLeave={() => setHover((h) => (h === p.marker.id ? null : h))}
+            onPointerEnter={() => {
+              setHover(p.marker.id);
+              if (!moving) guide({ ms: p.ms, color: MARKER_PAINT[p.marker.color], held: false });
+            }}
+            onPointerLeave={() => {
+              setHover((h) => (h === p.marker.id ? null : h));
+              if (!moving) guide(null);
+            }}
             onClick={(e) => {
-              /* a click: there, and its card (also from the playhead's knob when it covers the pin) */
+              /* a click: there, and its card */
               e.stopPropagation();
               if (wasDragged.current) { wasDragged.current = false; return; }
               actions.onSeek(p.ms);
@@ -224,15 +261,10 @@ export function RulerMarkers({ placed, pxPerMs, widthPx, actions }: { placed: re
             onDoubleClick={(e) => e.stopPropagation()}
             onContextMenu={(e) => { e.preventDefault(); e.stopPropagation(); openAt(e.currentTarget, p, true); }}
           >
-            {/* the pole, faint, and the pin: a small diamond at the ruler's top, ringed while its card is open */}
-            <span className="absolute bottom-0 left-1/2 top-[6px] w-px -translate-x-1/2" style={{ background: color, opacity: 0.7 }} />
-            <span
-              className="absolute left-1/2 top-[2px] h-[8px] w-[8px] -translate-x-1/2 rotate-45 rounded-[2px]"
-              style={{ background: color, boxShadow: on ? '0 0 0 1.5px var(--tl-ruler), 0 0 0 3px #fff' : '0 0 0 1px rgba(0,0,0,.35)' }}
-            />
+            <MarkerGlyph size={12} fill={MARKER_PAINT[p.marker.color]} ring={on} />
             {tagged ? (
               <span className="absolute inset-y-0 left-1/2">
-                <MarkerTag marker={p.marker} ms={ms} flip={widthPx != null && x > widthPx - 180} />
+                <MarkerTag marker={p.marker} ms={ms} flip={x > widthPx - 180} />
               </span>
             ) : null}
           </div>
