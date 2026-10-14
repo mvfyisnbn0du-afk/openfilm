@@ -10,7 +10,19 @@ import { fileURLToPath } from 'node:url';
 
 const MAIN = fileURLToPath(new URL('./main.mjs', import.meta.url));
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
-const freePort = () => new Promise((done) => { const s = createServer().listen(0, '127.0.0.1', () => { const { port } = /** @type {import('node:net').AddressInfo} */ (s.address()); s.close(() => done(port)); }); });
+/**
+ * A port free now, below every system's range for outgoing connections (Linux's starts at 32768, macOS's and Windows's
+ * at 49152): one the system picked from that range can be taken by another connection the moment it is let go.
+ */
+async function freePort() {
+  for (;;) {
+    const port = 20_000 + Math.floor(Math.random() * 12_000);
+    const free = await new Promise((done) => {
+      const s = createServer().once('error', () => done(false)).listen(port, '127.0.0.1', () => s.close(() => done(true)));
+    });
+    if (free) return port;
+  }
+}
 
 /** run.json once it names a Studio that answers and `ok(run)` holds, within `ms`. */
 async function until(home, ok, ms = 20_000) {
