@@ -128,19 +128,10 @@ function PromptReferencePill({
     <PromptPill
       reference={reference}
       card={handlers?.describe?.(reference) ?? null}
-      /* A press on the pill puts the caret beside it, on the side pressed; left to the
-         browser, a press on something not editable puts it at the start of the text. */
+      /* A click on the pill goes where it points; the caret stays where it was. Left to the
+         browser, a press on something not editable puts the caret at the start of the text. */
       onMouseDown={(event: React.MouseEvent) => {
-        if (event.button !== 0 || (event.target as Element).closest('button')) return;
-        event.preventDefault();
-        const box = event.currentTarget.getBoundingClientRect();
-        const after = event.clientX > box.left + box.width / 2;
-        editor.update(() => {
-          const node = $getNodeByKey(nodeKey);
-          if (after) node?.selectNext(0, 0);
-          else node?.selectPrevious();
-        });
-        editor.focus();
+        if (event.button === 0) event.preventDefault();
       }}
       {...(reveal && handlers?.revealLabel ? { hint: handlers.revealLabel } : {})}
       {...(reveal ? {
