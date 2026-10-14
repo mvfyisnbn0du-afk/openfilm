@@ -78,10 +78,13 @@ export async function readState() {
   } catch { return /** @type {StudioState} */ ({ recent: [], folders: [] }); }
 }
 
+/* the file is shared with every OpenFilm on this computer (`npx openfilm`, the app), older or newer: what this one does
+   not know of it is written back as it was */
 async function writeState(/** @type {StudioState} */ state) {
   await mkdir(studioHome(), { recursive: true });
   const path = join(studioHome(), 'studio.json');
-  await writeAtomic(path, `${JSON.stringify(state, null, 2)}\n`);
+  const kept = await readFile(path, 'utf8').then(JSON.parse, () => null);
+  await writeAtomic(path, `${JSON.stringify({ ...(kept && typeof kept === 'object' && !Array.isArray(kept) ? kept : {}), ...state }, null, 2)}\n`);
 }
 
 /** Folders that are never a project: the disk's root, the home folder, and Studio's own. */

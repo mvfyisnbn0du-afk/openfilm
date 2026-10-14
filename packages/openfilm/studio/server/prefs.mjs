@@ -37,14 +37,20 @@ export function readPrefs() {
   try { return prefsOf(JSON.parse(readFileSync(file(), 'utf8'))); } catch { return prefsOf(null); }
 }
 
-/** Change some of them (a field at a time); returns them all. @param {unknown} patch @returns {Prefs} */
+/**
+ * Change some of them (a field at a time); returns them all. The file is shared with every OpenFilm on this computer
+ * (`npx openfilm`, the app), older or newer: what this one does not know of it is written back as it was.
+ * @param {unknown} patch @returns {Prefs}
+ */
 export function writePrefs(patch) {
   const now = readPrefs();
   const asked = /** @type {{ proxies?: object, seenVersion?: unknown }} */ (patch && typeof patch === 'object' ? patch : {});
   const next = prefsOf({ ...now, ...asked, proxies: { ...now.proxies, ...(asked.proxies ?? {}) } });
   const at = file();
+  let kept = {};
+  try { const raw = JSON.parse(readFileSync(at, 'utf8')); if (raw && typeof raw === 'object' && !Array.isArray(raw)) kept = raw; } catch { /* none yet */ }
   mkdirSync(studioHome(), { recursive: true });
-  writeFileSync(`${at}.${process.pid}.tmp`, `${JSON.stringify(next, null, 2)}\n`);
+  writeFileSync(`${at}.${process.pid}.tmp`, `${JSON.stringify({ ...kept, ...next, proxies: { ...(/** @type {{ proxies?: object }} */ (kept).proxies ?? {}), ...next.proxies } }, null, 2)}\n`);
   renameSync(`${at}.${process.pid}.tmp`, at);
   return next;
 }

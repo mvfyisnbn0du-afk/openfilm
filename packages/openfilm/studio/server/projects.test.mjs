@@ -136,3 +136,12 @@ test('a moved project is located: same id and place in the list, its history wit
   assert.equal(readFileSync(join(scratch, 'q2', '.film', 'id'), 'utf8').trim(), q.id);
   assert.equal((await openProject(join(scratch, 'q2'))).id, q.id, 'opened again, it is the same project');
 });
+
+test('what a newer OpenFilm keeps in studio.json stays when this one writes it', async () => {
+  mkdirSync(process.env.OPENFILM_HOME, { recursive: true });
+  writeFileSync(join(process.env.OPENFILM_HOME, 'studio.json'), JSON.stringify({ recent: [], folders: [], pinned: ['abc'] }));
+  await openProject(join(scratch, 'Launch'));
+  const written = JSON.parse(readFileSync(join(process.env.OPENFILM_HOME, 'studio.json'), 'utf8'));
+  assert.deepEqual(written.pinned, ['abc']);
+  assert.equal(written.recent.length, 1);
+});

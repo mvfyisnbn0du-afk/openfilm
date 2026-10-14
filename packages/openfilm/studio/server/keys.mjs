@@ -9,6 +9,9 @@
  * A kind of media with no model (or one its provider no longer has) is made with the provider's first. Listing voices
  * goes with voice-over: same provider, same model.
  *
+ * The file is shared with every OpenFilm on this computer (`npx openfilm`, the app), which may be older or newer than
+ * this one: what this one does not know of it (a newer one's field) is written back as it was, never dropped.
+ *
  * A key in the environment (the provider's variable, e.g. ELEVENLABS_API_KEY) wins over the file: it is how people
  * already keep keys, and Studio cannot remove it. Keys leave this process only towards their own service; the editor
  * page sees where a key comes from and its last four characters, never the key.
@@ -76,9 +79,11 @@ export function changeSettings(/** @type {(s: ProviderSettings) => void} */ edit
   const next = changing.catch(() => {}).then(async () => {
     const settings = await readSettings(file);
     edit(settings);
+    /* what another OpenFilm keeps here, unknown to this one, stays */
+    const kept = plain(await readFile(file, 'utf8').then(JSON.parse, () => null));
     await mkdir(dirname(file), { recursive: true, mode: 0o700 });
     const tmp = `${file}.${randomBytes(6).toString('hex')}.tmp`;
-    await writeFile(tmp, `${JSON.stringify(settings, null, 2)}\n`, { mode: 0o600, flag: 'wx' });
+    await writeFile(tmp, `${JSON.stringify({ ...kept, ...settings }, null, 2)}\n`, { mode: 0o600, flag: 'wx' });
     await replaceFile(tmp, file);
     return settings;
   });

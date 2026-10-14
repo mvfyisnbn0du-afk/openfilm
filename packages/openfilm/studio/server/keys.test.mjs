@@ -1,6 +1,6 @@
 import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
-import { chmodSync, mkdtempSync, readFileSync, statSync } from 'node:fs';
+import { chmodSync, mkdtempSync, readFileSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { changeSettings, cleanKey, modelFor, providerKey, providersFile, readSettings } from './keys.mjs';
@@ -153,4 +153,18 @@ test('an own key comes with its model: the provider\'s first unless chosen, kept
   assert.equal(JSON.parse(readFileSync(providersFile(), 'utf8')).model.tts, undefined);
   /* a model the provider no longer has is its first */
   assert.equal(modelFor({ keys: {}, use: {}, model: { tts: 'gone' } }, provider, 'tts'), first.id);
+});
+
+test('what a newer OpenFilm keeps in providers.json stays when this one writes it', async () => {
+  const file = join(mkdtempSync(join(tmpdir(), 'of-keys-newer-')), 'providers.json');
+  writeFileSync(file, JSON.stringify({
+    keys: { elevenlabs: 'xi-kept-0123456789' }, use: {}, model: {}, off: [], spending: { ask: 'video' },
+    custom: [{ id: 'whisper', name: 'Whisper', url: 'http://localhost:8000', auth: 'Authorization: Bearer {key}', note: '', askFirst: true }],
+  }));
+  await changeSettings((s) => { s.keys.openai = 'sk-new-0123456789'; s.custom[0].note = 'Transcribes'; }, file);
+  const written = JSON.parse(readFileSync(file, 'utf8'));
+  assert.deepEqual(written.spending, { ask: 'video' });
+  assert.equal(written.custom[0].askFirst, true);
+  assert.equal(written.custom[0].note, 'Transcribes');
+  assert.equal(written.keys.openai, 'sk-new-0123456789');
 });

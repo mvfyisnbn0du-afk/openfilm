@@ -42,12 +42,17 @@ function kept(raw) {
   const s = /** @type {Record<string, unknown>} */ (raw);
   if (typeof s.id !== 'string' || typeof s.name !== 'string' || typeof s.url !== 'string') return null;
   return {
+    /* what a newer OpenFilm keeps on a service stays with it */
+    ...unknownOf(s),
     id: s.id, name: s.name, url: s.url,
     ...(typeof s.key === 'string' && s.key ? { key: s.key } : {}),
     auth: typeof s.auth === 'string' && s.auth.includes('{key}') ? s.auth : DEFAULT_AUTH,
     note: typeof s.note === 'string' ? s.note : '',
   };
 }
+
+/** A service's fields this OpenFilm does not know (a newer one's). @param {Record<string, unknown>} s */
+const unknownOf = (s) => Object.fromEntries(Object.entries(s).filter(([k]) => !['id', 'name', 'url', 'key', 'auth', 'note'].includes(k)));
 
 /** The services kept in the settings file. @param {unknown} raw @returns {CustomService[]} */
 export const keptServices = (raw) => (Array.isArray(raw) ? raw.map(kept).filter((s) => s !== null) : []);
@@ -97,7 +102,7 @@ export function withService(services, id, input) {
   if (note.length > 600) throw bad('Say what it does in a few lines (600 characters at most)');
   const key = input.key === undefined ? was?.key : plainText(input.key) ? cleanServiceKey(plainText(input.key)) : undefined;
   /** @type {CustomService} */
-  const service = { id: newId, name, url: cleanAddress(input.url), ...(key ? { key } : {}), auth: cleanAuth(input.auth), note };
+  const service = { ...(was ? unknownOf(was) : {}), id: newId, name, url: cleanAddress(input.url), ...(key ? { key } : {}), auth: cleanAuth(input.auth), note };
   return was ? services.map((s) => (s === was ? service : s)) : [...services, service];
 }
 
