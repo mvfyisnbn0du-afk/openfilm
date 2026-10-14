@@ -11,7 +11,8 @@
  *   · byok — the app's own agent (Pi, pi-agent.mjs) on the person's own key, on a standard API in one of three formats: the OpenAI
  *     Responses API (…/v1/responses), the OpenAI Chat Completions API (…/v1/chat/completions) or the Anthropic Messages
  *     API (…/v1/messages); Pi speaks each. It may name several models (the chat's menu switches between them, the first
- *     one to begin with). Each has to read pictures (the agent looks at its own frames): setting it up sends one small
+ *     one to begin with), each with the reasoning efforts the person says it takes and the one it starts on (`efforts`;
+ *     `auto` alone, sending no reasoning setting, when they said nothing). Each has to read pictures (the agent looks at its own frames): setting it up sends one small
  *     request with a picture to each, and a model that cannot take it is refused.
  *
  * One of the person's own agents not found where it is looked for can be pointed at (`locate`): the program they choose
@@ -28,7 +29,7 @@
  */
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { PI_APIS } from './pi-config.mjs';
+import { PI_APIS, modelEfforts } from './pi-config.mjs';
 
 /** The person's own agents, as agents.mjs AGENTS has them. */
 export const OWN_AGENT_IDS = Object.freeze(['codex', 'claude', 'gemini', 'copilot', 'cursor', 'opencode', 'codebuddy', 'qwen', 'kimi']);
@@ -84,7 +85,7 @@ export function readChoices(dataDir) {
 /** The own key's choice as kept: its models (one kept before there could be several is the one), the first the default. */
 function byokChoice(raw) {
   const models = modelList(Array.isArray(raw.models) && raw.models.length ? raw.models : [raw.model]);
-  return { format: raw.format, baseUrl: String(raw.baseUrl ?? ''), model: models[0] ?? '', models, last4: String(raw.last4 ?? '') };
+  return { format: raw.format, baseUrl: String(raw.baseUrl ?? ''), model: models[0] ?? '', models, efforts: modelEfforts(raw.efforts, models), last4: String(raw.last4 ?? '') };
 }
 
 /** Model names, from a list or text (separated by commas or new lines): trimmed, each once, in order. */
@@ -200,7 +201,7 @@ export function createRoster(deps) {
       shown: choices.shown[id] ?? false,
       ...stateOf(id),
       ...(live.errors[id] ? { error: live.errors[id] } : {}),
-      ...(id === 'byok' && choices.byok ? { byok: { ...choices.byok, models: [...choices.byok.models] } } : {}),
+      ...(id === 'byok' && choices.byok ? { byok: { ...choices.byok, models: [...choices.byok.models], efforts: modelEfforts(choices.byok.efforts, choices.byok.models) } } : {}),
     }));
   }
 
@@ -312,8 +313,9 @@ export function createRoster(deps) {
     /**
      * The person's own key: checked (key accepted, each model reads pictures) before it is kept. A key left empty keeps
      * the one kept already (the models or the address changed). `models`: a list, or text with the names separated by
-     * commas or new lines (`model`, one name, as before).
-     * @param {{ format: string, baseUrl?: string, models?: string[] | string, model?: string, key?: string }} config
+     * commas or new lines (`model`, one name, as before). `efforts`: per model, the efforts it takes and the one it
+     * starts on (pi-config.mjs EFFORTS; `auto` alone for a model not named there).
+     * @param {{ format: string, baseUrl?: string, models?: string[] | string, model?: string, efforts?: Record<string, { levels?: string[], effort?: string }>, key?: string }} config
      */
     async configureByok(config) {
       const format = BYOK_FORMATS[config?.format];
@@ -334,7 +336,7 @@ export function createRoster(deps) {
         ...choices,
         shown: { ...choices.shown, byok: true },
         disconnected: choices.disconnected.filter((a) => a !== 'byok'),
-        byok: { format: config.format, baseUrl, model: models[0], models, last4: key.slice(-4) },
+        byok: { format: config.format, baseUrl, model: models[0], models, efforts: modelEfforts(config.efforts, models), last4: key.slice(-4) },
       });
       deps.closeSessions('byok');
       changed();
@@ -350,9 +352,9 @@ export function createRoster(deps) {
       if (id !== 'byok') return null;
       const key = byokKey();
       if (!choices.byok || !key) return null;
-      const { format, baseUrl, model, models } = choices.byok;
+      const { format, baseUrl, model, models, efforts } = choices.byok;
       const provider = { id: 'byok', api: PI_APIS[format], baseUrl, apiKeyEnv: 'OPENFILM_BYOK_KEY' };
-      return { home: join(dataDir, 'agents', 'byok', 'pi'), provider, model, models: [...models], env: { OPENFILM_BYOK_KEY: key } };
+      return { home: join(dataDir, 'agents', 'byok', 'pi'), provider, model, models: [...models], efforts: modelEfforts(efforts, models), env: { OPENFILM_BYOK_KEY: key } };
     },
   };
 }

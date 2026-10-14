@@ -13,9 +13,9 @@
  * then on (Find automatically goes back). "Why isn't it found?" says what was searched, with a report to copy.
  */
 import React from 'react';
-import { Check, Copy, Download, KeyRound, Loader2 } from 'lucide-react';
+import { Check, Copy, Download, KeyRound, Loader2, X } from 'lucide-react';
 import { useLanguage, useT } from '@/i18n';
-import { studioHost, type HostAgent, type HostAgentDiagnosis, type HostAgentId, type HostAgentUsage, type HostByokFormat } from '@/lib/host';
+import { BYOK_EFFORTS, studioHost, type HostAgent, type HostAgentDiagnosis, type HostAgentId, type HostAgentUsage, type HostByokEffort, type HostByokEffortLevel, type HostByokFormat } from '@/lib/host';
 
 /** What is left of the plan: what Codex can say (the app's agent-usage.mjs; Claude Code's own report is wrong for Team accounts). */
 const PLAN_AGENTS: readonly HostAgentId[] = ['codex'];
@@ -342,6 +342,58 @@ const byokModels = (agent: HostAgent) => (agent.byok?.models?.length ? agent.byo
 /** Model names typed in one field, separated by commas or new lines: trimmed, each once. */
 const modelNames = (text: string) => [...new Set(text.split(/[,\n]/).map((m) => m.trim()).filter(Boolean))];
 
+/** A model of the own key, with the efforts it offers and the one it starts on; a new one offers Auto alone. */
+interface ByokModelRow extends HostByokEffort { name: string }
+const byokRows = (agent: HostAgent): ByokModelRow[] =>
+  byokModels(agent).map((name) => ({ name, ...(agent.byok?.efforts?.[name] ?? { levels: ['auto'], effort: 'auto' }) }));
+
+/**
+ * One model of the own key: its name, the efforts it takes (each a toggle, at least one on) and, when it takes more than
+ * one, the one a conversation starts on.
+ */
+function ByokModel({ row, onChange, onRemove }: { row: ByokModelRow; onChange: (row: ByokModelRow) => void; onRemove: () => void }) {
+  const t = useT();
+  const name = (level: HostByokEffortLevel) => t(`settings.agents.effortLevels.${level}`);
+  const toggle = (level: HostByokEffortLevel) => {
+    const on = row.levels.includes(level);
+    if (on && row.levels.length === 1) return;
+    const levels = BYOK_EFFORTS.filter((l) => (l === level ? !on : row.levels.includes(l)));
+    onChange({ ...row, levels, effort: levels.includes(row.effort) ? row.effort : levels[0]! });
+  };
+  return (
+    <div className="flex flex-col gap-2 rounded-[8px] border border-[var(--border)] px-3 py-2.5">
+      <div className="flex min-h-8 items-center gap-2">
+        <span className="min-w-0 flex-1 truncate font-mono text-[13.5px] text-[var(--text)]" title={row.name}>{row.name}</span>
+        {row.levels.length > 1 ? (
+          <>
+            <span className="shrink-0 text-[13px] text-[var(--text-muted)]">{t('settings.agents.effortStart')}</span>
+            <SettingsSelect<HostByokEffortLevel> label={t('settings.agents.effortStart')} value={row.effort} width={128}
+              onChange={(effort) => onChange({ ...row, effort })} options={row.levels.map((l) => ({ value: l, label: name(l) }))} />
+          </>
+        ) : null}
+        <button type="button" onClick={onRemove} aria-label={t('settings.agents.removeModel').replace('{name}', row.name)} title={t('settings.agents.removeModel').replace('{name}', row.name)}
+          className="flex h-7 w-7 shrink-0 items-center justify-center rounded-[6px] text-[var(--text-faint)] transition hover:bg-[var(--bg-hover)] hover:text-[var(--text)]">
+          <X size={14} aria-hidden />
+        </button>
+      </div>
+      <div role="group" aria-label={`${t('settings.agents.efforts')} · ${row.name}`} className="flex flex-wrap items-center gap-1">
+        {BYOK_EFFORTS.map((level) => {
+          const on = row.levels.includes(level);
+          return (
+            <button key={level} type="button" aria-pressed={on} onClick={() => toggle(level)}
+              className={`inline-flex h-7 items-center gap-1 rounded-full border px-2.5 text-[12.5px] transition ${
+                on ? 'border-[var(--text-muted)] bg-[var(--fill-tsp)] text-[var(--text)]' : 'border-[var(--border)] text-[var(--text-muted)] hover:border-[var(--border-strong)] hover:text-[var(--text)]'
+              }`}>
+              {on ? <Check size={12} aria-hidden /> : null}
+              {name(level)}
+            </button>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
 /**
  * The person's own key: the API format, its address (the official one, or any service that speaks it), the models (the
  * chat's menu switches between them) and the key. Checked before it is kept.
@@ -352,7 +404,16 @@ function ByokForm({ agent, onDone }: { agent: HostAgent; onDone: () => void }) {
   const [format, setFormat] = React.useState<HostByokFormat>(agent.byok?.format ?? 'responses');
   const official = FORMATS.find((f) => f.value === format)!;
   const [baseUrl, setBaseUrl] = React.useState(agent.byok?.baseUrl ?? official.address);
-  const [models, setModels] = React.useState(byokModels(agent).join(', '));
+  const [rows, setRows] = React.useState<ByokModelRow[]>(() => byokRows(agent));
+  const [draft, setDraft] = React.useState('');
+  /* names typed (several at once, separated by commas, as before), each added once, offering Auto alone */
+  const addModels = () => {
+    const names = modelNames(draft).filter((name) => !rows.some((r) => r.name === name));
+    if (names.length) setRows((list) => [...list, ...names.map((name): ByokModelRow => ({ name, levels: ['auto'], effort: 'auto' }))]);
+    setDraft('');
+  };
+  /* what is kept: a name still in the field counts as added */
+  const named = () => [...rows, ...modelNames(draft).filter((name) => !rows.some((r) => r.name === name)).map((name): ByokModelRow => ({ name, levels: ['auto'], effort: 'auto' }))];
   const [key, setKey] = React.useState('');
   const [state, setState] = React.useState<{ busy: boolean; error: string | null }>({ busy: false, error: null });
   /* another format: its official address, unless the person typed one of their own */
@@ -363,11 +424,12 @@ function ByokForm({ agent, onDone }: { agent: HostAgent; onDone: () => void }) {
   const save = () => {
     if (!host) return;
     setState({ busy: true, error: null });
-    void host.configureByok({ format, baseUrl, models: modelNames(models), ...(key ? { key } : {}) })
-      .then((r) => { if (r.ok) { setKey(''); setState({ busy: false, error: null }); onDone(); } else setState({ busy: false, error: r.error ?? t('settings.agents.failed') }); })
+    const kept = named();
+    void host.configureByok({ format, baseUrl, models: kept.map((r) => r.name), efforts: Object.fromEntries(kept.map((r) => [r.name, { levels: r.levels, effort: r.effort }])), ...(key ? { key } : {}) })
+      .then((r) => { if (r.ok) { setKey(''); setDraft(''); setState({ busy: false, error: null }); onDone(); } else setState({ busy: false, error: r.error ?? t('settings.agents.failed') }); })
       .catch((e: unknown) => setState({ busy: false, error: e instanceof Error ? e.message : String(e) }));
   };
-  const ready = modelNames(models).length > 0 && baseUrl.trim() && (key.trim() || agent.byok);
+  const ready = named().length > 0 && baseUrl.trim() && (key.trim() || agent.byok);
   const label = (text: string) => <span className="w-[92px] shrink-0 text-[13px] text-[var(--text-muted)]">{text}</span>;
   return (
     <SettingsInset>
@@ -381,9 +443,20 @@ function ByokForm({ agent, onDone }: { agent: HostAgent; onDone: () => void }) {
           {label(t('settings.agents.address'))}
           <SettingsField value={baseUrl} onChange={(e) => setBaseUrl(e.target.value)} placeholder={official.address} aria-label={t('settings.agents.address')} spellCheck={false} />
         </div>
-        <div className="flex items-center gap-2">
-          {label(t('settings.agents.model'))}
-          <SettingsField value={models} onChange={(e) => setModels(e.target.value)} placeholder={t('settings.agents.modelPlaceholder')} aria-label={t('settings.agents.model')} spellCheck={false} />
+        <div className="flex items-start gap-2">
+          <span className="flex h-10 items-center">{label(t('settings.agents.model'))}</span>
+          <div className="flex min-w-0 flex-1 flex-col gap-2">
+            {rows.map((row) => (
+              <ByokModel key={row.name} row={row} onChange={(next) => setRows((list) => list.map((r) => (r.name === row.name ? next : r)))}
+                onRemove={() => setRows((list) => list.filter((r) => r.name !== row.name))} />
+            ))}
+            <div className="flex items-center gap-2">
+              <SettingsField value={draft} onChange={(e) => setDraft(e.target.value)} placeholder={t('settings.agents.modelPlaceholder')} aria-label={t('settings.agents.model')} spellCheck={false}
+                onKeyDown={(e) => { if (e.key === 'Enter' && draft.trim()) { e.preventDefault(); addModels(); } }} />
+              <SettingsButton onClick={addModels} disabled={!draft.trim()}>{t('settings.agents.addModel')}</SettingsButton>
+            </div>
+            {rows.length ? <p className="text-[12.5px] leading-relaxed text-[var(--text-faint)]">{t('settings.agents.effortHint')}</p> : null}
+          </div>
         </div>
         <div className="flex items-center gap-2">
           {label(t('settings.agents.key'))}

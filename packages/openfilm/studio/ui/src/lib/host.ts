@@ -79,7 +79,7 @@ export interface StudioHost {
     locate?: (id: HostAgentId, words?: { title?: string; button?: string }) => Promise<{ ok: boolean; error?: string; code?: 'not-a-program' | 'did-not-start' | string }>;
     useAutomatic?: (id: HostAgentId) => Promise<unknown>;
     diagnose?: (id: HostAgentId) => Promise<HostAgentDiagnosis | null>;
-    configureByok: (config: { format: HostByokFormat; baseUrl?: string; models: string[]; key?: string }) => Promise<{ ok: boolean; error?: string; code?: string }>;
+    configureByok: (config: { format: HostByokFormat; baseUrl?: string; models: string[]; efforts?: Record<string, HostByokEffort>; key?: string }) => Promise<{ ok: boolean; error?: string; code?: string }>;
     onChange: (listener: (agents: HostAgent[]) => void) => () => void;
   };
   /**
@@ -176,8 +176,16 @@ export interface HostAgent {
   chosen?: string | null;
   error?: string;
   account?: HostAgentAccount;
-  byok?: { format: HostByokFormat; baseUrl: string; model: string; models?: string[]; last4: string };
+  byok?: { format: HostByokFormat; baseUrl: string; model: string; models?: string[]; efforts?: Record<string, HostByokEffort>; last4: string };
 }
+
+/**
+ * The reasoning efforts a model of the person's own key offers, in this order (`auto`: none is sent, the service decides),
+ * and the one a conversation starts on. A model given none offers `auto` alone.
+ */
+export const BYOK_EFFORTS = ['auto', 'off', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max'] as const;
+export type HostByokEffortLevel = (typeof BYOK_EFFORTS)[number];
+export interface HostByokEffort { levels: HostByokEffortLevel[]; effort: HostByokEffortLevel }
 
 /**
  * What is left of an agent's plan: each window's share used (0–100), how long it is (minutes) and when it resets (ms);

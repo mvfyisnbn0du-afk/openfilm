@@ -10,30 +10,70 @@
 /** The person's own key's API, as Pi names it. */
 export const PI_APIS = Object.freeze({ chat: 'openai-completions', responses: 'openai-responses', anthropic: 'anthropic-messages' });
 
+/**
+ * The reasoning efforts a model of the person's own can offer, in order: `auto` sends no reasoning setting (the
+ * service decides, as it always did), the others are Pi's thinking levels. Which of them a model offers is the
+ * person's to say in Settings (OpenFilm cannot know what a service's model takes); a model they said nothing of offers
+ * `auto` alone.
+ */
+export const EFFORTS = Object.freeze(['auto', 'off', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max']);
+
+/** The efforts a model offers, as kept: known ones, each once, in EFFORTS' order; `auto` alone when none. */
+export function effortLevels(value) {
+  const asked = new Set(Array.isArray(value) ? value.map(String) : []);
+  const levels = EFFORTS.filter((e) => asked.has(e));
+  return levels.length ? levels : ['auto'];
+}
+
+/**
+ * Each model's efforts, for the models named: the ones it offers (`levels`) and the one a conversation starts on
+ * (`effort`, one of them; the first when the one asked is not).
+ * @param {unknown} raw @param {string[]} models
+ * @returns {Record<string, { levels: string[], effort: string }>}
+ */
+export function modelEfforts(raw, models) {
+  const all = raw && typeof raw === 'object' ? /** @type {Record<string, any>} */ (raw) : {};
+  return Object.fromEntries(models.map((model) => {
+    const levels = effortLevels(all[model]?.levels);
+    const effort = levels.includes(String(all[model]?.effort)) ? String(all[model].effort) : levels[0];
+    return [model, { levels, effort }];
+  }));
+}
+
+/** The provider that thinks: the same service, its models told which levels they take. */
+export const THINKING = (/** @type {string} */ id) => `${id}-thinking`;
+
+/* what a level is called on the wire: Pi's own names, but "none" for off on OpenAI's APIs */
+const wire = (/** @type {string} */ api, /** @type {string} */ level) => (level === 'off' && api !== 'anthropic-messages' ? 'none' : level);
+
 /** A context length for a model the service does not describe. */
 const CONTEXT = 128_000;
 
 /**
- * Pi's `models.json` for the service and its models.
+ * Pi's `models.json` for the service and its models. The service twice: as itself, where no model is told to reason
+ * (`auto`: no reasoning setting is sent), and as THINKING(id) with the models that offer levels, each told exactly
+ * which (Pi sends the one picked; the others are not there).
  * @param {{ id: string, api: string, baseUrl: string, apiKeyEnv: string }} provider @param {string[] | string} models
+ * @param {Record<string, { levels: string[] }>} [efforts]
  */
-export function modelsJson(provider, models) {
+export function modelsJson(provider, models, efforts = {}) {
+  const names = [models].flat();
+  const entry = (/** @type {string} */ model, /** @type {string[] | null} */ levels) => ({
+    id: model,
+    name: model,
+    input: ['text', 'image'],
+    contextWindow: CONTEXT,
+    maxTokens: Math.floor(CONTEXT / 4),
+    reasoning: Boolean(levels),
+    ...(levels ? { thinkingLevelMap: Object.fromEntries(EFFORTS.slice(1).map((l) => [l, levels.includes(l) ? wire(provider.api, l) : null])) } : {}),
+    cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+  });
+  const service = { baseUrl: provider.baseUrl, api: provider.api, apiKey: `$${provider.apiKeyEnv}` };
+  const thinking = names.map((m) => [m, (efforts[m]?.levels ?? []).filter((l) => l !== 'auto')]).filter(([, levels]) => levels.length);
   return {
     providers: {
-      [provider.id]: {
-        baseUrl: provider.baseUrl,
-        api: provider.api,
-        apiKey: `$${provider.apiKeyEnv}`,
-        models: [models].flat().map((model) => ({
-          id: model,
-          name: model,
-          input: ['text', 'image'],
-          contextWindow: CONTEXT,
-          maxTokens: Math.floor(CONTEXT / 4),
-          reasoning: false,
-          cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
-        })),
-      },
+      [provider.id]: { ...service, models: names.map((m) => entry(m, null)) },
+      ...(thinking.length ? { [THINKING(provider.id)]: { ...service, models: thinking.map(([m, levels]) => entry(/** @type {string} */ (m), /** @type {string[]} */ (levels))) } } : {}),
     },
   };
 }
@@ -41,6 +81,15 @@ export function modelsJson(provider, models) {
 /** The model as a config option the chat's menu reads (ACP): the models named, and the one a session runs. */
 export function modelOption(models, current) {
   return { id: 'model', name: 'Model', category: 'model', type: 'select', currentValue: current, options: models.map((m) => ({ value: m, name: m })) };
+}
+
+const EFFORT_NAMES = { auto: 'Auto', off: 'Off', minimal: 'Minimal', low: 'Low', medium: 'Medium', high: 'High', xhigh: 'Extra high', max: 'Max' };
+
+/** The reasoning effort as a config option (ACP), for a model offering more than one; null otherwise. */
+export function effortOption(/** @type {string[]} */ levels, /** @type {string} */ current) {
+  if (levels.length < 2) return null;
+  return { id: 'effort', name: 'Effort', category: 'thought_level', type: 'select', currentValue: current,
+    options: levels.map((l) => ({ value: l, name: EFFORT_NAMES[/** @type {keyof typeof EFFORT_NAMES} */ (l)] ?? l })) };
 }
 
 /** A tool call as the chat reads it (ACP): its kind, its title, and what it was run with. */

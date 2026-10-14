@@ -5,7 +5,8 @@
  *
  * What it runs with comes in OPENFILM_PI (JSON; pi-config.mjs): its own folder (`agentDir`: Pi's models and settings,
  * never the person's ~/.pi), the service (`provider`), its models (`model` the one a session starts on; the chat
- * switches between them with the session's `model` option), and its whole system prompt (agents.mjs
+ * switches between them with the session's `model` option), each model's reasoning efforts (`efforts`: the session's
+ * `effort` option, for a model offering more than one; `auto` sends none), and its whole system prompt (agents.mjs
  * ownAgentPrompt), in place of Pi's. Of the project's instructions only its own AGENTS.md (or CLAUDE.md) is read, not
  * the folders above it; no skills, no SYSTEM.md. Besides Pi's read, bash, edit and write it has `ask`: questions for
  * the person, with options, shown in the chat as Claude Code's and Codex's are (an ACP form).
@@ -24,7 +25,7 @@ import { Readable, Writable } from 'node:stream';
 import * as acp from '@agentclientprotocol/sdk';
 import { DefaultResourceLoader, ModelRuntime, SessionManager, SettingsManager, createAgentSession } from '@earendil-works/pi-coding-agent';
 import { agentSessionsDir, openLog } from './chat-store.mjs';
-import { contextUsed, modelOption, modelsJson, stopReason, toolCall, toolContent } from './pi-config.mjs';
+import { THINKING, contextUsed, effortOption, modelEfforts, modelOption, modelsJson, stopReason, toolCall, toolContent } from './pi-config.mjs';
 
 /* stdout is the protocol's: anything else Pi or a library prints goes to stderr */
 console.log = console.info = console.warn = console.debug = (...args) => process.stderr.write(`${args.map(String).join(' ')}\n`);
@@ -32,14 +33,34 @@ console.log = console.info = console.warn = console.debug = (...args) => process
 const config = JSON.parse(process.env.OPENFILM_PI ?? '{}');
 const VERSION = '1.1.0';
 const models = Array.isArray(config.models) && config.models.length ? config.models : [config.model];
+const efforts = modelEfforts(config.efforts, models);
 
 mkdirSync(config.agentDir, { recursive: true });
 const modelsPath = join(config.agentDir, 'models.json');
-writeFileSync(modelsPath, JSON.stringify(modelsJson(config.provider, models), null, 2));
+writeFileSync(modelsPath, JSON.stringify(modelsJson(config.provider, models, efforts), null, 2));
 const modelRuntime = await ModelRuntime.create({ authPath: join(config.agentDir, 'auth.json'), modelsPath });
 
-/** Each open session: Pi's, and the turn being logged. */
+/** Each open session: Pi's, the turn being logged, and its model and effort as the chat names them. */
 const sessions = new Map();
+
+/** Pi's model for a model and an effort: the service as itself for `auto` (no reasoning setting), else the thinking one. */
+function piModel(/** @type {string} */ id, /** @type {string} */ effort) {
+  const model = modelRuntime.getModel(effort === 'auto' ? config.provider.id : THINKING(config.provider.id), id);
+  if (!model) throw new Error(`No model ${id} at ${config.provider.id}.`);
+  return model;
+}
+
+/** The session's options: the model, and its effort when it offers more than one. */
+const optionsOf = (/** @type {{ model: string, effort: string }} */ entry) =>
+  [modelOption(models, entry.model), effortOption(efforts[entry.model]?.levels ?? ['auto'], entry.effort)].filter(Boolean);
+
+/** Put a session on a model and an effort. */
+async function use(/** @type {any} */ entry, /** @type {string} */ model, /** @type {string} */ effort) {
+  await entry.session.setModel(piModel(model, effort));
+  if (effort !== 'auto') entry.session.setThinkingLevel(effort);
+  entry.model = model;
+  entry.effort = effort;
+}
 
 /** The model log of a turn: each request's context and its answer, only what is new since the last request. */
 function modelLog(cwd, turnId) {
@@ -90,13 +111,18 @@ async function open(client, cwd, resumeId) {
     ],
   });
   await resourceLoader.reload();
-  const model = modelRuntime.getModel(config.provider.id, config.model);
-  if (!model) throw new Error(`No model ${config.model} at ${config.provider.id}.`);
+  const startEffort = efforts[config.model]?.effort ?? 'auto';
   const { session } = await createAgentSession({
-    cwd, agentDir: config.agentDir, modelRuntime, model,
+    cwd, agentDir: config.agentDir, modelRuntime, model: piModel(config.model, startEffort),
+    ...(startEffort !== 'auto' ? { thinkingLevel: startEffort } : {}),
     resourceLoader, sessionManager, settingsManager, tools: ['read', 'bash', 'edit', 'write', 'ask'],
   });
-  const entry = { session, log: null };
+  /* what it runs on now, as the chat names it (a conversation taken up again may be on another model and effort) */
+  const onModel = models.includes(session.model?.id) ? session.model.id : config.model;
+  const levels = efforts[onModel]?.levels ?? ['auto'];
+  const thinking = session.model?.provider === THINKING(config.provider.id);
+  const entry = { session, log: null, model: onModel,
+    effort: thinking && levels.includes(session.thinkingLevel) ? session.thinkingLevel : !thinking && levels.includes('auto') ? 'auto' : efforts[onModel]?.effort ?? 'auto' };
   sessionId = session.sessionId;
   const send = (update) => { void client.sessionUpdate({ sessionId, update }).catch(() => {}); };
 
@@ -136,7 +162,7 @@ async function open(client, cwd, resumeId) {
     }
   });
   sessions.set(sessionId, entry);
-  return { sessionId, configOptions: [modelOption(models, model.id)], modes: null };
+  return { sessionId, configOptions: optionsOf(entry), modes: null };
 }
 
 /**
@@ -241,11 +267,18 @@ const connection = new acp.AgentSideConnection((client) => ({
   async setSessionConfigOption(params) {
     const entry = sessions.get(params.sessionId);
     if (!entry) throw new Error('This conversation has ended.');
-    if (params.configId !== 'model') throw new Error(`No option ${params.configId}.`);
-    const model = models.includes(params.value) ? modelRuntime.getModel(config.provider.id, params.value) : null;
-    if (!model) throw new Error(`No model ${params.value} at ${config.provider.id}.`);
-    await entry.session.setModel(model);
-    return { configOptions: [modelOption(models, model.id)] };
+    if (params.configId === 'model') {
+      const model = String(params.value);
+      if (!models.includes(model)) throw new Error(`No model ${model} at ${config.provider.id}.`);
+      /* the effort it was on, when this model takes it; else the one this model starts on */
+      const levels = efforts[model]?.levels ?? ['auto'];
+      await use(entry, model, levels.includes(entry.effort) ? entry.effort : efforts[model]?.effort ?? 'auto');
+    } else if (params.configId === 'effort') {
+      const effort = String(params.value);
+      if (!(efforts[entry.model]?.levels ?? []).includes(effort)) throw new Error(`${entry.model} does not take the effort ${effort}.`);
+      await use(entry, entry.model, effort);
+    } else throw new Error(`No option ${params.configId}.`);
+    return { configOptions: optionsOf(entry) };
   },
   async cancel(params) { await sessions.get(params.sessionId)?.session.abort(); },
   async closeSession(params) {

@@ -24,7 +24,11 @@ export interface RosterAgent {
   install?: string | null;
   setupRequired?: string | null;
   error?: string;
-  byok?: { format: 'responses' | 'chat' | 'anthropic'; baseUrl: string; model: string; models?: string[]; last4: string };
+  byok?: {
+    format: 'responses' | 'chat' | 'anthropic'; baseUrl: string; model: string; models?: string[]; last4: string;
+    /** per model, the reasoning efforts it offers and the one it starts on (apps/desktop src/pi-config.mjs EFFORTS) */
+    efforts?: Record<string, { levels: string[]; effort: string }>;
+  };
 }
 
 export interface LocalAgentState {

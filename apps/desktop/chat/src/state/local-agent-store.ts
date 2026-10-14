@@ -84,24 +84,32 @@ function byokModels(roster: RosterAgent[] | null): string[] {
   return byok.models?.length ? byok.models : [byok.model].filter(Boolean);
 }
 
+const EFFORT_NAMES: Record<string, string> = { auto: 'Auto', off: 'Off', minimal: 'Minimal', low: 'Low', medium: 'Medium', high: 'High', xhigh: 'Extra high', max: 'Max' };
+
 /**
- * An agent's option list, for the menu. The own key's is its models, from Settings: no session has to start to know
- * them (the app's own agent reports the same `model` option, apps/desktop/src/pi-config.mjs modelOption). The person's
- * own agents' is the one a session last reported.
+ * An agent's option list, for the menu. The own key's is its models, and the efforts of the one picked when it offers
+ * more than one, from Settings: no session has to start to know them (the app's own agent reports the same `model` and
+ * `effort` options, apps/desktop/src/pi-config.mjs). The person's own agents' is the one a session last reported.
  */
-export function agentOptions(state: Pick<LocalAgentStore, 'options' | 'roster'>, agent: LocalAgentId): ConfigOptions | undefined {
+export function agentOptions(state: Pick<LocalAgentStore, 'options' | 'roster'> & Partial<Pick<LocalAgentStore, 'prefs'>>, agent: LocalAgentId): ConfigOptions | undefined {
   if (agent !== 'byok') return state.options[agent];
   const models = byokModels(state.roster);
   if (!models.length) return undefined;
-  return [{ id: 'model', name: 'Model', category: 'model', type: 'select', currentValue: models[0], options: models.map((m) => ({ value: m, name: m })) }];
+  const picked = String(state.prefs?.byok?.model ?? '');
+  const model = models.includes(picked) ? picked : models[0]!;
+  const options: ConfigOptions = [{ id: 'model', name: 'Model', category: 'model', type: 'select', currentValue: model, options: models.map((m) => ({ value: m, name: m })) }];
+  const effort = state.roster?.find((a) => a.id === 'byok')?.byok?.efforts?.[model];
+  if (effort && effort.levels.length > 1) {
+    options.push({ id: 'effort', name: 'Effort', category: 'thought_level', type: 'select', currentValue: effort.effort,
+      options: effort.levels.map((l) => ({ value: l, name: EFFORT_NAMES[l] ?? l })) });
+  }
+  return options;
 }
 
-/** Which of an agent's options the menu offers. The app's own agent offers its models, and no OpenAI fast mode. */
-export function offeredOption(agent: LocalAgentId, roster: RosterAgent[] | null, option: { id: string; category?: string; name: string }): boolean {
+/** Which of an agent's options the menu offers. The app's own agent offers its models and their efforts, and no OpenAI fast mode. */
+export function offeredOption(agent: LocalAgentId, _roster: RosterAgent[] | null, option: { id: string; category?: string; name: string }): boolean {
   if (agent !== 'byok') return true;
-  if (/^(fast|fast-mode|speed)$/i.test(option.id) || option.category === 'speed') return false;
-  if (option.category === 'thought_level') return roster?.find((a) => a.id === 'byok')?.byok?.format !== 'chat';
-  return true;
+  return !(/^(fast|fast-mode|speed)$/i.test(option.id) || option.category === 'speed');
 }
 
 /* Claude Code's own model picker shows four above its line, the newest of each family; the ones it lists after them

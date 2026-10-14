@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { contextUsed, modelOption, modelsJson, outOfBalance, stopReason, toolCall, toolContent } from './pi-config.mjs';
+import { THINKING, contextUsed, effortOption, modelEfforts, modelOption, modelsJson, outOfBalance, stopReason, toolCall, toolContent } from './pi-config.mjs';
 
 test('the person\'s own key is one provider in Pi\'s models.json, with the one model they named', () => {
   const p = modelsJson({ id: 'byok', api: 'openai-completions', baseUrl: 'https://api.deepseek.com/v1', apiKeyEnv: 'K' }, 'vision').providers.byok;
@@ -54,4 +54,25 @@ test('no balance left, as each service says it, is one outcome with the service\
   assert.equal(balance(own('https://api.openai.com/v1'), 'Internal error: 401 key revoked'), null);
   assert.equal(outOfBalance(own('https://api.deepseek.com/v1'), new Error('402 Payment Required')).message,
     "DeepSeek doesn't have enough balance for this. Top it up there, or switch to another service, then try again.");
+});
+
+test('the service twice: as itself (no reasoning setting) and thinking, each model told only the levels it was given', () => {
+  const efforts = modelEfforts({ a: { levels: ['auto', 'off', 'low', 'max'], effort: 'low' } }, ['a', 'b']);
+  assert.deepEqual(efforts.b, { levels: ['auto'], effort: 'auto' });
+  const json = modelsJson({ id: 'byok', api: 'openai-responses', baseUrl: 'https://x/v1', apiKeyEnv: 'K' }, ['a', 'b'], efforts);
+  assert.deepEqual(json.providers.byok.models.map((m) => [m.id, m.reasoning]), [['a', false], ['b', false]]);
+  const thinking = json.providers[THINKING('byok')].models;
+  assert.deepEqual(thinking.map((m) => m.id), ['a'], 'only a model given levels thinks');
+  assert.deepEqual(thinking[0].thinkingLevelMap, { off: 'none', minimal: null, low: 'low', medium: null, high: null, xhigh: null, max: 'max' });
+  /* Anthropic's API is told off as off */
+  const claude = modelsJson({ id: 'byok', api: 'anthropic-messages', baseUrl: 'https://x', apiKeyEnv: 'K' }, ['a'], efforts);
+  assert.equal(claude.providers[THINKING('byok')].models[0].thinkingLevelMap.off, 'off');
+  /* nobody thinks: no thinking service */
+  assert.equal(modelsJson({ id: 'byok', api: 'openai-responses', baseUrl: 'https://x/v1', apiKeyEnv: 'K' }, ['b'], efforts).providers[THINKING('byok')], undefined);
+});
+
+test('the effort option: for a model offering more than one, its levels named', () => {
+  assert.equal(effortOption(['auto'], 'auto'), null);
+  assert.deepEqual(effortOption(['auto', 'xhigh'], 'xhigh'), { id: 'effort', name: 'Effort', category: 'thought_level', type: 'select', currentValue: 'xhigh',
+    options: [{ value: 'auto', name: 'Auto' }, { value: 'xhigh', name: 'Extra high' }] });
 });
