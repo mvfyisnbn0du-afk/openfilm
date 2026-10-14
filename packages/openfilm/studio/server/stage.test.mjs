@@ -150,3 +150,75 @@ test('a layer restyled leaves the others where they are, and takes its new size:
     await stage.close();
   }
 });
+
+test('a hold kept before gives way: the number set back smaller takes its own size, and the words stay', { timeout: 60_000 }, async () => {
+  const page = (overrides) => `<!doctype html><body style="margin:0">
+<div id="row" style="position:absolute;left:10px;top:40px;display:flex;align-items:baseline;gap:10px">
+  <b id="num" style="font:700 60px monospace;line-height:1">18</b><span id="words" style="font:600 20px sans-serif">founders</span>
+</div>
+<script>window.film={duration:2,frame(){}}</script></body>`;
+  /* first, what holding the words in place takes at 90px */
+  const dir = mkdtempSync(join(tmpdir(), 'of-stage-rehold-'));
+  writeFileSync(join(dir, 'row.html'), page());
+  writeFileSync(join(dir, 'film.html'), filmHtml({ stage: { w: 320, h: 180 }, tracks: [{ clips: [{ id: 'row', src: 'row.html' }] }] }));
+  let stage = await stageOf(dir);
+  const read = (st) => st.page.frames().find((f) => f.url().endsWith('row.html')).evaluate(() => {
+    const w = document.getElementById('words').getBoundingClientRect();
+    return { words: [Math.round(w.left * 10) / 10, Math.round(w.top * 10) / 10], num: document.getElementById('num').offsetWidth };
+  });
+  let held;
+  let plain;
+  try {
+    plain = await read(stage);
+    held = await stage.ask('hold', { clip: 'row', at: '#num', style: { fontSize: '90px' } });
+    assert.ok(Object.keys(held).length);
+  } finally {
+    await stage.close();
+  }
+  /* kept so; then set back to 60px: the margins of 90px go, the number is as wide as its words again */
+  writeFileSync(join(dir, 'film.html'), filmHtml({ stage: { w: 320, h: 180 }, tracks: [{ clips: [{ id: 'row', src: 'row.html', overrides: [{ at: '#num', style: { fontSize: '90px', ...held } }] }] }] }));
+  stage = await stageOf(dir);
+  try {
+    const kept = await read(stage);
+    assert.deepEqual(kept.words, plain.words, 'kept with its hold, the words are where they were');
+    const back = await stage.ask('hold', { clip: 'row', at: '#num', style: { fontSize: '60px' } });
+    for (const k of Object.keys(held).filter((key) => key.startsWith('margin'))) assert.equal(back[k], null, `${k} taken away`);
+    assert.equal(await stage.ask('tweak', { clip: 'row', at: '#num', patch: { style: { fontSize: '60px', ...back } } }), true);
+    const now = await read(stage);
+    assert.deepEqual(now, plain, 'as it was before any change: the words in place, the number its own width');
+  } finally {
+    await stage.close();
+  }
+});
+
+test('words in a block as wide as their box restyled: the box hugs them, they stay centered where they were', { timeout: 60_000 }, async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'of-stage-fit-'));
+  writeFileSync(join(dir, 'card.html'), `<!doctype html><body style="margin:0">
+<div id="card" style="position:absolute;left:20px;top:20px;width:260px">
+  <h3 id="title" style="margin:0;font:600 20px sans-serif;text-align:center">Cloud</h3>
+  <p id="line" style="margin:6px 0 0;font:14px sans-serif">built on its own</p>
+</div>
+<script>window.film={duration:2,frame(){}}</script></body>`);
+  writeFileSync(join(dir, 'film.html'), filmHtml({ stage: { w: 320, h: 180 }, tracks: [{ clips: [{ id: 'card', src: 'card.html' }] }] }));
+  const stage = await stageOf(dir);
+  try {
+    const page = stage.page.frames().find((f) => f.url().endsWith('card.html'));
+    const read = () => page.evaluate(() => {
+      const t = document.getElementById('title');
+      const words = document.createRange();
+      words.selectNodeContents(t);
+      const w = words.getBoundingClientRect();
+      const line = document.getElementById('line').getBoundingClientRect();
+      return { box: t.offsetWidth, words: Math.round(w.width), center: Math.round(w.left + w.width / 2), line: [line.left, line.top] };
+    });
+    const was = await read();
+    assert.equal(was.box, 260, 'as wide as the card');
+    assert.equal(await stage.ask('tweak', { clip: 'card', at: '#title', patch: { style: { fontSize: '30px' } } }), true);
+    const now = await read();
+    assert.ok(Math.abs(now.box - now.words) <= 1, `the box hugs the words (${now.box} for ${now.words})`);
+    assert.ok(Math.abs(now.center - was.center) <= 1, `still centered where they were (${now.center}, was ${was.center})`);
+    assert.deepEqual(now.line, was.line, 'the line under them did not move');
+  } finally {
+    await stage.close();
+  }
+});

@@ -905,7 +905,7 @@
 
   /* ── a layer restyled: the others stay where they are, as in Figma, where one layer's look never moves another ── */
   /** The style a hold sets (holdFor): kept apart from what the person set, so a new hold replaces the one before. */
-  const HOLD_KEYS = ['marginTop', 'marginRight', 'marginBottom', 'marginLeft'];
+  const HOLD_KEYS = ['marginTop', 'marginRight', 'marginBottom', 'marginLeft', 'width'];
   const SIDES = ['Top', 'Right', 'Bottom', 'Left'];
   /**
    * What the layer at `target` needs besides `style` so that no other layer of its page moves. The layer takes its
@@ -931,16 +931,26 @@
       drafts.set(c.id, { base: had?.base ?? JSON.stringify(c.overrides ?? []), items });
       show(c);
     };
+    /* a hold kept before was for the style before: worked out again from the page's own margins, and taken away when
+       none is needed now (null takes a kept key away) */
+    const keptStyle = (c.overrides ?? []).find((o) => o.at === target.at && (o.n ?? null) === (target.n ?? null))?.style ?? {};
+    /* the style kept already (a preview taken back): the hold kept with it stands */
+    if (Object.entries(style).every(([k, v]) => k in keptStyle && String(keptStyle[k]) === String(v))) return {};
+    const unheld = Object.fromEntries(HOLD_KEYS.filter((k) => k in keptStyle).map((k) => [k, null]));
     try {
       showWith({});
       const el = matches(doc, target)[0];
       if (!el || !(el instanceof c.win.HTMLElement)) return {};
       const others = layersOf(doc).filter((o) => o !== el && !o.contains(el) && !el.contains(o));
       const before = others.map((o) => o.getBoundingClientRect());
-      const cs = c.win.getComputedStyle(el);
-      const margin = Object.fromEntries(SIDES.map((side) => [side, Number.parseFloat(cs[`margin${side}`]) || 0]));
-      const w0 = el.offsetWidth;
-      const h0 = el.offsetHeight;
+      const marginsNow = () => {
+        const cs = c.win.getComputedStyle(el);
+        return Object.fromEntries(SIDES.map((side) => [side, Number.parseFloat(cs[`margin${side}`]) || 0]));
+      };
+      /* the room it takes in the page's flow now: its box and its margins */
+      const was = marginsNow();
+      const roomW = el.offsetWidth + was.Left + was.Right;
+      const roomH = el.offsetHeight + was.Top + was.Bottom;
       /* how far the others went, the furthest, and which way up or down */
       const moved = () => {
         let far = 0;
@@ -952,13 +962,28 @@
         });
         return { far, dy };
       };
-      showWith(style);
+      /* words in a block as wide as what holds it: the box hugs them (as a text box in Figma does, its size its
+         words'), and they stay where they were set in it (centered, at its end) */
+      const cs = c.win.getComputedStyle(el);
+      const fit = Boolean(textOf(el)) && !isGroup(el) && /^(block|flow-root|list-item)$/.test(cs.display) ? { width: 'fit-content' } : {};
+      const align = cs.textAlign;
+      const anchorOf = () => (/center/.test(align) ? el.offsetLeft + el.offsetWidth / 2 : /right|end/.test(align) ? el.offsetLeft + el.offsetWidth : el.offsetLeft);
+      const anchor0 = anchorOf();
+      const base = { ...unheld, ...fit };
+      showWith({ ...style, ...base });
+      /* restyled, with the page's own margins: the room it would take, more or less than it takes now */
+      const margin = marginsNow();
+      const shift = fit.width ? anchor0 - anchorOf() : 0;
+      const dw = el.offsetWidth + margin.Left + margin.Right - roomW;
+      const dh = el.offsetHeight + margin.Top + margin.Bottom - roomH;
+      const hold = (give) => {
+        const side = { ...give, Left: (give.Left ?? 0) - shift, Right: (give.Right ?? 0) + shift };
+        return { ...base, ...Object.fromEntries(SIDES.filter((k) => side[k]).map((k) => [`margin${k}`, `${Math.round((margin[k] - side[k]) * 100) / 100}px`])) };
+      };
+      showWith({ ...style, ...hold({}) });
       const alone = moved().far;
-      if (alone < 0.5) return {};
-      const dw = el.offsetWidth - w0;
-      const dh = el.offsetHeight - h0;
-      const hold = (give) => Object.fromEntries(SIDES.filter((side) => give[side]).map((side) => [`margin${side}`, `${Math.round((margin[side] - give[side]) * 100) / 100}px`]));
-      let best = { hold: {}, far: alone };
+      if (alone < 0.5) return hold({});
+      let best = { hold: hold({}), far: alone };
       const tryGive = (give) => {
         const h = hold(give);
         showWith({ ...style, ...h });
