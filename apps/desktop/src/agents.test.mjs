@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { CLIENT_CAPABILITIES, agentShell, allowOption, claudeKeyAnswer, claudeShell, codexDeveloperInstructions, legacyOptions, readAgentStatus } from './agents.mjs';
+import { CLIENT_CAPABILITIES, agentShell, allowOption, codexDeveloperInstructions, legacyOptions, readAgentStatus } from './agents.mjs';
 
 test('an agent that asks: yes for good where it offers that, else yes this once; nothing to say yes with is null', () => {
   const options = [
@@ -57,30 +57,19 @@ test('the chat says it shows notices, so an agent sends its warnings as notices 
   assert.deepEqual(parsed.elicitation, { form: {} });
 });
 
-test('Claude Code takes the shell\'s API key as its terminal does: only once the person said yes to it there', () => {
-  const key = 'sk-ant-api03-aaaaaaaaaaaaaaaaaaaaaaaaaaaa';
-  const said = (approved, rejected = []) => JSON.stringify({ customApiKeyResponses: { approved, rejected } });
-  assert.equal(claudeKeyAnswer(said([key.slice(-20)]), key), 'approved');
-  assert.equal(claudeKeyAnswer(said([], [key.slice(-20)]), key), 'rejected');
-  assert.equal(claudeKeyAnswer(said([]), key), 'new');
-  assert.equal(claudeKeyAnswer('', key), 'new', 'no config: never asked');
-  assert.equal(claudeKeyAnswer('{not json', key), 'new');
-
-  const shell = { PATH: '/bin', ANTHROPIC_API_KEY: key, ANTHROPIC_AUTH_TOKEN: 't', ANTHROPIC_BASE_URL: 'http://relay', OPENAI_API_KEY: 'o' };
-  assert.equal(claudeShell(shell, said([key.slice(-20)])), shell, 'said yes to: given as it is');
-  /* said no to, or never asked: left out, its own sign-in is used; a gateway and its token as the terminal has them */
-  const { ANTHROPIC_API_KEY: _, ...rest } = shell;
-  assert.deepEqual(claudeShell(shell, said([], [key.slice(-20)])), rest);
-  assert.deepEqual(claudeShell(shell, ''), rest);
+test('Claude Code is given of the shell only its PATH and the like: a key or gateway there never stands in for the subscription', () => {
+  const shell = { PATH: '/bin', HTTPS_PROXY: 'http://proxy', CLAUDE_CONFIG_DIR: '/c', LANG: 'zh_CN.UTF-8',
+    ANTHROPIC_API_KEY: 'k', ANTHROPIC_AUTH_TOKEN: 't', ANTHROPIC_BASE_URL: 'http://relay', OPENAI_API_KEY: 'o' };
+  const given = agentShell('claude', shell);
+  for (const key of ['ANTHROPIC_API_KEY', 'ANTHROPIC_AUTH_TOKEN', 'ANTHROPIC_BASE_URL', 'OPENAI_API_KEY']) assert.equal(given[key], undefined, key);
+  assert.equal(given.HTTPS_PROXY, 'http://proxy');
+  assert.equal(given.CLAUDE_CONFIG_DIR, '/c', 'where its own sign-in is kept');
+  assert.equal(given.LANG, 'zh_CN.UTF-8');
   assert.equal(agentShell('codex', shell), shell, 'the others have the shell as it is');
 });
 
-test("Claude Code's status says when its requests go through a gateway the person set", () => {
-  const json = JSON.stringify({ loggedIn: true, authMethod: 'claude.ai', email: 'a@b.test' });
-  assert.equal(readAgentStatus('claude', json, json).account.method, 'claude.ai');
-  assert.equal(readAgentStatus('claude', json, json, { gateway: true }).account.method, 'gateway');
-  const token = JSON.stringify({ loggedIn: true, authMethod: 'oauth_token' });
-  assert.equal(readAgentStatus('claude', token, token, { gateway: true }).account.method, 'gateway');
-  const out = JSON.stringify({ loggedIn: false, authMethod: 'none' });
-  assert.deepEqual(readAgentStatus('claude', out, out, { gateway: true }), { signedIn: false, account: null });
+test('the chat says it signs in in Terminal, so Claude Code offers its subscription sign-in (ACP terminal auth)', async () => {
+  const { zClientCapabilities } = await import(new URL('../node_modules/@agentclientprotocol/sdk/dist/schema/zod.gen.js', import.meta.url).href);
+  /* the check Claude Code's adapter makes before it offers its terminal sign-ins */
+  assert.equal(zClientCapabilities.parse(CLIENT_CAPABILITIES).auth?.terminal, true);
 });

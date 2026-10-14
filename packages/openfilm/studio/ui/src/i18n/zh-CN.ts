@@ -1463,7 +1463,6 @@ export const zhCN: Words = {
       accountChatgpt: 'ChatGPT 账号',
       accountApiKey: 'API 密钥',
       accountConsole: 'Anthropic Console',
-      accountGateway: '自定义网关',
       usage: '用量',
       usageLoading: '正在读取剩余额度…',
       usageFiveHour: '5 小时',

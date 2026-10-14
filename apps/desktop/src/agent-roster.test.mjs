@@ -167,6 +167,8 @@ test('disconnecting only stops OpenFilm using an agent; connecting again uses th
     closeSessions: (id) => closed.push(id),
   });
   await r.refresh();
+  assert.equal(r.list().find((a) => a.id === 'claude').status, 'off', 'Claude Code waits for the person to connect it');
+  assert.deepEqual(await r.connect('claude'), { ok: true });
   assert.deepEqual(r.list().find((a) => a.id === 'claude').account, { method: 'claude.ai', email: 'a@b.test' });
   r.disconnect('claude');
   assert.equal(r.list().find((a) => a.id === 'claude').status, 'off');
@@ -176,5 +178,12 @@ test('disconnecting only stops OpenFilm using an agent; connecting again uses th
   const claude = r.list().find((a) => a.id === 'claude');
   assert.equal(claude.status, 'ready');
   assert.equal(claude.account.email, 'c@d.test');
-  assert.deepEqual(closed, ['claude', 'claude'], 'its sessions closed both times: none goes on with the old account');
+  assert.deepEqual(closed, ['claude', 'claude', 'claude'], 'its sessions closed each time: none goes on with the old account');
+});
+
+test('Codex is connected from the start, Claude Code once the person connects it; a choice kept stays as it is', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'of-roster-'));
+  assert.deepEqual(readChoices(dir).disconnected, ['claude']);
+  writeFileSync(join(dir, 'agents.json'), JSON.stringify({ disconnected: [] }));
+  assert.deepEqual(readChoices(dir).disconnected, [], 'connected before: still connected');
 });

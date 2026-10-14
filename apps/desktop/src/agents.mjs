@@ -31,7 +31,7 @@ import { dirname, isAbsolute, join } from 'node:path';
 import { Readable, Writable } from 'node:stream';
 import { fileURLToPath } from 'node:url';
 import * as acp from '@agentclientprotocol/sdk';
-import { PATH_SEP, childEnvironment, lastPathSource, loginShellEnvironment, loginShellVariables } from './environment.mjs';
+import { PATH_SEP, childEnvironment, lastPathSource, loginShellEnvironment, loginShellVariables, shellSubset } from './environment.mjs';
 import { AGENT_PROGRAMS, HOME_BIN_CANDIDATES, chosenProgram, consoleProgram, detectAgentInstallation, searchReport } from './agent-installation.mjs';
 import { nodeBinary } from './node-runtime.mjs';
 import { outOfBalance } from './pi-config.mjs';
@@ -54,8 +54,11 @@ export const AGENTS = Object.freeze({
     env: (path) => ({ CLAUDE_CODE_EXECUTABLE: path }),
     auth: ['auth', 'status'],
     login: ['auth', 'login'],
-    /* the shell's API key only as its terminal takes it: once the person said yes to it (claudeShell) */
-    fromShell: (shell) => claudeShell(shell),
+    /* of the shell only its PATH, proxies, config folder and locale, as 0.1.5 had it and ChatCut has it: a key or
+       gateway set there (ANTHROPIC_*) would take the place of the person's Claude subscription */
+    fromShell: shellSubset,
+    /* signed in to the person's Claude subscription, the way its adapter offers it (ACP terminal auth), in Terminal */
+    acpSignIn: 'claude-ai-login',
     systemPrompt: true,
   },
   codex: {
@@ -315,26 +318,22 @@ export async function agentStatus(id, cliPath) {
   if (!spec || !cliPath) return { signedIn: null, account: null };
   if (!spec.auth) return { signedIn: await acpSignedIn(id), account: null };
   const how = starting(cliPath, spec.auth);
-  const shell = agentShell(id, await loginShellVariables());
-  const r = await run(how.cmd, how.args, 10_000, { env: childEnvironment({ shell, extra: how.env }), options: how.options });
-  return readAgentStatus(id, r.stdout, r.out, { gateway: Boolean(shell.ANTHROPIC_BASE_URL || shell.ANTHROPIC_AUTH_TOKEN) });
+  const r = await run(how.cmd, how.args, 10_000, { env: childEnvironment({ shell: agentShell(id, await loginShellVariables()), extra: how.env }), options: how.options });
+  return readAgentStatus(id, r.stdout, r.out);
 }
 
 /**
- * @typedef {{ method: 'claude.ai' | 'console' | 'api-key' | 'gateway' | 'chatgpt' | 'other', email?: string, org?: string, plan?: string }} AgentAccount
- * What a sign-in status says: Claude Code's JSON, Codex's words. `gateway`: Claude Code is given ANTHROPIC_BASE_URL or
- * ANTHROPIC_AUTH_TOKEN, so its requests go through that gateway, whatever account it says.
- * @param {string} id @param {string} stdout @param {string} out @param {{ gateway?: boolean }} [o]
+ * @typedef {{ method: 'claude.ai' | 'console' | 'api-key' | 'chatgpt' | 'other', email?: string, org?: string, plan?: string }} AgentAccount
+ * What a sign-in status says: Claude Code's JSON, Codex's words. @param {string} id @param {string} stdout @param {string} out
  * @returns {{ signedIn: boolean | null, account: AgentAccount | null }}
  */
-export function readAgentStatus(id, stdout, out, { gateway = false } = {}) {
+export function readAgentStatus(id, stdout, out) {
   if (id === 'claude') {
     try {
       const s = JSON.parse(stdout);
       if (typeof s.loggedIn !== 'boolean') return { signedIn: null, account: null };
       if (!s.loggedIn) return { signedIn: false, account: null };
-      const method = gateway ? 'gateway' : s.authMethod === 'claude.ai' ? 'claude.ai' : /api.?key/i.test(String(s.authMethod)) ? 'api-key'
-        : s.authMethod === 'console' ? 'console' : 'other';
+      const method = s.authMethod === 'claude.ai' ? 'claude.ai' : /api.?key/i.test(String(s.authMethod)) ? 'api-key' : s.authMethod === 'console' ? 'console' : 'other';
       const text = (/** @type {unknown} */ v) => (typeof v === 'string' && v.trim() ? v.trim() : undefined);
       return { signedIn: true, account: { method, email: text(s.email), org: text(s.orgName), plan: text(s.subscriptionType) } };
     } catch { /* not JSON: read the words */ }
@@ -391,51 +390,63 @@ export function signInScript(cliPath, args) {
   return `tell application "Terminal"\nactivate\ndo script "${command.replace(/\\/g, '\\\\').replace(/"/g, '\\"')}"\nend tell`;
 }
 
-/** The person's shell variables as this agent is given them (`fromShell`), as it would take them in their terminal. */
+/** The person's shell variables as this agent is given them (`fromShell`; all of them, for most). */
 export function agentShell(id, shell) {
   return AGENTS[id]?.fromShell?.(shell) ?? shell;
 }
 
 /**
- * The shell's variables as Claude Code takes them in a terminal. Its terminal asks once whether to use an
- * ANTHROPIC_API_KEY and keeps the answer; run as the app runs it (the Agent SDK, like `claude -p`), it uses any key
- * there without asking. So the key goes to it only once the person said yes to it in its terminal: a key they said no
- * to, or were never asked about, would take the place of their own sign-in. ANTHROPIC_AUTH_TOKEN and
- * ANTHROPIC_BASE_URL its terminal uses as they are, and so does the app.
+ * The ways an agent's adapter offers to sign in in a terminal (ACP terminal auth; Claude Code's: its subscription and
+ * Anthropic Console). `[{ id, name, description?, args, env }]`, asked of the adapter as it shakes hands; none for an
+ * agent signed in its own way (no `acpSignIn`) or one that cannot be started.
  */
-export function claudeShell(shell, configText = claudeConfigText(shell)) {
-  if (!shell.ANTHROPIC_API_KEY || claudeKeyAnswer(configText, shell.ANTHROPIC_API_KEY) === 'approved') return shell;
-  const { ANTHROPIC_API_KEY: _, ...rest } = shell;
-  return rest;
+export async function agentSignInMethods(id) {
+  const spec = AGENTS[id];
+  if (!spec?.acpSignIn) return [];
+  const shell = agentShell(id, await loginShellVariables());
+  const cli = resolveAgentCli(id, { pathDirs: shell.PATH.split(PATH_SEP) });
+  if (!cli) return [];
+  const launch = adapterLaunch(id, cli.path);
+  const child = spawn(launch.cmd, launch.args, { env: childEnvironment({ shell, extra: launch.env }), stdio: ['pipe', 'pipe', 'ignore'] });
+  child.once('error', () => {});
+  try {
+    const conn = acp.client({ name: 'openfilm-desktop' }).connect(acp.ndJsonStream(Writable.toWeb(child.stdin), Readable.toWeb(child.stdout)));
+    const init = await Promise.race([
+      conn.agent.request(acp.methods.agent.initialize, { protocolVersion: acp.PROTOCOL_VERSION, clientCapabilities: CLIENT_CAPABILITIES, clientInfo: CLIENT_INFO }),
+      new Promise((_, fail) => setTimeout(() => fail(new Error('timed out')), 30_000)),
+    ]);
+    return (init.authMethods ?? []).filter((m) => m?.type === 'terminal' && m.id && m.name).map((m) => ({
+      id: String(m.id), name: String(m.name), ...(m.description ? { description: String(m.description) } : {}),
+      args: Array.isArray(m.args) ? m.args.map(String) : [], env: m.env && typeof m.env === 'object' ? m.env : {},
+    }));
+  } catch {
+    return [];
+  } finally {
+    child.kill();
+  }
 }
 
 /**
- * Claude Code's answer to "use this API key?": 'approved', 'rejected' or 'new' (not asked). Kept in its config as each
- * key's last 20 characters (`customApiKeyResponses`).
+ * Sign in: Terminal runs the program's own sign-in, which opens the maker's own page. The app touches nothing. One
+ * signed in the way its adapter offers (`acpSignIn`, that way's id) runs the adapter with that way's arguments, as ACP
+ * has a client do it.
  */
-export function claudeKeyAnswer(configText, key) {
-  let responses = null;
-  try { responses = JSON.parse(configText || '{}')?.customApiKeyResponses ?? null; } catch { /* unreadable: not asked */ }
-  const tail = String(key).trim().slice(-20);
-  const has = (list) => Array.isArray(list) && list.includes(tail);
-  return has(responses?.approved) ? 'approved' : has(responses?.rejected) ? 'rejected' : 'new';
-}
-
-/** Claude Code's config (.claude.json): in CLAUDE_CONFIG_DIR when the person's shell sets it, else the home folder. */
-function claudeConfigText(shell) {
-  try { return readFileSync(join(shell.CLAUDE_CONFIG_DIR || homedir(), '.claude.json'), 'utf8'); } catch { return ''; }
-}
-
-/** Sign in: Terminal runs the program's own sign-in, which opens the maker's own page. The app touches nothing. */
 export async function openAgentSignIn(id) {
   const spec = AGENTS[id];
   const pathDirs = (await loginShellEnvironment()).PATH.split(PATH_SEP);
   const cli = spec ? resolveAgentCli(id, { pathDirs }) : null;
   if (!spec || !cli) return { ok: false, error: `${spec?.label ?? id} is not installed on this computer.` };
   asked.delete(id);
+  let how = null;
+  if (spec.acpSignIn) {
+    const way = (await agentSignInMethods(id)).find((w) => w.id === spec.acpSignIn);
+    if (!way) return { ok: false, error: `${spec.label} did not offer a way to sign in.` };
+    const launch = adapterLaunch(id, cli.path);
+    how = { cmd: launch.cmd, args: [...launch.args, ...way.args], env: { ...launch.env, ...way.env } };
+  }
   if (process.platform === 'win32') {
     /* a command window of its own, left open so its sign-in can be read and answered (it runs a shim itself) */
-    const how = /\.(?:cmd|bat)$/i.test(cli.path) ? { cmd: cli.path, args: spec.login, env: {} } : starting(cli.path, spec.login);
+    how ??= /\.(?:cmd|bat)$/i.test(cli.path) ? { cmd: cli.path, args: spec.login, env: {} } : starting(cli.path, spec.login);
     try {
       spawn('cmd.exe', ['/d', '/c', 'start', `${spec.label} sign-in`, 'cmd.exe', '/k', how.cmd, ...how.args], {
         detached: true, stdio: 'ignore', windowsHide: false, env: childEnvironment({ shell: agentShell(id, await loginShellVariables()), extra: how.env }),
@@ -443,7 +454,10 @@ export async function openAgentSignIn(id) {
       return { ok: true };
     } catch (e) { return { ok: false, error: e instanceof Error ? e.message : String(e) }; }
   }
-  const r = await run('/usr/bin/osascript', ['-e', signInScript(cli.path, spec.login)], 15_000);
+  const script = how
+    ? signInScript('/usr/bin/env', [...Object.entries(how.env).map(([k, v]) => `${k}=${v}`), how.cmd, ...how.args])
+    : signInScript(cli.path, spec.login);
+  const r = await run('/usr/bin/osascript', ['-e', script], 15_000);
   return r.ok ? { ok: true } : { ok: false, error: r.out.trim() || 'Terminal did not open.' };
 }
 
@@ -481,6 +495,17 @@ function adapterScript(pkg) {
   const json = JSON.parse(readFileSync(manifest, 'utf8'));
   const bin = typeof json.bin === 'string' ? json.bin : Object.values(json.bin ?? {})[0];
   return join(dirname(manifest), bin ?? json.main ?? 'index.js');
+}
+
+/** How an agent's adapter starts: the app's Node running its script (on Electron, through as-node.mjs), told where the person's program is. */
+function adapterLaunch(id, cliPath) {
+  const spec = AGENTS[id];
+  const node = nodeRuntime();
+  return {
+    cmd: node.command,
+    args: [...(node.env.ELECTRON_RUN_AS_NODE ? [AS_NODE] : []), adapterScript(spec.adapter)],
+    env: { ...node.env, ...spec.env(cliPath) },
+  };
 }
 
 function nodeRuntime() {
@@ -555,12 +580,16 @@ export function formContent(questions, answers) {
 /** What the app tells each agent, as it shakes hands, that the chat can do. */
 export const CLIENT_CAPABILITIES = {
   fs: { readTextFile: false, writeTextFile: false }, terminal: false, elicitation: { form: {} },
+  /* the person signs in in Terminal, the way the agent offers (agentSignInMethods) */
+  auth: { terminal: true },
   /* the agent's own warnings (Codex: "Falling back from WebSockets…") come as notices, not as words in its reply */
   session: { notices: {} },
   /* Claude Code's "recommended value" extension: its model and effort lists come without a "Default" row, the
      current value named for what it is */
   _meta: { jetbrains: { air: { version: 1, capabilities: ['recommendedValue'] } } },
 };
+
+const CLIENT_INFO = { name: 'openfilm-desktop', title: 'OpenFilm', version: '0.1.0' };
 
 /** ACP's auth_required: the agent wants its own sign-in first. */
 const AUTH_REQUIRED = -32000;
@@ -622,7 +651,7 @@ export class AgentSession {
 
   /**
    * Start the adapter, shake hands, open (or resume) the session. The agent gets all the person's login shell sets
-   * (their keys, gateways, tokens; as each takes them in a terminal, agentShell), as in their terminal, and the app's
+   * (their keys, gateways, tokens; Claude Code only its PATH and the like, agentShell), as in their terminal, and the app's
    * `openfilm` first on its PATH; the app's ffmpeg (`fallbackDir`) last, for a computer that has none of its own.
    */
   async start() {
@@ -680,7 +709,7 @@ export class AgentSession {
     const init = await this.conn.agent.request(acp.methods.agent.initialize, {
       protocolVersion: acp.PROTOCOL_VERSION,
       clientCapabilities: CLIENT_CAPABILITIES,
-      clientInfo: { name: 'openfilm-desktop', title: 'OpenFilm', version: '0.1.0' },
+      clientInfo: CLIENT_INFO,
     });
 
     const params = {

@@ -1463,7 +1463,6 @@ export const en = {
       accountChatgpt: 'ChatGPT account',
       accountApiKey: 'API key',
       accountConsole: 'Anthropic Console',
-      accountGateway: 'Custom gateway',
       usage: 'Usage',
       usageLoading: 'Reading what is left of the plan…',
       usageFiveHour: '5 hours',

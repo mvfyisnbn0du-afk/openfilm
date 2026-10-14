@@ -6,7 +6,8 @@
  *     account signed in on the computer as it is: connecting opens Terminal for its own sign-in command only when it
  *     is signed out, disconnecting only stops OpenFilm using it, and connecting again uses whichever account is signed
  *     in then (one switched in the agent or its maker's app). `account` says whose it is. Codex and Claude Code are
- *     shown in the chat's menu from the start; the others once the person connects one or switches it on.
+ *     shown in the chat's menu from the start; the others once the person connects one or switches it on. Codex is
+ *     connected from the start, Claude Code once the person connects it.
  *   · byok — the app's own agent (Pi, pi-agent.mjs) on the person's own key, on a standard API in one of three formats: the OpenAI
  *     Responses API (…/v1/responses), the OpenAI Chat Completions API (…/v1/chat/completions) or the Anthropic Messages
  *     API (…/v1/messages); Pi speaks each. It may name several models (the chat's menu switches between them, the first
@@ -47,6 +48,9 @@ export const BYOK_FORMATS = Object.freeze({
 
 /* the person's other agents: not shown until connected or switched on */
 const DEFAULT_SHOWN = { codex: true, claude: true, byok: false };
+/* Codex is used as it is signed in on the computer from the start; Claude Code only once the person connects it, which
+   signs in to their Claude subscription the first time */
+const DEFAULT_DISCONNECTED = Object.freeze(['claude']);
 /** How long a sign-in in Terminal is waited for, asked about every few seconds. */
 const SIGN_IN_WAIT_MS = 5 * 60_000;
 const SIGN_IN_POLL_MS = 3000;
@@ -71,7 +75,7 @@ export function readChoices(dataDir) {
   for (const id of OWN_AGENT_IDS) if (typeof raw.paths?.[id] === 'string' && raw.paths[id]) paths[id] = raw.paths[id];
   return {
     shown,
-    disconnected: Array.isArray(raw.disconnected) ? raw.disconnected.filter((id) => AGENT_IDS.includes(id)) : [],
+    disconnected: Array.isArray(raw.disconnected) ? raw.disconnected.filter((id) => AGENT_IDS.includes(id)) : [...DEFAULT_DISCONNECTED],
     byok,
     paths,
   };

@@ -1462,7 +1462,6 @@ export const es: Words = {
       accountChatgpt: 'Cuenta de ChatGPT',
       accountApiKey: 'Clave de API',
       accountConsole: 'Anthropic Console',
-      accountGateway: 'Pasarela personalizada',
       usage: 'Uso',
       usageLoading: 'Leyendo lo que queda del plan…',
       usageFiveHour: '5 horas',

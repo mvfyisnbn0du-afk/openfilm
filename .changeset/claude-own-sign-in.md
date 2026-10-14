@@ -3,4 +3,4 @@
 "openfilm": patch
 ---
 
-Desktop: Claude Code takes the keys in the shell as it does in a terminal. An `ANTHROPIC_API_KEY` is used only once you said yes to it in Claude Code's terminal; one you said no to, or were never asked about, no longer takes the place of your own sign-in (it made Claude look connected and fail every message). Settings → Agents says when Claude Code goes through a custom gateway (`ANTHROPIC_BASE_URL` or `ANTHROPIC_AUTH_TOKEN`).
+Desktop: Claude Code runs on your Claude subscription only. An `ANTHROPIC_API_KEY`, `ANTHROPIC_AUTH_TOKEN` or `ANTHROPIC_BASE_URL` in your shell is no longer given to it, so a stale key or gateway can no longer make it look connected and fail every message (a gateway of your own goes in Settings → Agents → Own key). Signing in uses the way Claude Code's adapter offers it (ACP terminal sign-in). Claude Code is connected when you connect it; Codex still is from the start.
