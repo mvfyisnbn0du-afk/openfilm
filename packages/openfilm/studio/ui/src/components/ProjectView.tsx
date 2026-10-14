@@ -40,7 +40,7 @@ import { splitHalves } from '@/lib/timeline-split';
 import { assetDropInsert, assetRunInsert, assetRunMs, pendingDropOf, soundLaneHit, withPendingBlocks, type AssetDropTarget, type AssetLaneHit, type AssetRunInsert, type PendingDrop } from '@/lib/asset-timeline';
 import { isComputerFileDrag, type ResourceDragItem } from '@/lib/resource-drag';
 import { ladderStepMs, THUMB_CELL_PX, thumbAnchorTimes } from '@/lib/thumb-cache';
-import { clipThumbId } from '@/lib/thumb-frame';
+import { clipThumbId, overridesToken } from '@/lib/thumb-frame';
 import { useLoadedThumbs } from '@/lib/use-loaded-thumbs';
 import { droppedOverrides, overrideTarget, undoneFields, type DroppedEdits, type PersonEdit } from '@/lib/dropped-overrides';
 import { filmFrameBox, type FilmFrameId } from '@/lib/film-frame';
@@ -1606,11 +1606,26 @@ export function ProjectView({ projectId, onProject, onLeave }: {
   /* a sound made again in place is heard as it is now, not as it was decoded */
   React.useEffect(() => { player.current.setVersions((src) => mtimeOf.get(src)); }, [mtimeOf]);
   refSource.current = { projectId, version: (path) => mtimeOf.get(path) };
+  /* a page clip's pictures are drawn with the changes made inside it (its overrides), by its id: changed, asked again */
+  const tweakTokens = React.useMemo(() => {
+    const out = new Map<string, string>();
+    for (const track of film.film?.tracks ?? []) {
+      for (const clip of track.clips) {
+        const token = clip.id && filmSrcIsPage(clip.src) ? overridesToken(clip.overrides) : '';
+        if (token) out.set(clip.id!, token);
+      }
+    }
+    return out;
+  }, [film.film]);
   const thumbs = React.useMemo(() => {
     const out = new Map<string, string>();
     if (!thumbView || !(thumbView.pxPerMs > 0)) return out;
-    /* a page's frames change with the files it loads too (filesTick: asked again, an unchanged one answered 304) */
-    const media = (path: string, ms: number) => `/api/projects/${encodeURIComponent(projectId)}/media?what=frame&path=${encodeURIComponent(path)}&ms=${Math.round(ms)}&w=${THUMB_CELL_PX * 2}&v=${mtimeOf.get(path) ?? 0}${filmSrcIsPage(path) ? `.${filesTick}` : ''}`;
+    /* a page's frames change with the files it loads too (filesTick: asked again, an unchanged one answered 304), and
+       with the clip's own changes (`clip`, and its token in the version) */
+    const media = (path: string, ms: number, clip?: string) => {
+      const token = clip ? tweakTokens.get(clip) : undefined;
+      return `/api/projects/${encodeURIComponent(projectId)}/media?what=frame&path=${encodeURIComponent(path)}&ms=${Math.round(ms)}&w=${THUMB_CELL_PX * 2}&v=${mtimeOf.get(path) ?? 0}${filmSrcIsPage(path) ? `.${filesTick}` : ''}${token ? `.${token}&clip=${encodeURIComponent(clip!)}` : ''}`;
+    };
     const span = thumbView.toMs - thumbView.fromMs;
     const fromMs = Math.max(0, thumbView.fromMs - span);
     const toMs = thumbView.toMs + span;
@@ -1621,7 +1636,8 @@ export function ProjectView({ projectId, onProject, onLeave }: {
     const margins: Array<[string, string]> = [];
     for (const b of pictures) {
       const still = /\.(png|jpe?g|webp|avif|gif|bmp|svg)$/i.test(b.src!);
-      const key = (into: number) => `${mtimeOf.get(b.src!) ?? 0}:${clipThumbId(b)}@${into}#v`;
+      const token = b.clipId ? tweakTokens.get(b.clipId) ?? '' : '';
+      const key = (into: number) => `${mtimeOf.get(b.src!) ?? 0}${token ? `.${token}` : ''}:${clipThumbId(b)}@${into}#v`;
       if (still) { out.set(key(0), `${folder}${b.src!.split('/').map(encodeURIComponent).join('/')}`); continue; }
       const speed = b.speed && b.speed > 0 ? b.speed : 1;
       const trimMs = (b.anchor?.trimFrom ?? 0) * 1000;
@@ -1643,14 +1659,14 @@ export function ProjectView({ projectId, onProject, onLeave }: {
       const own = { startMs: trimMs, endMs: trimMs + (b.endMs - b.startMs) * speed };
       for (const at of [...grid, ...thumbAnchorTimes({ times: grid, spans: [own] })]) {
         const drawn = b.kind === 'mg' ? Math.round(Math.max(at, Math.min(at + stepMs / 2, lastMs))) : at;
-        if (at >= own.startMs - stepMs && at <= own.endMs) out.set(key(at), media(b.src!, drawn));
-        else margins.push([key(at), media(b.src!, drawn)]);
+        if (at >= own.startMs - stepMs && at <= own.endMs) out.set(key(at), media(b.src!, drawn, b.clipId));
+        else margins.push([key(at), media(b.src!, drawn, b.clipId)]);
       }
     }
     for (const [k, u] of margins) if (!out.has(k)) out.set(k, u);
     return out;
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [thumbView, timelineTracks, projectId, mtimeOf, folder, filesTick]);
+  }, [thumbView, timelineTracks, projectId, mtimeOf, folder, filesTick, tweakTokens]);
   /* drawn once loaded: a zoom keeps the pictures it has until the new shots arrive */
   const shownThumbs = useLoadedThumbs(thumbs);
   const posters = React.useMemo(() => {

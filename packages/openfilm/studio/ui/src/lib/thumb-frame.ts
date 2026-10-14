@@ -61,3 +61,16 @@ export function indexClipThumbs(
   }
   return by;
 }
+
+/**
+ * A page clip's thumbnails are drawn with its overrides (SPEC §1), the changes made inside it in Studio: as a short
+ * token for a frame's address and key, '' when it has none of a layer's (its fades alone change no picture). Another
+ * change, another token: the timeline asks for the clip's pictures again.
+ */
+export function overridesToken(overrides: readonly unknown[] | undefined): string {
+  if (!overrides?.some((o) => typeof o === 'object' && o !== null && 'at' in o)) return '';
+  const text = JSON.stringify(overrides);
+  let h = 0x811c9dc5;
+  for (let i = 0; i < text.length; i++) { h ^= text.charCodeAt(i); h = Math.imul(h, 0x01000193); }
+  return (h >>> 0).toString(36);
+}

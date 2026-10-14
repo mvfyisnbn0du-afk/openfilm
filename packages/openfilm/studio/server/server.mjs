@@ -20,7 +20,7 @@ import { createServer } from 'node:http';
 import { mkdir, readFile } from 'node:fs/promises';
 import { createHash } from 'node:crypto';
 import { spawn } from 'node:child_process';
-import { EditError, editProjectFilm, readProjectFilm } from './film.mjs';
+import { EditError, clipOverrides, editProjectFilm, readProjectFilm } from './film.mjs';
 import { FileError, bringIn, collect, extractAudio, freezeFrame, importFile, inside, listFiles, makeFolder, moveCheck, moveFile, readable, relink, trashFile } from './files.mjs';
 import { ExportError, createExports, draftApps, exportCapabilities, exportsRoot, projectSizes } from './exports.mjs';
 import { MediaError, frame, loudness, poster, probe, waveform } from './derived.mjs';
@@ -557,9 +557,12 @@ export async function startStudio({ port = 4747, key, openBrowser = systemBrowse
         const to = url.searchParams.get('to');
         return json(res, 200, await loudness(project.path, at, Number(url.searchParams.get('from') ?? 0), to == null ? undefined : Number(to)));
       }
-      /* a web page has no file to cut a frame from: it is drawn, as an export draws it (pageframes.mjs) */
+      /* a web page has no file to cut a frame from: it is drawn, as an export draws it (pageframes.mjs); a page clip's
+         frame (`clip`, its id) with the person's changes in it, as the film shows them */
+      const clipId = what === 'frame' ? url.searchParams.get('clip') : null;
+      const tweaks = clipId && isPage(at) ? await clipOverrides(project.path, clipId) : null;
       const page = isPage(at) && (what === 'poster' || what === 'frame')
-        ? () => pageFrame(project.path, pages.folderUrl(project), at, what === 'poster' ? -1 : Number(url.searchParams.get('ms')), what === 'poster' ? 480 : Number(url.searchParams.get('w'))).catch((e) => {
+        ? () => pageFrame(project.path, pages.folderUrl(project), at, what === 'poster' ? -1 : Number(url.searchParams.get('ms')), what === 'poster' ? 480 : Number(url.searchParams.get('w')), tweaks).catch((e) => {
           throw new HttpError(e instanceof PageFrameError ? 404 : 422, String(e?.message ?? e));
         })
         : null;

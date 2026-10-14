@@ -81,6 +81,22 @@ test('a page\'s thumbnail follows the files the page loads: a stylesheet it shar
   assert.ok(!blue.body.equals(red.body), 'the page drawn again with its new style');
 });
 
+test('a page clip\'s thumbnail shows the changes made in it (its overrides): another change, another picture', async () => {
+  const { project } = await (await api('/api/projects', { method: 'POST', body: { path: join(scratch, 'Tweaked') } })).json();
+  writeFileSync(join(project.path, 'p.html'), '<!doctype html><body style="margin:0;background:#fff"><div id="box" style="width:960px;height:1080px;background:#f00"></div><script>window.film = { duration: 2, frame() {} };</script></body>');
+  const film = (overrides) => writeFileSync(join(project.path, 'film.html'), filmHtml({ tracks: [{ clips: [{ id: 'p', src: 'p.html', ...(overrides ? { overrides } : {}) }] }] }));
+  const frame = async (clip) => Buffer.from(await (await api(`/api/projects/${project.id}/media?what=frame&path=p.html&ms=500&w=160${clip ? '&clip=p' : ''}`)).arrayBuffer());
+  film(null);
+  const plain = await frame(true);
+  assert.ok(plain.equals(await frame(false)), 'no changes: the page as it is');
+  film([{ at: '#box', t: [960, 0] }]);
+  const moved = await frame(true);
+  assert.ok(!moved.equals(plain), 'the box moved across');
+  assert.ok((await frame(false)).equals(plain), 'the page itself, asked without its clip, is as it was');
+  film([{ at: '#box', style: { backgroundColor: '#00f' } }]);
+  assert.ok(!(await frame(true)).equals(moved), 'changed again: drawn again');
+});
+
 test('a page that never gets ready (a loop that never ends) fails in its own time, and the pages after it are drawn', async () => {
   const { project } = await (await api('/api/projects', { method: 'POST', body: { path: join(scratch, 'Stuck') } })).json();
   writeFileSync(join(project.path, 'loop.html'), '<!doctype html><body><script>window.film = { duration: 2, ready: new Promise(() => setTimeout(() => { for (;;) {} }, 100)), frame() {} };</script></body>');

@@ -44,6 +44,19 @@ export async function readProjectFilm(root) {
 }
 
 /**
+ * A clip's overrides (SPEC §1), by its id, as film.html has them now: what its thumbnails are drawn with. Null when it
+ * has none, or no clip has that id.
+ * @param {string} root @param {string} id
+ */
+export async function clipOverrides(root, id) {
+  const { value } = await readProjectFilm(root);
+  for (const track of value?.tracks ?? []) {
+    for (const clip of track.clips ?? []) if (clip.id === id) return clip.overrides?.length ? clip.overrides : null;
+  }
+  return null;
+}
+
+/**
  * film.html as Studio writes it: over `before` (its text as read), so what did not change stays as it was, through a
  * temporary file so no reader sees half.
  * @param {string} root @param {FilmValue} value @param {string} [before]

@@ -54,17 +54,20 @@ export const FILM_PAGE = FILM_FILE;
 
 /**
  * The page `rel` of the folder served at `base` (its film-origin URL), drawn at `ms`, `width` px wide, as JPEG.
- * `ms` past the page's end draws its last frame; `ms` < 0 draws the middle (its poster).
+ * `ms` past the page's end draws its last frame; `ms` < 0 draws the middle (its poster). `overrides`: a page clip's
+ * (SPEC §1), drawn with it, so its pictures on the timeline show what was changed in it.
  * @param {string} root @param {string} base @param {string} rel @param {number} ms @param {number} width
+ * @param {object[] | null} [overrides]
  */
-export async function pageFrame(root, base, rel, ms, width) {
+export async function pageFrame(root, base, rel, ms, width, overrides = null) {
   const w = Math.max(32, Math.min(960, Math.round(width / 2) * 2 || 160));
   /* `rel` is the request's: a page of the project only, never one reached by `../` or a link out of the folder */
   const page = inProject(root, rel);
   const info = page ? await stat(page).catch(() => null) : null;
   if (!info?.isFile()) throw new PageFrameError(`${rel} is not there`);
   /* `black`: how frames are drawn (frames drawn on white before are not reused) */
-  const key = createHash('sha256').update(`black\0${rel}\0${Math.round(ms)}\0${w}`).digest('hex').slice(0, 24);
+  const tweaks = overrides?.some((o) => o && typeof o === 'object' && 'at' in o) ? JSON.stringify(overrides) : '';
+  const key = createHash('sha256').update(`black\0${rel}\0${Math.round(ms)}\0${w}${tweaks ? `\0${tweaks}` : ''}`).digest('hex').slice(0, 24);
   const dir = join(root, TOOL_DIR, 'cache', 'pageframes');
   const file = join(dir, `${key}.jpg`);
   /* a frame is good while every file the page loaded to draw it is as it was then: the page, and its styles, code,
@@ -85,7 +88,9 @@ export async function pageFrame(root, base, rel, ms, width) {
   const pending = drawing.get(id);
   if (pending) return pending;
   const made = (async () => {
-    const { jpeg, duration, loaded } = await draw(pageUrl(base, rel), ms, w, version, base).catch((e) => {
+    /* a page drawn with tweaks is one of its own: the page kept open for another clip of the same file has none */
+    const drawn = tweaks ? `${version}:${createHash('sha256').update(tweaks).digest('hex').slice(0, 12)}` : version;
+    const { jpeg, duration, loaded } = await draw(pageUrl(base, rel), ms, w, drawn, base, tweaks ? overrides : null).catch((e) => {
       failures.set(id, { error: e, at: Date.now() });
       if (failures.size > 500) failures.delete(failures.keys().next().value ?? '');
       throw e;
@@ -187,7 +192,7 @@ async function closeBrowser() {
  * Draw `url` at `ms`, `w` px wide. `loaded`: the project's files the page (and every page inside it) loaded, project
  * relative (`base`: where the project is served), so the frame is known stale when one of them changes.
  */
-function draw(/** @type {string} */ url, /** @type {number} */ ms, /** @type {number} */ w, /** @type {string} */ version, /** @type {string} */ base) {
+function draw(/** @type {string} */ url, /** @type {number} */ ms, /** @type {number} */ w, /** @type {string} */ version, /** @type {string} */ base, /** @type {object[] | null} */ overrides = null) {
   return withPage(url, w, version, async (page) => {
     const duration = lengthOf(page);
     const end = duration != null ? Math.max(0, duration - 1e-3) : Infinity;
@@ -197,6 +202,13 @@ function draw(/** @type {string} */ url, /** @type {number} */ ms, /** @type {nu
     let jpeg = null;
     for (const t of moments) {
       await page.seek(Math.max(0, t), { timeoutMs: FRAME_MS });
+      /* the clip's tweaks, as the film's timeline applies them after each frame (src/overrides.mjs) */
+      if (overrides) {
+        await page.page.evaluate(async (list) => {
+          const { override } = await import(new URL('__film/overrides.mjs', location.href).href);
+          override({ win: window, touched: new Map(), found: [] }, list);
+        }, overrides);
+      }
       const shot = await page.capture({ format: 'jpeg', quality: 70 });
       if (!jpeg || shot.length > jpeg.length) jpeg = shot;
     }
