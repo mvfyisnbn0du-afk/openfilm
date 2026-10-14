@@ -34,6 +34,7 @@
  */
 import * as React from 'react';
 import { isSelectAll as isSelectAllKey, type KeyLike } from '@/lib/select-all-key';
+import { doubleClickAim, keepPress, type Press } from '@/lib/double-press';
 import {
   AlignCenterHorizontal, AlignCenterVertical, AlignEndHorizontal, AlignEndVertical, AlignHorizontalDistributeCenter,
   AlignStartHorizontal, AlignStartVertical, AlignVerticalDistributeCenter, Crop as CropIcon, MessageSquarePlus,
@@ -88,8 +89,6 @@ export type { LayerGeometry } from '@/lib/stage-gesture';
 /** Pulled open this far (stage px, both ways) it is a marquee; less is a click (a shaky hand keeps its click). */
 const MARQUEE_MIN_PX = 8;
 const PICK_BLUE = FRAME_BLUE;
-/** Two presses this close in time are one double-click (the system's own interval is about this). */
-const DOUBLE_PRESS_MS = 500;
 /** Snap this close (screen px: the feel must not change with the picture's scale). */
 const SNAP_PX = 6;
 const NO_GUIDES: readonly MgGuide[] = [];
@@ -602,8 +601,8 @@ function FilmStageSelectImpl({
   /* ── in-place text editing state (the film runs the text box; it says when it ends) ── */
   const [editingText, setEditingTextState] = React.useState<string | null>(null);
   const textEdit = React.useRef<{ element: StageElement; layer: StageLayer } | null>(null);
-  /** The last press on the picture, in stage px: a double-click is aimed by its first click (see onStageDoubleClick). */
-  const lastPressRef = React.useRef<{ x: number; y: number; at: number } | null>(null);
+  /** The last presses on the picture, in stage px: a double-click is aimed by its first click (see onStageDoubleClick). */
+  const pressesRef = React.useRef<Press[]>([]);
   /* while a line is typed in place the picture takes the pointer (move the caret, select words, click away to blur) */
   const setEditingText = React.useCallback((loc: string | null) => {
     const frame = previewRef.current?.frame?.();
@@ -1927,8 +1926,8 @@ function FilmStageSelectImpl({
     const token = ++pressSeq.current;
     /* where the double-click began, in the film's own pixels: its first click can open the inspector, and the picture
        shrinks under the hand before the second — taken where the second landed on screen, it typed in another line */
-    const first = lastPressRef.current;
-    const at = first && e.timeStamp - first.at < DOUBLE_PRESS_MS ? { x: first.x, y: first.y } : { x: p.x / vs, y: p.y / vs };
+    const first = doubleClickAim(pressesRef.current, e.timeStamp);
+    const at = first ? { x: first.x, y: first.y } : { x: p.x / vs, y: p.y / vs };
     const inside = held && insideBox(held.rect, at.x, at.y);
     /* cropping, a double-click keeps the crop (as in Figma); on the video or still in hand, it starts one */
     if (cropRef.current) { finishCrop(true); return; }
@@ -2445,8 +2444,7 @@ function FilmStageSelectImpl({
       if (!outside) onPause?.();
       const p = local(e);
       /* the first press of a double-click is kept: the second one lands where the picture has moved to */
-      const prev = lastPressRef.current;
-      if (!prev || e.timeStamp - prev.at > DOUBLE_PRESS_MS) lastPressRef.current = { x: p.x / viewScaleNow(), y: p.y / viewScaleNow(), at: e.timeStamp };
+      pressesRef.current = keepPress(pressesRef.current, { x: p.x / viewScaleNow(), y: p.y / viewScaleNow(), at: e.timeStamp });
       /* ⌘ held: a box to point at in the chat, whatever is under the press (nothing is selected or moved) */
       if (onRegion && regionKeyHeld(e)) {
         /* a box for the chat is meant at once, wherever it starts */
