@@ -61,7 +61,7 @@ const within = (p, ms) => Promise.race([p, new Promise((done) => setTimeout(() =
 /** Codex's usage, on OpenFilm's sign-in: its app server asked twice, then stopped. @param {string} cli */
 async function codexUsage(cli) {
   const shell = await loginShellVariables();
-  const child = spawn(cli, ['app-server'], { env: childEnvironment({ shell }), stdio: ['pipe', 'pipe', 'ignore'] });
+  const child = spawn(cli, ['app-server'], { env: childEnvironment({ shell }), stdio: ['pipe', 'pipe', 'ignore'], windowsHide: true });
   child.once('error', () => {});
   /** @type {Map<number, (message: any) => void>} */
   const waiting = new Map();

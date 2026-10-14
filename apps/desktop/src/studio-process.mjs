@@ -54,7 +54,7 @@ try {
   process.exit(1);
 }
 
-send({ type: 'ffmpeg', found: ['ffmpeg', 'ffprobe'].every((bin) => !spawnSync(bin, ['-version'], { stdio: 'ignore' }).error) });
+send({ type: 'ffmpeg', found: ['ffmpeg', 'ffprobe'].every((bin) => !spawnSync(bin, ['-version'], { stdio: 'ignore', windowsHide: true }).error) });
 
 /* Studio draws pages' pictures in Playwright's headless browser: download it once, the first time (about 100 MB) */
 try {
@@ -66,7 +66,7 @@ try {
     send({ type: 'browser', state: 'downloading' });
     const openfilm = dirname(createRequire(import.meta.url).resolve('openfilm/package.json'));
     const cli = join(dirname(createRequire(join(openfilm, 'package.json')).resolve('playwright-core/package.json')), 'cli.js');
-    const child = spawn(process.execPath, [cli, 'install', 'chromium-headless-shell'], { env: { ...process.env, ELECTRON_RUN_AS_NODE: '1' }, stdio: 'ignore' });
+    const child = spawn(process.execPath, [cli, 'install', 'chromium-headless-shell'], { env: { ...process.env, ELECTRON_RUN_AS_NODE: '1' }, stdio: 'ignore', windowsHide: true });
     child.once('exit', (code) => send(code === 0 ? { type: 'browser', state: 'ready' } : { type: 'browser', state: 'failed', message: `the download stopped (${code})` }));
     child.once('error', (error) => send({ type: 'browser', state: 'failed', message: error.message }));
   }

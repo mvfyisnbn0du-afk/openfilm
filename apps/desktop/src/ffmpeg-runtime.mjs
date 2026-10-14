@@ -53,7 +53,7 @@ export const ffmpegIn = (dir, platform = process.platform) => ['ffmpeg', 'ffprob
 /** Whether both programs run from this PATH. */
 export function ffmpegOnPath(path) {
   return ['ffmpeg', 'ffprobe'].every((bin) => {
-    const r = spawnSync(bin, ['-version'], { stdio: 'ignore', env: { ...process.env, PATH: path } });
+    const r = spawnSync(bin, ['-version'], { stdio: 'ignore', env: { ...process.env, PATH: path }, windowsHide: true });
     return !r.error && r.status === 0;
   });
 }
