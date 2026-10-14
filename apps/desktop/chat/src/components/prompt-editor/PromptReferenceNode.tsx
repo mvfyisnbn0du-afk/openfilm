@@ -20,8 +20,9 @@ type SerializedPromptReferenceNode = Spread<
 >;
 
 /**
- * A reference node: the caret cannot enter it, and one Backspace deletes it whole. It is
- * one indivisible thing in the document, not a few characters.
+ * A reference node: the caret cannot enter it, an arrow key steps over it, and one
+ * Backspace deletes it whole. It is one indivisible thing in the document, not a few
+ * characters.
  */
 export class PromptReferenceNode extends DecoratorNode<React.JSX.Element> {
   __reference: PromptReference;
@@ -51,6 +52,9 @@ export class PromptReferenceNode extends DecoratorNode<React.JSX.Element> {
     const dom = document.createElement('span');
     dom.style.display = 'inline-flex';
     dom.style.verticalAlign = 'middle';
+    /* Room on each side, outside this box: a click there is in the text (the caret goes
+       beside the pill), where a click on the box itself puts the caret at the start. */
+    dom.style.margin = '0 2px';
     return dom;
   }
 
@@ -62,8 +66,10 @@ export class PromptReferenceNode extends DecoratorNode<React.JSX.Element> {
     return true;
   }
 
-  isKeyboardSelectable(): true {
-    return true;
+  /* Not selectable by the arrow keys: selected, a pill shows nothing and swallows what is
+     typed next. The caret goes past it instead, to the text on its other side. */
+  isKeyboardSelectable(): false {
+    return false;
   }
 
   /* As plain text it is a marker, so the document's getTextContent() is the string the
@@ -122,6 +128,20 @@ function PromptReferencePill({
     <PromptPill
       reference={reference}
       card={handlers?.describe?.(reference) ?? null}
+      /* A press on the pill puts the caret beside it, on the side pressed; left to the
+         browser, a press on something not editable puts it at the start of the text. */
+      onMouseDown={(event: React.MouseEvent) => {
+        if (event.button !== 0 || (event.target as Element).closest('button')) return;
+        event.preventDefault();
+        const box = event.currentTarget.getBoundingClientRect();
+        const after = event.clientX > box.left + box.width / 2;
+        editor.update(() => {
+          const node = $getNodeByKey(nodeKey);
+          if (after) node?.selectNext(0, 0);
+          else node?.selectPrevious();
+        });
+        editor.focus();
+      }}
       {...(reveal && handlers?.revealLabel ? { hint: handlers.revealLabel } : {})}
       {...(reveal ? {
         onClick: (event: React.MouseEvent) => {

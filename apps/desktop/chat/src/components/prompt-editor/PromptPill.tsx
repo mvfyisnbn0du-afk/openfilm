@@ -233,6 +233,7 @@ const noSubscribe = () => () => {};
 export function PromptPill({
   reference,
   onClick,
+  onMouseDown,
   title,
   trailing,
   card,
@@ -241,6 +242,8 @@ export function PromptPill({
   reference: StoredPromptReference;
   /** Only when clicking leads somewhere; without it the pill is read-only. */
   onClick?: (event: React.MouseEvent) => void;
+  /** A press on it: in the editor, where the caret goes. */
+  onMouseDown?: (event: React.MouseEvent) => void;
   title?: string;
   /** The trailing slot: the remove button in the editor, nothing in history. */
   trailing?: React.ReactNode;
@@ -265,6 +268,7 @@ export function PromptPill({
     <span
       contentEditable={false}
       onClick={onClick}
+      onMouseDown={onMouseDown}
       onMouseEnter={hoverCtx ? () => { hovering.current = true; hoverCtx.hover(reference); } : undefined}
       onMouseLeave={hoverCtx ? () => { hovering.current = false; hoverCtx.hover(null); } : undefined}
       /* No native title with a card: the system one would appear on top of it a second later */
