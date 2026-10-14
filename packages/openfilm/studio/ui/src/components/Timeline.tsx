@@ -2160,7 +2160,7 @@ export const Timeline = React.memo(function Timeline({
     if (e.button !== 0 || isTypingTarget(e.target)) return;
     /* a press in something portaled out of the timeline (a marker's card) is not on it; a marker's pin opens its card,
        which takes the keys */
-    if (!e.currentTarget.contains(e.target as Node) || (e.target as Element).closest?.('[data-marker-lane]')) return;
+    if (!e.currentTarget.contains(e.target as Node) || (e.target as Element).closest?.('[data-marker]')) return;
     window.setTimeout(() => {
       if (!isTypingTarget(document.activeElement)) seekRef.current?.focus({ preventScroll: true });
     }, 0);
@@ -3837,11 +3837,13 @@ export const Timeline = React.memo(function Timeline({
               onError={setDropError} />
           ) : null}
 
-          {/* the markers' row: pins along it, scrolling with the tracks; a right-click adds one there */}
+          {/* the markers' row: pins along it, scrolling with the tracks; a press between them moves the playhead (and
+              drags it) as in the tracks' empty space, a right-click adds a marker there */}
           {markerRowH && markerLane ? (
             <div
               data-marker-lane=""
-              className="relative shrink-0 overflow-hidden select-none"
+              onPointerDown={(e) => startScrub(e)}
+              className="relative shrink-0 touch-none overflow-hidden select-none"
               style={{ height: markerRowH, background: TL.head }}
               onContextMenu={rulerMenu ? (e) => {
                 e.preventDefault();
