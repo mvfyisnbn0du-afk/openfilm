@@ -9,6 +9,12 @@ import { filmHtml } from '../../src/film-doc.mjs';
 
 const STAGE = readFileSync(new URL('./stage.js', import.meta.url), 'utf8');
 
+/**
+ * The same place, to half a pixel: what the stage holds a layer to (stage.js holdSearch), since a page's own widths are
+ * whole pixels while its words are laid out in fractions of one, as each system draws its fonts.
+ */
+const samePlace = (now, was, message) => assert.ok(now.every((v, i) => Math.abs(v - was[i]) < 0.5), `${message} (${JSON.stringify(now)}, was ${JSON.stringify(was)})`);
+
 /** A film served with Studio's stage in it, the page itself standing in for the editor (its own origin). */
 async function stageOf(dir) {
   let files = null;
@@ -204,7 +210,7 @@ test('a layer restyled leaves the others where they are, and takes its new size:
     for (const style of [{ fontSize: '90px' }, { lineHeight: '2' }, { letterSpacing: '12px' }]) {
       assert.equal(await stage.ask('tweak', { clip: 'row', at: '#num', patch: { style } }), true);
       const now = await place();
-      assert.deepEqual(now.words, was.words, `the words beside it did not move (${JSON.stringify(style)})`);
+      samePlace(now.words, was.words, `the words beside it did not move (${JSON.stringify(style)})`);
       assert.notDeepEqual(now.num, was.num, `the number took its new size (${JSON.stringify(style)})`);
       await stage.ask('release', { clip: 'row' });
     }
@@ -244,7 +250,7 @@ test('a hold kept before gives way: the number set back smaller takes its own si
   stage = await stageOf(dir);
   try {
     const kept = await read(stage);
-    assert.deepEqual(kept.words, plain.words, 'kept with its hold, the words are where they were');
+    samePlace(kept.words, plain.words, 'kept with its hold, the words are where they were');
     const back = await stage.ask('hold', { clip: 'row', at: '#num', style: { fontSize: '60px' } });
     for (const k of Object.keys(held).filter((key) => key.startsWith('margin'))) assert.equal(back[k], null, `${k} taken away`);
     assert.equal(await stage.ask('tweak', { clip: 'row', at: '#num', patch: { style: { fontSize: '60px', ...back } } }), true);
@@ -281,7 +287,7 @@ test('words in a block as wide as their box restyled: the box hugs them, they st
     const now = await read();
     assert.ok(Math.abs(now.box - now.words) <= 1, `the box hugs the words (${now.box} for ${now.words})`);
     assert.ok(Math.abs(now.center - was.center) <= 1, `still centered where they were (${now.center}, was ${was.center})`);
-    assert.deepEqual(now.line, was.line, 'the line under them did not move');
+    samePlace(now.line, was.line, 'the line under them did not move');
   } finally {
     await stage.close();
   }
@@ -308,7 +314,7 @@ test('more words leave the others where they are: previewed, and typed in place'
     const previewed = await read();
     assert.equal(previewed.num, '1999');
     assert.ok(previewed.width > was.width, 'its box took the longer words');
-    assert.deepEqual(previewed.words, was.words, 'the words beside it did not move');
+    samePlace(previewed.words, was.words, 'the words beside it did not move');
     await stage.ask('release', { clip: 'row' });
     /* typed in place: the same as each key goes */
     const num = await stage.ask('hit', { x: 20, y: 60, detail: true });
@@ -316,9 +322,9 @@ test('more words leave the others where they are: previewed, and typed in place'
     await stage.page.keyboard.type('2026');
     const typing = await read();
     assert.equal(typing.num, '2026');
-    assert.deepEqual(typing.words, was.words, 'typing, the words beside it stay');
+    samePlace(typing.words, was.words, 'typing, the words beside it stay');
     await stage.ask('textFinish', { commit: true });
-    assert.deepEqual((await read()).words, was.words, 'kept, they stay');
+    samePlace((await read()).words, was.words, 'kept, they stay');
   } finally {
     await stage.close();
   }
