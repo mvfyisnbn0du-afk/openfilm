@@ -20,9 +20,18 @@ async function stageOf(dir) {
   const origin = `http://127.0.0.1:${server.address().port}`;
   files = folderFiles(dir, { timelineInject: `<script>${HOST_FLAG}</script><script>${STAGE.replaceAll('__EDITOR__', JSON.stringify(origin))}</script>` });
   const browser = await launch();
+  const close = async () => { await browser.close(); server.closeAllConnections?.(); server.close(); };
   const page = await browser.newPage({ viewport: { width: 320, height: 180 } });
-  await page.goto(`${origin}/film.html`);
-  await page.evaluate(async () => { await window.film.ready; await window.film.frame(0.5); });
+  /* a setup that fails closes what it opened: a browser left open keeps the test file, and the run, from ending */
+  try {
+    await page.goto(`${origin}/film.html`);
+    /* window.film may not be there yet when the page has loaded */
+    await page.waitForFunction(() => Boolean(window.film));
+    await page.evaluate(async () => { await window.film.ready; await window.film.frame(0.5); });
+  } catch (e) {
+    await close();
+    throw e;
+  }
   let seq = 0;
   /** Ask the stage what the editor asks it. */
   const ask = (op, args) => page.evaluate(({ op, args, seq }) => new Promise((done) => {
@@ -34,7 +43,7 @@ async function stageOf(dir) {
     window.addEventListener('message', hear);
     window.postMessage({ source: 'openfilm-studio', type: 'stage', seq, op, ...args }, '*');
   }), { op, args, seq: ++seq });
-  return { ask, close: async () => { await browser.close(); server.closeAllConnections?.(); server.close(); } };
+  return { ask, close };
 }
 
 test('a click on a page\'s backdrop (a box filling the page) takes the clip, not the box; a smaller box is taken', { timeout: 60_000 }, async () => {

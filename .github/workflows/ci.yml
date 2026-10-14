@@ -36,7 +36,16 @@ jobs:
         if: runner.os == 'Linux'
       - run: brew install ffmpeg
         if: runner.os == 'macOS'
-      - run: choco install ffmpeg --no-progress -y
+      # Chocolatey reports success when its feed times out and nothing is installed: tried three times, then the step
+      # fails if there is still no ffmpeg, instead of every test that needs it failing later
+      - run: |
+          for ($i = 1; $i -le 3 -and -not (Get-Command ffmpeg -ErrorAction SilentlyContinue); $i++) {
+            choco install ffmpeg --no-progress -y
+            if (-not (Get-Command ffmpeg -ErrorAction SilentlyContinue)) { Start-Sleep -Seconds (20 * $i) }
+          }
+          if (-not (Get-Command ffmpeg -ErrorAction SilentlyContinue)) { Write-Error 'ffmpeg did not install'; exit 1 }
+          ffmpeg -version | Select-Object -First 1
+        shell: pwsh
         if: runner.os == 'Windows'
       - run: pnpm test
         env:
