@@ -84,3 +84,11 @@ test('asking the person: the question and options only, each clipped', () => {
   assert.equal(long.question.length, AGENT_ASK_QUESTION_MAX);
   assert.equal(long.options[0]!.label.length, AGENT_ASK_LABEL_MAX);
 });
+
+test('made media: image references after the receipt are taken off, however much space is around them', () => {
+  const ref = `[image:${'a'.repeat(64)}]`;
+  const receipt = JSON.stringify({ src: 'assets/image/wall.png' });
+  assert.deepEqual(publicActivityResult('image_gen', `${receipt}\n${ref} \n ${ref}\n`), { kind: 'image', src: 'assets/image/wall.png' });
+  // a long run of spaces is read once, not again from each of them
+  assert.equal(publicActivityResult('image_gen', `${receipt}${' '.repeat(200_000)}x`), null);
+});

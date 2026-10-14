@@ -75,7 +75,7 @@ export function scanMarkdownBlocks(
       continue;
     }
     if (/^---+$/.test(trimmed)) { push({ kind: 'hr' }); i += 1; continue; }
-    const heading = /^(#{1,6})\s+(.+)$/.exec(trimmed);
+    const heading = /^(#{1,6})\s+(\S.*)$/.exec(trimmed);
     if (heading) { pushHeading(heading[1]!.length, heading[2]!); i += 1; continue; }
     if (trimmed.startsWith('>')) {
       const quoted: string[] = [];
@@ -185,7 +185,7 @@ export type MarkdownInline =
  * Inline tokens. Code comes first (`` `**x**` `` is code, not emphasis). Italics take a single `*` only, never `_`,
  * which would split identifiers like `file_path`.
  */
-const INLINE_TOKEN = /`([^`]+)`|\*\*([^*]+)\*\*|\*([^*\s][^*]*)\*|\[([^\]\n]*)\]\(([^()\s]*)\)/g;
+const INLINE_TOKEN = /`([^`]+)`|\*\*([^*]+)\*\*|\*([^*\s][^*]*)\*|\[([^[\]\n]*)\]\(([^()\s]*)\)/g;
 
 /** A line → inline pieces. Anything not recognized stays plain text, so half-written syntax spoils nothing. */
 export function parseInlineMarkdown(text: string): MarkdownInline[] {

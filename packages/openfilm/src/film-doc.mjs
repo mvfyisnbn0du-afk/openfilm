@@ -237,13 +237,21 @@ function readClip(raw, where, problems) {
 /** Seconds, to the millisecond. @param {number} s */
 const toMs = (s) => Math.round(s * 1000) / 1000 || 0;
 
+/** A name without the dashes at its ends (by index: a pattern for it backtracks over a long run of them). */
+function trimDashes(/** @type {string} */ name) {
+  let start = 0, end = name.length;
+  while (start < end && name[start] === '-') start++;
+  while (end > start && name[end - 1] === '-') end--;
+  return name.slice(start, end);
+}
+
 /**
  * The name a clip gets when it has none: its source's file name (`assets/audio/vo/02-turn.m4a` → `02-turn`), with
  * `-2`, `-3` when taken. Letters are Unicode letters: a file named in Chinese keeps its name.
  */
 export function clipIdFor(src, used) {
   const base = (src ?? '').split(/[/\\]/).pop() ?? '';
-  const stem = base.replace(/\.[A-Za-z0-9]+$/, '').replace(/[^\p{L}\p{N}_-]+/gu, '-').replace(/^-+|-+$/g, '') || 'clip';
+  const stem = trimDashes(base.replace(/\.[A-Za-z0-9]+$/, '').replace(/[^\p{L}\p{N}_-]+/gu, '-')) || 'clip';
   const taken = new Set(used);
   if (!taken.has(stem)) return stem;
   let n = 2;

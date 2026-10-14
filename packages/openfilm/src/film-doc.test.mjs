@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { clipFade, clipKind, clipSpan, fadeGain, filmHtml, kindOf, parseFilm, pictureRect, readFilm, readFilmFile, soundRole, sourceAt } from './film-doc.mjs';
+import { clipFade, clipIdFor, clipKind, clipSpan, fadeGain, filmHtml, kindOf, parseFilm, pictureRect, readFilm, readFilmFile, soundRole, sourceAt } from './film-doc.mjs';
 
 const film = (clip) => ({ stage: { w: 1920, h: 1080 }, tracks: [{ clips: [clip] }] });
 const problems = (value) => readFilm(value).problems.join('\n');
@@ -304,4 +304,11 @@ test('soundRole: the nearest folder named for a role decides, then the name, els
   assert.equal(soundRole('assets/audio/bed.mp3'), 'music');
   assert.equal(soundRole('assets/audio/pop.wav'), 'voice');
   assert.equal(soundRole('assets/effective/line.wav'), 'voice');
+});
+
+test('a clip named after its file has no dashes at its ends, however many there are', () => {
+  assert.equal(clipIdFor('assets/--intro--.mp4', []), 'intro');
+  assert.equal(clipIdFor('assets/片头.mp4', ['片头']), '片头-2');
+  assert.equal(clipIdFor(`a${'-'.repeat(200_000)}b`, []), `a${'-'.repeat(200_000)}b`);
+  assert.equal(clipIdFor('----.mp4', []), 'clip');
 });

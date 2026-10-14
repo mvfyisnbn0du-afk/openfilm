@@ -105,7 +105,7 @@ function textOf(file) {
 
 /** The line without the contents of its string literals (a rough scan: quotes, template strings, regex classes). */
 function withoutStrings(line) {
-  return line.replace(/(["'`])(?:\\.|(?!\1).)*\1/g, '$1$1').replace(/\/\[(?:\\.|[^\]])*\]/g, '/[]');
+  return line.replace(/(["'`])(?:\\.|(?!\1)[^\\])*\1/g, '$1$1').replace(/\/\[(?:\\.|[^\]\\])*\]/g, '/[]');
 }
 
 function isProse(text) {

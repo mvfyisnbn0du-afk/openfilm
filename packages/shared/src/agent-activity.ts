@@ -209,6 +209,10 @@ export function producesAsset(name: string): boolean {
   return PRODUCING_TOOLS.has(hostedToolName(name));
 }
 
+/** An image reference at the very end of a tool's output; taken off one at a time (a single pattern for a run of
+ * them backtracks over long whitespace). */
+const IMAGE_REF_AT_END = /\[image:[a-f0-9]{64}\]$/i;
+
 /**
  * A tool call's receipt → the media it made, or null. Picked out like `publicActivity`: only for the tools that make
  * media, only the receipt's `src` (a media file under `assets/`) and its duration; nothing else of the receipt.
@@ -219,7 +223,9 @@ export function publicActivityResult(name: string, resultText: string | undefine
   try {
     // Archived tool output appends image references after the JSON receipt.
     // They identify the same image; they must not hide its public preview.
-    receipt = JSON.parse(resultText.trim().replace(/(?:\s*\[image:[a-f0-9]{64}\])+\s*$/i, '').trim());
+    let text = resultText.trim();
+    for (let ref = IMAGE_REF_AT_END.exec(text); ref; ref = IMAGE_REF_AT_END.exec(text)) text = text.slice(0, ref.index).trimEnd();
+    receipt = JSON.parse(text);
   } catch {
     return null;
   }
