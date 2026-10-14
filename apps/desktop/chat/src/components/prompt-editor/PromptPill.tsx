@@ -12,7 +12,7 @@
 
 import React from 'react';
 import {
-  Blocks, Brackets, Captions, Clock3, Crop, Film, LocateFixed, Mic, MousePointer2, Music, Paperclip,
+  Blocks, Brackets, Captions, Clock3, Crop, Film, Mic, MousePointer2, Music, Paperclip,
   Quote, Rows3, Shapes, SquareDashed, Video, Waves,
 } from 'lucide-react';
 import {
@@ -277,7 +277,7 @@ export function PromptPill({
          `vertical-align: middle` centers the box on baseline + half the x-height, so the
          part below the baseline must fit in the line box too. 1.45em (the pill's own font
          size) is 18.7px at 14px/22px, with room on both sides. */
-      className={`group/pill mx-[1px] inline-flex h-[1.45em] max-w-[240px] select-none items-center gap-[5px] rounded-[6px] pl-[3px] align-middle text-[0.9em] font-medium leading-none text-[var(--text)] ring-1 ring-inset transition-[background-color,box-shadow] ${
+      className={`mx-[1px] inline-flex h-[1.45em] max-w-[240px] select-none items-center gap-[5px] rounded-[6px] pl-[3px] align-middle text-[0.9em] font-medium leading-none text-[var(--text)] ring-1 ring-inset transition-[background-color,box-shadow] ${
         trailing ? 'pr-[3px]' : 'pr-1.5'
       } ${onClick ? 'cursor-pointer' : ''}`}
       style={{
@@ -285,7 +285,6 @@ export function PromptPill({
           ? `color-mix(in srgb, ${tone} ${onClick ? 11 : 9}%, var(--surface))`
           : 'var(--surface-2)',
         ['--tw-ring-color' as string]: tone ? `color-mix(in srgb, ${tone} 26%, transparent)` : 'var(--border)',
-        ...(tone ? { ['--pill-tone' as string]: tone } : {}),
         /* Lit from elsewhere: a solid border (over the faint ring) and a deeper fill */
         ...(lit ? {
           background: tone ? `color-mix(in srgb, ${tone} 24%, var(--surface))` : 'var(--bg-hover)',
@@ -315,14 +314,6 @@ export function PromptPill({
       <span className="truncate">{reference.label}</span>
       {reference.detail ? (
         <span className="shrink-0 font-normal tabular-nums text-[var(--text-faint)]">{reference.detail}</span>
-      ) : null}
-      {onClick ? (
-        /* Clickable pills show a locate icon on hover: clicking takes you there. */
-        <LocateFixed
-          size={10}
-          aria-hidden
-          className="-ml-0.5 hidden shrink-0 text-[var(--pill-tone,var(--text-muted))] group-hover/pill:block"
-        />
       ) : null}
       {trailing}
     </span>

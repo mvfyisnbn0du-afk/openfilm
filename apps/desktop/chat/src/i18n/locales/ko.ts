@@ -147,7 +147,7 @@ export const ko: Words = {
   },
   library: {
     removeReference: '참조 제거',
-    revealReference: '이 참조로 이동',
+    revealReference: '클릭하면 이 참조로 이동',
   },
   mention: {
     currentRange: '현재 구간',

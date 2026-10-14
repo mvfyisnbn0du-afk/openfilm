@@ -147,7 +147,7 @@ export const ja: Words = {
   },
   library: {
     removeReference: '参照を削除',
-    revealReference: 'この参照へ移動',
+    revealReference: 'クリックでこの参照へ移動',
   },
   mention: {
     currentRange: '現在の範囲',

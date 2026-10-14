@@ -147,7 +147,7 @@ export const zhCN: Words = {
   },
   library: {
     removeReference: '移除引用',
-    revealReference: '跳转到此引用',
+    revealReference: '点击跳转到此引用',
   },
   mention: {
     currentRange: '当前区间',

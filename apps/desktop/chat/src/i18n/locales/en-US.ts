@@ -146,7 +146,7 @@ export const enUS = {
   },
   library: {
     removeReference: 'Remove reference',
-    revealReference: 'Jump to this reference',
+    revealReference: 'Click to jump to this reference',
   },
   mention: {
     currentRange: 'Current range',

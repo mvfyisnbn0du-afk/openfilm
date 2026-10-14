@@ -147,7 +147,7 @@ export const es: Words = {
   },
   library: {
     removeReference: 'Quitar referencia',
-    revealReference: 'Ir a esta referencia',
+    revealReference: 'Haz clic para ir a esta referencia',
   },
   mention: {
     currentRange: 'Rango actual',
