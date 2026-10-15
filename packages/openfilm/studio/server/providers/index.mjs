@@ -25,6 +25,7 @@ import brave from './brave.mjs';
 import tavily from './tavily.mjs';
 import groq from './groq.mjs';
 import azure from './azure.mjs';
+import doubao from './doubao.mjs';
 
 /**
  * @typedef {import('./contract.mjs').Provider} Provider @typedef {import('./contract.mjs').Verb} Verb
@@ -33,7 +34,7 @@ import azure from './azure.mjs';
  */
 
 /** The providers paid with the person's own key. */
-const OWN = [elevenlabs, openai, google, fal, pexels, pixabay, brave, tavily, groq, azure];
+const OWN = [elevenlabs, openai, google, fal, pexels, pixabay, brave, tavily, groq, azure, doubao];
 
 /** The kinds of media the person chooses a provider and model for (Settings → Models). */
 const USE_VERBS = /** @type {Verb[]} */ (['tts', 'music', 'sfx', 'asr', 'image', 'image-search', 'video', 'translate', 'web-search']);

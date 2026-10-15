@@ -55,7 +55,7 @@
  */
 
 /**
- * `read`: a project file's bytes (for `asr`, the speech alone: a small mono copy in the same format).
+ * `read`: a project file's bytes (for `asr`, the speech alone: a small mono copy, in `speechFormat` when requested).
  * `model`: the id of the model, one of the provider's `models` for the verb, the person chose (a provider uses its first
  * when there is none).
  * @typedef {{
@@ -78,6 +78,7 @@
  *   verbs: Verb[],
  *   models?: Partial<Record<Verb, { id: string, name: string }[]>>,
  *   checkKey?: (key: string) => void,
+ *   speechFormat?: 'mp3',
  *   run: (verb: Verb, args: Record<string, unknown>, ctx: RunContext) => Promise<RunResult>,
  * }} Provider
  * `models`: the models it can make each kind of media with, its default first, each with the name people know it by

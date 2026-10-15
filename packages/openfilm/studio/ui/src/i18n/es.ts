@@ -1573,6 +1573,7 @@ export const es: Words = {
       disconnect: 'Desconectar',
       connected: 'Conectado',
       and: 'y',
+      doubaoKeyNote: 'Usa una clave de API de Volcengine Speech con reconocimiento rápido de grabaciones habilitado (volc.bigasr.auc_turbo), no una clave de modelos de chat de Ark.',
       keyNote: 'Tu clave paga directamente al servicio. Se queda en este equipo y solo se envía a su propio servicio.',
       getKey: 'Obtener una clave de {name}',
       pasteKey: 'Pega tu clave de API de {name}',

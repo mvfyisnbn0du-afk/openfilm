@@ -1574,6 +1574,7 @@ export const en = {
       disconnect: 'Disconnect',
       connected: 'Connected',
       and: 'and',
+      doubaoKeyNote: 'Use a Volcengine Speech API key with flash recorded-speech recognition enabled (volc.bigasr.auc_turbo), not an Ark chat model key.',
       keyNote: 'Your key pays the service directly. It stays on this computer and goes only to its own service.',
       getKey: 'Get your {name} key',
       pasteKey: 'Paste your {name} API key',

@@ -310,7 +310,7 @@ export async function runGet(root, verb, given, { via, model, yes = false, ask, 
     root,
     signal: clock.signal,
     say: (/** @type {string} */ line) => { said.push(line); },
-    read: (/** @type {string} */ path) => readInput(root, path, verb === 'asr' && path === args.src, clock.signal),
+    read: (/** @type {string} */ path) => readInput(root, path, verb === 'asr' && path === args.src, clock.signal, provider.speechFormat),
   };
   try {
     if (verb === 'video' && !yes) {
@@ -367,10 +367,10 @@ function deadline(seconds, outer) {
   };
 }
 
-/** A project file for a provider: as it is, or (`speech`) the sound alone, small. @param {string} root @param {string} rel @param {boolean} speech @param {AbortSignal} signal */
-async function readInput(root, rel, speech, signal) {
+/** A project file for a provider: as it is, or (`speech`) the sound alone, small. @param {string} root @param {string} rel @param {boolean} speech @param {AbortSignal} signal @param {'mp3'} [speechFormat] */
+async function readInput(root, rel, speech, signal, speechFormat) {
   const abs = inside(root, rel);
-  const bytes = speech ? await speechOf(abs, signal) : await readFile(abs);
+  const bytes = speech ? await speechOf(abs, signal, speechFormat) : await readFile(abs);
   if (bytes.length > MAX_INPUT_BYTES) {
     throw new GetError(speech
       ? `${rel} is too long to transcribe in one go (${Math.round(bytes.length / 1e6)} MB of speech even compressed, about ${Math.round(bytes.length / 3000 / 3600)} hours). Split it into parts first.`
@@ -382,9 +382,19 @@ async function readInput(root, rel, speech, signal) {
 /**
  * The speech of a recording, as transcription needs it: mono, 16 kHz, low bitrate, in the same format as the file (its
  * name and extension go with it). An hour of video is gigabytes; its speech this way is about 11 MB.
- * @param {string} abs @param {AbortSignal} signal
+ * @param {string} abs @param {AbortSignal} signal @param {'mp3'} [speechFormat]
  */
-async function speechOf(abs, signal) {
+async function speechOf(abs, signal, speechFormat) {
+  // A provider may require MP3 regardless of the source container. Stream it without temporary files.
+  if (speechFormat === 'mp3') {
+    return new Promise((done, fail) => {
+      execFile('ffmpeg', ['-nostdin', '-v', 'error', '-i', abs, '-vn', '-map', '0:a:0', '-ac', '1', '-ar', '16000', '-af', 'aresample=async=1:first_pts=0', '-c:a', 'libmp3lame', '-b:a', '32k', '-f', 'mp3', 'pipe:1'],
+        { signal, windowsHide: true, encoding: 'buffer', maxBuffer: MAX_INPUT_BYTES }, (error, out) => {
+          if (error) return fail(new GetError('Could not prepare MP3 speech for transcription. Check the audio track, FFmpeg and recording length. No audio was uploaded.'));
+          done(out);
+        });
+    });
+  }
   const ext = extname(abs).toLowerCase();
   const format = ['.mp4', '.m4a', '.m4v', '.mov', '.3gp'].includes(ext) ? { codec: ['-c:a', 'aac', '-b:a', '32k'], f: 'mp4' }
     : ext === '.mp3' ? { codec: ['-c:a', 'libmp3lame', '-b:a', '32k'], f: 'mp3' }
