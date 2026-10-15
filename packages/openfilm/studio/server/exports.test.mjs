@@ -138,9 +138,15 @@ test('a video export is render: an MP4 named after the project, with progress, n
   assert.equal(done.out, join(exportsRoot(), 'Tiny.mp4'));
   assert.deepEqual(done.outputs, [done.out]);
   assert.ok(done.bytes > 0 && done.finishedAt >= done.startedAt);
-  /* the Mac's own H.264 encoder when it has one (below master), x264 otherwise; x264 when asked not to use it */
-  const vt = hasFfmpeg && execFileSync('ffmpeg', ['-hide_banner', '-encoders']).toString().includes('h264_videotoolbox');
-  assert.equal(done.encoder, vt ? 'h264_videotoolbox' : 'libx264');
+  /* Use the same platform-aware hardware selection as video exports. */
+  const available = new Set(
+    execFileSync('ffmpeg', ['-hide_banner', '-encoders'])
+      .toString()
+      .match(/^ V\S{5} (\S+)/gm)
+      ?.map((line) => line.trim().split(/\s+/)[1]) ?? []
+  );
+  const hardware = await hardwareEncoder('h264', available);
+  assert.equal(done.encoder, hardware ?? 'libx264');
   const soft = await ended(exports, exports.start(project('Soft'), { kind: 'video', fps: 24, range: [0, 0.25], hardware: false }));
   assert.equal(soft.status, 'done', soft.error);
   assert.equal(soft.encoder, 'libx264');
