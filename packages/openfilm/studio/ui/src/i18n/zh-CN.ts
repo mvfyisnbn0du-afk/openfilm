@@ -1574,7 +1574,6 @@ export const zhCN: Words = {
       disconnect: '断开连接',
       connected: '已连接',
       and: '和',
-      doubaoKeyNote: '使用已开通录音文件极速版识别（volc.bigasr.auc_turbo）的火山引擎语音 API 密钥，不是方舟聊天模型密钥。',
       keyNote: '你的密钥直接向该服务付费。它只保存在这台电脑上，且只会发送给对应的服务。',
       getKey: '获取 {name} 密钥',
       pasteKey: '粘贴你的 {name} API 密钥',

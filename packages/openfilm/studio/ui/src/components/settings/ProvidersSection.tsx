@@ -212,7 +212,6 @@ function KeyRow({ provider, hook }: { provider: OwnProvider; hook: ProvidersHook
               <SettingsButton variant="quiet" onClick={close}>{t('settings.providers.cancel')}</SettingsButton>
               <SettingsButton type="submit" variant="primary" disabled={!draft.trim() || saving}>{t('settings.providers.save')}</SettingsButton>
             </div>
-            {provider.id === 'doubao' ? <p className="text-[13px] text-[var(--text-muted)]">{t('settings.providers.doubaoKeyNote')}</p> : null}
             {hook.problem && hook.problemFor === provider.id ? <p className={settingsError} role="alert">{hook.problem}</p> : null}
             {/* the environment has a key for it: connect with that one, nothing to paste */}
             {provider.envKey ? (

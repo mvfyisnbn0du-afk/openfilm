@@ -1,5 +1,7 @@
 ---
-"openfilm": minor
+"openfilm": patch
 ---
 
-Add Doubao recorded-speech recognition with a Volcengine Speech API key, MP3 audio preparation, and word-timed transcripts.
+Speech recognition with Doubao using your Volcengine Speech API key, with word-timed transcripts from audio and video recordings.
+
+Keep transcript lines visible through their timed words, even when speech is slower than the estimated reading time.

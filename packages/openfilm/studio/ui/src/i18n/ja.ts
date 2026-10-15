@@ -1573,7 +1573,6 @@ export const ja: Words = {
       disconnect: '接続を解除',
       connected: '接続済み',
       and: 'と',
-      doubaoKeyNote: '録音ファイルの高速認識（volc.bigasr.auc_turbo）が有効な Volcengine Speech API キーを使用してください。Ark のチャットモデル用キーではありません。',
       keyNote: 'キーはサービスに直接支払います。キーはこのコンピューターに保存され、そのサービス以外には送信されません。',
       getKey: '{name} のキーを取得',
       pasteKey: '{name} の API キーを貼り付け',

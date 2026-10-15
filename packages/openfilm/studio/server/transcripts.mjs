@@ -468,6 +468,7 @@ export function spokenLines(source, words, durMs) {
       text: raw.trim(),
       /* a piece with no matched word (all digits or marks) follows the one before */
       startMs: inPiece[0] ? Math.round(inPiece[0].startSec * 1000) : 0,
+      spokenUntilMs: inPiece.reduce((end, m) => Math.max(end, Math.round((m.endSec ?? m.startSec) * 1000)), 0),
       marks: inPiece.map((m) => ({ index: m.index - piece.from - lead, startMs: Math.round(m.startSec * 1000) })),
     };
   });
@@ -476,13 +477,13 @@ export function spokenLines(source, words, durMs) {
   }
   return started.map((one, i) => {
     /* a line stays up until the next one starts (a gap would blank the line being read), the last until the source
-       ends, unless that is a long silence: then about as long as it takes to say, plus GAP_MS */
+       ends, unless that is a long silence: then through its words or the estimated speaking time, plus GAP_MS */
     const until = started[i + 1]?.startMs ?? total ?? Infinity;
     const spoken = Math.max(500, cells(one.text) * FALLBACK_MS_PER_CELL);
     return {
       text: one.text,
       startMs: one.startMs,
-      endMs: Math.min(until, one.startMs + spoken + GAP_MS),
+      endMs: Math.min(until, Math.max(one.startMs + spoken, one.spokenUntilMs) + GAP_MS),
       ...(one.marks.length ? { marks: one.marks } : {}),
     };
   }).filter((l) => l.endMs > l.startMs);

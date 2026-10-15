@@ -46,6 +46,28 @@ test('a transcript breaks into lines at sentence ends, timed by its words', () =
   assert.deepEqual(spokenLines('', WORDS, 3000), []);
 });
 
+test('a slowly spoken line lasts through its words instead of the text-length estimate', () => {
+  const words = [
+    { token: 'One', startSec: 0, endSec: 0.5 },
+    { token: 'two.', startSec: 4, endSec: 5 },
+    { token: 'Three.', startSec: 6, endSec: 6.5 },
+  ];
+  const lines = spokenLines('One two. Three.', words, 7000);
+  assert.ok(lines[0].endMs >= 5000, 'the last word finishes before the line ends');
+  assert.ok(lines[0].endMs < 6000, 'a long silence still clears the line');
+  assert.equal(lines[1].endMs, 7000, 'the final line stays within the source');
+  for (const line of lines) assert.ok(line.marks.every((m) => m.startMs < line.endMs));
+
+  const close = spokenLines('One two. Three.', [words[0], words[1], { ...words[2], startSec: 5.2 }], 7000);
+  assert.equal(close[0].endMs, 5200, 'the next line still bounds the previous one');
+});
+
+test('word starts alone also keep a slow line visible through its final mark', () => {
+  const [line] = spokenLines('One two.', [{ token: 'One', startSec: 0 }, { token: 'two.', startSec: 4 }]);
+  assert.ok(line.endMs > 4000);
+  assert.ok(line.marks.every((m) => m.startMs < line.endMs));
+});
+
 test('subtitles leave out fillers and false starts', () => {
   assert.equal(captionText('uh, so we th- the plan'), 'so we the plan');
   assert.equal(captionText('um...'), '');

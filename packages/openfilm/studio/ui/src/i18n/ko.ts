@@ -1572,7 +1572,6 @@ export const ko: Words = {
       disconnect: '연결 해제',
       connected: '연결됨',
       and: '및',
-      doubaoKeyNote: '녹음 파일 고속 인식(volc.bigasr.auc_turbo)이 활성화된 Volcengine Speech API 키를 사용하세요. Ark 채팅 모델 키가 아닙니다.',
       keyNote: '내 키로 서비스에 직접 결제합니다. 키는 이 컴퓨터에만 저장되며 해당 서비스로만 전송됩니다.',
       getKey: '{name} 키 받기',
       pasteKey: '{name} API 키 붙여넣기',
