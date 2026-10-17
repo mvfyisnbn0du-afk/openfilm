@@ -1,8 +1,0 @@
----
-"openfilm": minor
-"@openfilm/desktop": minor
----
-
-Saved: your own library, the same in every project. The bookmark button beside Upload switches the media pane to it, and back; it is the same pane, so upload, folders, list and grid, filters, sort, search, rename, move and delete all work there, and anything can go in it: video, pictures, sound, documents, any file. Right-click a clip on the timeline or the picture, or a file of the project, and choose Add to Saved; with several clips selected, save them as one (they come back on tracks of their own, laid out as they were, links kept) or each alone. Drag anything from Saved onto the timeline, or press Enter: a file is imported into the project as one from your computer is, and a saved clip comes back as you saved it, with its place, its look and the changes made in its page, its files copied into the project, so changing it there never changes the saved one. Saved is a folder beside your projects (Movies/OpenFilm/Saved on a Mac), so you can also add to it from Finder. The media pane no longer has a close button: the assets button beside the chat opens and closes it.
-
-Template: select a page clip and the inspector shows what its page lets you change, without opening the page: each of its words, each of its pictures (replace one with a picture of the project, one dropped from the media pane, or one from your computer), and the CSS custom properties its stylesheet sets on `:root` (a color with a color picker, a number with its unit, a font with the font picker, words in quotes as text). Each change is kept for that clip only, and one changed can go back to the page's own. A page saved with such properties is marked as a template in Saved.
