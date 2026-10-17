@@ -1587,6 +1587,7 @@ export const zhCN: Words = {
       mcpUnfiltered: '{agent} 在 OpenFilm 里会使用你自己的全部 {n} 个 MCP 服务，和它自己的应用里一样。',
     },
     developer: {
+      debugGroup: "调试", debug: "调试模式", debugHint: "显示开发者专用界面和内部实现信息。默认关闭，与完整回合日志相互独立。",
       intro: '用来弄清楚智能体到底做了什么、为什么这么做；这里的设置不会改变智能体的行为。',
       group: '每一轮',
       changes: '显示每一轮的改动',

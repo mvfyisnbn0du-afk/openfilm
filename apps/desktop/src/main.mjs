@@ -19,7 +19,7 @@ import { folderDialogOptions, programDialogOptions } from './folder-dialog.mjs';
 import { childEnvironment, loginShellEnvironment } from './environment.mjs';
 import { startWindowStudio } from './studio.mjs';
 import { CHAT_MIN, STUDIO_MIN, WINDOW_MIN, placeOnDisplays, readWindowState, writeWindowState } from './window-state.mjs';
-import { applicationMenu } from './menu.mjs';
+import { applicationMenuTemplate } from './menu.mjs';
 import { registerLocalAgentIpc } from './local-agents-ipc.mjs';
 import { readPreferences, registerChatIpc } from './chat-ipc.mjs';
 import { registerSkillsIpc } from './skills-ipc.mjs';
@@ -572,11 +572,12 @@ async function start() {
   ipcMain.handle('desktop:update-state', (event) => (fromPage(event) ? updates?.snapshot() ?? null : null));
   ipcMain.handle('desktop:update-check', (event) => (fromPage(event) ? updates?.check() ?? null : null));
 
-  Menu.setApplicationMenu(applicationMenu({
+  Menu.setApplicationMenu(Menu.buildFromTemplate(applicationMenuTemplate({
     productName: PRODUCT_NAME,
     packaged: app.isPackaged,
     toggleChat: () => activeView()?.webContents.send('desktop:toggle-chat'),
     openProject: () => void openProjectFolder(),
+    openSettings: () => { focusWindow(); activeView()?.webContents.send('desktop:open-settings'); },
     reload: () => activeView()?.webContents.reload(),
     devTools: () => activeView()?.webContents.toggleDevTools(),
     tabs: {
@@ -596,7 +597,7 @@ async function start() {
       beta: updates.channel() === 'beta',
       setBeta: (on) => updates.setChannel(on ? 'beta' : 'stable'),
     } : null,
-  }));
+  })));
 
   win.show();
   if (needFfmpeg) {

@@ -10,11 +10,13 @@ import React from 'react';
 export interface HostTab { id: string; projectId: string; title: string; active: boolean; working: boolean; asking: boolean; exporting: number | null }
 
 /** Settings → Developer, as the app keeps it (`developer` below). */
-export interface HostDeveloper { logs: boolean; changes: boolean }
+export interface HostDeveloper { logs: boolean; changes: boolean; debug?: boolean }
 
 export interface StudioHost {
   /** the version of this interface the app speaks */
   version: 1;
+  /** The native Settings menu asks the current page to open General, including the launcher. */
+  settings?: { onOpen: (listener: () => void) => () => void };
   /** the app's name, for the person */
   name?: string;
   /**
@@ -129,7 +131,8 @@ export interface StudioHost {
   };
   /**
    * The app's chat, for Settings → Developer: `logs`, each turn's full log (everything the agent sent and was
-   * answered, as it happened); `changes`, what each turn changed in the project's files, under its reply. `onChange`
+   * answered, as it happened); `debug`, optional UI diagnostics (off by default); `changes`, what each turn changed
+   * in the project's files, under its reply. `onChange`
    * tells of a change from anywhere and returns a way to stop.
    */
   developer?: {

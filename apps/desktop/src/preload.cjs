@@ -118,6 +118,8 @@ contextBridge.exposeInMainWorld('openfilmNative', {
   onFullScreen: on('desktop:full-screen'),
   /* View → Chat in the app's menu */
   onToggleChat: on('desktop:toggle-chat'),
+  /* Native Settings menu and Cmd/Ctrl+,; no renderer can invoke a privileged action here. */
+  onOpenSettings: on('desktop:open-settings'),
   onStudioBrowser: on('desktop:studio-browser'),
   onFfmpeg: on('desktop:ffmpeg'),
   onUpdate: on('desktop:update'),

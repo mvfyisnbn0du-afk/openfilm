@@ -1586,6 +1586,7 @@ export const ja: Words = {
       mcpUnfiltered: '{agent} は本来のアプリと同じく、OpenFilm でも自分の MCP サーバー {n} 個をすべて使います。',
     },
     developer: {
+      debugGroup: "デバッグ", debug: "デバッグモード", debugHint: "開発者向けの操作と内部の実装情報を表示します。初期状態はオフで、詳細ログとは独立しています。",
       intro: 'エージェントが何をなぜ行ったかを正確に確かめるためのものです。エージェントの動作は変わりません。',
       group: '各ターン',
       changes: '各ターンの変更を表示',

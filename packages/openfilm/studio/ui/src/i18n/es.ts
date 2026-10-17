@@ -1586,6 +1586,7 @@ export const es: Words = {
       mcpUnfiltered: '{agent} usa tus {n} servidores MCP en OpenFilm, como en su propia app.',
     },
     developer: {
+      debugGroup: "Depuración", debug: "Modo de depuración", debugHint: "Muestra controles de desarrollo y detalles internos. Desactivado por defecto e independiente de los registros completos.",
       intro: 'Para saber exactamente qué hizo un agente y por qué: nada de esto cambia lo que hacen los agentes.',
       group: 'Cada turno',
       changes: 'Mostrar lo que cambió cada turno',

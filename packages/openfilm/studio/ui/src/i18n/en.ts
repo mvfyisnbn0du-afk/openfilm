@@ -1587,6 +1587,7 @@ export const en = {
       mcpUnfiltered: '{agent} uses all {n} of your own MCP servers in OpenFilm, as in its own app.',
     },
     developer: {
+      debugGroup: "Debugging", debug: "Debug mode", debugHint: "Show developer-only controls and internal implementation details. Off by default and independent of full turn logs.",
       intro: 'For finding out exactly what an agent did, and why: nothing here changes what the agents do.',
       group: 'Each turn',
       changes: 'Show what each turn changed',

@@ -37,6 +37,7 @@ interface Native {
   setTheme(theme: Theme): void;
   onFullScreen(listener: Listener<boolean>): Stop;
   onToggleChat(listener: Listener<void>): Stop;
+  onOpenSettings(listener: Listener<void>): Stop;
   onStudioBrowser(listener: Listener<unknown>): Stop;
   onFfmpeg(listener: Listener<unknown>): Stop;
   onUpdate(listener: Listener<unknown>): Stop;
@@ -207,15 +208,16 @@ const asks = signal<HostAsk[]>([]);
 let answerAsk: (id: string, allow: boolean) => void = () => {};
 
 /* ── Settings → Developer (kept by the app): Studio switches it, the chat shows each turn's log and changes by it ── */
-interface AppPrefs { developer: boolean; changes: boolean }
-const developerOf = (prefs: AppPrefs) => ({ logs: prefs.developer === true, changes: prefs.changes !== false });
+interface AppPrefs { developer: boolean; changes: boolean; debug: boolean }
+const developerOf = (prefs: AppPrefs) => ({ logs: prefs.developer === true, changes: prefs.changes !== false, debug: prefs.debug === true });
 const developer = {
   get: async () => developerOf(await native.prefs.get()),
-  set: (next: { logs?: boolean; changes?: boolean }) => native.prefs.set({
+  set: (next: { logs?: boolean; changes?: boolean; debug?: boolean }) => native.prefs.set({
     ...(typeof next.logs === 'boolean' ? { developer: next.logs } : {}),
     ...(typeof next.changes === 'boolean' ? { changes: next.changes } : {}),
+    ...(typeof next.debug === 'boolean' ? { debug: next.debug } : {}),
   }),
-  onChange: (listener: Listener<{ logs: boolean; changes: boolean }>) => native.prefs.onChange((prefs) => listener(developerOf(prefs))),
+  onChange: (listener: Listener<{ logs: boolean; changes: boolean; debug: boolean }>) => native.prefs.onChange((prefs) => listener(developerOf(prefs))),
 };
 
 /* ── the app's update, for Studio's top bar: a version downloaded and ready (src/updates.mjs), Restart to install it ── */
@@ -264,6 +266,7 @@ const host: StudioHost = {
   onSelection: (next) => selection.set(next),
   onHover: (ref) => hover.set(ref ?? null),
   onCommand: (listener) => { command = listener; },
+  settings: { onOpen: (listener) => native.onOpenSettings(listener) },
   /* read live: Studio may read the panel before or after the kept layout arrives */
   panel: {
     label: 'Chat',
