@@ -1517,6 +1517,7 @@ export const es: Words = {
       automatic: 'Detectarlo automáticamente',
       notAProgram: 'Ese archivo no es un programa que este equipo pueda abrir. Elige el programa del agente (en Windows, el archivo .exe o .cmd).',
       didNotStart: 'No se pudo iniciar desde ahí:',
+      unreadable: 'No puede leer su propia configuración, así que no puede iniciarse. Corrige lo que indica en su archivo de configuración o actualízalo:',
       whyMissing: '¿Por qué no se encuentra?',
       searching: 'Buscando…',
       hintChosenMissing: 'El programa que elegiste ya no está. Elígelo de nuevo o vuelve a detectarlo automáticamente.',

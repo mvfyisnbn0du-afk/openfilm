@@ -32,7 +32,7 @@ import { Readable, Writable } from 'node:stream';
 import { fileURLToPath } from 'node:url';
 import * as acp from '@agentclientprotocol/sdk';
 import { PATH_SEP, childEnvironment, lastPathSource, loginShellEnvironment, loginShellVariables, shellSubset } from './environment.mjs';
-import { AGENT_PROGRAMS, HOME_BIN_CANDIDATES, chosenProgram, consoleProgram, detectAgentInstallation, searchReport } from './agent-installation.mjs';
+import { AGENT_PROGRAMS, HOME_BIN_CANDIDATES, chosenProgram, codexVersion, consoleProgram, detectAgentInstallation, laterVersion, searchReport } from './agent-installation.mjs';
 import { logSwitches } from './agent-logs.mjs';
 import { mergeConfig, sessionSkills } from './agent-skills.mjs';
 import { nodeBinary } from './node-runtime.mjs';
@@ -332,7 +332,7 @@ export async function agentSignedIn(id, cliPath) {
 /**
  * Signed in, and as whom, asked of the program: `account` is what it says of its sign-in (Claude Code: email,
  * organization, plan; Codex: how, ChatGPT or an API key), never a key or a token.
- * @returns {Promise<{ signedIn: boolean | null, account: AgentAccount | null }>}
+ * @returns {Promise<{ signedIn: boolean | null, account: AgentAccount | null, problem?: string }>}
  */
 export async function agentStatus(id, cliPath) {
   const spec = AGENTS[id];
@@ -346,7 +346,8 @@ export async function agentStatus(id, cliPath) {
 /**
  * @typedef {{ method: 'claude.ai' | 'console' | 'api-key' | 'chatgpt' | 'other', email?: string, org?: string, plan?: string }} AgentAccount
  * What a sign-in status says: Claude Code's JSON, Codex's words. @param {string} id @param {string} stdout @param {string} out
- * @returns {{ signedIn: boolean | null, account: AgentAccount | null }}
+ * `problem`: why it could not say, when that is something the person can fix (its settings it cannot read).
+ * @returns {{ signedIn: boolean | null, account: AgentAccount | null, problem?: string }}
  */
 export function readAgentStatus(id, stdout, out) {
   if (id === 'claude') {
@@ -359,6 +360,9 @@ export function readAgentStatus(id, stdout, out) {
       return { signedIn: true, account: { method, email: text(s.email), org: text(s.orgName), plan: text(s.subscriptionType) } };
     } catch { /* not JSON: read the words */ }
   }
+  /* settings it cannot read (a value only a later version knows): it can't say, nor start a session, until fixed */
+  const broken = /error loading config(?:uration)?\b[:\s]*(.*)/i.exec(out);
+  if (broken) return { signedIn: null, account: null, problem: broken[0].trim().slice(0, 500) };
   if (/\bnot logged in\b/i.test(out)) return { signedIn: false, account: null };
   if (/\blogged in\b/i.test(out)) {
     const method = /chatgpt/i.test(out) ? 'chatgpt' : /api key/i.test(out) ? 'api-key' : 'other';
@@ -636,10 +640,31 @@ const CLIENT_INFO = { name: 'openfilm-desktop', title: 'OpenFilm', version: '0.1
 /** ACP's auth_required: the agent wants its own sign-in first. */
 const AUTH_REQUIRED = -32000;
 
-/** A session refused for the agent's sign-in, said so (`code: 'sign-in'`); any other error as it was. */
-function signInError(label, e) {
-  if (e?.code !== AUTH_REQUIRED) return e;
-  return Object.assign(new Error(`${label} is not signed in. Sign in under Settings → Agents.`), { code: 'sign-in' });
+/** The oldest Codex the chat was tried with: an older one may have an app server the adapter can't talk to. */
+export const CODEX_TESTED = '0.132.0';
+
+/**
+ * A Codex that did not start, older than the ones tried: its reason, and that updating it is the likely fix (an old
+ * one's app server goes away as the session opens, "connection got disposed", and says nothing more).
+ * @param {string} agent @param {string | undefined} path @param {any} e @param {(file: string) => string | null} [versionOf]
+ */
+export function codexTooOld(agent, path, e, versionOf = codexVersion) {
+  if (agent !== 'codex' || !path || e?.code === 'sign-in' || e?.code === 'not-installed') return e;
+  const version = versionOf(path);
+  if (!version || !laterVersion(CODEX_TESTED, version)) return e;
+  const why = e instanceof Error ? e.message : String(e);
+  return Object.assign(new Error(`Codex ${version} is older than OpenFilm needs (${CODEX_TESTED} or later): update Codex, then try again. ${why}`.trim()), { code: 'outdated' });
+}
+
+/**
+ * A session refused for the agent's sign-in, said so (`code: 'sign-in'`); any other error with its reason: an error
+ * the agent sends as "Internal error" carries the reason in its `data` (Codex's settings it cannot read, for one).
+ */
+export function signInError(label, e) {
+  if (e?.code === AUTH_REQUIRED) return Object.assign(new Error(`${label} is not signed in. Sign in under Settings → Agents.`), { code: 'sign-in' });
+  const data = e?.data;
+  const why = typeof data === 'string' ? data : [data?.message, data?.details].find((v) => typeof v === 'string') ?? '';
+  return why.trim() ? Object.assign(new Error(why.trim()), { code: e.code }) : e;
 }
 
 /** The answer that lets it go ahead (for good, where it offers that), or null when none does. */
@@ -706,10 +731,19 @@ export class AgentSession {
    * `openfilm` first on its PATH; the app's ffmpeg (`fallbackDir`) last, for a computer that has none of its own.
    */
   async start() {
+    try {
+      return await this.open();
+    } catch (e) {
+      throw codexTooOld(this.opts.agent, this.cli?.path, e);
+    }
+  }
+
+  async open() {
     const shell = agentShell(this.opts.agent, await loginShellVariables({ staleOk: true }));
     const harness = this.opts.harness ?? null;
     const cli = harness ? null : resolveAgentCli(this.opts.agent, { pathDirs: shell.PATH.split(PATH_SEP) });
     if (!harness && !cli) throw Object.assign(new Error(`${this.spec.label} is not installed on this computer.`), { code: 'not-installed' });
+    this.cli = cli;
     const node = nodeRuntime();
     const path = [this.opts.binDir, shell.PATH, this.opts.fallbackDir].filter(Boolean).join(PATH_SEP);
     const instructions = INSTRUCTIONS;
@@ -773,7 +807,7 @@ export class AgentSession {
       protocolVersion: acp.PROTOCOL_VERSION,
       clientCapabilities: CLIENT_CAPABILITIES,
       clientInfo: CLIENT_INFO,
-    });
+    }).catch((e) => { throw signInError(this.spec.label, e); });
 
     const params = {
       cwd: this.opts.cwd,

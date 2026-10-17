@@ -129,6 +129,7 @@ export const ja: Words = {
     agentNoneShown: 'チャットで使えるエージェントがオンになっていません。',
     agentNotFound: '見つかりません',
     agentOptionsFailed: '設定を読み込むために起動できませんでした。',
+    agentOutdated: 'OpenFilm に必要なバージョンより古いです。Codex を更新してから',
     agentOwnKey: '自分のキー',
     agentPermissionDeny: '許可しない',
     agentPermissionTitle: '{name} が次の操作を求めています',

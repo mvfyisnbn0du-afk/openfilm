@@ -35,8 +35,11 @@ interface LocalAgentStore extends Persisted {
   hydrated: boolean;
   /** The roster as the app last told it; null = not told yet (or not in the app). */
   roster: RosterAgent[] | null;
-  /** Asking an agent for its option list failed (its adapter would not start): the menu says so. */
-  optionsError: Partial<Record<LocalAgentId, string>>;
+  /**
+   * Asking an agent for its option list failed (its adapter would not start): the menu says so, with what it said
+   * (`text`) and why, when known (`code`: 'outdated', a Codex older than the chat needs).
+   */
+  optionsError: Partial<Record<LocalAgentId, { text: string; code?: string }>>;
   hydrate(): void;
   refresh(): Promise<void>;
   pick(agent: LocalAgentId): void;
@@ -205,11 +208,11 @@ export const useLocalAgents = create<LocalAgentStore>((set, get) => ({
     askedThisLaunch.add(agent);
     set({ optionsError: { ...get().optionsError, [agent]: undefined } });
     try {
-      const r = await api.probe(agent).catch((e: unknown) => ({ ok: false as const, error: e instanceof Error ? e.message : String(e) }));
+      const r = await api.probe(agent).catch((e: unknown) => ({ ok: false as const, error: e instanceof Error ? e.message : String(e), code: undefined }));
       if (r.ok && r.info.commands?.length) keepCommands(agent, readCommands({ availableCommands: r.info.commands }));
       if (r.ok && r.info.configOptions?.length) get().noteOptions(agent, r.info.configOptions);
       /* the ones kept from before stay when this launch's ask fails */
-      else if (!kept) set({ optionsError: { ...get().optionsError, [agent]: r.ok ? 'no options' : r.error } });
+      else if (!kept) set({ optionsError: { ...get().optionsError, [agent]: r.ok ? { text: 'no options' } : { text: r.error, ...(r.code ? { code: r.code } : {}) } } });
     } finally {
       probing.delete(agent);
     }

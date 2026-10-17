@@ -129,6 +129,7 @@ export const ko: Words = {
     agentNoneShown: '채팅에 켜 둔 에이전트가 없습니다.',
     agentNotFound: '찾을 수 없음',
     agentOptionsFailed: '설정을 읽으려고 실행했지만 시작하지 못했습니다.',
+    agentOutdated: 'OpenFilm에 필요한 버전보다 오래되었습니다. Codex를 업데이트한 다음',
     agentOwnKey: '내 키',
     agentPermissionDeny: '허용 안 함',
     agentPermissionTitle: '{name}이(가) 다음 작업을 하려고 합니다',

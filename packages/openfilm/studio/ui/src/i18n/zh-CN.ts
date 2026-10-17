@@ -1518,6 +1518,7 @@ export const zhCN: Words = {
       automatic: '改回自动检测',
       notAProgram: '这不是这台电脑能启动的程序。请选择智能体程序本身（Windows 上是 .exe 或 .cmd 文件）。',
       didNotStart: '从这里启动失败：',
+      unreadable: '它读不了自己的设置，所以无法启动。请修改它的配置文件里提到的那一项，或更新它：',
       whyMissing: '为什么检测不到？',
       searching: '正在查找…',
       hintChosenMissing: '你选择的程序已经不在了。重新选择，或改回自动检测。',

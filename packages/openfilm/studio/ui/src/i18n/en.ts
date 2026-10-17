@@ -1518,6 +1518,7 @@ export const en = {
       automatic: 'Find it automatically',
       notAProgram: 'That is not a program this computer can start. Choose the agent’s program itself (on Windows, the .exe or .cmd file).',
       didNotStart: 'It did not start from there:',
+      unreadable: 'It can’t read its own settings, so it can’t start. Fix what it names in its config file, or update it:',
       whyMissing: 'Why isn’t it found?',
       searching: 'Searching…',
       hintChosenMissing: 'The program you chose is not there any more. Choose it again, or find it automatically.',

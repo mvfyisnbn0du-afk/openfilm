@@ -128,6 +128,7 @@ export const enUS = {
     agentNoneShown: 'No agent is switched on for the chat.',
     agentNotFound: 'Not found',
     agentOptionsFailed: 'Couldn\'t start it to read its settings.',
+    agentOutdated: 'It is older than OpenFilm needs. Update Codex, then',
     agentOwnKey: 'Your own key',
     agentPermissionDeny: 'Don’t allow',
     agentPermissionTitle: '{name} wants to do this',

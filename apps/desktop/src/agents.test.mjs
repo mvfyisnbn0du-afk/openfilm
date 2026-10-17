@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { CLIENT_CAPABILITIES, CODEX_UTF8_CMD, agentShell, allowOption, codexDeveloperInstructions, codexLaunchEnv, legacyOptions, powerShellScript, readAgentStatus } from './agents.mjs';
+import { CLIENT_CAPABILITIES, CODEX_UTF8_CMD, agentShell, allowOption, codexDeveloperInstructions, codexLaunchEnv, legacyOptions, powerShellScript, readAgentStatus, signInError, codexTooOld } from './agents.mjs';
 
 test('an agent that asks: yes for good where it offers that, else yes this once; nothing to say yes with is null', () => {
   const options = [
@@ -35,6 +35,26 @@ test('whose sign-in it is, as each program says it, never a key', () => {
   assert.deepEqual(read, { signedIn: true, account: { method: 'api-key' } });
   assert.ok(!JSON.stringify(read).includes('sk-'), 'no part of a key');
   assert.deepEqual(readAgentStatus('codex', 'Not logged in\n', 'Not logged in\n'), { signedIn: false, account: null });
+});
+
+test('settings Codex cannot read: it cannot say whether it is signed in, and says why', () => {
+  const out = '\nError loading configuration: ~/.codex/config.toml:2:16: unknown variant `full`, expected one of `read-only`, `workspace-write`, `danger-full-access`\n';
+  assert.deepEqual(readAgentStatus('codex', '', out), {
+    signedIn: null, account: null,
+    problem: 'Error loading configuration: ~/.codex/config.toml:2:16: unknown variant `full`, expected one of `read-only`, `workspace-write`, `danger-full-access`',
+  });
+});
+
+test('an error the agent sends as "Internal error" carries its reason; a sign-in refused is said so', () => {
+  const why = 'failed to load configuration: config.toml:1:26: unknown variant `ultra`';
+  const e = signInError('Codex', Object.assign(new Error('Internal error'), { code: -32603, data: `${why}\n` }));
+  assert.equal(e.message, why);
+  assert.equal(e.code, -32603);
+  assert.equal(signInError('Codex', Object.assign(new Error('Internal error'), { code: -32603, data: { message: why } })).message, why);
+  assert.equal(signInError('Codex', Object.assign(new Error('Internal error'), { code: -32603, data: { details: 'connection got disposed' } })).message, 'connection got disposed');
+  const plain = new Error('Codex process has exited with code 1');
+  assert.equal(signInError('Codex', plain), plain);
+  assert.equal(signInError('Codex', Object.assign(new Error('Authentication required'), { code: -32000 })).code, 'sign-in');
 });
 
 test("the person's own developer_instructions in Codex's config, read as TOML writes them; a profile's is not theirs at the top", () => {
@@ -103,4 +123,16 @@ test('on Windows, Codex is started through a script that turns the console to UT
   const blocked = join(mkdtempSync(join(tmpdir(), 'of-codex-')), 'file');
   writeFileSync(blocked, '');
   assert.deepEqual(codexLaunchEnv(exe, { win: true, dir: join(blocked, 'launch') }), { CODEX_PATH: exe });
+});
+
+test('a Codex older than the ones tried, that did not start, is said to need an update; a later one, or a sign-in, as it was', () => {
+  const failed = new Error('Pending response rejected since connection got disposed');
+  const old = codexTooOld('codex', '/usr/local/bin/codex', failed, () => '0.104.0');
+  assert.equal(old.code, 'outdated');
+  assert.match(old.message, /^Codex 0\.104\.0 is older than OpenFilm needs \(0\.132\.0 or later\): update Codex, then try again\. Pending response/);
+  assert.equal(codexTooOld('codex', '/usr/local/bin/codex', failed, () => '0.163.0'), failed);
+  assert.equal(codexTooOld('codex', '/usr/local/bin/codex', failed, () => null), failed, 'a version it cannot tell');
+  const signIn = Object.assign(new Error('Codex is not signed in.'), { code: 'sign-in' });
+  assert.equal(codexTooOld('codex', '/usr/local/bin/codex', signIn, () => '0.104.0'), signIn);
+  assert.equal(codexTooOld('claude', '/usr/local/bin/claude', failed, () => '0.104.0'), failed);
 });

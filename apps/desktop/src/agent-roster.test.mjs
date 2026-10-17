@@ -190,6 +190,18 @@ test('disconnecting only stops OpenFilm using an agent; connecting again uses th
   assert.deepEqual(closed, ['claude', 'claude', 'claude'], 'its sessions closed each time: none goes on with the old account');
 });
 
+test("Codex found but unable to read its own settings says so, with what it said", async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'of-roster-'));
+  const problem = 'Error loading configuration: config.toml:2:16: unknown variant `full`';
+  const r = roster(dir, undefined, {
+    localAgents: async () => [{ id: 'codex', cli: { path: '/bin/codex' }, signedIn: null, account: null, problem, install: null, setupRequired: null }],
+  });
+  await r.refresh();
+  const codex = r.list().find((a) => a.id === 'codex');
+  assert.equal(codex.status, 'ready');
+  assert.equal(codex.problem, problem);
+});
+
 test('Codex is connected from the start, Claude Code once the person connects it; a choice kept stays as it is', () => {
   const dir = mkdtempSync(join(tmpdir(), 'of-roster-'));
   assert.deepEqual(readChoices(dir).disconnected, ['claude']);

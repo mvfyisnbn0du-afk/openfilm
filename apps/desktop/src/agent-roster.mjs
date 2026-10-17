@@ -177,7 +177,7 @@ export async function probeModel({ format, baseUrl, key, model, fetch: fetchImpl
  *
  * @param {{
  *   dataDir: string,
- *   localAgents: () => Promise<Array<{ id: string, cli: { path: string } | null, signedIn: boolean | null, account?: object | null, install: string | null, setupRequired: string | null }>>,
+ *   localAgents: () => Promise<Array<{ id: string, cli: { path: string } | null, signedIn: boolean | null, account?: object | null, problem?: string, install: string | null, setupRequired: string | null }>>,
  *   openSignIn: (id: string) => Promise<{ ok: boolean, error?: string }>,
  *   usePaths?: (paths: Record<string, string>) => void,
  *   pickProgram?: (id: string, words?: { title?: string, button?: string }) => Promise<string | null>,
@@ -223,7 +223,7 @@ export function createRoster(deps) {
       if (!found.cli) return { status: 'missing', install: found.install ?? null, setupRequired: found.setupRequired ?? null, ...where };
       if (choices.disconnected.includes(id)) return { status: 'off', ...where };
       if (found.signedIn === false) return { status: live.waiting[id] ? 'waiting' : 'sign-in', ...where };
-      return { status: 'ready', ...where, ...(found.account ? { account: { ...found.account } } : {}) };
+      return { status: 'ready', ...where, ...(found.account ? { account: { ...found.account } } : {}), ...(found.problem ? { problem: found.problem } : {}) };
     }
     if (choices.disconnected.includes(id)) return { status: 'off' };
     if (!keyed().length) return { status: 'key' };

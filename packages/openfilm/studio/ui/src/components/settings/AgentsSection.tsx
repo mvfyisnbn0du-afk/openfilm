@@ -229,7 +229,9 @@ export function AgentsSection() {
 
   const row = (agent: HostAgent, chosen = true) => {
     const ownKey = agent.id === 'byok' && agent.byok;
-    const said = error?.id === agent.id ? error.text : agent.error;
+    /* found, but it cannot read its own settings, so no session starts: what it says, to fix in its config file */
+    const problem = agent.status === 'ready' && agent.problem ? agent.problem : null;
+    const said = error?.id === agent.id ? error.text : agent.error ?? (problem ? `${t('settings.agents.unreadable')} ${problem}` : undefined);
     const open = agent.id === 'byok' && keyOpen;
     /* where it is not found: why, on asking (Claude Code waiting for its app's Code tab is not lost) */
     const lost = agent.status === 'missing' && agent.setupRequired !== 'code-tab' && Boolean(host.diagnose);
@@ -252,7 +254,7 @@ export function AgentsSection() {
                 {t('settings.agents.recommended')}
               </span>
             ) : null}
-            {agent.status === 'ready' && chosen ? <SettingsStatus>{ownKey ? agent.byok!.models.map((m) => m.name).join(', ') : t('settings.agents.ready')}</SettingsStatus> : null}
+            {agent.status === 'ready' && chosen && !problem ? <SettingsStatus>{ownKey ? agent.byok!.models.map((m) => m.name).join(', ') : t('settings.agents.ready')}</SettingsStatus> : null}
           </>
         )}
         description={agent.status === 'ready' ? accountLine(agent) : statusLine(agent)}

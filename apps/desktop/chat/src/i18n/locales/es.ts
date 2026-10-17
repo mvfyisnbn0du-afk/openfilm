@@ -129,6 +129,7 @@ export const es: Words = {
     agentNoneShown: 'No hay ningún agente activado para el chat.',
     agentNotFound: 'No encontrado',
     agentOptionsFailed: 'No se pudo iniciar para leer su configuración.',
+    agentOutdated: 'Es más antigua de lo que OpenFilm necesita. Actualiza Codex y luego',
     agentOwnKey: 'Tu propia clave',
     agentPermissionDeny: 'No permitir',
     agentPermissionTitle: '{name} quiere hacer esto',

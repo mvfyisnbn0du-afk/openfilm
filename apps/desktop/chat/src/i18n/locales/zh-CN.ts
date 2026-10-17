@@ -129,6 +129,7 @@ export const zhCN: Words = {
     agentNoneShown: '对话中尚未开启任何智能体。',
     agentNotFound: '未找到',
     agentOptionsFailed: '无法启动它来读取设置。',
+    agentOutdated: '它的版本比 OpenFilm 需要的旧。请先更新 Codex，然后',
     agentOwnKey: '自有密钥',
     agentPermissionDeny: '不允许',
     agentPermissionTitle: '{name} 想要执行以下操作',

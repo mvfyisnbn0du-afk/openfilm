@@ -1516,6 +1516,7 @@ export const ko: Words = {
       automatic: '자동 감지로 되돌리기',
       notAProgram: '이 컴퓨터에서 실행할 수 있는 프로그램이 아닙니다. 에이전트 프로그램 자체를 선택하세요(Windows에서는 .exe 또는 .cmd 파일).',
       didNotStart: '여기서 실행하지 못했습니다:',
+      unreadable: '자체 설정을 읽지 못해 시작할 수 없습니다. 설정 파일에서 지적된 부분을 고치거나 업데이트하세요:',
       whyMissing: '왜 찾지 못하나요?',
       searching: '찾는 중…',
       hintChosenMissing: '선택한 프로그램이 더 이상 없습니다. 다시 선택하거나 자동 감지로 되돌리세요.',

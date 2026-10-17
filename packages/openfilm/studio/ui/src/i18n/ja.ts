@@ -1517,6 +1517,7 @@ export const ja: Words = {
       automatic: '自動検出に戻す',
       notAProgram: 'このコンピュータで起動できるプログラムではありません。エージェントのプログラム自体を選んでください（Windows では .exe または .cmd ファイル）。',
       didNotStart: 'ここからは起動できませんでした：',
+      unreadable: '自分の設定を読み込めないため起動できません。設定ファイルの該当箇所を直すか、更新してください：',
       whyMissing: '見つからない理由は？',
       searching: '検索中…',
       hintChosenMissing: '選択したプログラムが見つかりません。もう一度選ぶか、自動検出に戻してください。',

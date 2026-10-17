@@ -222,6 +222,8 @@ export interface HostAgent {
   path?: string | null;
   chosen?: string | null;
   error?: string;
+  /** Found, but it cannot read its own settings (Codex's config file), as it says: no session starts until fixed. */
+  problem?: string;
   account?: HostAgentAccount;
   /** The own key's models, each set up on its own; the first is the one a conversation starts on. */
   byok?: { models: HostOwnModel[] };
