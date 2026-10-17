@@ -34,9 +34,11 @@ import { mkdirSync, readFileSync, readdirSync, rmSync, statSync, symlinkSync, wr
 import { homedir } from 'node:os';
 import { basename, dirname, join, resolve } from 'node:path';
 import { createRequire } from 'node:module';
+import { pathToFileURL } from 'node:url';
 
 const require = createRequire(import.meta.url);
-const skillsLib = () => import(require.resolve('openfilm/skills'));
+/* by its file URL: import() takes no Windows path (`D:\…`) */
+const skillsLib = () => import(pathToFileURL(require.resolve('openfilm/skills')).href);
 
 /** The agents whose own skills can be hidden in OpenFilm (byok: the app's own agent, Pi). */
 export const FILTERED_AGENTS = Object.freeze(['claude', 'codex', 'opencode', 'qwen', 'gemini', 'byok']);

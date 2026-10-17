@@ -31,12 +31,14 @@ import { createRequire } from 'node:module';
 import { mkdirSync } from 'node:fs';
 import { isAbsolute, resolve } from 'node:path';
 import { randomUUID } from 'node:crypto';
+import { pathToFileURL } from 'node:url';
 import { FILTERED_AGENTS, MCP_AGENTS, ownMcpServers, ownSkills, skillStore } from './agent-skills.mjs';
 import { loginShellVariables } from './environment.mjs';
 
 const require = createRequire(import.meta.url);
-const lib = () => import(require.resolve('openfilm/skills'));
-const cli = () => import(require.resolve('openfilm/skills-cli'));
+/* by their file URLs: import() takes no Windows path (`D:\…`) */
+const lib = () => import(pathToFileURL(require.resolve('openfilm/skills')).href);
+const cli = () => import(pathToFileURL(require.resolve('openfilm/skills-cli')).href);
 
 /** A skill as the page shows it. */
 const shown = (s) => ({ name: s.name, description: s.description, source: s.source, folder: s.folder, scripts: s.scripts ?? [], ...(s.over ? { over: s.over } : {}), ...(s.shown ? { shown: s.shown } : {}) });
