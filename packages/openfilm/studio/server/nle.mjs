@@ -53,7 +53,7 @@ import { clipKind, pictureRect, soundRole } from '../../src/film-doc.mjs';
  *   How a file is made: a clip rendered, a source cloned or pointed at, a still drawn to PNG, a source converted
  *   (`segment`: only those source seconds, at that speed, `seconds` long), a mixed stem
  * @typedef {{ id: string, name: string, path: string, job: NleMediaJob, durationFrames: number,
- *   video?: { w: number, h: number, alpha: boolean, still: boolean }, audio?: { channels: number, sampleRate: number } }} NleFile
+ *   video?: { w: number, h: number, alpha: boolean, still: boolean, fps?: number }, audio?: { channels: number, sampleRate: number } }} NleFile
  * @typedef {{ id: string, name: string, fileId: string, start: number, end: number, in: number, out: number, enabled: boolean,
  *   motion?: { scale: number, center: { h: number, v: number } }, gain?: number,
  *   levels?: { when: number, value: number }[], linkGroup?: string }} NleClip
@@ -208,7 +208,7 @@ export function planNleTimeline(film, opts) {
       file = addFile({
         ...made,
         durationFrames: facts.duration ? Math.max(1, toFrame(facts.duration, rate)) : Math.max(1, minFrames),
-        ...(video ? { video: { w: facts.w ?? stage.w, h: facts.h ?? stage.h, alpha: Boolean(facts.alpha), still: false } } : {}),
+        ...(video ? { video: { w: facts.w ?? stage.w, h: facts.h ?? stage.h, alpha: Boolean(facts.alpha), still: false, fps: facts.fps } } : {}),
         ...(audio ? { audio: converted ? { channels: audio.channels, sampleRate: 48_000 } : audio } : {}),
       });
       if (facts.duration) measured.add(file.id);

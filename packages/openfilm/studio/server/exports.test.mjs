@@ -7,6 +7,7 @@ import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createExports, exportCapabilities, exportsRoot, ExportError, frameBox, dimsForShortEdge, hardwareEncoder, hardwareOptions, projectFiles, projectSizes } from './exports.mjs';
 import { allocateLanes, containMotion, fadeKeyframes, frameSpan, nleRate, planNleTimeline, xmemlDocument } from './nle.mjs';
+import { fcpxmlDocument } from './fcpxml.mjs';
 import { pptxParts } from './slides.mjs';
 import { filmSubtitleSrt, parseFilmSubtitleStyle } from './film-subtitle.mjs';
 import { zipFiles } from './zip.mjs';
@@ -427,6 +428,84 @@ test('fades in the editor\'s timeline: a picture that fades is rendered; a sound
   assert.equal(sound.in, 0);
   assert.deepEqual(sound.levels, [{ when: 0, value: 0 }, { when: 13, value: 1 }]);
   assert.match(xmemlDocument(timeline), /<parameterid>level<\/parameterid>[\s\S]*<keyframe>\s*<when>0<\/when>\s*<value>0<\/value>\s*<\/keyframe>\s*<keyframe>\s*<when>13<\/when>/);
+});
+
+test('Final Cut Pro connections retain their parent and sequence positions across cuts, trims and gaps', async () => {
+  const clip = (name, start, end, from, fileId = 'picture') => ({ name, start, end, in: from, out: from + end - start, fileId, enabled: true });
+  const primary = [clip('first', 10, 35, 50), clip('second', 40, 70, 5), clip('third', 70, 100, 30)];
+  const overlays = [clip('overlay-a', 20, 60, 7), clip('overlay-b', 50, 90, 9)];
+  const across = clip('across-gap', 5, 105, 0);
+  const music = clip('music', 0, 110, 0, 'sound');
+  const voice = clip('voice', 55, 75, 12, 'sound');
+  const expected = [...primary, ...overlays, across, music, voice];
+  const rates = [25, 29.97];
+  const documents = rates.map((fps) => fcpxmlDocument({
+    name: 'Connected clips', rate: nleRate(fps), width: 1920, height: 1080, durationFrames: 110,
+    files: [
+      { id: 'picture', name: 'picture.mov', path: join(scratch, 'picture.mov'), durationFrames: 200, video: { w: 1920, h: 1080, still: false, alpha: true } },
+      { id: 'sound', name: 'sound.wav', path: join(scratch, 'sound.wav'), durationFrames: 200, audio: { channels: 2, sampleRate: 48000 } },
+    ],
+    video: [{ enabled: true, clips: primary }, { enabled: true, clips: overlays }, { enabled: true, clips: [across] }],
+    audio: [{ enabled: true, clips: [music] }, { enabled: true, clips: [voice] }],
+  }));
+  const parsed = await parseXml(documents, (doc) => {
+    const seconds = (value) => {
+      const [n, d = '1'] = (value ?? '0s').replace(/s$/, '').split('/');
+      return Number(n) / Number(d);
+    };
+    const attr = (el, name) => seconds(el.getAttribute(name));
+    const clips = [];
+    const visit = (el, parentAt, parentIn) => {
+      const at = parentAt + attr(el, 'offset') - parentIn;
+      if (el.tagName === 'asset-clip') clips.push({
+        name: el.getAttribute('name'), parent: el.parentElement?.getAttribute('name'),
+        at, end: at + attr(el, 'duration'), from: attr(el, 'start'),
+      });
+      for (const child of el.children) if (child.tagName === 'asset-clip' || child.tagName === 'gap') visit(child, at, attr(el, 'start'));
+    };
+    const spine = doc.querySelector('sequence > spine');
+    for (const child of spine.children) visit(child, 0, 0);
+    return { primary: [...spine.children].map((el) => el.tagName === 'gap' ? 'gap' : el.getAttribute('name')), clips };
+  });
+  for (const [i, { error, found }] of parsed.entries()) {
+    assert.equal(error, null);
+    assert.deepEqual(found.primary, ['gap', 'first', 'gap', 'second', 'third', 'gap']);
+    assert.equal(found.clips.length, expected.length);
+    const fps = nleRate(rates[i]).fps;
+    for (const original of expected) {
+      const actual = found.clips.find((c) => c.name === original.name);
+      assert.ok(actual, original.name);
+      assert.deepEqual([actual.at, actual.end, actual.from].map((t) => Math.round(t * fps)), [original.start, original.end, original.in], original.name);
+    }
+    const parents = Object.fromEntries(found.clips.map((c) => [c.name, c.parent]));
+    assert.equal(parents['overlay-a'], 'first');
+    assert.equal(parents['overlay-b'], 'second');
+    assert.equal(parents.voice, 'second');
+    assert.equal(parents['across-gap'], 'OpenFilm');
+  }
+});
+
+test('Final Cut Pro export packages FCPXML, rendered pages, audio and optional subtitle sidecars', ffmpeg, async () => {
+  for (const audio of ['clips', 'stems']) {
+    const done = await exported({ kind: 'nle', format: 'fcpxml', fps: 25, audio, subtitles: audio === 'clips' });
+    assert.match(done.out, /Tiny\.fcpxml$/);
+    for (const file of done.outputs) assert.ok(existsSync(file), file);
+    assert.equal(done.outputs.some((f) => f.endsWith('.srt')), audio === 'clips');
+    const [{ error, found }] = await parseXml([readFileSync(done.out, 'utf8')], (doc) => ({
+      version: doc.documentElement.getAttribute('version'),
+      primary: [...doc.querySelectorAll('sequence > spine > asset-clip')].map((c) => c.getAttribute('name')),
+      clips: [...doc.querySelectorAll('asset-clip')].map((c) => ({ lane: Number(c.getAttribute('lane')), enabled: c.getAttribute('enabled'), kind: c.getAttribute('srcEnable') })),
+      media: [...doc.querySelectorAll('media-rep')].map((m) => m.getAttribute('src')),
+      formats: [...doc.querySelectorAll('format')].map((f) => f.getAttribute('frameDuration')),
+    }));
+    assert.equal(error, null);
+    assert.equal(found.version, '1.10');
+    assert.deepEqual(found.primary, ['title'], 'Studio’s main picture track becomes the primary storyline');
+    assert.equal(found.clips.filter((c) => c.kind === 'video').length, 2);
+    assert.ok(found.clips.some((c) => c.kind === 'audio' && c.lane < 0));
+    assert.ok(found.formats.every((f) => f === '1/25s'));
+    for (const url of found.media) assert.ok(existsSync(fileURLToPath(url)), url);
+  }
 });
 
 test('editing software: an xmeml folder; pages rendered with alpha, footage placed, sound as clips or stems, subtitles as SRT', { ...ffmpeg, timeout: 240_000 }, async () => {

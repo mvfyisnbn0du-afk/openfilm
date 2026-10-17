@@ -74,8 +74,11 @@ openfilm get    [what]            # 用你接入的服务生成配音、音乐�
 
 Studio 在你的电脑上运行，在浏览器里打开。片子里的一切都能改：画面里的文字和图层，时间线上的片段，它们的位置、外观、
 音量和速度，还有字幕。你的修改会保存到片子的文件里，智能体能看到并保留它们；你也可以保存带名字的版本，随时回退。
-可以导出视频、GIF、声音或分轨、字幕、静帧、幻灯片、透明背景视频，也可以把整条时间线导出给 Premiere Pro 和
+可以导出视频、GIF、声音或分轨、字幕、静帧、幻灯片、透明背景视频，也可以把整条时间线导出给 Final Cut Pro、Premiere Pro 和
 DaVinci Resolve。
+
+所有平台都可以在导出中选择“剪辑工程 → Final Cut Pro”。Final Cut Pro 仅在 macOS 上运行；将导出文件夹转到 Mac 后，
+通过“文件 → 导入 → XML”导入 `.fcpxml`。请保留随附的素材文件夹，位置变化后需重新链接素材。轨道和剪辑时间仍可调整；HTML 页面转为带透明通道的 ProRes 视频，字幕单独保存为 SRT。
 
 桌面版（[apps/desktop](apps/desktop)）就是 Studio 加上一个对话窗口，可以用 Claude Code、Codex 等智能体，也可以用
 它自带的智能体配上你自己的 key。

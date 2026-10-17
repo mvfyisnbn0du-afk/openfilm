@@ -258,7 +258,7 @@ export const en = {
       slides: 'One slide per shot',
       project: 'The whole project, to hand on',
       alpha: 'Alpha for AE, Final Cut, web',
-      nle: '{app}, Premiere Pro, DaVinci Resolve',
+      nle: '{app}, Final Cut Pro, Premiere Pro, DaVinci Resolve',
     },
     destDesc: {
       social: 'Pick one or more platforms. Each gets the right shape, size and frame rate, and they export in one go.',
@@ -384,6 +384,7 @@ export const en = {
     nleDraftTitle: '{app} draft',
     nleSrt: 'Include subtitles (SRT)',
     nleSubs: 'Include subtitles',
+    nleHintFinalCut: 'Creates a folder with FCPXML and media. In Final Cut Pro: File › Import › XML. Pages become video clips with alpha; their text and animation stay rendered. Subtitles are a separate SRT. Keep the folder in place, or relink after moving it.',
     nleHintPremiere: 'Creates a folder with the XML and a media folder. In Premiere Pro: File › Import. Keep the folder where it is, or relink after moving it.',
     nleHintResolve: 'Creates a folder with the XML and a media folder. In DaVinci Resolve: File › Import › Timeline. Keep the folder where it is, or relink after moving it.',
     nleHintDraft: "Makes a draft in {app}'s drafts folder, so it is on {app}'s home screen (if {app} is open, restart it). Pages come as clips with alpha, subtitles as a text track.",
