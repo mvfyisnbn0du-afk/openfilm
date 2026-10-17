@@ -384,7 +384,7 @@ export const zhCN: Words = {
     nleDraftTitle: '{app}草稿',
     nleSrt: '包含字幕（SRT）',
     nleSubs: '包含字幕',
-    nleHintFinalCut: '生成 FCPXML 和素材文件夹。在 Final Cut Pro 中选择“文件 › 导入 › XML”。页面转为带透明通道的视频，页面内的文字和动画已渲染；字幕单独保存为 SRT。请保留文件夹位置，移动后需重新链接素材。',
+    nleHintFinalCut: '所有平台均可导出 FCPXML；由于Final Cut Pro 仅支持 macOS，其他平台需将导出文件夹转到 Mac 后导入。在 Final Cut Pro 中选择“文件 › 导入 › XML”。页面转为带透明通道的视频，页面内的文字和动画已渲染；字幕随 XML 导入为主画面上方的可编辑标题片段，并另存 SRT，不保留 Studio 字幕样式。请保留文件夹位置，移动后需重新链接素材。',
     nleHintPremiere: '会生成一个文件夹，内含 XML 和一个媒体文件夹。在 Premiere Pro 中：文件 › 导入。请保持文件夹位置不变，移动后需要重新链接。',
     nleHintResolve: '会生成一个文件夹，内含 XML 和一个媒体文件夹。在 DaVinci Resolve 中：文件 › 导入 › 时间线。请保持文件夹位置不变，移动后需要重新链接。',
     nleHintDraft: '直接生成到{app}的草稿文件夹，打开{app}首页就能看到（{app}开着的话，重启一下）。页面是带 Alpha 通道的片段，字幕是一条文字轨道。',

@@ -78,7 +78,8 @@ Studio 在你的电脑上运行，在浏览器里打开。片子里的一切都�
 DaVinci Resolve。
 
 所有平台都可以在导出中选择“剪辑工程 → Final Cut Pro”。Final Cut Pro 仅在 macOS 上运行；将导出文件夹转到 Mac 后，
-通过“文件 → 导入 → XML”导入 `.fcpxml`。请保留随附的素材文件夹，位置变化后需重新链接素材。轨道和剪辑时间仍可调整；HTML 页面转为带透明通道的 ProRes 视频，字幕单独保存为 SRT。
+通过“文件 → 导入 → XML”导入 `.fcpxml`。请保留随附的素材文件夹，位置变化后需重新链接素材。轨道和剪辑时间仍可调整；HTML 页面转为带透明通道的 ProRes 视频。启用字幕导出后，字幕文字和时间会作为主画面上方的可编辑标题片段随 XML 导入，并额外保存一份 SRT。标题使用 Final Cut Pro 的样式，不保留 Studio 的逐字动画和自定义外观。
+独立音频片段保留 Studio 的音轨分组，每条轨道对应一个音频角色（`OpenFilm A1`、`OpenFilm A2` 等）；同轨片段实际重叠时仍会拆到额外的 lane。在 Final Cut Pro 时间线索引的角色面板中，使用 **Show Audio Lanes** 可按角色分排显示。
 
 桌面版（[apps/desktop](apps/desktop)）就是 Studio 加上一个对话窗口，可以用 Claude Code、Codex 等智能体，也可以用
 它自带的智能体配上你自己的 key。

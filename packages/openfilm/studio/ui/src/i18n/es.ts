@@ -383,7 +383,7 @@ export const es: Words = {
     nleDraftTitle: 'Borrador de {app}',
     nleSrt: 'Incluir subtítulos (SRT)',
     nleSubs: 'Incluir subtítulos',
-    nleHintFinalCut: 'Crea una carpeta con FCPXML y medios. En Final Cut Pro: Archivo › Importar › XML. Las páginas se renderizan como vídeos con alfa; el texto y la animación quedan en el vídeo. Los subtítulos se guardan en un SRT aparte. Si mueves la carpeta, vuelve a enlazar los medios.',
+    nleHintFinalCut: 'Puedes exportar FCPXML en cualquier plataforma. Como Final Cut Pro solo es compatible con macOS, en otras plataformas debes trasladar la carpeta exportada a un Mac para importarla. En Final Cut Pro: Archivo › Importar › XML. Las páginas se renderizan como vídeos con alfa; el texto y la animación quedan en el vídeo. Los subtítulos se importan como clips de título editables sobre las pistas de vídeo e incluyen una copia SRT; no conservan el estilo de Studio. Si mueves la carpeta, vuelve a enlazar los medios.',
     nleHintPremiere: 'Crea una carpeta con el XML y una carpeta de medios. En Premiere Pro: Archivo › Importar. Deja la carpeta donde está o vuelve a vincular los medios tras moverla.',
     nleHintResolve: 'Crea una carpeta con el XML y una carpeta de medios. En DaVinci Resolve: Archivo › Importar › Línea de tiempo. Deja la carpeta donde está o vuelve a vincular los medios tras moverla.',
     nleHintDraft: 'Crea un borrador en la carpeta de borradores de {app}, así aparece en su pantalla de inicio (si {app} está abierto, reinícialo). Las páginas llegan como clips con alfa y los subtítulos como una pista de texto.',
