@@ -56,7 +56,7 @@ test('skills are listed from the project, then yours, then the official ones, th
   assert.equal(listSkills({ mine, official }).find((s) => s.name === 'brand').source, 'mine', 'without a project, yours first');
   assert.equal(findSkill('nothing', { mine, official }), null);
   const text = skillText(all[1]);
-  assert.match(text, /^<skill name="lyric-pv" folder=".*mine\/lyric-pv">\n---/);
+  assert.match(text, /^<skill name="lyric-pv" folder=".*mine[\\/]lyric-pv">\n---/);
   assert.match(text, /Use the engine\.\n<\/skill>$/);
 });
 

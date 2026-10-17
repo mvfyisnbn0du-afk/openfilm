@@ -104,7 +104,7 @@ export function parseSkillFile(text) {
   const fields = {};
   const lines = m[1].split(/\r?\n/);
   for (let i = 0; i < lines.length; i++) {
-    const kv = /^([A-Za-z][\w-]*):[ \t]*(.*)$/.exec(lines[i]);
+    const kv = /^([A-Za-z][\w-]*):(.*)$/.exec(lines[i]);
     if (!kv) continue;
     const [, key, raw] = kv;
     let value = raw.trim();
@@ -273,7 +273,7 @@ export async function addSkills(from, { mine = mySkillsDir(), move = false, orig
   /** @type {Skill[]} */
   const added = [];
   for (const skill of found) {
-    const name = SKILL_NAME.test(skill.name) ? skill.name : basename(skill.folder).toLowerCase().replace(/[^a-z0-9-]+/g, '-').replace(/^-+|-+$/g, '') || 'skill';
+    const name = SKILL_NAME.test(skill.name) ? skill.name : basename(skill.folder).toLowerCase().replace(/[^a-z0-9-]+/g, '-').split('-').filter(Boolean).join('-') || 'skill';
     const to = join(mine, name);
     const staging = `${to}.adding-${process.pid}`;
     await rm(staging, { recursive: true, force: true });

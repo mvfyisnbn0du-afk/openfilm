@@ -4,11 +4,11 @@ import { spawnSync } from 'node:child_process';
 import { existsSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { pathToFileURL } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import { capture } from './capture.mjs';
 import { UsageError } from './shared.mjs';
 
-const BIN = new URL('../bin/openfilm.mjs', import.meta.url).pathname;
+const BIN = fileURLToPath(new URL('../bin/openfilm.mjs', import.meta.url));
 
 test('a capture asked wrong is a usage error, said before any browser starts', async () => {
   await assert.rejects(capture(['https://example.com']), UsageError);
