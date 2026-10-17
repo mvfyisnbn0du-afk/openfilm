@@ -17,6 +17,52 @@ export interface ReleaseNotes { version: string; date: string; notes: Record<Lan
 
 export const RELEASES: readonly ReleaseNotes[] = [
   {
+    version: '0.2.0',
+    date: '2026-10-17',
+    notes: {
+      en: [
+        { kind: 'new', text: 'Tabs: each open project in a tab of its own. The projects window has Examples to start a new film from.' },
+        { kind: 'new', text: 'Skills: type / in the chat to make a film with one, or open Community for the official skills and the examples. Ten official skills, including replicate: give it a video and it makes yours like it.' },
+        { kind: 'new', text: 'Saved: your own library of files and clips, the same in every project. Right-click a clip and choose Add to Saved.' },
+        { kind: 'new', text: 'Your own key takes several models, each with its own service and key. Settings › Services sets who makes each kind of media, and Settings › General › Storage where new projects go.' },
+        { kind: 'improved', text: 'The examples and skills show at once, even on a slow connection, and a project with thousands of files plays smoothly as soon as it opens.' },
+        { kind: 'fixed', text: 'Your own key works again; a film with hundreds of sounds exports on Windows; when Codex can’t start, the chat says why.' },
+      ],
+      'zh-CN': [
+        { kind: 'new', text: '标签页：每个打开的项目一个标签页。项目窗口新增「示例」，可以从示例开始做新片。' },
+        { kind: 'new', text: 'Skill：在对话里输入 / 选一个 Skill 来做片，或打开「社区」查看官方 Skill 和示例。新增十个官方 Skill，包括 replicate：给它一个视频，按它的样子做你的片。' },
+        { kind: 'new', text: '收藏：你自己的素材库，每个项目里都一样。在片段上右键选择「收藏」。' },
+        { kind: 'new', text: '自有密钥可以添加多个模型，每个用自己的服务和密钥。设置 › 服务 选择每类媒体由谁生成，设置 › 通用 › 存储位置 选择新项目放在哪里。' },
+        { kind: 'improved', text: '示例和 Skill 打开即显示，网络慢也不用等；文件上千的项目一打开就能流畅播放。' },
+        { kind: 'fixed', text: '自有密钥恢复可用；Windows 上声音很多的影片可以正常导出；Codex 无法启动时，对话里会说明原因。' },
+      ],
+      ja: [
+        { kind: 'new', text: 'タブ：開いているプロジェクトはそれぞれ専用のタブに。プロジェクトウィンドウに「サンプル」が加わり、そこから新しい映像を始められます。' },
+        { kind: 'new', text: 'スキル：チャットで / を入力してスキルで映像を作るか、「コミュニティ」で公式スキルとサンプルを見られます。公式スキルは 10 種類、replicate もあります：動画を渡すと、それに似せてあなたの映像を作ります。' },
+        { kind: 'new', text: 'コレクション：どのプロジェクトでも同じ、自分専用のファイルとクリップの置き場所。クリップを右クリックして「コレクションに追加」を選びます。' },
+        { kind: 'new', text: '自分のキーで複数のモデルを、それぞれ専用のサービスとキーで使えます。設定 › サービスで各メディアの生成先を、設定 › 一般 › 保存場所で新しいプロジェクトの場所を選べます。' },
+        { kind: 'improved', text: 'サンプルとスキルは回線が遅くてもすぐに表示され、ファイルが数千あるプロジェクトも開いてすぐ滑らかに再生できます。' },
+        { kind: 'fixed', text: '自分のキーが再び使えるようになりました。Windows で音の多い映像を書き出せます。Codex が起動できないとき、チャットに理由が表示されます。' },
+      ],
+      ko: [
+        { kind: 'new', text: '탭: 열린 프로젝트마다 탭 하나. 프로젝트 창에 "예시"가 생겨 예시에서 새 영상을 시작할 수 있습니다.' },
+        { kind: 'new', text: '스킬: 채팅에서 /를 입력해 스킬로 영상을 만들거나, "커뮤니티"에서 공식 스킬과 예시를 볼 수 있습니다. 공식 스킬 10개, replicate 포함: 영상을 주면 그와 닮은 내 영상을 만듭니다.' },
+        { kind: 'new', text: '보관함: 모든 프로젝트에서 같은 나만의 파일과 클립 보관 장소. 클립을 마우스 오른쪽 버튼으로 클릭하고 "보관함에 추가"를 고르세요.' },
+        { kind: 'new', text: '내 키로 여러 모델을 각자의 서비스와 키로 쓸 수 있습니다. 설정 › 서비스에서 미디어별 생성 서비스를, 설정 › 일반 › 저장 위치에서 새 프로젝트 위치를 고릅니다.' },
+        { kind: 'improved', text: '예시와 스킬은 연결이 느려도 바로 보이고, 파일이 수천 개인 프로젝트도 열자마자 부드럽게 재생됩니다.' },
+        { kind: 'fixed', text: '내 키가 다시 작동합니다. Windows에서 소리가 많은 영상도 내보낼 수 있습니다. Codex가 시작되지 않으면 채팅에서 이유를 알려 줍니다.' },
+      ],
+      es: [
+        { kind: 'new', text: 'Pestañas: cada proyecto abierto en su propia pestaña. La ventana de proyectos tiene Ejemplos para empezar una película nueva desde uno.' },
+        { kind: 'new', text: 'Skills: escribe / en el chat para hacer una película con una, o abre Comunidad para ver las skills oficiales y los ejemplos. Diez skills oficiales, entre ellas replicate: dale un video y hace la tuya como él.' },
+        { kind: 'new', text: 'Guardados: tu propia biblioteca de archivos y clips, la misma en todos los proyectos. Haz clic derecho en un clip y elige Añadir a Guardados.' },
+        { kind: 'new', text: 'Tu propia clave admite varios modelos, cada uno con su servicio y su clave. Ajustes › Servicios elige quién hace cada tipo de medio, y Ajustes › General › Almacenamiento dónde van los proyectos nuevos.' },
+        { kind: 'improved', text: 'Los ejemplos y las skills aparecen al instante, incluso con una conexión lenta, y un proyecto con miles de archivos se reproduce con fluidez nada más abrirlo.' },
+        { kind: 'fixed', text: 'Tu propia clave vuelve a funcionar; una película con cientos de sonidos se exporta en Windows; cuando Codex no puede iniciarse, el chat dice por qué.' },
+      ],
+    },
+  },
+  {
     version: '0.1.7',
     date: '2026-10-14',
     notes: {
