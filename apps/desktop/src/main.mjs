@@ -20,6 +20,7 @@ import { childEnvironment, loginShellEnvironment } from './environment.mjs';
 import { startWindowStudio } from './studio.mjs';
 import { CHAT_MIN, STUDIO_MIN, WINDOW_MIN, placeOnDisplays, readWindowState, writeWindowState } from './window-state.mjs';
 import { createPagePresentation, preparePage, revealPage } from './page-presentation.mjs';
+import { closeTabOrWindow, keepWindowOnClose, quitAfterStudio } from './window-lifecycle.mjs';
 import { applicationMenu } from './menu.mjs';
 import { registerLocalAgentIpc } from './local-agents-ipc.mjs';
 import { readPreferences, registerChatIpc } from './chat-ipc.mjs';
@@ -429,7 +430,7 @@ async function start() {
   win.on('moved', saveState);
   win.on('enter-full-screen', () => broadcast('desktop:full-screen', true));
   win.on('leave-full-screen', () => broadcast('desktop:full-screen', false));
-  win.on('close', saveState);
+  keepWindowOnClose(win, { mac, isQuitting: () => quitting, save: saveState });
   win.on('closed', () => { win = null; views.clear(); pagePresentation = null; app.quit(); });
 
   ipcMain.on('desktop:theme', (event, next) => { if (fromPage(event)) setTheme(next); });
@@ -627,7 +628,7 @@ async function start() {
     tabs: {
       /* the projects window, in the page in front, to pick the project a new tab shows */
       open: () => activeView()?.webContents.send('desktop:tabs:pick') ?? views.get(HOME)?.webContents.focus(),
-      close: () => { if (tabs?.activeId()) void closeTab(tabs.activeId()); },
+      close: () => closeTabOrWindow(win, { mac, activeId: tabs?.activeId(), closeTab }),
       reopen: () => { const tab = tabs?.reopen(); if (tab) showTab(tab.id); },
       step: (by) => {
         const list = tabs?.list() ?? [];
@@ -669,9 +670,8 @@ process.on('SIGTERM', () => app.quit());
 app.on('activate', () => focusWindow());
 app.on('window-all-closed', () => app.quit());
 app.on('before-quit', (event) => {
-  localAgents?.closeAll();
-  if (quitting || !studio) return;
-  event.preventDefault();
-  quitting = true;
-  void studio.quit().finally(() => app.quit());
+  quitAfterStudio(event, {
+    quitting, markQuitting: () => { quitting = true; }, studio,
+    closeAgents: () => localAgents?.closeAll(), quit: () => app.quit(),
+  });
 });
