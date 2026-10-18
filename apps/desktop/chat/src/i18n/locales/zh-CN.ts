@@ -17,6 +17,9 @@ export const zhCN: Words = {
   },
   act: {
     waitingForYou: '在等你',
+    /* the app's own agent, after two minutes with nothing from the model (some think for minutes first) */
+    waitingForModel: '等模型回应',
+    waitingForModelHint: '有的模型会先想很久才开始输出；不想等可以停止。',
     asset: {
       genImage: '正在生成图片',
       genVideo: '正在生成视频',

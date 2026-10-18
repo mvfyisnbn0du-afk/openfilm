@@ -17,6 +17,9 @@ export const ja: Words = {
   },
   act: {
     waitingForYou: 'あなたの返答を待っています',
+    /* the app's own agent, after two minutes with nothing from the model (some think for minutes first) */
+    waitingForModel: 'モデルの応答を待っています',
+    waitingForModelHint: 'モデルによっては、答え始めるまで長く考えることがあります。待たない場合は停止してください。',
     asset: {
       genImage: '画像を作成中',
       genVideo: 'ビデオを作成中',

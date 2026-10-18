@@ -17,6 +17,9 @@ export const ko: Words = {
   },
   act: {
     waitingForYou: '답변을 기다리는 중',
+    /* the app's own agent, after two minutes with nothing from the model (some think for minutes first) */
+    waitingForModel: '모델 응답을 기다리는 중',
+    waitingForModelHint: '어떤 모델은 답하기 시작하기 전에 오래 생각합니다. 기다리지 않으려면 중지하세요.',
     asset: {
       genImage: '이미지 생성 중',
       genVideo: '비디오 생성 중',

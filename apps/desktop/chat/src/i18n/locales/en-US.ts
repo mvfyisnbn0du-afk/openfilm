@@ -16,6 +16,9 @@ export const enUS = {
   },
   act: {
     waitingForYou: 'Waiting for you',
+    /* the app's own agent, after two minutes with nothing from the model (some think for minutes first) */
+    waitingForModel: 'Waiting for the model',
+    waitingForModelHint: "Some models think for a long while before they start to answer. Stop if you don't want to wait.",
     asset: {
       genImage: 'Generating image',
       genVideo: 'Generating video',
