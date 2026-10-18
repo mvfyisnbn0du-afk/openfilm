@@ -11,10 +11,11 @@
  *   · byok — the app's own agent (Pi, pi-agent.mjs) on the person's own models, each set up on its own: the name the
  *     chat's menu shows, its service (an address on a standard API in one of three formats: the OpenAI Responses API
  *     (…/v1/responses), the OpenAI Chat Completions API (…/v1/chat/completions) or the Anthropic Messages API
- *     (…/v1/messages); Pi speaks each), its own key, the model asked for there, and the reasoning efforts the person
- *     says it takes and the one it starts on (`auto` alone, sending no reasoning setting, when they said nothing). The
- *     chat's menu switches between them, the first one to begin with. Each has to read pictures (the agent looks at its
- *     own frames): setting one up sends it one small request with a picture, and a model that cannot take it is refused.
+ *     (…/v1/messages); Pi speaks each), its own key, the model asked for there, the reasoning efforts the person
+ *     says it takes and the one it starts on (`auto` alone, sending no reasoning setting, when they said nothing), and
+ *     its context length, when they gave one (128K when not). The chat's menu switches between them, the first one to
+ *     begin with. Each has to read pictures (the agent looks at its own frames): setting one up sends it one small
+ *     request with a picture, and a model that cannot take it is refused.
  *
  * One of the person's own agents not found where it is looked for can be pointed at (`locate`): the program they choose
  * is tried (it has to answer `--version`) and used from then on, until they go back to finding it (`useAutomatic`).
@@ -32,7 +33,7 @@
 import { randomBytes } from 'node:crypto';
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { PI_APIS, modelEffort } from './pi-config.mjs';
+import { PI_APIS, contextLength, modelEffort } from './pi-config.mjs';
 
 /** The person's own agents, as agents.mjs AGENTS has them. */
 export const OWN_AGENT_IDS = Object.freeze(['codex', 'claude', 'copilot', 'cursor', 'opencode', 'codebuddy', 'qwen', 'kimi', 'minimax']);
@@ -84,11 +85,17 @@ export function readChoices(dataDir) {
   };
 }
 
+/** A model's context length, as kept: there only when the person gave one that holds. */
+const ownContext = (/** @type {unknown} */ value) => {
+  const context = contextLength(value);
+  return context ? { context } : {};
+};
+
 /**
- * The person's own models as kept: `[{ id, name, format, baseUrl, model, levels, effort, last4 }]`, the first the one a
- * conversation starts on. One without a known format, an address or a model is left out. Kept before each model was set
- * up on its own (one service, its models by name, `efforts` by name): each of those models on that service (`m1`, `m2`…),
- * on the key kept then.
+ * The person's own models as kept: `[{ id, name, format, baseUrl, model, levels, effort, context?, last4 }]`, the first
+ * the one a conversation starts on. One without a known format, an address or a model is left out; a context length
+ * that does not hold is dropped. Kept before each model was set up on its own (one service, its models by name,
+ * `efforts` by name): each of those models on that service (`m1`, `m2`…), on the key kept then.
  */
 export function ownModels(raw) {
   if (!raw || typeof raw !== 'object') return [];
@@ -107,7 +114,7 @@ export function ownModels(raw) {
     const id = String(m?.id ?? '');
     if (!model || !baseUrl || !Object.hasOwn(BYOK_FORMATS, m?.format) || !/^[a-z0-9]+$/.test(id) || ids.has(id)) return [];
     ids.add(id);
-    return [{ id, name: String(m.name ?? '').trim() || model, format: m.format, baseUrl, model, ...modelEffort(m.levels, m.effort), last4: String(m.last4 ?? '') }];
+    return [{ id, name: String(m.name ?? '').trim() || model, format: m.format, baseUrl, model, ...modelEffort(m.levels, m.effort), ...ownContext(m.context), last4: String(m.last4 ?? '') }];
   });
 }
 
@@ -348,10 +355,11 @@ export function createRoster(deps) {
 
     /**
      * One of the person's own models, set up or changed (`id` names one already set up): its name (the model, when
-     * none), its API format, the service's address, the model asked for there, its key, and its efforts (pi-config.mjs
-     * EFFORTS: the ones it takes and the one it starts on). A key left empty keeps the one it has, or takes the key of
-     * another model on the same address. Checked first (the key is taken, the model reads pictures).
-     * @param {{ id?: string, name?: string, format: string, baseUrl?: string, model: string, key?: string, levels?: string[], effort?: string }} config
+     * none), its API format, the service's address, the model asked for there, its key, its efforts (pi-config.mjs
+     * EFFORTS: the ones it takes and the one it starts on) and its context length (none: 128K). A key left empty keeps
+     * the one it has, or takes the key of another model on the same address. Checked first (the key is taken, the
+     * model reads pictures).
+     * @param {{ id?: string, name?: string, format: string, baseUrl?: string, model: string, key?: string, levels?: string[], effort?: string, context?: number }} config
      * @returns {Promise<{ ok: true, id: string } | { ok: false, error: string, code?: string }>}
      */
     async saveOwnModel(config) {
@@ -371,7 +379,7 @@ export function createRoster(deps) {
       if (!probe.ok) return probe;
       let id = before?.id;
       while (!id || models.some((m) => m.id === id && m !== before)) id = randomBytes(4).toString('hex');
-      const entry = { id, name: String(config.name ?? '').trim() || model, format: config.format, baseUrl, model, ...modelEffort(config.levels, config.effort), last4: key.slice(-4) };
+      const entry = { id, name: String(config.name ?? '').trim() || model, format: config.format, baseUrl, model, ...modelEffort(config.levels, config.effort), ...ownContext(config.context), last4: key.slice(-4) };
       writeKeys({ ...byokKeys(), [id]: key });
       delete live.errors.byok;
       save({
@@ -408,7 +416,7 @@ export function createRoster(deps) {
       const own = models.map((m, i) => {
         const keyEnv = `OPENFILM_BYOK_KEY_${i + 1}`;
         env[keyEnv] = keyOf(m.id);
-        return { id: m.id, name: m.name, api: PI_APIS[m.format], baseUrl: m.baseUrl, keyEnv, model: m.model, levels: [...m.levels], effort: m.effort };
+        return { id: m.id, name: m.name, api: PI_APIS[m.format], baseUrl: m.baseUrl, keyEnv, model: m.model, levels: [...m.levels], effort: m.effort, ...ownContext(m.context) };
       });
       return { home: join(dataDir, 'agents', 'byok', 'pi'), models: own, model: own[0].id, env };
     },
