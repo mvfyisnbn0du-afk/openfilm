@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { CLIENT_CAPABILITIES, CODEX_UTF8_CMD, agentShell, allowOption, codexDeveloperInstructions, codexLaunchEnv, legacyOptions, powerShellScript, readAgentStatus, signInError, codexTooOld } from './agents.mjs';
+import { CLIENT_CAPABILITIES, CODEX_UTF8_CMD, agentShell, allowOption, codexDeveloperInstructions, codexLaunchEnv, legacyOptions, powerShellScript, readAgentStatus, signInError, codexTooOld, AGENTS, ownSignIn, codexServiceError, codexRefusal } from './agents.mjs';
 
 test('an agent that asks: yes for good where it offers that, else yes this once; nothing to say yes with is null', () => {
   const options = [
@@ -55,6 +55,36 @@ test('an error the agent sends as "Internal error" carries its reason; a sign-in
   const plain = new Error('Codex process has exited with code 1');
   assert.equal(signInError('Codex', plain), plain);
   assert.equal(signInError('Codex', Object.assign(new Error('Authentication required'), { code: -32000 })).code, 'sign-in');
+  const own = signInError('Codex', Object.assign(new Error('Authentication required'), { code: -32000 }), { own: true });
+  assert.equal(own.code, 'sign-in');
+  assert.equal(own.message, 'Codex is not signed in. Sign in in Codex, then try again.');
+});
+
+test('Codex is signed in in Codex: one found is never signed out here, and keeps whose account it is', () => {
+  assert.equal(AGENTS.codex.login, null);
+  assert.deepEqual(ownSignIn(AGENTS.codex, { signedIn: false, account: null }), { signedIn: null, account: null });
+  const account = { method: 'chatgpt' };
+  assert.deepEqual(ownSignIn(AGENTS.codex, { signedIn: true, account }), { signedIn: true, account });
+  assert.deepEqual(ownSignIn(AGENTS.claude, { signedIn: false, account: null }), { signedIn: false, account: null });
+});
+
+test("the model service's refusal Codex sends as its reply fails the turn; a model this Codex is too old for says to update it", () => {
+  const chunk = (text) => ({ sessionUpdate: 'agent_message_chunk', content: { type: 'text', text } });
+  const said = `{"type":"error","status":400,"error":{"type":"invalid_request_error","message":"The 'gpt-6.1-sol' model is not supported when using Codex with a ChatGPT account."}}\n\n`;
+  const refused = codexServiceError(chunk(said));
+  assert.deepEqual(refused, { message: "The 'gpt-6.1-sol' model is not supported when using Codex with a ChatGPT account.", status: 400 });
+  assert.equal(codexServiceError(chunk('Hi!')), null);
+  assert.equal(codexServiceError(chunk('{"type":"error"')), null, 'not JSON');
+  assert.equal(codexServiceError(chunk('{"type":"error","error":{}}')), null, 'no message');
+  assert.equal(codexServiceError({ sessionUpdate: 'agent_thought_chunk', content: { type: 'text', text: said } }), null);
+
+  const old = codexRefusal(refused, '/usr/local/bin/codex', () => '0.156.1');
+  assert.equal(old.code, 'outdated');
+  assert.equal(old.message, "The 'gpt-6.1-sol' model is not supported when using Codex with a ChatGPT account. Update Codex (this one is 0.156.1), or choose another model.");
+  assert.match(codexRefusal(refused, '/usr/local/bin/codex', () => null).message, / Update Codex, or choose another model\.$/);
+  const other = codexRefusal({ message: 'Rate limit reached.', status: 429 }, '/usr/local/bin/codex', () => '0.163.0');
+  assert.equal(other.message, 'Rate limit reached.');
+  assert.equal(other.code, undefined);
 });
 
 test("the person's own developer_instructions in Codex's config, read as TOML writes them; a profile's is not theirs at the top", () => {

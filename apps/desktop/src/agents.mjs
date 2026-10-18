@@ -13,8 +13,8 @@
  *   · size: each official program is 200–330 MB; the adapters are a few MB and take its path
  *     (`CLAUDE_CODE_EXECUTABLE`, `CODEX_PATH`);
  *   · terms: Anthropic lets people use their own subscription in the unmodified Claude Code, and does not let anyone
- *     else hold or pass on their credentials. The app runs their own program, sign-in is its own (`claude auth login`,
- *     `codex login`, in Terminal, or a command window on Windows), and the app never sees a token.
+ *     else hold or pass on their credentials. The app runs their own program, sign-in is its own (`claude auth login`
+ *     in Terminal, or a command window on Windows; Codex in Codex itself), and the app never sees a token.
  *
  * Each uses the account signed in on the computer, as it is: one switched in the agent (or its maker's app) is the
  * one used once the agent is connected again here.
@@ -45,7 +45,8 @@ const require = createRequire(import.meta.url);
  * Each agent: through an adapter the app carries (`adapter`, told where the person's program is by `env`), or the
  * person's program itself with `args`. Signed in? `auth` asks the program (its words say); without it, a session is
  * opened and closed (acpSignedIn). `login` is its own sign-in, run in Terminal (none: the program itself, which asks
- * for one on its first run). `authenticate`: the ACP auth method that takes up the program's own sign-in.
+ * for one on its first run; null: signed in in the program or its maker's app, never from here, so one found is
+ * connected). `authenticate`: the ACP auth method that takes up the program's own sign-in.
  * `approve`: it asks permission for what the app lets every agent do (see the chat's AGENT_FORCED_PREFS), so the app
  * answers yes itself. The others are told the app's INSTRUCTIONS in the first message of a session (`systemPrompt`:
  * how Claude Code and Codex are told them instead).
@@ -68,8 +69,9 @@ export const AGENTS = Object.freeze({
     label: 'Codex',
     adapter: '@agentclientprotocol/codex-acp',
     env: (path) => codexLaunchEnv(path),
+    /* asked only for whose account it is: Codex is signed in in Codex (its app, or `codex login`) */
     auth: ['login', 'status'],
-    login: ['login'],
+    login: null,
     systemPrompt: true,
   },
   gemini: { label: 'Gemini CLI', args: ['--acp', '--approval-mode', 'yolo'], login: [], approve: true },
@@ -472,6 +474,7 @@ export async function openAgentSignIn(id) {
   const pathDirs = (await loginShellEnvironment()).PATH.split(PATH_SEP);
   const cli = spec ? resolveAgentCli(id, { pathDirs }) : null;
   if (!spec || !cli) return { ok: false, error: `${spec?.label ?? id} is not installed on this computer.` };
+  if (spec.login === null) return { ok: false, error: `Sign in in ${spec.label} itself.` };
   asked.delete(id);
   let how = null;
   if (spec.acpSignIn) {
@@ -530,11 +533,16 @@ export async function listAgents() {
       label: spec.label,
       cli: cli ? { path: cli.path, source: cli.source } : null,
       chosen: chosenPaths[id] ?? null,
-      ...(cli ? await agentStatus(id, cli.path) : { signedIn: null, account: null }),
+      ...(cli ? ownSignIn(spec, await agentStatus(id, cli.path)) : { signedIn: null, account: null }),
       install,
       setupRequired: claudeApp ? 'code-tab' : null,
     };
   }));
+}
+
+/** An agent signed in in its own program (`login: null`) is never signed out here: its account, if it says one. */
+export function ownSignIn(spec, status) {
+  return spec.login === null && status.signedIn === false ? { ...status, signedIn: null } : status;
 }
 
 /** The adapter's command line (its package's `bin`), run with Electron's own Node. */
@@ -662,11 +670,43 @@ export function codexTooOld(agent, path, e, versionOf = codexVersion) {
  * A session refused for the agent's sign-in, said so (`code: 'sign-in'`); any other error with its reason: an error
  * the agent sends as "Internal error" carries the reason in its `data` (Codex's settings it cannot read, for one).
  */
-export function signInError(label, e) {
-  if (e?.code === AUTH_REQUIRED) return Object.assign(new Error(`${label} is not signed in. Sign in under Settings → Agents.`), { code: 'sign-in' });
+export function signInError(label, e, { own = false } = {}) {
+  if (e?.code === AUTH_REQUIRED) {
+    return Object.assign(new Error(`${label} is not signed in. ${own ? `Sign in in ${label}, then try again.` : 'Sign in under Settings → Agents.'}`), { code: 'sign-in' });
+  }
   const data = e?.data;
   const why = typeof data === 'string' ? data : [data?.message, data?.details].find((v) => typeof v === 'string') ?? '';
   return why.trim() ? Object.assign(new Error(why.trim()), { code: e.code }) : e;
+}
+
+/**
+ * The model service's refusal, when that is what a reply's words are: Codex's adapter sends an error from OpenAI as
+ * the reply (`{"type":"error","status":400,"error":{"message":…}}`), and the turn ends as if answered. Its message
+ * and status, or null for anything else.
+ * @returns {{ message: string, status: number | null } | null}
+ */
+export function codexServiceError(update) {
+  if (update?.sessionUpdate !== 'agent_message_chunk' || update.content?.type !== 'text') return null;
+  const text = String(update.content.text ?? '').trim();
+  if (!text.startsWith('{"type":"error"')) return null;
+  try {
+    const said = JSON.parse(text);
+    const message = typeof said?.error?.message === 'string' ? said.error.message.trim() : '';
+    return said?.type === 'error' && message ? { message, status: Number.isInteger(said.status) ? said.status : null } : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * The turn's error for a refusal. A model "not supported when using Codex" is one this Codex is too old for (Codex
+ * lists models it cannot use yet): updating it, or another model, is the fix.
+ * @param {{ message: string }} refused @param {string | undefined} path @param {(file: string) => string | null} [versionOf]
+ */
+export function codexRefusal(refused, path, versionOf = codexVersion) {
+  if (!/not supported when using Codex/i.test(refused.message)) return new Error(refused.message);
+  const version = path ? versionOf(path) : null;
+  return Object.assign(new Error(`${refused.message} Update Codex${version ? ` (this one is ${version})` : ''}, or choose another model.`), { code: 'outdated' });
 }
 
 /** The answer that lets it go ahead (for good, where it offers that), or null when none does. */
@@ -801,7 +841,11 @@ export class AgentSession {
         return answers ? { action: 'accept', content: formContent(questions, answers) } : { action: 'decline' };
       })
       .onNotification(acp.methods.client.session.update, (ctx) => {
-        if (!this.replaying) this.opts.onUpdate?.(ctx.params.update);
+        if (this.replaying) return;
+        /* Codex's adapter sends the model service's refusal as the reply's words: kept to fail the turn with */
+        const refused = this.spec.adapter === AGENTS.codex.adapter ? codexServiceError(ctx.params.update) : null;
+        if (refused) this.refused = refused;
+        else this.opts.onUpdate?.(ctx.params.update);
       })
       .connect(stream);
 
@@ -809,7 +853,7 @@ export class AgentSession {
       protocolVersion: acp.PROTOCOL_VERSION,
       clientCapabilities: CLIENT_CAPABILITIES,
       clientInfo: CLIENT_INFO,
-    }).catch((e) => { throw signInError(this.spec.label, e); });
+    }).catch((e) => { throw signInError(this.spec.label, e, { own: this.spec.login === null }); });
 
     const params = {
       cwd: this.opts.cwd,
@@ -819,7 +863,7 @@ export class AgentSession {
     };
     /* the program's own sign-in, taken up (Cursor asks for this before any session) */
     if (this.spec.authenticate && (init.authMethods ?? []).some((m) => m.id === this.spec.authenticate)) {
-      await this.conn.agent.request(acp.methods.agent.authenticate, { methodId: this.spec.authenticate }).catch((e) => { throw signInError(this.spec.label, e); });
+      await this.conn.agent.request(acp.methods.agent.authenticate, { methodId: this.spec.authenticate }).catch((e) => { throw signInError(this.spec.label, e, { own: this.spec.login === null }); });
     }
 
     let session = null;
@@ -833,7 +877,7 @@ export class AgentSession {
       this.replaying = false;
     }
     const resumed = Boolean(session);
-    session ??= await this.conn.agent.request(acp.methods.agent.session.new, params).catch((e) => { throw signInError(this.spec.label, e); });
+    session ??= await this.conn.agent.request(acp.methods.agent.session.new, params).catch((e) => { throw signInError(this.spec.label, e, { own: this.spec.login === null }); });
     this.sessionId = session.sessionId;
     /* an agent on the older model and mode lists (Gemini CLI): the same choices, as config options */
     this.legacy = !session.configOptions && Boolean(session.models || session.modes);
@@ -883,6 +927,7 @@ export class AgentSession {
     this.instructions = null;
     /* the message exactly as the agent gets it, for the turn log */
     this.opts.onSend?.({ prompt: [...told, ...blocks], ...meta });
+    this.refused = null;
     const r = await this.conn.agent.request(acp.methods.agent.session.prompt, { sessionId: this.sessionId, prompt: [...told, ...blocks], ...meta })
       .catch((e) => {
         /* the app's own agent: a service with no balance left is said the same for every service, with its page */
@@ -890,10 +935,11 @@ export class AgentSession {
         const broke = own ? outOfBalance({ id: own.name, baseUrl: own.baseUrl }, e) : null;
         if (broke) throw broke;
         if (!isAgentId(this.opts.agent)) throw e;
-        const said = signInError(this.spec.label, e);
+        const said = signInError(this.spec.label, e, { own: this.spec.login === null });
         if (said.code === 'sign-in') noteSignedOut(this.opts.agent);
         throw said;
       });
+    if (this.refused) throw codexRefusal(this.refused, this.cli?.path);
     return r.stopReason;
   }
 
