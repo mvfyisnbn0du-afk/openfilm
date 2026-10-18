@@ -1571,7 +1571,7 @@ export const en = {
       effortLevels: { auto: 'Auto', off: 'Off', minimal: 'Minimal', low: 'Low', medium: 'Medium', high: 'High', xhigh: 'Extra high', max: 'Max' },
       context: 'Context length',
       contextHint: 'Tokens, as the model\'s service documents it. Empty: 128K.',
-      contextBad: 'A whole number of tokens, from 4,000 to 10,000,000.',
+      contextBad: 'A whole number of tokens, from 32,000 to 10,000,000.',
       key: 'API key',
       keyPlaceholder: 'Paste your API key',
       keyKept: 'Key ending in {last4} (leave empty to keep it)',

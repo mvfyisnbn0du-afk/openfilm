@@ -1569,7 +1569,7 @@ export const ko: Words = {
       effortLevels: { auto: '자동', off: '끔', minimal: '최소', low: '낮음', medium: '중간', high: '높음', xhigh: '매우 높음', max: '최대' },
       context: '컨텍스트 길이',
       contextHint: '토큰 수입니다. 모델 서비스 문서에 나온 값을 입력하세요. 비워 두면 128K입니다.',
-      contextBad: '4,000~10,000,000 사이의 토큰 수를 정수로 입력하세요.',
+      contextBad: '32,000~10,000,000 사이의 토큰 수를 정수로 입력하세요.',
       key: 'API 키',
       keyPlaceholder: 'API 키 붙여넣기',
       keyKept: '{last4}(으)로 끝나는 키(유지하려면 비워 두세요)',

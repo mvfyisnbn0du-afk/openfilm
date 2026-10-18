@@ -1571,7 +1571,7 @@ export const zhCN: Words = {
       effortLevels: { auto: '自动', off: '不思考', minimal: '极低', low: '低', medium: '中', high: '高', xhigh: '超高', max: '最高' },
       context: '上下文长度',
       contextHint: '单位是 token，以模型服务的文档为准。留空为 128K。',
-      contextBad: '填一个整数，单位是 token，4,000 到 10,000,000 之间。',
+      contextBad: '填一个整数，单位是 token，32,000 到 10,000,000 之间。',
       key: 'API 密钥',
       keyPlaceholder: '粘贴你的 API 密钥',
       keyKept: '尾号为 {last4} 的密钥（留空则保留）',

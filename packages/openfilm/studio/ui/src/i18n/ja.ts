@@ -1570,7 +1570,7 @@ export const ja: Words = {
       effortLevels: { auto: '自動', off: 'オフ', minimal: '最小', low: '低', medium: '中', high: '高', xhigh: '特高', max: '最大' },
       context: 'コンテキスト長',
       contextHint: 'トークン数。モデルのサービスのドキュメントにある値を入れてください。空欄なら 128K です。',
-      contextBad: '4,000〜10,000,000 のトークン数を整数で入れてください。',
+      contextBad: '32,000〜10,000,000 のトークン数を整数で入れてください。',
       key: 'API キー',
       keyPlaceholder: 'API キーを貼り付け',
       keyKept: '末尾が {last4} のキー（空欄のままにすると現在のキーを使います）',

@@ -1570,7 +1570,7 @@ export const es: Words = {
       effortLevels: { auto: 'Automático', off: 'Sin razonar', minimal: 'Mínimo', low: 'Bajo', medium: 'Medio', high: 'Alto', xhigh: 'Muy alto', max: 'Máximo' },
       context: 'Longitud de contexto',
       contextHint: 'En tokens, según la documentación del servicio del modelo. Vacío: 128K.',
-      contextBad: 'Un número entero de tokens, de 4.000 a 10.000.000.',
+      contextBad: 'Un número entero de tokens, de 32.000 a 10.000.000.',
       key: 'Clave de API',
       keyPlaceholder: 'Pega tu clave de API',
       keyKept: 'Clave terminada en {last4} (déjalo vacío para conservarla)',

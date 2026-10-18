@@ -25,13 +25,13 @@ test("each of the person's models is a provider of its own in Pi's models.json: 
 test("a model's context length is its window in Pi, and a quarter of it its answers, never more than 32K", () => {
   const model = (over) => modelsJson([own('a', over)]).providers[providerOf('a')].models[0];
   assert.deepEqual([model({}).contextWindow, model({}).maxTokens], [128_000, 32_000], 'none given: 128K, as before');
-  assert.deepEqual([model({ context: 16_000 }).contextWindow, model({ context: 16_000 }).maxTokens], [16_000, 4_000]);
+  assert.deepEqual([model({ context: 64_000 }).contextWindow, model({ context: 64_000 }).maxTokens], [64_000, 16_000]);
   assert.deepEqual([model({ context: 1_000_000 }).contextWindow, model({ context: 1_000_000 }).maxTokens], [1_000_000, 32_000], 'a long one asks for no more than 32K');
   assert.equal(model({ context: 50 }).contextWindow, 128_000, 'one that does not hold: 128K');
   const thinking = modelsJson([own('a', { context: 200_000, ...modelEffort(['auto', 'high'], 'high') })]).providers[THINKING(providerOf('a'))].models[0];
   assert.deepEqual([thinking.contextWindow, thinking.maxTokens], [200_000, 32_000], 'thinking, the same length');
   assert.deepEqual(contextUsed({ usage: { input: 150_000, output: 10 } }, model({ context: 1_000_000 })), { used: 150_010, size: 1_000_000 }, 'the usage bar reads the same window');
-  assert.deepEqual([4_000, 10_000_000, 3_999, 10_000_001, 150_000.5, '200000', null].map(contextLength), [4_000, 10_000_000, null, null, null, null, null]);
+  assert.deepEqual([32_000, 10_000_000, 31_999, 4_000, 10_000_001, 150_000.5, '200000', null].map(contextLength), [32_000, 10_000_000, null, null, null, null, null, null]);
 });
 
 test("the chat's menu reads the person's models by their names, each picked by its id", () => {

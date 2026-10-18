@@ -42,11 +42,11 @@ const CONTEXT = 128_000;
 const MAX_OUTPUT = 32_000;
 
 /**
- * A model's context length as kept: a whole number of tokens from 4K to 10M, as the person gave it in Settings (the
+ * A model's context length as kept: a whole number of tokens from 32K to 10M, as the person gave it in Settings (the
  * service documents it; OpenFilm cannot know it). Null for none or anything else: the model gets 128K.
  */
 export function contextLength(/** @type {unknown} */ value) {
-  return typeof value === 'number' && Number.isInteger(value) && value >= 4_000 && value <= 10_000_000 ? value : null;
+  return typeof value === 'number' && Number.isInteger(value) && value >= 32_000 && value <= 10_000_000 ? value : null;
 }
 
 /**
