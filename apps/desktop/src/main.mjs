@@ -19,6 +19,7 @@ import { folderDialogOptions, programDialogOptions } from './folder-dialog.mjs';
 import { childEnvironment, loginShellEnvironment } from './environment.mjs';
 import { startWindowStudio } from './studio.mjs';
 import { CHAT_MIN, STUDIO_MIN, WINDOW_MIN, placeOnDisplays, readWindowState, writeWindowState } from './window-state.mjs';
+import { createPagePresentation, preparePage, revealPage } from './page-presentation.mjs';
 import { applicationMenu } from './menu.mjs';
 import { registerLocalAgentIpc } from './local-agents-ipc.mjs';
 import { readPreferences, registerChatIpc } from './chat-ipc.mjs';
@@ -66,8 +67,9 @@ let tabs = null;
 /** the page of each tab that has one (a tab left behind long enough has none until it is shown again) */
 /** @type {Map<string, WebContentsView>} */
 const views = new Map();
+let pagePresentation = null;
 /** the page in front */
-const activeView = () => (tabs ? views.get(tabs.activeId() ?? HOME) ?? null : null);
+const activeView = () => views.get(pagePresentation?.currentId() ?? tabs?.activeId() ?? HOME) ?? null;
 /** something every page is told (the theme, an update, the agents…) */
 const broadcast = (channel, value) => { for (const v of views.values()) if (!v.webContents.isDestroyed()) v.webContents.send(channel, value); };
 /** the tab whose page this is, or null */
@@ -146,6 +148,8 @@ function makeView(tabId) {
     },
   });
   v.setBackgroundColor(BACKGROUND[theme]);
+  // A newly attached view must not cover the current page with its initial blank frame.
+  v.setVisible(false);
   views.set(tabId, v);
   win.contentView.addChildView(v);
   const { width, height } = win.getContentBounds();
@@ -153,7 +157,7 @@ function makeView(tabId) {
   guard(v.webContents, (url) => Boolean(studio) && url.startsWith(`${studio.origin}/`));
   /* what went wrong with the page, for the log (logs/studio.log) */
   v.webContents.on('render-process-gone', (_event, details) => log(`page: renderer gone (${details.reason}, ${details.exitCode})\n`));
-  v.webContents.on('did-fail-load', (_event, code, description, url, mainFrame) => { if (mainFrame) log(`page: ${description} (${code}) loading ${url.replace(/key=[^&]+/, 'key=…')}\n`); });
+  v.webContents.on('did-fail-load', (_event, code, description, url, mainFrame) => { if (mainFrame && code !== -3 && pagePresentation?.wantedId() === tabId) log(`page: ${description} (${code}) loading ${url.replace(/key=[^&]+/, 'key=…')}\n`); });
   v.webContents.on('unresponsive', () => log('page: not responding\n'));
   /* the page gone (a crash): it comes back where it was; the agents' turns go on in this process meanwhile */
   v.webContents.on('render-process-gone', (_event, details) => { if (details.reason !== 'clean-exit' && !quitting) setTimeout(() => { if (!v.webContents.isDestroyed()) v.webContents.reload(); }, 500); });
@@ -172,14 +176,39 @@ function tellTabs() {
   saveState();
 }
 
-/** Show a page: a tab's (made again when it has none), or HOME. Once a tab shows, HOME's page goes. */
+function presentation() {
+  return pagePresentation ??= createPagePresentation({
+    fallback: HOME,
+    prepare(id) {
+      const v = makeView(id);
+      // A never-visible native view produces no frames. Paint it underneath the outgoing page.
+      win.contentView.addChildView(v, 0);
+      v.setVisible(true);
+      v.webContents.setBackgroundThrottling(false);
+      const ready = preparePage(v.webContents, pageAddress(id === HOME ? null : tabs?.get(id)))
+        .finally(() => {
+          if (v.webContents.isDestroyed()) return;
+          v.webContents.setBackgroundThrottling(true);
+          if (pagePresentation?.currentId() !== id && pagePresentation?.wantedId() !== id) v.setVisible(false);
+        });
+      return { view: v, ready };
+    },
+    present(_id, v) { if (win) revealPage(win.contentView, v, views.values()); },
+    discard: destroyView,
+    onError: (error) => { if (!quitting) log(`page: could not prepare replacement (${String(error.message).replace(/key=[^&\s)]+/g, 'key=…')})\n`); },
+  });
+}
+
+/** Keep only the lightweight projects page ready, without focusing it. */
+function warmHome() {
+  if (!tabs || !win || quitting) return;
+  void presentation().warm(HOME);
+}
+
+/** A ready page replaces the old frame; a cold page is prepared before it covers it. */
 function showPage(id) {
-  if (!win || !studio) return;
-  let v = views.get(id);
-  if (!v) { v = makeView(id); void v.webContents.loadURL(pageAddress(id === HOME ? null : tabs?.get(id))); }
-  for (const [other, page] of views) page.setVisible(other === id);
-  v.webContents.focus();
-  if (id !== HOME) dropView(HOME);
+  if (!win || !studio) return Promise.resolve(false);
+  return presentation().show(id).then((shown) => { if (shown && id !== HOME) warmHome(); return shown; });
 }
 
 /** Bring a tab to the front. */
@@ -196,13 +225,15 @@ function newTab(projectId) {
 }
 
 /** Let a tab's page go: closed, or behind too long (the tab stays). */
-function dropView(id) {
+function destroyView(id) {
   const v = views.get(id);
   if (!v) return;
   views.delete(id);
   win?.contentView.removeChildView(v);
   if (!v.webContents.isDestroyed()) v.webContents.close();
 }
+
+function dropView(id) { if (pagePresentation) pagePresentation.drop(id); else destroyView(id); }
 
 /** Close a tab; one whose agent is still at work, only once the person says so. */
 async function closeTab(id) {
@@ -216,8 +247,8 @@ async function closeTab(id) {
     });
     if (response !== 0) return;
   }
-  dropView(id);
   const next = tabs.close(id);
+  presentation().retire(id);
   if (next) showTab(next.id);
   else { showPage(HOME); tellTabs(); }
 }
@@ -399,7 +430,7 @@ async function start() {
   win.on('enter-full-screen', () => broadcast('desktop:full-screen', true));
   win.on('leave-full-screen', () => broadcast('desktop:full-screen', false));
   win.on('close', saveState);
-  win.on('closed', () => { win = null; views.clear(); app.quit(); });
+  win.on('closed', () => { win = null; views.clear(); pagePresentation = null; app.quit(); });
 
   ipcMain.on('desktop:theme', (event, next) => { if (fromPage(event)) setTheme(next); });
   ipcMain.handle('desktop:hello', (event) => {
@@ -627,6 +658,7 @@ async function start() {
   } catch (error) {
     log(`Studio did not start: ${error.stack ?? error}\n`);
     const v = makeView('failed');
+    v.setVisible(true);
     void v.webContents.loadFile(here('./failed.html'), { query: { message: String(error.message ?? error) } });
   }
 }
