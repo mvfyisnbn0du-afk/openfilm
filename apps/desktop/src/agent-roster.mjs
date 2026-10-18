@@ -1,13 +1,13 @@
 /**
  * The agents the chat can use, as Settings → Agents shows them, and the person's choices about them:
  *
- *   · codex, claude, copilot, cursor, opencode, codebuddy, qwen, kimi, minimax — the person's own agents (agents.mjs):
- *     Codex, Claude Code, GitHub Copilot, Cursor, OpenCode, CodeBuddy, Qwen Code, Kimi and MiniMax Code. Each uses
- *     the account signed in on the computer as it is: connecting opens Terminal for its own sign-in command only when
- *     it is signed out, disconnecting only stops OpenFilm using it, and connecting again uses whichever account is
- *     signed in then (one switched in the agent or its maker's app). `account` says whose it is. Codex and Claude Code
- *     are shown in the chat's menu from the start; the others once the person connects one or switches it on. Codex is
- *     connected from the start, Claude Code once the person connects it.
+ *   · codex, claude, copilot, cursor, opencode, codebuddy, qwen, kimi, minimax, deepseek — the person's own agents
+ *     (agents.mjs): Codex, Claude Code, GitHub Copilot, Cursor, OpenCode, CodeBuddy, Qwen Code, Kimi,
+ *     MiniMax Code and DeepSeek Harness. Each uses the account signed in on the computer as it is: connecting opens
+ *     Terminal for its own sign-in command only when it is signed out, disconnecting only stops OpenFilm using it, and
+ *     connecting again uses whichever account is signed in then (one switched in the agent or its maker's app).
+ *     `account` says whose it is. Codex and Claude Code are shown in the chat's menu from the start; the others once the person connects one or
+ *     switches it on. Codex is connected from the start, Claude Code once the person connects it.
  *   · byok — the app's own agent (Pi, pi-agent.mjs) on the person's own models, each set up on its own: the name the
  *     chat's menu shows, its service (an address on a standard API in one of three formats: the OpenAI Responses API
  *     (…/v1/responses), the OpenAI Chat Completions API (…/v1/chat/completions) or the Anthropic Messages API
@@ -36,11 +36,11 @@ import { join } from 'node:path';
 import { PI_APIS, contextLength, modelEffort } from './pi-config.mjs';
 
 /** The person's own agents, as agents.mjs AGENTS has them. */
-export const OWN_AGENT_IDS = Object.freeze(['codex', 'claude', 'copilot', 'cursor', 'opencode', 'codebuddy', 'qwen', 'kimi', 'minimax']);
+export const OWN_AGENT_IDS = Object.freeze(['codex', 'claude', 'copilot', 'cursor', 'opencode', 'codebuddy', 'qwen', 'kimi', 'minimax', 'deepseek']);
 export const AGENT_IDS = Object.freeze([...OWN_AGENT_IDS, 'byok']);
 export const AGENT_NAMES = Object.freeze({
-  codex: 'Codex', claude: 'Claude Code', copilot: 'GitHub Copilot', cursor: 'Cursor', opencode: 'OpenCode', codebuddy: 'CodeBuddy',
-  qwen: 'Qwen Code', kimi: 'Kimi', minimax: 'MiniMax Code', byok: 'Own key',
+  codex: 'Codex', claude: 'Claude Code', copilot: 'GitHub Copilot', cursor: 'Cursor', opencode: 'OpenCode',
+  codebuddy: 'CodeBuddy', qwen: 'Qwen Code', kimi: 'Kimi', minimax: 'MiniMax Code', deepseek: 'DeepSeek Harness', byok: 'Own key',
 });
 const isOwn = (id) => OWN_AGENT_IDS.includes(id);
 
@@ -275,6 +275,12 @@ export function createRoster(deps) {
     list,
     refresh,
 
+    /** Harness credentials live in its Web UI, even when ACP already reports ready. */
+    async configure(id) {
+      if (id !== 'deepseek') return { ok: false, error: `No configuration UI for ${id}` };
+      return deps.openSignIn(id);
+    },
+
     /** Connect: back on here; its own sign-in when it needs one. */
     async connect(id) {
       if (!AGENT_IDS.includes(id)) return { ok: false, error: `No agent ${id}` };
@@ -285,6 +291,7 @@ export function createRoster(deps) {
         if (isOwn(id)) {
           deps.closeSessions(id);
           const [now] = (await refresh()).filter((a) => a.id === id);
+          if (id === 'deepseek') return await deps.openSignIn(id);
           if (now?.status !== 'sign-in') return { ok: true };
           const opened = await deps.openSignIn(id);
           if (!opened.ok) { live.errors[id] = opened.error ?? 'Terminal did not open.'; changed(); return { ok: false, error: live.errors[id] }; }

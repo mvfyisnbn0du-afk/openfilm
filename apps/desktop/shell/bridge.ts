@@ -330,6 +330,7 @@ const uploadName = (name: string) => name.split(/[\\/]/).pop()!.replace(/[\u0000
   agents: {
     list: native.agents.list,
     connect: native.agents.connect,
+    configure: native.agents.configure,
     onChange: native.agents.onChange,
   },
   localAgents: native.localAgents,

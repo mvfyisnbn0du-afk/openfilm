@@ -12,8 +12,8 @@ import type { Balance } from './balance';
 /** The coding agents the shell can connect to its MCP endpoint. */
 export type DesktopAgentId = 'claude' | 'codex' | 'cursor' | 'copilot' | 'opencode' | 'codebuddy' | 'devin';
 
-/** The chat's agents: the person's own (Codex, Claude Code, Qwen Code, …), and the app's own on their own key. */
-export type LocalAgentId = 'claude' | 'codex' | 'copilot' | 'cursor' | 'opencode' | 'codebuddy' | 'qwen' | 'kimi' | 'minimax' | 'byok';
+/** The chat's agents: the person's own (Codex, Claude Code, …), and the app's own on their own key. */
+export type LocalAgentId = 'claude' | 'codex' | 'copilot' | 'cursor' | 'opencode' | 'codebuddy' | 'qwen' | 'kimi' | 'minimax' | 'deepseek' | 'byok';
 
 /** One agent as the app's roster has it (apps/desktop/src/agent-roster.mjs; Studio's lib/host.ts HostAgent). */
 export interface RosterAgent {
@@ -179,6 +179,7 @@ export interface DesktopBridge {
   agents?: {
     list(): Promise<RosterAgent[]>;
     connect(id: LocalAgentId): Promise<{ ok: boolean; error?: string }>;
+    configure?(id: LocalAgentId): Promise<{ ok: boolean; error?: string }>;
     onChange(listener: (agents: RosterAgent[]) => void): () => void;
   };
   /** Studio's Settings, on Agents (or Providers). */

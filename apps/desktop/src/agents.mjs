@@ -1,7 +1,7 @@
 /**
- * The chat's agents: the person's own Claude Code, Codex, GitHub Copilot, Cursor, OpenCode, CodeBuddy, Qwen Code,
- * Kimi or MiniMax Code, driven over the Agent Client Protocol (ACP): a child process speaking JSON-RPC over
- * stdin/stdout.
+ * The chat's agents: the person's own Claude Code, Codex, GitHub Copilot, Cursor, OpenCode, CodeBuddy,
+ * Qwen Code, Kimi, MiniMax Code or DeepSeek Harness, driven over the Agent Client Protocol (ACP): a child process
+ * speaking JSON-RPC over stdin/stdout.
  * The app is the client: initialize, session/new (or session/resume for a conversation from before), session/prompt;
  * session/update draws the chat, and session/request_permission asks the person in the chat.
  *
@@ -33,7 +33,7 @@ import { Readable, Writable } from 'node:stream';
 import { fileURLToPath } from 'node:url';
 import * as acp from '@agentclientprotocol/sdk';
 import { PATH_SEP, childEnvironment, lastPathSource, loginShellEnvironment, loginShellVariables, shellSubset } from './environment.mjs';
-import { AGENT_PROGRAMS, HOME_BIN_CANDIDATES, chosenProgram, codexVersion, consoleProgram, detectAgentInstallation, laterVersion, searchReport } from './agent-installation.mjs';
+import { AGENT_PROGRAMS, HOME_BIN_CANDIDATES, chosenProgram, codexVersion, consoleProgram, detectAgentInstallation, findExecutable, laterVersion, searchReport } from './agent-installation.mjs';
 import { logSwitches } from './agent-logs.mjs';
 import { mergeConfig, sessionSkills } from './agent-skills.mjs';
 import { nodeBinary } from './node-runtime.mjs';
@@ -79,6 +79,8 @@ export const AGENTS = Object.freeze({
   qwen: { label: 'Qwen Code', args: ['--acp', '--approval-mode', 'yolo'], login: [], approve: true },
   kimi: { label: 'Kimi', args: ['acp'], login: ['login'], approve: true },
   minimax: { label: 'MiniMax Code', args: ['acp'], login: ['login'], approve: true },
+  /* dsh-acp is a profile of dsh; credentials are configured in its own Web UI, not a login subcommand. */
+  deepseek: { label: 'DeepSeek Harness', args: ['--profile', 'acp'], login: ['web'], approve: true },
 });
 
 export const isAgentId = (id) => typeof id === 'string' && Object.hasOwn(AGENTS, id);
@@ -245,7 +247,8 @@ function run(cmd, args, timeoutMs = 10_000, { cwd, env, options } = {}) {
 const winArg = (a) => (/^[\w.:\\/=+@-]+$/.test(a) ? a : `"${String(a).replace(/"/g, '""')}"`);
 
 /** The app's own Node running a script, through as-node.mjs: what the script starts does not run Electron as Node. */
-const AS_NODE = fileURLToPath(new URL('./as-node.mjs', import.meta.url));
+const AS_NODE_URL = new URL('./as-node.mjs', import.meta.url).href;
+const AS_NODE = fileURLToPath(AS_NODE_URL);
 
 /**
  * How to start a program found for an agent: itself, a script with the app's own Node (an npm install on Windows), or
@@ -257,6 +260,15 @@ function starting(cliPath, args) {
     return { cmd: process.env.ComSpec || 'cmd.exe', args: ['/d', '/s', '/c', `"${[cliPath, ...args].map(winArg).join(' ')}"`], env: {}, options: { windowsVerbatimArguments: true } };
   }
   return { cmd: cliPath, args, env: {}, options: {} };
+}
+
+/** DSH needs its entry to remain main; its Windows sandbox helpers also require real Node. */
+export function nativeAgentLaunch(id, cliPath, args, shell) {
+  if (id !== 'deepseek' || !/\.(?:c|m)?js$/i.test(cliPath)) return starting(cliPath, args);
+  if (!windows) return { cmd: nodeBinary(), args: ['--import', AS_NODE_URL, cliPath, ...args], env: { ELECTRON_RUN_AS_NODE: '1' }, options: {} };
+  const node = findExecutable('node', [], shell);
+  if (!node) throw new Error('DeepSeek Harness needs Node.js on PATH. Install Node.js, then reconnect.');
+  return { cmd: node, args: ['--import', AS_NODE_URL, cliPath, ...args], env: {}, options: {} };
 }
 
 /**
@@ -468,7 +480,8 @@ export async function agentSignInMethods(id) {
  */
 export async function openAgentSignIn(id) {
   const spec = AGENTS[id];
-  const pathDirs = (await loginShellEnvironment()).PATH.split(PATH_SEP);
+  const signInShell = await loginShellEnvironment();
+  const pathDirs = signInShell.PATH.split(PATH_SEP);
   const cli = spec ? resolveAgentCli(id, { pathDirs }) : null;
   if (!spec || !cli) return { ok: false, error: `${spec?.label ?? id} is not installed on this computer.` };
   asked.delete(id);
@@ -482,7 +495,7 @@ export async function openAgentSignIn(id) {
   if (process.platform === 'win32') {
     /* a PowerShell window of its own running a script, as ChatCut does: no command line for cmd.exe to unquote (a path
        with a space in it), and left open so its sign-in can be read and answered (it runs a shim itself) */
-    how ??= /\.(?:cmd|bat)$/i.test(cli.path) ? { cmd: cli.path, args: spec.login, env: {} } : starting(cli.path, spec.login);
+    how ??= /\.(?:cmd|bat)$/i.test(cli.path) ? { cmd: cli.path, args: spec.login, env: {} } : nativeAgentLaunch(id, cli.path, spec.login, signInShell);
     try {
       const dir = join(tmpdir(), 'openfilm-sign-in');
       mkdirSync(dir, { recursive: true });
@@ -686,6 +699,16 @@ export function allowOption(params) {
   return (options.find((o) => o.kind === 'allow_always') ?? options.find((o) => o.kind === 'allow_once'))?.optionId ?? null;
 }
 
+/** Flatten ACP provider groups for the chat picker; keep each model's opaque routing value intact. */
+export function flatConfigOptions(options) {
+  return options?.map((option) => ({
+    ...option,
+    ...(Array.isArray(option.options) ? {
+      options: option.options.flatMap((choice) => Array.isArray(choice.options) ? choice.options : [choice]),
+    } : {}),
+  })) ?? null;
+}
+
 /** The older session lists (`models`, `modes`) as the config options the chat's menu reads. */
 export function legacyOptions(session) {
   const out = [];
@@ -775,7 +798,7 @@ export class AgentSession {
     this.logging = this.opts.logDir && cli && !this.spec.adapter
       ? await logSwitches(this.opts.agent, { base: this.opts.logDir, shell, cwd: this.opts.cwd }).catch(() => null) : null;
     /* an agent that speaks ACP itself: its own program, started as the registry starts it */
-    const native = cli && !this.spec.adapter ? starting(cli.path, [...this.spec.args, ...(this.logging?.args ?? []), ...(skills?.args ?? [])]) : null;
+    const native = cli && !this.spec.adapter ? nativeAgentLaunch(this.opts.agent, cli.path, [...this.spec.args, ...(this.logging?.args ?? []), ...(skills?.args ?? [])], shell) : null;
     const extra = { ...this.opts.env, ...(native ? native.env : node.env), ...(cli && this.spec.env ? this.spec.env(cli.path) : {}), ...own, ...skills?.env, ...this.logging?.env };
     /* OpenCode's inline configuration carries both its skills and, in Developer mode, its logging */
     if (skills?.env?.OPENCODE_CONFIG_CONTENT && this.logging?.env?.OPENCODE_CONFIG_CONTENT) {
@@ -812,7 +835,9 @@ export class AgentSession {
         return answers ? { action: 'accept', content: formContent(questions, answers) } : { action: 'decline' };
       })
       .onNotification(acp.methods.client.session.update, (ctx) => {
-        if (!this.replaying) this.opts.onUpdate?.(ctx.params.update);
+        const update = ctx.params.update;
+        if (update.configOptions) update.configOptions = flatConfigOptions(update.configOptions);
+        if (!this.replaying) this.opts.onUpdate?.(update);
       })
       .connect(stream);
 
@@ -855,7 +880,7 @@ export class AgentSession {
       agentInfo: init.agentInfo ?? null,
       models: session.models ?? null,
       modes: session.modes ?? null,
-      configOptions: session.configOptions ?? (this.legacy ? legacyOptions(session) : null),
+      configOptions: flatConfigOptions(session.configOptions) ?? (this.legacy ? legacyOptions(session) : null),
       /* what a prompt may carry besides text (pictures, for one): the agent says so as it shakes hands */
       promptCapabilities: caps.promptCapabilities ?? null,
       /* a message sent while it works joins the turn it is in (steer), as in its own chat */
@@ -929,6 +954,7 @@ export class AgentSession {
     if (this.legacy && configId === 'mode') return this.setMode(value);
     if (this.legacy && configId === 'model') return this.conn.agent.request('session/set_model', { sessionId: this.sessionId, modelId: value });
     const r = await this.conn.agent.request(acp.methods.agent.session.setConfigOption, { sessionId: this.sessionId, configId, value });
+    if (r?.configOptions) r.configOptions = flatConfigOptions(r.configOptions);
     this.noteModel(r?.configOptions);
     return r;
   }

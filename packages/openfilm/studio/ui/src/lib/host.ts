@@ -85,6 +85,7 @@ export interface StudioHost {
   agents?: {
     list: () => Promise<HostAgent[]>;
     connect: (id: HostAgentId) => Promise<{ ok: boolean; error?: string }>;
+    configure?: (id: HostAgentId) => Promise<{ ok: boolean; error?: string }>;
     disconnect: (id: HostAgentId) => Promise<unknown>;
     /** Codex: what is left of its plan, as it says for the account signed in (null: it can't say; other agents, null) */
     usage?: (id: HostAgentId, fresh?: boolean) => Promise<HostAgentUsage | null>;
@@ -195,7 +196,7 @@ export interface HostUpdateState {
 /** An update of the app, ready to install or installing; `waiting`: why the last Restart did not go ahead. */
 export type HostUpdate = { status: 'ready' | 'installing'; version: string; waiting?: 'agent-busy' | 'exporting' | 'install-failed' | null };
 
-export type HostAgentId = 'codex' | 'claude' | 'copilot' | 'cursor' | 'opencode' | 'codebuddy' | 'qwen' | 'kimi' | 'minimax' | 'byok';
+export type HostAgentId = 'codex' | 'claude' | 'copilot' | 'cursor' | 'opencode' | 'codebuddy' | 'qwen' | 'kimi' | 'minimax' | 'deepseek' | 'byok';
 /**
  * What was searched for an agent (`agents.diagnose`): the report to copy, the program's name, where it was found, and
  * when it was not, why: chosen-missing (the program chosen is gone) · wsl (only inside WSL, which the app cannot use) ·

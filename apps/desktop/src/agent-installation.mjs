@@ -20,6 +20,7 @@ export const AGENT_DOWNLOADS = Object.freeze({
   qwen: 'https://github.com/QwenLM/qwen-code',
   kimi: 'https://www.kimi.com/code',
   minimax: 'https://www.npmjs.com/package/@minimax-ai/code',
+  deepseek: 'https://github.com/deepseek-ai/deepseek-harness',
 });
 
 /**
@@ -38,6 +39,7 @@ export const AGENT_PROGRAMS = Object.freeze({
   kimi: { names: ['kimi'], dirs: (home) => [join(home, '.kimi-code', 'bin')] },
   /* MiniMax Code's own installer keeps it in ~/.minimax-code/bin */
   minimax: { names: ['mcode'], dirs: (home) => [join(home, '.minimax-code', 'bin')] },
+  deepseek: { names: ['dsh'] },
 });
 
 export function executableFile(path) {

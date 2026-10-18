@@ -9,12 +9,16 @@
  *   electron as-node.mjs <program> [args…]
  */
 import childProcess from 'node:child_process';
-import { pathToFileURL } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import { hideChildWindows } from './hidden-windows.mjs';
 
 delete process.env.ELECTRON_RUN_AS_NODE;
 if (process.platform === 'win32') hideChildWindows(childProcess);
-const program = process.argv[2];
-/* the program sees itself as the script it is: argv[1] is its path, its own arguments follow */
-process.argv.splice(1, 1);
-await import(pathToFileURL(program).href);
+/* Native CLIs preload this file with --import so their entry remains the main module (DSH checks import.meta.main).
+   The app's adapters also keep the older wrapper invocation. */
+if (process.argv[1] === fileURLToPath(import.meta.url)) {
+  const program = process.argv[2];
+  /* the program sees itself as the script it is: argv[1] is its path, its own arguments follow */
+  process.argv.splice(1, 1);
+  await import(pathToFileURL(program).href);
+}

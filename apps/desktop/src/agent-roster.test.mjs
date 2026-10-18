@@ -17,6 +17,21 @@ const roster = (dataDir, fetch, extra = {}) => createRoster({
   ...extra,
 });
 
+test('Harness can open credential configuration even when ACP is already ready', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'of-roster-'));
+  const opened = [];
+  const r = roster(dir, undefined, {
+    localAgents: async () => [{ id: 'deepseek', cli: { path: 'dsh' }, signedIn: true }],
+    openSignIn: async (id) => { opened.push(id); return { ok: true }; },
+  });
+  await r.refresh();
+  assert.deepEqual(await r.connect('deepseek'), { ok: true });
+  assert.equal(r.list().find((a) => a.id === 'deepseek').status, 'ready');
+  assert.deepEqual(await r.configure('deepseek'), { ok: true });
+  assert.deepEqual(opened, ['deepseek', 'deepseek']);
+  assert.equal((await r.configure('codex')).ok, false);
+});
+
 test('each API format is asked in its own shape, with a picture', () => {
   const r = probeRequest('responses', 'https://api.openai.com/v1/', 'k', 'm');
   assert.equal(r.url, 'https://api.openai.com/v1/responses');

@@ -1533,6 +1533,7 @@ export const ko: Words = {
       unavailable: '아직 사용할 수 없습니다. 업데이트로 제공될 예정입니다',
       checking: '확인 중…',
       connect: '연결',
+      configure: '설정',
       disconnect: '연결 해제',
       disconnectHint: 'OpenFilm에서 사용을 멈춥니다. 로그인은 그대로입니다. 다른 계정을 쓰려면 {name}에서 계정을 바꾼 뒤 다시 연결하세요.',
       accountChatgpt: 'ChatGPT 계정',

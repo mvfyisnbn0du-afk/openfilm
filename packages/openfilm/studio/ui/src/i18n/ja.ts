@@ -1534,6 +1534,7 @@ export const ja: Words = {
       unavailable: 'まだ使えません（今後のアップデートで提供）',
       checking: '確認中…',
       connect: '接続',
+      configure: '設定',
       disconnect: '接続を解除',
       disconnectHint: 'OpenFilm での利用を止めます。サインインはそのままです。別のアカウントを使うには、{name} でアカウントを切り替えてからもう一度接続してください。',
       accountChatgpt: 'ChatGPT アカウント',

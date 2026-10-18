@@ -46,7 +46,7 @@ function useHostAgents(): HostAgent[] | null {
 }
 
 /** The person's own agents (the app's AGENTS), in the roster's order. */
-const OWN: readonly HostAgentId[] = ['codex', 'claude', 'copilot', 'cursor', 'opencode', 'codebuddy', 'qwen', 'kimi', 'minimax'];
+const OWN: readonly HostAgentId[] = ['codex', 'claude', 'copilot', 'cursor', 'opencode', 'codebuddy', 'qwen', 'kimi', 'minimax', 'deepseek'];
 /** whose maker's mark is its company's */
 function AgentMark({ id }: { id: HostAgentId }) {
   return id === 'byok' ? <KeyRound size={16} /> : <ProviderMark id={agentMark(id)} size={17} />;
@@ -186,10 +186,17 @@ export function AgentsSection() {
     const working = busy === agent.id;
     if (agent.status === 'ready' && chosen) {
       return (
-        <SettingsButton variant="quiet" disabled={working} title={agent.id === 'byok' ? undefined : t('settings.agents.disconnectHint').replaceAll('{name}', agent.name)}
-          onClick={() => act(agent.id, () => host.disconnect(agent.id))}>
-          {t('settings.agents.disconnect')}
-        </SettingsButton>
+        <>
+          {agent.id === 'deepseek' && host.configure ? (
+            <SettingsButton variant="quiet" disabled={working} onClick={() => act(agent.id, () => host.configure!(agent.id))}>
+              {t('settings.agents.configure')}
+            </SettingsButton>
+          ) : null}
+          <SettingsButton variant="quiet" disabled={working} title={agent.id === 'byok' ? undefined : t('settings.agents.disconnectHint').replaceAll('{name}', agent.name)}
+            onClick={() => act(agent.id, () => host.disconnect(agent.id))}>
+            {t('settings.agents.disconnect')}
+          </SettingsButton>
+        </>
       );
     }
     if (agent.status === 'missing') {

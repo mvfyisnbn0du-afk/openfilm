@@ -1,6 +1,35 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { CLIENT_CAPABILITIES, CODEX_UTF8_CMD, agentShell, allowOption, codexDeveloperInstructions, codexLaunchEnv, errorCause, legacyOptions, powerShellScript, readAgentStatus, signInError, codexTooOld } from './agents.mjs';
+import { dirname } from 'node:path';
+import { CLIENT_CAPABILITIES, CODEX_UTF8_CMD, agentShell, allowOption, codexDeveloperInstructions, codexLaunchEnv, errorCause, flatConfigOptions, legacyOptions, nativeAgentLaunch, powerShellScript, readAgentStatus, signInError, codexTooOld } from './agents.mjs';
+
+test('Windows Harness uses the installed Node for its sandbox helpers', { skip: process.platform !== 'win32' }, () => {
+  const args = ['--profile', 'acp'];
+  const launch = nativeAgentLaunch('deepseek', 'C:/npm/dsh/bin.js', args, { PATH: dirname(process.execPath) });
+  assert.equal(launch.cmd.toLowerCase(), process.execPath.toLowerCase());
+  assert.equal(launch.args[0], '--import');
+  assert.ok(launch.args[1].startsWith('file:///'));
+  assert.deepEqual(launch.args.slice(2), ['C:/npm/dsh/bin.js', ...args]);
+  assert.deepEqual(launch.env, {}, 'does not run Electron or pass its Node-mode flag');
+  assert.throws(() => nativeAgentLaunch('deepseek', 'C:/npm/dsh/bin.js', args, { PATH: '' }), /needs Node.js/);
+});
+
+test('grouped ACP models expose selectable model names while preserving opaque route values', () => {
+  const flash = { value: '["deepseek-official","deepseek-v4-flash"]', name: 'DeepSeek V4 Flash' };
+  const pro = { value: '["deepseek-official","deepseek-v4-pro"]', name: 'DeepSeek V4 Pro' };
+  const other = { value: 'other/pro', name: 'Other Pro' };
+  const input = [{ id: 'model', category: 'model', currentValue: flash.value, options: [
+    { group: 'deepseek-official', name: 'DeepSeek', options: [flash, pro] },
+    { group: 'other', name: 'Other', options: [other] },
+  ] }, { id: 'effort', options: [{ value: 'high', name: 'High' }] }];
+  const result = flatConfigOptions(input);
+  assert.deepEqual(result[0].options, [flash, pro, other]);
+  assert.equal(result[0].currentValue, flash.value);
+  assert.deepEqual(result[1], input[1]);
+  assert.equal(input[0].options.length, 2);
+  assert.deepEqual(flatConfigOptions(result), result);
+  assert.equal(flatConfigOptions(null), null);
+});
 
 test('an agent that asks: yes for good where it offers that, else yes this once; nothing to say yes with is null', () => {
   const options = [
