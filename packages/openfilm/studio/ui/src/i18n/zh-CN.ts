@@ -109,7 +109,7 @@ export const zhCN: Words = {
       sync: { title: '与编辑器双向联动', body: '把片段、图层、画面区域或素材文件放进消息；智能体提到的任何片段，点一下就跳到 Studio 里对应的位置。' },
       live: { title: '改动实时呈现', body: '每处修改写下时就出现在画面和时间线上。可以亲手微调，也可以在版本历史里退回。' },
       drop: { title: '素材直接拖进来', body: '把视频、图片或声音拖进对话，直接进入影片的文件夹，马上能用。' },
-      agents: { title: '主流智能体随心切换', body: 'Claude Code、Codex、Gemini CLI、Copilot、Cursor 等，自动发现你电脑上已有的。在对话里随时切换，也可以用自己的 API key。' },
+      agents: { title: '主流智能体随心切换', body: 'Claude Code、Codex、Copilot、Cursor 等，自动发现你电脑上已有的。在对话里随时切换，也可以用自己的 API key。' },
       speed: { title: '预览和导出更快更稳', body: '内置固定版本的渲染引擎，播放更流畅；电脑有硬件视频编码器时，导出会用它加速。' },
       setup: { title: '无需终端，无需管理依赖', body: '不用装 Node、npm，也不用管包的版本：ffmpeg 和渲染器都已内置，并和 Studio 一起测试过。' },
       updates: { title: '始终保持最新', body: '更新在后台下载，重启时安装，绝不会打断正在进行的导出或回复。' },

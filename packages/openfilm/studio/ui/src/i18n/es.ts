@@ -108,7 +108,7 @@ export const es: Words = {
       sync: { title: 'Conectado al editor en ambos sentidos', body: 'Pon un clip, una capa, una zona de la imagen o un archivo en tu mensaje, y haz clic en cualquier clip que nombre tu agente para ir a él en Studio.' },
       live: { title: 'Cambios en directo', body: 'Cada edición aparece en la imagen y en la línea de tiempo en cuanto se escribe. Ajústala a mano o vuelve atrás en el historial de versiones.' },
       drop: { title: 'Suelta tus medios', body: 'Arrastra metraje, imágenes o sonido al chat: van directos a la carpeta de la película, listos para usar.' },
-      agents: { title: 'Cualquier agente, a un clic', body: 'Claude Code, Codex, Gemini CLI, Copilot, Cursor y más, detectados en tu ordenador. Cámbialos en el chat o usa tu propia clave de API.' },
+      agents: { title: 'Cualquier agente, a un clic', body: 'Claude Code, Codex, Copilot, Cursor y más, detectados en tu ordenador. Cámbialos en el chat o usa tu propia clave de API.' },
       speed: { title: 'Vista previa y exportación más rápidas', body: 'Un motor de renderizado fijo para una reproducción fluida, y exportaciones con el codificador de vídeo por hardware de tu ordenador cuando lo tiene.' },
       setup: { title: 'Sin terminal ni dependencias', body: 'Nada de Node, npm ni versiones de paquetes: ffmpeg y el renderizador vienen incluidos y probados con Studio.' },
       updates: { title: 'Siempre al día', body: 'Las actualizaciones se descargan en segundo plano y se instalan al reiniciar, nunca en mitad de una exportación o una respuesta.' },
