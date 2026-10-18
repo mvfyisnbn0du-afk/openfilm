@@ -1,6 +1,7 @@
 // The reference host (SPEC §4): serves a film folder over HTTP, opens its page in Chromium and asks it for frames.
 import { execFile } from 'node:child_process';
 import { createServer } from 'node:http';
+import { pipeline } from 'node:stream';
 import { createReadStream, readFileSync, realpathSync, statSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { extname, join, normalize, resolve, sep } from 'node:path';
@@ -126,11 +127,11 @@ export function folderFiles(root, { inject = `<script>${HOST_FLAG}</script>`, ti
       const end = range[1] && range[2] ? Math.min(Number(range[2]), stat.size - 1) : stat.size - 1;
       if (start > end || start >= stat.size) { res.writeHead(416, { ...headers, 'content-range': `bytes */${stat.size}` }).end(); return true; }
       res.writeHead(206, { ...headers, 'content-range': `bytes ${start}-${end}/${stat.size}`, 'content-length': end - start + 1 });
-      createReadStream(file, { start, end }).pipe(res);
+      pipeline(createReadStream(file, { start, end }), res, () => {});
       return true;
     }
     res.writeHead(200, { ...headers, 'content-length': stat.size });
-    createReadStream(file).pipe(res);
+    pipeline(createReadStream(file), res, () => {});
     return true;
   };
 }
