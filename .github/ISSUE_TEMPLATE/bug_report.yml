@@ -27,7 +27,6 @@ body:
         - Claude Code
         - Codex
         - Cursor
-        - Gemini CLI
         - Other (say which below)
     validations:
       required: true

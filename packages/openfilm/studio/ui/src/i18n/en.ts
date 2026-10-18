@@ -109,7 +109,7 @@ export const en = {
       sync: { title: 'Two-way with the editor', body: 'Put a clip, a layer, a region of the picture or a media file in your message, and click any clip your agent names to jump to it in Studio.' },
       live: { title: 'Changes land live', body: 'Every edit shows on the picture and the timeline as it’s written. Adjust it by hand, or step back in Version history.' },
       drop: { title: 'Drop in your media', body: 'Drag footage, pictures or sound into the chat: they go straight into the film’s folder, ready to use.' },
-      agents: { title: 'Any agent, one switch away', body: 'Claude Code, Codex, Gemini CLI, Copilot, Cursor and more, found on your computer. Switch in the chat, or use your own API key.' },
+      agents: { title: 'Any agent, one switch away', body: 'Claude Code, Codex, Copilot, Cursor and more, found on your computer. Switch in the chat, or use your own API key.' },
       speed: { title: 'Faster preview and export', body: 'A pinned rendering engine for smooth playback, and exports on your computer’s hardware video encoder when it has one.' },
       setup: { title: 'No terminal, no dependencies', body: 'No Node, npm or package versions to manage: ffmpeg and the renderer are built in and tested with Studio.' },
       updates: { title: 'Always up to date', body: 'Updates download in the background and install on restart, never in the middle of an export or a reply.' },

@@ -15,6 +15,8 @@ export interface HostDeveloper { logs: boolean; changes: boolean }
 export interface StudioHost {
   /** the version of this interface the app speaks */
   version: 1;
+  /** The native Settings menu asks the current page to open General, including the launcher. */
+  settings?: { onOpen: (listener: () => void) => () => void };
   /** the app's name, for the person */
   name?: string;
   /**
@@ -193,7 +195,7 @@ export interface HostUpdateState {
 /** An update of the app, ready to install or installing; `waiting`: why the last Restart did not go ahead. */
 export type HostUpdate = { status: 'ready' | 'installing'; version: string; waiting?: 'agent-busy' | 'exporting' | 'install-failed' | null };
 
-export type HostAgentId = 'codex' | 'claude' | 'gemini' | 'copilot' | 'cursor' | 'opencode' | 'codebuddy' | 'qwen' | 'kimi' | 'minimax' | 'byok';
+export type HostAgentId = 'codex' | 'claude' | 'copilot' | 'cursor' | 'opencode' | 'codebuddy' | 'qwen' | 'kimi' | 'minimax' | 'byok';
 /**
  * What was searched for an agent (`agents.diagnose`): the report to copy, the program's name, where it was found, and
  * when it was not, why: chosen-missing (the program chosen is gone) · wsl (only inside WSL, which the app cannot use) ·

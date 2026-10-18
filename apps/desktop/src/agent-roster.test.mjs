@@ -116,15 +116,15 @@ test('one service with several models, kept before each model was set up on its 
 test("Codex and Claude Code are shown in the chat from the start, the person's other agents once connected or switched on", async () => {
   const dir = mkdtempSync(join(tmpdir(), 'of-roster-'));
   const found = (id, cli) => ({ id, cli, signedIn: true, install: 'https://example.test', setupRequired: null });
-  const r = roster(dir, undefined, { localAgents: async () => [found('codex', null), found('claude', null), found('gemini', { path: '/bin/gemini' }), found('kimi', null)] });
+  const r = roster(dir, undefined, { localAgents: async () => [found('codex', null), found('claude', null), found('qwen', { path: '/bin/qwen' }), found('kimi', null)] });
   const list = await r.refresh();
   const of = (id) => list.find((a) => a.id === id);
   assert.equal(of('codex').shown, true, 'not installed, still shown');
-  assert.equal(of('gemini').status, 'ready');
-  assert.equal(of('gemini').shown, false, 'installed, not chosen yet');
+  assert.equal(of('qwen').status, 'ready');
+  assert.equal(of('qwen').shown, false, 'installed, not chosen yet');
   assert.equal(of('kimi').status, 'missing');
-  await r.connect('gemini');
-  assert.equal(r.list().find((a) => a.id === 'gemini').shown, true, 'connected: chosen');
+  await r.connect('qwen');
+  assert.equal(r.list().find((a) => a.id === 'qwen').shown, true, 'connected: chosen');
   r.setShown('kimi', true);
   assert.equal(readChoices(dir).shown.kimi, true);
 });
@@ -159,6 +159,16 @@ test('an agent not found can be pointed at: the program is tried first, kept, an
   assert.deepEqual(readChoices(dir).paths, {});
   assert.deepEqual(used.at(-1), {});
   assert.deepEqual(await r.locate('byok'), { ok: false, error: 'No agent byok' }, 'only the person\'s own programs');
+});
+
+test('choices about an agent the app no longer has are dropped quietly', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'of-roster-'));
+  writeFileSync(join(dir, 'agents.json'), JSON.stringify({ shown: { gemini: true, kimi: true }, paths: { gemini: '/bin/gemini' }, disconnected: ['gemini', 'claude'] }));
+  const choices = readChoices(dir);
+  assert.equal('gemini' in choices.shown, false);
+  assert.equal(choices.shown.kimi, true);
+  assert.deepEqual(choices.paths, {});
+  assert.deepEqual(choices.disconnected, ['claude']);
 });
 
 test('a kept path for something that is not one of the agents is dropped', () => {
