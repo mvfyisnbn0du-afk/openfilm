@@ -13,13 +13,14 @@ import { api, ApiError, PREFS_EVENT, projectEvents, type Clip, type Film, type L
 import { useT } from '@/i18n';
 import { useFilm, type Step } from '@/editor/use-film';
 import { Player } from '@/editor/player';
-import { Preview, type FilmInfo, type PreviewHandle } from '@/editor/Preview';
+import { Preview, type FilmInfo, type PlayedReport, type PreviewHandle } from '@/editor/Preview';
+import { usePreviewRenders } from '@/editor/use-preview-renders';
 import { filmShape, type MediaFacts } from '@/lib/film-shape';
 import { changesPicture } from '@/lib/picture-files';
 import type { ReplaceFamily } from '@/lib/clip-replace';
 import { layoutTracks, type TimelineBlock, type TimelineTrack } from '@/lib/timeline-layout';
 import { filmClipKind, filmSrcIsPage, filmSrcKind, filmTrackBadges, parseFilmDocLoc, type FilmBox, type FilmDoc, type FilmOverride } from '@/lib/film';
-import { footageFps, setTimecodeFps, snapToFrame, stepFrames } from '@/lib/timecode';
+import { exactRate, footageFps, setTimecodeFps, snapToFrame, stepFrames } from '@/lib/timecode';
 import { JUMP_FRAMES, keyCommandOf, loopBack, playStart, shuttleRate } from '@/lib/timeline-keys';
 import { attrsOf, pasteAttrs, type AttrGroup, type CopiedAttrs } from '@/lib/clip-attrs';
 import { cutPoints, namedTrack, nextCut, trackNamesOf } from '@/lib/timeline-nav';
@@ -61,7 +62,7 @@ import { SubtitleOverlay } from './SubtitleOverlay';
 import { SubtitleInspector, subtitleLineKey, type SubtitleLineAt, type SubtitleLineRefer } from './SubtitleInspector';
 import { useFilmSubtitles } from '@/lib/use-film-subtitles';
 import { speakerAt, useSubtitleEdits } from '@/lib/use-subtitle-edits';
-import { cueAt, filmSubtitleStyleFor, sameFilmSubtitleLanguage } from '@/lib/subtitles';
+import { cueAt, filmSubtitleStyleFor, filmSubtitleWords, sameFilmSubtitleLanguage, type SubtitleCue } from '@/lib/subtitles';
 import { DEFAULT_INSPECTOR, DOCK_GAP, DockPaneDivider, MIN_DOCK_H, MIN_INSPECTOR, MIN_STAGE_H, MIN_VIEWER, PaneDivider, usePaneSize } from './PaneDivider';
 import { PANE_BAR, PANE_BTN_ON, PANE_TOGGLE, PANE_TOGGLE_ICON } from './dock-pane-bar';
 import { Tooltip } from './Tooltip';
@@ -109,6 +110,7 @@ import type { MaskSession } from '@/lib/stage-mask';
 import type { MaskShape } from '@/lib/clip-mask';
 import { nextOverrides, overrideOf, type OverrideGeometry } from '@/lib/film-overrides';
 import { compactScale, type MgTransform, type NodeOverride, type OverridePivot, type StageElement, type StageElementStyle, type StageGeometry } from '@/lib/stage-types';
+import { usePreviewPrefs } from '@/lib/preview-prefs';
 import { isTypingTarget } from './typing-target';
 
 const PANE = 'relative flex min-h-0 min-w-0 flex-col overflow-hidden rounded-[7px]';
@@ -184,6 +186,9 @@ function clipIdAt(film: Film | null, loc: string): string | null {
   return at ? film?.tracks[at.track]?.clips[at.clip]?.id ?? null : null;
 }
 
+/** No subtitles shown (fullscreen's CC off): the same list each time, so nothing renders again for it. */
+const NO_CUES: readonly SubtitleCue[] = [];
+
 export function ProjectView({ projectId, onProject, onLeave }: {
   projectId: string;
   /** go to another project */
@@ -216,6 +221,8 @@ export function ProjectView({ projectId, onProject, onLeave }: {
       /* a picture that could not be drawn is tried again whenever the folder changes: the missing file arrived, or
          the clip that named it is gone from film.html now that the edit is written */
       if (previewErrorRef.current && (event.type === 'film' || event.type === 'files')) { preview.current?.reload?.(); }
+      /* renamed from another tab, or the projects list */
+      if (event.type === 'project') { setLoaded((l) => (l ? { ...l, project: event.project } : l)); return; }
       if (event.type !== 'files') return;
       void loadFiles();
       /* a page's picture depends on the files it loads (its styles, code, pictures): its thumbnails are asked again
@@ -352,9 +359,13 @@ export function ProjectView({ projectId, onProject, onLeave }: {
   const refOfFile = React.useCallback((file: WorkspaceResource) => fileRef(file, file.kind === 'mg' ? mediaSources.pagePoster?.(file)
     : file.kind === 'image' ? stillUrl(projectId, file.path, Math.round(file.mtimeMs)) : file.kind === 'video' ? mediaSources.poster?.(file) : undefined), [mediaSources, projectId]);
 
-  /* ── transport: the sound is the clock; the picture follows it ── */
+  /* ── transport: the sound is the clock; the picture follows it, drawn in the preview from the player's line ── */
   const player = React.useRef(new Player());
-  React.useEffect(() => () => player.current.close(), []);
+  React.useEffect(() => {
+    const p = player.current;
+    p.onAnchor = (anchor) => preview.current?.play?.(anchor);
+    return () => { p.onAnchor = null; p.close(); };
+  }, []);
   const [playing, setPlaying] = React.useState(false);
   const [timeMs, setTimeMs] = React.useState(0);
   const timeRef = React.useRef(0);
@@ -371,6 +382,7 @@ export function ProjectView({ projectId, onProject, onLeave }: {
   const clock = React.useMemo<PlaybackClock>(() => ({
     get: () => player.current.time() * 1000,
     subscribe: (fn) => { listeners.current.add(fn); return () => listeners.current.delete(fn); },
+    line: () => { const a = player.current.anchor(); return a ? { ms: a.t * 1000, at: a.at, rate: a.rate } : null; },
   }), []);
   /* the player never says 0 (it divides by its length): an empty film is 0.001 s long, here 0 */
   const drawnMs = (info?.duration ?? 0) > 0.001 ? Math.round(info!.duration * 1000) : 0;
@@ -387,8 +399,8 @@ export function ProjectView({ projectId, onProject, onLeave }: {
       const back = loopRef.current ? loopBack(t * 1000, rangeNowRef.current, player.current.duration * 1000) : null;
       if (back != null) {
         stopAtRef.current = null;
+        /* the player plays on from there: the preview is told its new line */
         player.current.seek(back / 1000);
-        preview.current?.seek(pictureAt(back / 1000));
         setTimeMs(back);
         for (const fn of listeners.current) fn();
         frame = requestAnimationFrame(tick);
@@ -405,10 +417,10 @@ export function ProjectView({ projectId, onProject, onLeave }: {
         for (const fn of listeners.current) fn();
         return;
       }
-      preview.current?.seek(pictureAt(t));
+      /* the picture draws itself from the player's line (Preview's play); the playhead, timecode and subtitles read the
+         clock; the rest of the editor hears the time a few times a second (each time, all of it renders again) */
       for (const fn of listeners.current) fn();
-      /* the rest of the editor hears the time a few times a second; the playhead and timecode read the clock */
-      if (now - lastTick > 50) { lastTick = now; setTimeMs(t * 1000); }
+      if (now - lastTick > 250) { lastTick = now; setTimeMs(t * 1000); }
       if (!player.current.playing || t >= player.current.duration - 1e-3) {
         player.current.pause();
         setPlaying(false);
@@ -424,9 +436,10 @@ export function ProjectView({ projectId, onProject, onLeave }: {
 
   const seek = React.useCallback((ms: number) => {
     const t = Math.max(0, Math.min(ms / 1000, player.current.duration || ms / 1000));
+    /* playing, it plays on from there (the preview is told the player's new line); still, the picture shows t */
     player.current.seek(t);
     setTimeMs(t * 1000);
-    preview.current?.seek(pictureAt(t));
+    if (!player.current.playing) preview.current?.seek(pictureAt(t));
     for (const fn of listeners.current) fn();
   }, []);
   /* ── J / K / L: the shuttle. 1× and 2× forward are the player's own (with sound); faster, or backwards, the picture
@@ -446,9 +459,12 @@ export function ProjectView({ projectId, onProject, onLeave }: {
     if (shuttleFrame.current) { cancelAnimationFrame(shuttleFrame.current); shuttleFrame.current = 0; shuttleRateRef.current = 0; }
     if (!player.current.playing) return;
     player.current.pause();
+    /* stopped on the frame being shown: the timecode, the picture and an edit at the playhead all mean that frame */
+    player.current.seek(snapToFrame(player.current.time() * 1000) / 1000);
     setPlaying(false);
     setTimeMs(player.current.time() * 1000);
     preview.current?.seek(pictureAt(player.current.time()));
+    for (const fn of listeners.current) fn();
   }, []);
   const toggle = React.useCallback(() => {
     stopShuttle();
@@ -512,7 +528,19 @@ export function ProjectView({ projectId, onProject, onLeave }: {
     return () => { window.removeEventListener('pointerdown', wake, true); window.removeEventListener('keydown', wake, true); };
   }, []);
   /* scrubbing the timeline pauses, and stays paused */
-  const scrubPreview = React.useCallback((ms: number) => { pause(); seek(ms); }, [pause, seek]);
+  /* while scrubbing, the picture and the timecode follow each step the timeline tells (every frame); the rest of the
+     editor, which renders whole each time, hears the time a few times a second, and once more as the scrub ends */
+  const scrubTold = React.useRef(0);
+  const scrubPreview = React.useCallback((ms: number) => {
+    pause();
+    const t = Math.max(0, Math.min(ms / 1000, player.current.duration || ms / 1000));
+    player.current.seek(t);
+    preview.current?.seek(pictureAt(t));
+    for (const fn of listeners.current) fn();
+    const now = performance.now();
+    if (now - scrubTold.current > 100) { scrubTold.current = now; setTimeMs(t * 1000); }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pause]);
   const scrubCommit = React.useCallback((ms: number) => { pause(); seek(ms); }, [pause, seek]);
 
   /* a seek asked for past the film's end as it was (the end of a clip just put on): made once the film is that long */
@@ -569,6 +597,15 @@ export function ProjectView({ projectId, onProject, onLeave }: {
     ...(rawListing?.files ?? []).filter((f) => f.kind === 'video').map((f) => facts.get(f.path)?.fps),
   ]), [timelineTracks, rawListing, facts]);
   const projectFps = settings?.fps ?? footageRate;
+  /* stretches that play late, rendered in the background to play smoothly (editor/use-preview-renders) */
+  const { renders: rendersOn, stats: statsOn } = usePreviewPrefs();
+  const previewRenders = usePreviewRenders({ projectId, folder, fps: exactRate(projectFps), playing, on: rendersOn, film: film.film, files: filesTick, preview });
+  /* Settings → Developer: how playing goes, in the viewer's corner, said about once a second */
+  const [played, setPlayed] = React.useState<PlayedReport | null>(null);
+  const onPlayed = React.useCallback((report: PlayedReport) => {
+    previewRenders.onPlayed(report);
+    if (statsOn) setPlayed(report);
+  }, [previewRenders, statsOn]);
   React.useEffect(() => { setTimecodeFps(projectFps); }, [projectFps]);
   React.useEffect(() => () => setTimecodeFps(30), []);
   const frameRate = React.useMemo(() => ({ fps: projectFps, fromFootage: settings?.fps == null, onChange: (fps: number) => patchSettings({ fps }) }), [projectFps, settings, patchSettings]);
@@ -671,6 +708,13 @@ export function ProjectView({ projectId, onProject, onLeave }: {
   const subs = useFilmSubtitles(projectId);
   /* fullscreen's CC button (and c): only what is shown, not the film's own setting */
   const [captionsOn, setCaptionsOn] = React.useState(true);
+  /* the subtitle over the picture renders again while playing only when another line, or another of its words, is said */
+  const shownCues = captionsOn ? subs.cues : NO_CUES;
+  const subtitleStep = React.useCallback((ms: number) => {
+    const cue = subs.style.on ? cueAt(shownCues, ms) : null;
+    if (!cue) return '';
+    return `${shownCues.indexOf(cue)}:${subs.style.karaoke ? filmSubtitleWords(cue, ms).map((w) => (w.active ? 1 : 0)).join('') : ''}`;
+  }, [shownCues, subs.style.on, subs.style.karaoke]);
   const configureSubtitles = React.useCallback(() => {
     setInspectorContent('subtitles');
     setInspectorOpen(!(inspectorOpen && inspectorContent === 'subtitles'));
@@ -1232,6 +1276,7 @@ export function ProjectView({ projectId, onProject, onLeave }: {
       onMoveCheck={onMoveCheck}
       onDelete={onDelete}
       onExtractAudio={onExtractAudio}
+      onSetCover={onSetCover}
       onNewFolder={onNewFolder}
       onDropClips={dropClipsForAssets}
       onReveal={reveal}
@@ -2112,6 +2157,10 @@ export function ProjectView({ projectId, onProject, onLeave }: {
   const onExtractAudio = React.useCallback(async (path: string) => mediaResult(await fetch(`${projectApi}/files/audio`, {
     method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ path }),
   })), [projectApi]);
+  /* a picture of the project: the project's card in the projects list */
+  const onSetCover = React.useCallback((path: string) => {
+    void api.setCover(projectId, { path }).then(() => toast.show(t('projects.coverSet')), () => toast.showError(t('projects.coverFailed')));
+  }, [projectId, toast, t]);
   const onNewFolder = React.useCallback(async (path: string) => mediaResult(await fetch(`${projectApi}/folders`, {
     method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ path }),
   })), [projectApi]);
@@ -2425,16 +2474,25 @@ export function ProjectView({ projectId, onProject, onLeave }: {
   /* the app's "New Tab" (its menu): the projects, to pick what the new tab shows */
   React.useEffect(() => studioHost?.tabs?.onPick(() => setProjectsOpen(true)), []);
   React.useEffect(() => { if (title) studioHost?.tabs?.report({ title }); }, [title]);
-  const commitTitle = async () => {
+  const renameError = (e: unknown, name: string) =>
+    toast.showError(e instanceof ApiError && e.status === 409 ? t('projects.renameTaken').replace('{name}', name) : t('project.renameFailed'));
+  const commitTitle = async (draft = titleDraft) => {
     setRenaming(false);
-    const next = titleDraft.trim();
-    if (!next || next === title || !loaded) return;
+    const next = draft.trim();
+    if (!next || next === title || !loaded) return false;
     setLoaded({ ...loaded, project: { ...loaded.project, name: next } });
-    try { const project = await api.rename(projectId, next); setLoaded((l) => (l ? { ...l, project } : l)); }
+    try { const project = await api.rename(projectId, next); setLoaded((l) => (l ? { ...l, project } : l)); return true; }
     catch (e) {
       setLoaded((l) => (l ? { ...l, project: { ...l.project, name: title } } : l));
-      toast.showError(e instanceof ApiError && e.status === 409 ? t('projects.renameTaken').replace('{name}', next) : t('project.renameFailed'));
+      renameError(e, next);
+      return false;
     }
+  };
+  /* a tab renamed in the tab strip: this page's project, as its title is, or another tab's (its page hears it) */
+  const renameTab = async (id: string, name: string) => {
+    if (id === projectId) return commitTitle(name);
+    try { await api.rename(id, name); return true; }
+    catch (e) { renameError(e, name); return false; }
   };
   const [projectsOpen, setProjectsOpen] = React.useState(false);
   /* the examples over the film, opened from the app's chat */
@@ -2571,26 +2629,7 @@ export function ProjectView({ projectId, onProject, onLeave }: {
               </Tooltip>}
             </div>
             {inTabs ? (
-              <TabStrip onRename={startRename} onNew={() => setProjectsOpen(true)} editor={renaming ? (
-                <input
-                  autoFocus
-                  value={titleDraft}
-                  onChange={(e) => setTitleDraft(e.target.value)}
-                  onBlur={() => void commitTitle()}
-                  onKeyDown={(e) => {
-                    if (e.key === 'Enter') void commitTitle();
-                    if (e.key === 'Escape') { setTitleDraft(title); setRenaming(false); }
-                  }}
-                  onClick={(e) => e.stopPropagation()}
-                  /* opened by a double-click: all its words selected, to type over or to pick from */
-                  onFocus={(e) => e.currentTarget.select()}
-                  onMouseDown={(e) => e.stopPropagation()}
-                  onDoubleClick={(e) => e.stopPropagation()}
-                  placeholder={t('project.untitled')}
-                  maxLength={TITLE_MAX_CHARS}
-                  className="min-w-0 flex-1 bg-transparent text-[12.5px] font-medium text-[var(--text)] outline-none"
-                />
-              ) : undefined} />
+              <TabStrip onRename={renameTab} onNew={() => setProjectsOpen(true)} maxLength={TITLE_MAX_CHARS} />
             ) : <div className="min-w-0 flex-1" />}
             <div ref={headerOpsRef} className="pointer-events-auto flex min-w-0 items-center justify-end gap-1">
               <ProjectLayoutMenu className={TOP_BTN}
@@ -2602,6 +2641,12 @@ export function ProjectView({ projectId, onProject, onLeave }: {
                 hostPanel={hostPanel ? { label: hostPanel.label, open: hostPanel.open, onChange: hostPanel.setOpen } : null} />
               <ProjectHistoryButton open={historyOpen} onClick={openHistory} className={TOP_BTN} />
               <ProjectMenu className={TOP_BTN}
+                /* the film at the playhead, drawn by Studio as the projects list will show it */
+                onCoverFromFrame={() => {
+                  if (previewError || totalMs <= 0) { toast.show(t('project.filmNotReady')); return; }
+                  void api.setCover(projectId, { ms: Math.max(0, Math.min(totalMs - 1, timeRef.current)) })
+                    .then(() => toast.show(t('projects.coverSet')), () => toast.showError(t('projects.coverFailed')));
+                }}
                 onExport={() => {
                   if (previewError) toast.showError(`${t('project.filmCannotExport')} ${previewError}`);
                   else if (totalMs > 0) setExportOpen(true);
@@ -2736,8 +2781,8 @@ export function ProjectView({ projectId, onProject, onLeave }: {
                           width: `${(frameBox.inner.w / frameBox.w) * 100}%`,
                           height: `${(frameBox.inner.h / frameBox.h) * 100}%`,
                         }}>
-                          <Preview ref={preview} folder={folder} stage={shownStage} time={() => player.current.time()}
-                            onInfo={onInfo} onKey={previewKey} onError={setPreviewError}>
+                          <Preview ref={preview} folder={folder} stage={shownStage} time={() => player.current.time()} fps={exactRate(projectFps)}
+                            onInfo={onInfo} onKey={previewKey} onError={setPreviewError} onPlayed={onPlayed}>
                             {!fullscreen ? (
                               <FilmStageSelect
                                 previewRef={preview}
@@ -2776,6 +2821,12 @@ export function ProjectView({ projectId, onProject, onLeave }: {
                         </div>
                         {/* a clip under the playhead whose file is gone plays as nothing (src/timeline.mjs, film-missing):
                             said here, over the picture, with what to do */}
+                        {statsOn && playing && played ? (
+                          <div data-playback-stats="" className="pointer-events-none absolute right-2 top-2 z-10 rounded-[4px] bg-black/75 px-2 py-1 font-mono text-[11px] tabular-nums text-white">
+                            {t('viewer.stats').replace('{fps}', String(Math.round((played.drawn * 1000) / Math.max(1, played.ms)))).replace('{late}', String(Math.round((played.late * 1000) / Math.max(1, played.ms))))}
+                            {played.rendered ? ` · ${t('viewer.statsRendered')}` : ''}
+                          </div>
+                        ) : null}
                         {missingHere && !fullscreen ? (
                           <div data-preview-missing="" className="pointer-events-none absolute left-2 top-2 z-10 max-w-[80%] truncate rounded-[4px] bg-black/75 px-2 py-1 text-[11px] text-white">
                             {t('project.previewMissing').replace('{file}', missingHere)}
@@ -2789,9 +2840,9 @@ export function ProjectView({ projectId, onProject, onLeave }: {
                         {fullscreen ? <div className="absolute inset-0 z-[5]" aria-hidden /> : null}
                         {/* subtitles sit on the frame, not on the film: their place is a share of the frame, so a 9:16
                             frame puts them on its own bottom (the bar), not pushed up with the picture */}
-                        <LiveTime clock={playing ? clock : null} timeMs={timeMs}>{(liveMs) => (
+                        <LiveTime clock={playing ? clock : null} timeMs={timeMs} step={subtitleStep}>{(liveMs) => (
                           <SubtitleOverlay
-                            cues={captionsOn ? subs.cues : []}
+                            cues={shownCues}
                             timeMs={liveMs}
                             style={filmSubtitleStyleFor(subs.style, frameBox)}
                             onMove={fullscreen ? undefined : subs.move}
@@ -2832,7 +2883,7 @@ export function ProjectView({ projectId, onProject, onLeave }: {
                 ) : null}
                 <ViewerBar
                   timeMs={timeMs}
-                  clock={playing ? clock : null}
+                  clock={clock}
                   totalMs={totalMs}
                   playing={playing}
                   onPlayPause={toggle}
@@ -2942,6 +2993,7 @@ export function ProjectView({ projectId, onProject, onLeave }: {
                     timeMs={timeMs}
                     clock={playing ? clock : null}
                     playing={playing}
+                    previewBar={previewRenders.bar}
                     onSeek={(ms) => seek(ms)}
                     onScrubPreview={scrubPreview}
                     onScrubCommit={scrubCommit}

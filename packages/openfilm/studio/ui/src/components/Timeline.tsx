@@ -11,6 +11,7 @@
  * magnet (insert and ripple, or overwrite), sync lock (ripples move every unlocked track) and linked clips.
  */
 import React from 'react';
+import { flushSync } from 'react-dom';
 import {
   ClipboardPaste,
   Copy,
@@ -138,11 +139,22 @@ import {
   type TimelineBlockKind,
   type TimelineTrack,
 } from '@/lib/timeline-layout';
+import {
+  rebaseZoomPreview,
+  rowBand,
+  rowsNear,
+  zoomLayerTransform,
+  zoomPreviewAt,
+  zoomPreviewIsRest,
+  zoomPreviewStep,
+  type ZoomPreview,
+} from '@/lib/timeline-view';
 import { OperationHistory, type SessionTimeline } from './OperationHistory';
 import { BlockThumbs } from './BlockThumbs';
 import { BlockWaveform } from './BlockWaveform';
 import { ContextMenu, type ContextMenuEntry } from './ContextMenu';
 import type { PlaybackClock } from './LiveTime';
+import type { PreviewBarRange } from '@/editor/use-preview-renders';
 import { CaptionsIcon } from './player-controls/controls-bar';
 import { isTypingTarget } from './typing-target';
 import { Popover } from './Popover';
@@ -205,10 +217,13 @@ const TRACK_H = { visual: 56, audio: 44 } as const;
 /** The info strip at the top of a clip (name + length). */
 const INFO_H = 15;
 /**
- * While scrubbing, how often the time is told upward: every 40 ms (25 Hz). Telling it re-renders the editor and seeks
- * the preview — the expensive part. The line itself follows every frame from local state.
+ * While scrubbing, how often the time is told upward: each frame (the editor seeks the picture there and writes the
+ * timecode, and renders the rest of itself a few times a second, see ProjectView's scrubPreview). The line itself
+ * follows every frame from local state.
  */
-const SCRUB_TELL_MS = 40;
+const SCRUB_TELL_MS = 15;
+/** While scrubbing, how often the timeline renders itself for the time (ms): the line itself moves each frame. */
+const SCRUB_STATE_MS = 100;
 /**
  * The audio band at the bottom of a video clip: its own sound draws its waveform here; a video without sound keeps
  * the band empty but still takes its height, so the preview bands of neighboring videos line up. A page or a still
@@ -227,6 +242,13 @@ const LANE_EDGE_PX = 5;
 const TL_VPAD = 10;
 /** While playing, the timeline pages when the playhead gets this close to the edge. */
 const FOLLOW_EDGE = 24;
+/** A wheel or pinch zoom is laid out once no step has come for this long (ms); until then it is drawn scaled. */
+const ZOOM_SETTLE_MS = 120;
+/**
+ * How far a zoom gesture is drawn scaled before it is laid out on the way: beyond it the stretched text and waveforms
+ * blur, and zooming out runs past the clips drawn either side of the view.
+ */
+const ZOOM_RELAYOUT = 1.5;
 
 /** Color by kind of clip: picture, voice, other sound. Muted tones, dark enough for white text and waveforms. */
 const KIND_COLOR: Record<TimelineBlockKind, string> = {
@@ -575,6 +597,8 @@ export interface TimelineProps {
   /** The playback clock. With it, playing does not re-render the timeline: the playhead and follow-scroll read it. */
   clock?: PlaybackClock | null;
   playing: boolean;
+  /** Stretches that play late in the viewer, and their renders (editor/use-preview-renders): a line under the ruler. */
+  previewBar?: readonly PreviewBarRange[];
   /** While dragging the playhead: move the picture, do not settle. */
   onScrubPreview: (ms: number) => void;
   /** On release, once: settle. */
@@ -921,6 +945,7 @@ export const Timeline = React.memo(function Timeline({
   timeMs,
   clock,
   playing,
+  previewBar,
   onScrubPreview,
   onScrubCommit,
   onSeek,
@@ -985,13 +1010,26 @@ export const Timeline = React.memo(function Timeline({
   const toolbarRef = React.useRef<HTMLDivElement | null>(null);
   /* the head column and the ruler do not scroll themselves; the track area drives them (ruler horizontally, heads
      vertically), so clips and ticks never drift apart by a few pixels */
-  const headRef = React.useRef<HTMLDivElement | null>(null);
+  const headShiftRef = React.useRef<HTMLDivElement | null>(null);
   const rulerRef = React.useRef<HTMLDivElement | null>(null);
   const skinsShiftRef = React.useRef<HTMLDivElement | null>(null);
   const padTopRef = React.useRef(0);
   const dragExtentRef = React.useRef(0);
-  /** The view: scroll position and size. Ticks drawn and rows centered by it. */
-  const [view, setView] = React.useState({ left: 0, top: 0, width: 0, height: 0 });
+  /** The view: horizontal scroll and size. Ticks drawn and rows centered by it. */
+  const [view, setView] = React.useState({ left: 0, width: 0, height: 0 });
+  /*
+   * The vertical scroll is not in the view: a render per step of a scroll cost more than the scroll. The heads and the
+   * rows' backgrounds follow it on the compositor (onScroll); the rows whose clips are drawn follow it in steps
+   * (lib/timeline-view rowBand).
+   */
+  const scrollTopRef = React.useRef(0);
+  const [band, setBand] = React.useState(0);
+  const bandRef = React.useRef(band);
+  /** The rows drawn follow a scroll to `top` in a view `height` tall (a render only when the step changes). */
+  const followRows = (top: number, height: number) => {
+    const next = rowBand(top, height);
+    if (next !== bandRef.current) { bandRef.current = next; setBand(next); }
+  };
 
   const [zoom, setZoom] = React.useState(ZOOM_DEFAULT);
   /* the switches: snapping, the magnet (insert and ripple), sync lock, linked clips; kept on this machine */
@@ -1065,6 +1103,8 @@ export const Timeline = React.memo(function Timeline({
    * (only the timeline re-renders); the editor and the picture are told every SCRUB_TELL_MS.
    */
   const [scrubMs, setScrubMs] = React.useState<number | null>(null);
+  /* a scrub moves the playhead itself each frame (see PlayheadTrack `moveRef`); scrubMs follows a few times a second */
+  const playheadMove = React.useRef<((x: number) => void) | null>(null);
   /** When the time was last told upward (see SCRUB_TELL_MS). */
   const lastTold = React.useRef(0);
   /** What the selection bar is about: what was picked last (the clips, the range, a point on the ruler). */
@@ -1073,41 +1113,21 @@ export const Timeline = React.memo(function Timeline({
   const [selectedMode, setMode] = React.useState<TimelineMode>('select');
   const mode = onSplit ? selectedMode : 'select';
 
-  React.useEffect(() => {
+  /* measured before the first paint: until the view has a size every clip is drawn (lib/timeline-view rowsNear) */
+  React.useLayoutEffect(() => {
     const el = scrollRef.current;
     if (!el || typeof ResizeObserver === 'undefined') return;
     const ro = new ResizeObserver(() => {
       setView((cur) => (cur.width === el.clientWidth && cur.height === el.clientHeight
         ? cur
         : { ...cur, width: el.clientWidth, height: el.clientHeight }));
+      followRows(el.scrollTop, el.clientHeight);
     });
     ro.observe(el);
-    setView({
-      left: el.scrollLeft,
-      top: el.scrollTop,
-      width: el.clientWidth,
-      height: el.clientHeight,
-    });
+    scrollTopRef.current = el.scrollTop;
+    setView({ left: el.scrollLeft, width: el.clientWidth, height: el.clientHeight });
+    followRows(el.scrollTop, el.clientHeight);
     return () => ro.disconnect();
-  }, []);
-
-  /* ruler and heads follow at once, and the view is written back at once (a frame late shows a gap at the top) */
-  const onScroll = React.useCallback(() => {
-    const el = scrollRef.current;
-    if (!el) return;
-    if (rulerRef.current) rulerRef.current.scrollLeft = el.scrollLeft;
-    if (headRef.current) headRef.current.scrollTop = el.scrollTop;
-    if (skinsShiftRef.current) {
-      skinsShiftRef.current.style.transform = `translate3d(0,${padTopRef.current - el.scrollTop}px,0)`;
-    }
-    const left = el.scrollLeft;
-    const top = el.scrollTop;
-    el.style.setProperty('--tl-scroll-left', `${left}px`);
-    setView((cur) => (
-      cur.left === left && cur.top === top
-        ? cur
-        : { ...cur, left, top }
-    ));
   }, []);
 
   /* with length 0 there may still be empty tracks (`clips: []`): they are drawn so assets can be dropped on them;
@@ -1167,51 +1187,241 @@ export const Timeline = React.memo(function Timeline({
   /* at least TL_VPAD even when the rows overflow, counted in padTop so every hit test uses the same number */
   const padTop = Math.max(TL_VPAD, Math.floor((view.height - tracksH) / 2));
   padTopRef.current = padTop;
+  const viewHeightRef = React.useRef(view.height);
+  viewHeightRef.current = view.height;
+  /* the heads and the rows' backgrounds, moved with the vertical scroll (see onScroll) */
+  const rowsShift = `translate3d(0,${padTop - scrollTopRef.current}px,0)`;
+  /*
+   * The rows whose clips (and heads) are drawn: those near the view. Every clip drawn is laid out, layerized and
+   * hit-tested again on each zoom step and scroll; a film's dozens of sound rows mostly lie below the view.
+   */
+  const rowHeights = React.useMemo(() => tracks.map(rowH), [tracks]);
+  const { first: nearFirst, last: nearLast } = rowsNear(rowHeights, { gap: GAP, padTop, band, viewH: view.height });
 
   /* in the project's frames: at 25 fps a tick every 5 frames, not every 6 as at 30 */
   const steps = React.useMemo(() => rulerSteps(pxPerMs, fps), [pxPerMs, fps]);
 
   /* ── Zoom around a point ──
      Without a fixed point, zooming jumps elsewhere: the scroll stays, the time under it changes. The point: the
-     pointer (wheel zoom), else the playhead if in view, else the middle of the view. */
-  const anchorRef = React.useRef<{ ms: number; x: number } | null>(null);
-  const anchorAt = React.useCallback((clientX?: number) => {
+     pointer (wheel zoom), else the playhead if in view, else the middle of the view.
+     A wheel or pinch gesture lays nothing out while it goes on: what is drawn in time (the clips, the ruler, the
+     subtitle and marker rows, the playhead, the range; each marked data-zoom-layer) is scaled by transforms the
+     compositor applies (lib/timeline-view), and laid out at the new density once it stops or has gone ZOOM_RELAYOUT
+     far. Laid out on each step, a film of hundreds of clips spent most of every frame on it. */
+  /** The gesture under way, against what is laid out at `px` (null: none). */
+  const previewRef = React.useRef<(ZoomPreview & { px: number }) | null>(null);
+  /** A gesture is drawn by transforms: the selection bar hides, the ruler draws on past the canvas. */
+  const [zooming, setZooming] = React.useState(false);
+  const zoomingRef = React.useRef(false);
+  /** The scroll a zoom just laid out goes to, before paint (see the layout effect below). */
+  const zoomScrollRef = React.useRef<number | null>(null);
+  /** Waits for the gesture to stop (0: none). */
+  const settleTimer = React.useRef(0);
+  /** The density laid out (what the page has drawn), and the scroll taken in (read here instead of the page's, which
+      would lay the page out again when a render has just changed it). */
+  const laidPxRef = React.useRef(pxPerMs);
+  const scrollLeftRef = React.useRef(0);
+  /** The canvas's width at a density (set once the canvas is worked out, below): the view never goes past its end. */
+  const canvasPxAtRef = React.useRef<(px: number) => number>(() => 0);
+  /** Something is in hand (a clip, the playhead, a marquee…): it is placed from the layout (set below). */
+  const inHandRef = React.useRef(false);
+  /** What each zoom layer was last drawn with, so an unchanged one is not written again. */
+  const drawnLayers = React.useRef(new WeakMap<HTMLElement, string>());
+
+  /** Draws each zoom layer as the gesture has it, or as laid out once there is none. */
+  const drawZoom = React.useCallback(() => {
+    const root = rootRef.current;
+    if (!root) return;
+    const scroll = scrollLeftRef.current;
+    const p = previewRef.current ?? zoomPreviewAt(scroll);
+    for (const layer of root.querySelectorAll<HTMLElement>('[data-zoom-layer]')) {
+      const kind = layer.dataset.zoomLayer === 'view' ? 'view' : 'content';
+      const t = zoomLayerTransform(p, scroll, kind, Number(layer.dataset.zoomBleed) || 0);
+      if ((drawnLayers.current.get(layer) ?? '') === t) continue;
+      drawnLayers.current.set(layer, t);
+      layer.style.transform = t;
+      layer.style.transformOrigin = t ? '0 0' : '';
+    }
+    /* what keeps its width in a scaled layer (the playhead's knob, the range's label) */
+    for (const keep of root.querySelectorAll<HTMLElement>('[data-zoom-keep]')) {
+      keep.style.scale = previewRef.current && p.scale !== 1 ? `${1 / p.scale} 1` : '';
+    }
+  }, []);
+
+  const endZoom = React.useCallback(() => {
+    previewRef.current = null;
+    window.clearTimeout(settleTimer.current);
+    settleTimer.current = 0;
+    drawZoom();
+    if (zoomingRef.current) { zoomingRef.current = false; setZooming(false); }
+  }, [drawZoom]);
+
+  /** Lays out at a density with the view's left edge at `scroll`, before the next paint. */
+  const layOut = (px: number, scroll: number) => {
+    const next = zoomForPxPerMs(spanMs, laneW, px);
+    zoomScrollRef.current = scroll;
+    setZoom(next);
+    setView((cur) => (cur.left === scroll ? cur : { ...cur, left: scroll }));
+  };
+
+  /** The furthest the view can scroll at a density. */
+  const maxScrollAt = (px: number) => Math.max(0, canvasPxAtRef.current(px) - laneW);
+
+  /** One step of a wheel or pinch gesture: `factor` around the pointer, drawn by transforms. */
+  const zoomStep = (factor: number, clientX: number) => {
     const el = scrollRef.current;
-    if (!el || pxPerMs <= 0) return;
-    const playX = timeMsRef.current * pxPerMs - el.scrollLeft;
-    const raw = clientX != null
-      ? clientX - el.getBoundingClientRect().left
-      : playX >= 0 && playX <= el.clientWidth
-        ? playX
-        : el.clientWidth / 2;
-    const x = Math.min(el.clientWidth, Math.max(0, raw));
-    anchorRef.current = { ms: timeAtPx(el.scrollLeft + x, pxPerMs, canvasMs), x };
-  }, [pxPerMs, canvasMs]);
+    const px = laidPxRef.current;
+    if (!el || !(px > 0) || !(spanMs > 0)) return;
+    const at = Math.min(laneW, Math.max(0, clientX - el.getBoundingClientRect().left));
+    const now = previewRef.current ?? { ...zoomPreviewAt(scrollLeftRef.current), px };
+    /* with something in hand each step is laid out, as what is in hand is placed from the layout */
+    if (inHandRef.current) {
+      zoomTo(zoomForPxPerMs(spanMs, laneW, now.px * now.scale * factor), { at });
+      return;
+    }
+    const next = zoomPreviewStep(now, factor, at, {
+      minScale: zoomedPxPerMs(spanMs, laneW, zoomMinOf(spanMs)) / px,
+      maxScale: zoomedPxPerMs(spanMs, laneW, zoomMaxOf(spanMs)) / px,
+      maxScrollAt: (scale) => maxScrollAt(px * scale),
+    });
+    previewRef.current = { ...next, px };
+    if (!zoomingRef.current) { zoomingRef.current = true; setZooming(true); }
+    drawZoom();
+    window.clearTimeout(settleTimer.current);
+    settleTimer.current = window.setTimeout(() => zoomFns.current.settleZoom(), ZOOM_SETTLE_MS);
+    /* scaled much further, the stretched clips blur and the far side runs out of what is drawn: lay out now */
+    if (next.scale > ZOOM_RELAYOUT || next.scale < 1 / ZOOM_RELAYOUT) layOut(px * next.scale, -next.offset);
+  };
 
-  const zoomBy = React.useCallback((factor: number, clientX?: number) => {
-    anchorAt(clientX);
-    setZoom((z) => Math.min(zoomMaxOf(spanMs), Math.max(zoomMinOf(spanMs), z * factor)));
-  }, [anchorAt, spanMs]);
+  /** The gesture stopped: laid out where it is. */
+  const settleZoom = () => {
+    settleTimer.current = 0;
+    const p = previewRef.current;
+    if (!p) return;
+    if (zoomPreviewIsRest(p, scrollLeftRef.current)) { endZoom(); return; }
+    layOut(p.px * p.scale, -p.offset);
+  };
 
-  const zoomTo = React.useCallback((next: number) => {
-    anchorAt();
-    setZoom(Math.min(zoomMaxOf(spanMs), Math.max(zoomMinOf(spanMs), next)));
-  }, [anchorAt, spanMs]);
+  /** Zoom to `next`, keeping view x `at` in place (by default the playhead if in view, else the middle); `scroll`:
+      where the view's left edge goes instead. From what is drawn: a gesture under way counts. */
+  const zoomTo = (next: number, place: { at?: number; scroll?: number } = {}) => {
+    const el = scrollRef.current;
+    const px0 = laidPxRef.current;
+    if (!el || !(px0 > 0)) return;
+    const p = previewRef.current ?? { ...zoomPreviewAt(scrollLeftRef.current), px: px0 };
+    const drawnPx = p.px * p.scale;
+    const drawnLeft = -p.offset;
+    const px = zoomedPxPerMs(spanMs, laneW, Math.min(zoomMaxOf(spanMs), Math.max(zoomMinOf(spanMs), next)));
+    const playX = timeMsRef.current * drawnPx - drawnLeft;
+    const at = place.at ?? (playX >= 0 && playX <= laneW ? playX : laneW / 2);
+    const scroll = Math.min(maxScrollAt(px), Math.max(0, place.scroll ?? ((drawnLeft + at) / drawnPx) * px - at));
+    window.clearTimeout(settleTimer.current);
+    settleTimer.current = 0;
+    /* nothing to lay out: what is laid out is it (a gesture drawn on top of it ends) */
+    if (Math.abs(px - p.px) < 1e-12 && Math.abs(scroll - scrollLeftRef.current) < 0.5) { endZoom(); return; }
+    /* the gesture (if any) ends where this zoom lays out: at rest once it is, see the layout effect */
+    previewRef.current = { offset: -scroll, scale: px / p.px, px: p.px };
+    layOut(px, scroll);
+  };
+  /** Zoom by a factor of what is drawn now. */
+  const zoomBy = (factor: number) => {
+    const p = previewRef.current;
+    const drawnPx = p ? p.px * p.scale : laidPxRef.current;
+    zoomTo(zoomForPxPerMs(spanMs, laneW, drawnPx * factor));
+  };
+  const zoomFns = React.useRef({ zoomStep, settleZoom, zoomTo, zoomBy });
+  zoomFns.current = { zoomStep, settleZoom, zoomTo, zoomBy };
+  /* stable for the key handlers and buttons; they act on what is current */
+  const zoomToStable = React.useCallback((next: number, place?: { at?: number; scroll?: number }) => zoomFns.current.zoomTo(next, place), []);
+  const zoomByStable = React.useCallback((factor: number) => zoomFns.current.zoomBy(factor), []);
 
-  /* when the density changes, put the fixed point back in place — before paint, or a frame shows the jump */
+  /* after every render: a zoom laid out goes to its scroll before paint, and a gesture is redrawn against what is laid
+     out now (or ends, once it has stopped and the layout shows it) */
   React.useLayoutEffect(() => {
     const el = scrollRef.current;
-    const anchor = anchorRef.current;
-    anchorRef.current = null;
-    if (!el || !anchor || pxPerMs <= 0) return;
-    el.scrollLeft = Math.max(0, anchor.ms * pxPerMs - anchor.x);
-    setView({
-      left: el.scrollLeft,
-      top: el.scrollTop,
-      width: el.clientWidth,
-      height: el.clientHeight,
-    });
-  }, [pxPerMs]);
+    if (!el) return;
+    const want = zoomScrollRef.current;
+    if (want != null) {
+      zoomScrollRef.current = null;
+      el.scrollLeft = want;
+      const left = el.scrollLeft;
+      /* taken in here: its scroll event moves nothing (see onScroll); where the browser rounded it, the view moved by
+         that much, as with any scroll */
+      scrollLeftRef.current = left;
+      const before = previewRef.current;
+      if (before && left !== want) previewRef.current = { ...before, offset: before.offset - (left - want) };
+      if (rulerRef.current) rulerRef.current.scrollLeft = left;
+      el.style.setProperty('--tl-scroll-left', `${left}px`);
+      if (left !== view.left) setView((cur) => ({ ...cur, left }));
+    }
+    const p = previewRef.current;
+    if (p && p.px !== pxPerMs && pxPerMs > 0) previewRef.current = { ...rebaseZoomPreview(p, p.px, pxPerMs), px: pxPerMs };
+    laidPxRef.current = pxPerMs;
+    const now = previewRef.current;
+    if (!now) return;
+    if (!settleTimer.current && zoomPreviewIsRest(now, scrollLeftRef.current)) endZoom();
+    else drawZoom();
+  });
+
+  /* a press lays a gesture out first: what the press does is worked out from the layout (times, rows, edges) */
+  React.useEffect(() => {
+    const onDown = () => {
+      if (previewRef.current) flushSync(() => zoomFns.current.settleZoom());
+    };
+    window.addEventListener('pointerdown', onDown, true);
+    return () => window.removeEventListener('pointerdown', onDown, true);
+  }, []);
+
+  /* ruler and heads follow at once, and the view is written back at once (a frame late shows a gap at the top); React
+     hears of a scroll only when what it draws changes: the rows drawn (vertical) or the view's left edge */
+  const onScroll = React.useCallback(() => {
+    const el = scrollRef.current;
+    if (!el) return;
+    const left = el.scrollLeft;
+    const top = el.scrollTop;
+    if (top !== scrollTopRef.current) {
+      scrollTopRef.current = top;
+      /* a transform, not a scroll of their own (that one repainted the heads on each step); from here only where the
+         scroll's own timeline does not move them (see below) */
+      if (!rowsOnTimelineRef.current) {
+        const shift = `translate3d(0,${padTopRef.current - top}px,0)`;
+        if (skinsShiftRef.current) skinsShiftRef.current.style.transform = shift;
+        if (headShiftRef.current) headShiftRef.current.style.transform = shift;
+      }
+      followRows(top, viewHeightRef.current);
+    }
+    if (left === scrollLeftRef.current) return;
+    /* during a zoom gesture the view moves on with the scroll, its layers redrawn for it */
+    const p = previewRef.current;
+    if (p) previewRef.current = { ...p, offset: p.offset - (left - scrollLeftRef.current) };
+    scrollLeftRef.current = left;
+    if (rulerRef.current) rulerRef.current.scrollLeft = left;
+    el.style.setProperty('--tl-scroll-left', `${left}px`);
+    if (p) drawZoom();
+    setView((cur) => (cur.left === left ? cur : { ...cur, left }));
+  }, [drawZoom]);
+
+  /*
+   * Where the browser has scroll timelines, the heads and the rows' backgrounds follow the vertical scroll on the
+   * compositor: an animation on the track area's scroll, so they keep step with the rows however busy the page is.
+   * Moved from onScroll instead, each step of a scroll layerized the page again.
+   */
+  const rowsOnTimelineRef = React.useRef(false);
+  React.useLayoutEffect(() => {
+    const el = scrollRef.current;
+    const ScrollTimeline = (globalThis as { ScrollTimeline?: new (o: { source: Element; axis: 'block' }) => AnimationTimeline }).ScrollTimeline;
+    if (!el || !ScrollTimeline) return undefined;
+    const max = el.scrollHeight - el.clientHeight;
+    if (!(max > 0)) return undefined;
+    const timeline = new ScrollTimeline({ source: el, axis: 'block' });
+    const frames = [{ transform: `translate3d(0,${padTop}px,0)` }, { transform: `translate3d(0,${padTop - max}px,0)` }];
+    const moving = [skinsShiftRef.current, headShiftRef.current].flatMap((layer) => (layer ? [layer.animate(frames, { timeline, fill: 'both' })] : []));
+    rowsOnTimelineRef.current = true;
+    return () => {
+      rowsOnTimelineRef.current = false;
+      for (const a of moving) a.cancel();
+    };
+  }, [padTop, tracksH, view.height, hasLanes]);
 
   const panViewTo = React.useCallback((fromMs: number) => {
     const el = scrollRef.current;
@@ -1222,12 +1432,10 @@ export const Timeline = React.memo(function Timeline({
   /* Ctrl/⌘ + wheel (and pinch) zooms around the pointer. A native non-passive listener: React's onWheel is passive and
      cannot stop the browser's page zoom. Horizontal swipes and Shift+wheel scroll here too: the track area hides its
      horizontal scrollbar. */
-  const zoomByRef = React.useRef(zoomBy);
-  React.useEffect(() => { zoomByRef.current = zoomBy; }, [zoomBy]);
   React.useEffect(() => {
     const el = scrollRef.current;
     if (!el) return;
-    /* one zoom per frame: a pinch sends a hundred wheel events a second, each relaying out every clip */
+    /* one step per frame: a pinch sends a hundred wheel events a second */
     let factor = 1;
     let anchorX = 0;
     let raf = 0;
@@ -1235,7 +1443,7 @@ export const Timeline = React.memo(function Timeline({
       raf = 0;
       const f = factor;
       factor = 1;
-      if (f !== 1) zoomByRef.current(f, anchorX);
+      if (f !== 1) zoomFns.current.zoomStep(f, anchorX);
     };
     /* Firefox reports lines (deltaMode 1) or pages (2) */
     const pixels = (e: WheelEvent, d: number) => (e.deltaMode === 1 ? d * 16 : e.deltaMode === 2 ? d * 400 : d);
@@ -1258,6 +1466,7 @@ export const Timeline = React.memo(function Timeline({
       if (raf) cancelAnimationFrame(raf);
     };
   }, []);
+  React.useEffect(() => () => window.clearTimeout(settleTimer.current), []);
 
   /**
    * The row under the pointer. Outside the rows it says so (-1 above, tracks.length below) instead of clamping to the
@@ -1337,6 +1546,16 @@ export const Timeline = React.memo(function Timeline({
   });
   /* whole pixels: a fractional width blurs every clip edge on it */
   const trackPx = pxPerMs > 0 ? Math.max(laneW, Math.ceil(extentMs * pxPerMs)) : laneW;
+  /* the same at another density: how far a zoom gesture can take the view (see zoomStep) */
+  canvasPxAtRef.current = (px: number) => {
+    const ms = liveCanvasMs({
+      canvasMs: canvasTimeMs(spanMs, laneW, px),
+      clipEndMs,
+      dragReachMs: dragExtentRef.current,
+      tailMs: (drag.preview || assetHint) ? Math.max(laneW / px * 0.5, VIEW_SPAN_MIN_MS) : 0,
+    });
+    return Math.max(laneW, Math.ceil(ms * px));
+  };
 
   const ticks = React.useMemo(() => {
     if (!hasLanes) return [];
@@ -1344,11 +1563,12 @@ export const Timeline = React.memo(function Timeline({
       leftPx: view.left,
       widthPx: view.width,
       pxPerMs,
-      maxMs: extentMs,
+      /* a zoom gesture scales the ruler: zooming out, it shows time past the canvas's end before that is laid out */
+      maxMs: zooming && pxPerMs > 0 ? Math.max(extentMs, (view.left + view.width * ZOOM_RELAYOUT) / pxPerMs) : extentMs,
       tickMs: steps.tickMs,
     });
     return rulerMarks(fromMs, toMs, steps);
-  }, [hasLanes, view.left, view.width, pxPerMs, extentMs, steps]);
+  }, [hasLanes, view.left, view.width, pxPerMs, extentMs, steps, zooming]);
 
   const msAtClientX = React.useCallback((clientX: number): number => {
     const el = scrollRef.current;
@@ -1398,7 +1618,11 @@ export const Timeline = React.memo(function Timeline({
     setScrubMs(at);
     onScrubPreview(at);
     lastTold.current = performance.now();
+    let lastState = lastTold.current;
     setScrubbing(true);
+    /* the line where the time is now, the scroll as it is now (an edge may be scrolling it) */
+    const moveLine = () => playheadMove.current?.(at * pxPerMs - (scrollRef.current?.scrollLeft ?? 0) + PLAYHEAD_BLEED);
+    moveLine();
     /* the scrub cursor holds for the whole drag (an !important class), or clips under the line take it */
     document.body.classList.add('tl-scrubbing');
     /* once per frame: the pointer sends far more moves than the screen draws */
@@ -1407,10 +1631,11 @@ export const Timeline = React.memo(function Timeline({
     const flush = (): void => {
       raf = 0;
       at = timeAt(atX);
-      /* the line every frame (cheap: the rows are memoized without the time) */
-      setScrubMs(at);
-      /* the editor and the picture every SCRUB_TELL_MS (the expensive part) */
+      /* the line every frame, outside React; what else shows the time here (the selection bar), a few times a second */
+      moveLine();
       const now = performance.now();
+      if (now - lastState >= SCRUB_STATE_MS) { lastState = now; setScrubMs(at); }
+      /* the editor and the picture every SCRUB_TELL_MS */
       if (now - lastTold.current >= SCRUB_TELL_MS) {
         lastTold.current = now;
         onScrubPreview(at);
@@ -1881,8 +2106,8 @@ export const Timeline = React.memo(function Timeline({
       if (mod && !e.altKey && (e.key === '=' || e.key === '+' || e.key === '-' || e.key === '0')) {
         if (!playable || !scrollRef.current?.checkVisibility?.({ visibilityProperty: true })) return;
         e.preventDefault();
-        if (e.key === '0') zoomTo(ZOOM_DEFAULT);
-        else zoomBy(e.key === '-' ? 1 / ZOOM_STEP : ZOOM_STEP);
+        if (e.key === '0') zoomToStable(ZOOM_DEFAULT);
+        else zoomByStable(e.key === '-' ? 1 / ZOOM_STEP : ZOOM_STEP);
         return;
       }
       if (!mod || e.altKey || e.shiftKey) return;
@@ -1904,7 +2129,7 @@ export const Timeline = React.memo(function Timeline({
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
     /* the playhead is read from a ref: as a dependency the listener would be swapped twenty times a second */
-  }, [onRemove, onRemoveMany, onEditOps, onCopy, onPaste, hasClipboard, removeMany, rippleRemove, magnetRemove, selected, tracks, setSelected, playable, zoomBy, zoomTo, gap, closeGap, pickedTransition, onTransition, onPickTransition]);
+  }, [onRemove, onRemoveMany, onEditOps, onCopy, onPaste, hasClipboard, removeMany, rippleRemove, magnetRemove, selected, tracks, setSelected, playable, zoomByStable, zoomToStable, gap, closeGap, pickedTransition, onTransition, onPickTransition]);
 
   /* whether the last press was on the timeline (for ⌘A); capture phase, since presses here are often stopped */
   React.useEffect(() => {
@@ -2298,6 +2523,11 @@ export const Timeline = React.memo(function Timeline({
     return lanes;
   }, [tracks, selected]);
 
+  /* each head's element is kept while nothing it shows changes (as the clips' are, see clipElements): the heads drawn
+     follow the scroll, and rebuilding every one of them each time rendered all their buttons and tooltips again */
+  const headElements = React.useMemo(() => new Map<string, { pose: string; node: React.ReactElement }>(), [
+    tracks, t, onEditBlocks, startLaneReorder, toggleTrack, openHeadMenu, trackNames, onRenameTrack, solo, onResizeTrack,
+  ]);
   /** The head column (outside the scroller, so drawn apart from the rows). */
   const heads = React.useMemo(() => tracks.map((track, laneIndex) => {
     const h = rowH(track);
@@ -2311,13 +2541,20 @@ export const Timeline = React.memo(function Timeline({
     const lit = selectedLanes.has(track.lane);
     const targeted = targetLane === track.lane;
     const renamingHere = renaming != null && renaming === track.docIndex && track.index === 1;
+    /* far from the view, only its place (the one being renamed or dragged keeps all of it) */
+    if ((laneIndex < nearFirst || laneIndex > nearLast) && !renamingHere && !liftingHead) {
+      return <div key={track.lane} className="rounded-l-[3px]" style={{ marginTop: GAP, height: h, background: laneTone(track, lit) }} />;
+    }
     /* typing a name always has its field; a name given shows when the row has room for it */
     const nameLine = renamingHere || (Boolean(given) && h >= HEAD_NAME_MIN_H);
-    /* the main track is marked by its look (its band, the magnet by its badge), not by a name that reads as one */
+    /* the main track is marked by its look (its band) and its hover title, not by a name or a badge that reads as a switch */
     const mainHead = Boolean(track.main) && track.index === 1;
     /* the track a pill hovered in the app's chat points at */
     const chatLit = chatTrack != null && track.docIndex === chatTrack;
-    return (
+    const pose = `${liftingHead}:${lit}:${targeted}:${renamingHere}:${chatLit}`;
+    const cached = headElements.get(track.lane);
+    if (cached?.pose === pose) return cached.node;
+    const node = (
       /* each head is its own block with gaps between, matching its row one to one */
       <div
         key={track.lane}
@@ -2428,13 +2665,12 @@ export const Timeline = React.memo(function Timeline({
         ) : nameLine && given ? (
           <span className="col-span-full w-full min-w-0 justify-self-stretch truncate px-1 text-[10.5px] font-medium leading-[14px]" style={{ color: TL.text }} data-track-name="">{given}</span>
         ) : null}
-        {mainHead ? (
-          <Magnet size={10} aria-label={t('timeline.mainTrack')} className="pointer-events-none absolute bottom-1 left-1.5" style={{ color: 'var(--tl-accent)' }} />
-        ) : null}
         {onResizeTrack && track.docIndex != null ? <TrackResizeHandle height={h} onResize={(height, done) => onResizeTrack(track, height, done)} /> : null}
       </div>
     );
-  }), [tracks, t, laneOrder, onEditBlocks, startLaneReorder, toggleTrack, selectedLanes, openHeadMenu, chatTrack, trackNames, targetLane, renaming, onRenameTrack, solo, onResizeTrack]);
+    headElements.set(track.lane, { pose, node });
+    return node;
+  }), [tracks, t, laneOrder, onEditBlocks, startLaneReorder, toggleTrack, selectedLanes, openHeadMenu, chatTrack, trackNames, targetLane, renaming, onRenameTrack, solo, onResizeTrack, nearFirst, nearLast, headElements]);
 
   /* row backgrounds are fixed to the view and only follow vertical scroll; the clips move horizontally above them */
   const laneSkins = React.useMemo(() => tracks.map((track) => (
@@ -2564,9 +2800,11 @@ export const Timeline = React.memo(function Timeline({
     const liftingIds = drag.preview
       ? new Set([drag.preview.id, ...drag.preview.moves.map((m) => m.id)])
       : null;
-    return tracks.map((track) => {
+    return tracks.map((track, laneIndex) => {
     const h = rowH(track);
     const liftingHere = Boolean(liftingIds && track.blocks.some((b) => liftingIds.has(b.id)));
+    /* a row far from the view keeps its place and its clips in hand, moving or selected (see rowsNear) */
+    const near = laneIndex >= nearFirst && laneIndex <= nearLast;
     /* the edges another clip touches (`<id>:start` / `<id>:end`): their handles stay inside the clip */
     const touching = new Set(cutsOf(track.blocks).flatMap(([a, b]) => [`${a.id}:end`, `${b.id}:start`]));
     return (
@@ -2601,10 +2839,10 @@ export const Timeline = React.memo(function Timeline({
             const blockW = (endMs - startMs) * pxPerMs;
             const winFrom = Math.max(0, Math.min(blockW, thumbWindow.from - blockLeft));
             const winTo = Math.max(0, Math.min(blockW, thumbWindow.to - blockLeft));
-            /* clips more than a screen out of view are not drawn, except those in hand, moving or selected */
-            if (view.width > 0 && (blockLeft + blockW < thumbWindow.from || blockLeft > thumbWindow.to) && !lifting && !live && !picked) {
-              return null;
-            }
+            /* clips more than a screen out of view, or on a row far from it, are not drawn, except those in hand,
+               moving or selected */
+            const far = !near || (view.width > 0 && (blockLeft + blockW < thumbWindow.from || blockLeft > thumbWindow.to));
+            if (far && !lifting && !live && !picked) return null;
             /* `length`: the clip has no length (see TimelineBlock.noLength), and the film cannot be drawn until it has */
             const trouble = block.noLength ? 'length' : block.src ? mediaTrouble?.get(block.src) : undefined;
             /* the app's chat: the clip of the pill hovered there, and this clip's numbers in the message being written */
@@ -2918,7 +3156,7 @@ export const Timeline = React.memo(function Timeline({
             is in hand, and not on a locked track */}
         {/* a cut's roll handle: not on the main track with the magnet, where a cut's edges trim and what follows closes
             up, as CapCut's (it has no roll) */}
-        {!track.locked && mode === 'select' && !(drag.preview?.mode === 'move' && !drag.preview.landed)
+        {near && !track.locked && mode === 'select' && !(drag.preview?.mode === 'move' && !drag.preview.landed)
           && !(prefs.magnet && track.docIndex != null && track.docIndex === mainDoc) ? cutsOf(track.blocks).map(([a, b]) => {
           const pa = placedOf(a.id);
           const pb = placedOf(b.id);
@@ -2945,7 +3183,7 @@ export const Timeline = React.memo(function Timeline({
           );
         }) : null}
         {/* the transitions drawn on this row: a mark over each, picked by a click, resized by its edges */}
-        {(transitions ?? []).filter((tr) => track.blocks.some((b) => b.clipId === tr.on)).map((tr) => {
+        {near && (transitions ?? []).filter((tr) => track.blocks.some((b) => b.clipId === tr.on)).map((tr) => {
           const span = transitionDrag?.key === tr.key ? transitionSpan(tr, transitionDrag.durationMs) : tr;
           const x = Math.round(span.startMs * pxPerMs);
           const w = Math.max(10, Math.round(span.endMs * pxPerMs) - x);
@@ -2987,7 +3225,7 @@ export const Timeline = React.memo(function Timeline({
           );
         })}
         {/* the gap picked on this track (on its first row): ⌫ closes it */}
-        {gap && track.docIndex === gap.track && track.index === 1 ? (
+        {near && gap && track.docIndex === gap.track && track.index === 1 ? (
           <div
             data-gap=""
             className="pointer-events-none absolute inset-y-[2px] z-[3] rounded-[3px] border border-dashed"
@@ -2999,8 +3237,8 @@ export const Timeline = React.memo(function Timeline({
             }}
           />
         ) : null}
-        {trackOverlay?.(track, pxPerMs)}
-        {track.locked ? (
+        {near ? trackOverlay?.(track, pxPerMs) : null}
+        {near && track.locked ? (
           <div
             className="pointer-events-none absolute inset-0 z-[20]"
             style={{
@@ -3017,7 +3255,7 @@ export const Timeline = React.memo(function Timeline({
     openBlockMenu, openLaneMenu, onEditBlocks, collapseIfClick, selectOne, setSelected, clipElements, thumbWindow, view.width,
     chatClip, chatDraft, placedOf, pickForTrim, gap, withLinked, runSplit, trackOverlay,
     fadeOfBlock, fadeDrag, startFade, transitions, transitionDrag, pickedTransition, onPickTransition, onTransition, startTransitionResize,
-    prefs.magnet, mainDoc,
+    prefs.magnet, mainDoc, nearFirst, nearLast,
   ]);
 
   const tickMarks = React.useMemo(() => ticks.map(({ ms, label }) => {
@@ -3192,14 +3430,11 @@ export const Timeline = React.memo(function Timeline({
         const plan = planNudge(modelRef.current, ids, frames, { mode: prefsRef.current.magnet ? 'insert' : 'overwrite', ...followOf(prefsRef.current) });
         if (plan) void runPlan(plan, 'history.stepMove');
       },
-      zoomFit: () => {
-        zoomTo(ZOOM_DEFAULT);
-        requestAnimationFrame(() => { if (scrollRef.current) scrollRef.current.scrollLeft = 0; });
-      },
+      zoomFit: () => zoomToStable(ZOOM_DEFAULT, { scroll: 0 }),
       target: () => tracks.find((tr) => tr.lane === targetLaneRef.current)?.docIndex ?? null,
     };
     return () => { commandsRef.current = null; };
-  }, [commandsRef, tracks, rippleTrimToPlayhead, closeGap, linkBlocks, unlinkBlocks, togglePref, withLinked, runSplit, onCopy, magnetRemove, runPlan, zoomTo]);
+  }, [commandsRef, tracks, rippleTrimToPlayhead, closeGap, linkBlocks, unlinkBlocks, togglePref, withLinked, runSplit, onCopy, magnetRemove, runPlan, zoomToStable]);
 
   /** A fade's entry for a clip's edge: put there at its default length, in one step. */
   const transitionEntries = React.useCallback((cut: CutRef, kinds: readonly TransitionKind[]): ContextMenuEntry[] => kinds.map((kind) => ({
@@ -3568,6 +3803,7 @@ export const Timeline = React.memo(function Timeline({
     /* just over the ruler: the toolbar row above it is the room there is */
     return { anchor, bounds, gap: 2 };
   };
+  inHandRef.current = Boolean(drag.preview || assetHint || marquee || rangeDraft || referDraft || scrubbing || laneOrder || fadeDrag || transitionDrag);
   const barKey = !barKind ? null : barKind === 'clips' ? `clips:${selKey}` : barKind === 'range' ? `range:${rangeKey}` : 'point';
 
   return (
@@ -3753,36 +3989,34 @@ export const Timeline = React.memo(function Timeline({
           {subRowShown ? <SubtitleRowHead onAdd={() => subRowRef.current?.addAtPlayhead()} /> : null}
           {markerRowH ? <div style={{ height: markerRowH }} /> : null}
           <div
-            ref={headRef}
             className="relative overflow-hidden"
-            /* the same padding as the track area, so both scroll the same height and scrollTop stays in sync */
-            style={{
-              height: `calc(100% - ${RULER_H + subRowH + markerRowH}px - ${H_SCROLL_H}px)`,
-              paddingTop: padTop,
-              paddingBottom: TL_VPAD,
-            }}
+            style={{ height: `calc(100% - ${RULER_H + subRowH + markerRowH}px - ${H_SCROLL_H}px)` }}
           >
-            {heads}
-            {laneOrder ? (() => {
-              const hover = laneOrder.hoverLane;
-              let top = padTop;
-              if (hover < 0) {
-                /* above all rows */
-              } else if (hover >= tracks.length) {
-                top += tracksH;
-              } else {
-                for (let i = 0; i < hover; i += 1) top += GAP + rowH(tracks[i]!);
-                if (hover > laneOrder.fromLane) top += GAP + rowH(tracks[hover]!);
-                else top += GAP / 2;
-              }
-              return (
-                <div
-                  className="pointer-events-none absolute left-0 right-0 z-40 h-0.5"
-                  data-lane-order-guide=""
-                  style={{ top, background: 'var(--tl-select)' }}
-                />
-              );
-            })() : null}
+            {/* moved with the track area's vertical scroll (onScroll), as the rows' backgrounds are; its own block
+                (flow-root), so the first head's margin stays inside it and the reorder guide's top counts from it */}
+            <div ref={headShiftRef} className="relative flow-root" style={{ transform: rowsShift }}>
+              {heads}
+              {laneOrder ? (() => {
+                const hover = laneOrder.hoverLane;
+                let top = 0;
+                if (hover < 0) {
+                  /* above all rows */
+                } else if (hover >= tracks.length) {
+                  top += tracksH;
+                } else {
+                  for (let i = 0; i < hover; i += 1) top += GAP + rowH(tracks[i]!);
+                  if (hover > laneOrder.fromLane) top += GAP + rowH(tracks[hover]!);
+                  else top += GAP / 2;
+                }
+                return (
+                  <div
+                    className="pointer-events-none absolute left-0 right-0 z-40 h-0.5"
+                    data-lane-order-guide=""
+                    style={{ top, background: 'var(--tl-select)' }}
+                  />
+                );
+              })() : null}
+            </div>
           </div>
         </div>
 
@@ -3802,6 +4036,7 @@ export const Timeline = React.memo(function Timeline({
           >
             <div
               ref={seekRef}
+              data-zoom-layer="content"
               role="slider"
               tabIndex={0}
               aria-label={t('timeline.seek')}
@@ -3827,6 +4062,7 @@ export const Timeline = React.memo(function Timeline({
               style={{ width: trackPx, cursor: onReferRuler ? (rulerHoverMs == null && !referDraft ? 'col-resize' : 'pointer') : 'col-resize' }}
             >
               {tickMarks}
+              {previewBar?.length ? <PreviewBar ranges={previewBar} pxPerMs={pxPerMs} /> : null}
               {onReferRuler ? <RulerRefer hoverMs={rulerHoverMs} draft={referDraft} pxPerMs={pxPerMs} widthPx={trackPx} /> : null}
             </div>
           </div>
@@ -3852,7 +4088,9 @@ export const Timeline = React.memo(function Timeline({
               } : undefined}
             >
               <div className="absolute inset-y-0 left-0" style={{ width: trackPx, transform: `translate3d(${-view.left}px,0,0)` }}>
-                {markerLane.render({ pxPerMs, widthPx: trackPx, snap: snapMarker, guide: setMarkerGuide })}
+                <div data-zoom-layer="content" className="absolute inset-0">
+                  {markerLane.render({ pxPerMs, widthPx: trackPx, snap: snapMarker, guide: setMarkerGuide })}
+                </div>
               </div>
             </div>
           ) : null}
@@ -3865,10 +4103,7 @@ export const Timeline = React.memo(function Timeline({
                 data-lane-skins=""
                 className="pointer-events-none absolute inset-0 overflow-hidden"
               >
-                <div
-                  ref={skinsShiftRef}
-                  style={{ transform: `translate3d(0,${padTop - view.top}px,0)` }}
-                >
+                <div ref={skinsShiftRef} style={{ transform: rowsShift }}>
                   {laneSkins}
                 </div>
               </div>
@@ -3904,6 +4139,7 @@ export const Timeline = React.memo(function Timeline({
             ) : (
               <div
                 ref={contentRef}
+                data-zoom-layer="content"
                 className="relative select-none"
                 /* full height, so the empty space below the rows can be clicked too (a seek); the centering space is
                    padding, not a child's margin — a margin would collapse outside this box and not take clicks */
@@ -3978,26 +4214,31 @@ export const Timeline = React.memo(function Timeline({
           className="pointer-events-none absolute inset-y-0 z-[35]"
           style={{ left: headW - PLAYHEAD_BLEED, right: 0, top: TOOLBAR_H, bottom: H_SCROLL_H, overflow: 'hidden' }}
         >
-          {/* moved with transform, not left: the most frequently moving thing here, and transform skips layout */}
-          <PlayheadTrack
-            clock={clock}
-            animate={playing && scrubMs == null}
-            x={playheadX - scrollLeft + PLAYHEAD_BLEED}
-            pxPerMs={pxPerMs}
-            totalMs={totalMs}
-            scrollRef={scrollRef}
-          >
-            <div className="absolute inset-y-0 left-0 w-px" style={{ background: 'var(--tl-playhead)' }} />
-            {/* the knob; its hit area (24×20) is larger than the visible pin, people aim for the line and miss by a
-                few pixels. Through the rows the line takes no pointer events: grabbing there is grabPlayhead's. */}
-            <span
-              role="presentation"
-              onPointerDown={startScrub}
-              className="pointer-events-auto absolute top-0 left-1/2 flex h-[20px] w-[24px] -translate-x-1/2 cursor-col-resize items-start justify-center"
+          {/* moved with transform, not left: the most frequently moving thing here, and transform skips layout; a zoom
+              gesture scales its layer (the knob keeps its width) */}
+          <div data-zoom-layer="view" data-zoom-bleed={PLAYHEAD_BLEED} className="absolute inset-0">
+            <PlayheadTrack
+              clock={clock}
+              animate={playing && scrubMs == null}
+              x={scrubMs == null ? playheadX - scrollLeft + PLAYHEAD_BLEED : null}
+              moveRef={playheadMove}
+              pxPerMs={pxPerMs}
+              totalMs={totalMs}
+              scrollRef={scrollRef}
             >
-              <PlayheadKnob filled={scrubbing} />
-            </span>
-          </PlayheadTrack>
+              <div className="absolute inset-y-0 left-0 w-px" style={{ background: 'var(--tl-playhead)' }} />
+              {/* the knob; its hit area (24×20) is larger than the visible pin, people aim for the line and miss by a
+                  few pixels. Through the rows the line takes no pointer events: grabbing there is grabPlayhead's. */}
+              <span
+                role="presentation"
+                onPointerDown={startScrub}
+                data-zoom-keep=""
+                className="pointer-events-auto absolute top-0 left-1/2 flex h-[20px] w-[24px] -translate-x-1/2 cursor-col-resize items-start justify-center"
+              >
+                <PlayheadKnob filled={scrubbing} />
+              </span>
+            </PlayheadTrack>
+          </div>
         </div>
       ) : null}
 
@@ -4038,16 +4279,18 @@ export const Timeline = React.memo(function Timeline({
       {/* the span of a pill hovered in the app's chat (a range, a subtitle line, a moment), tinted on the ruler */}
       {chat?.span ? (
         <div className="pointer-events-none absolute z-[26] overflow-hidden" style={{ left: headW, right: 0, top: TOOLBAR_H, height: RULER_H }}>
-          <div
-            data-chat-span=""
-            className="absolute inset-y-0 left-0"
-            style={{
-              transform: `translate3d(${chat.span.startMs * pxPerMs - scrollLeft}px,0,0)`,
-              width: Math.max(2, (chat.span.endMs - chat.span.startMs) * pxPerMs),
-              background: 'color-mix(in srgb, var(--tl-accent) 45%, transparent)',
-              boxShadow: 'inset 0 -2px 0 var(--tl-accent)',
-            }}
-          />
+          <div data-zoom-layer="view" className="absolute inset-0">
+            <div
+              data-chat-span=""
+              className="absolute inset-y-0 left-0"
+              style={{
+                transform: `translate3d(${chat.span.startMs * pxPerMs - scrollLeft}px,0,0)`,
+                width: Math.max(2, (chat.span.endMs - chat.span.startMs) * pxPerMs),
+                background: 'color-mix(in srgb, var(--tl-accent) 45%, transparent)',
+                boxShadow: 'inset 0 -2px 0 var(--tl-accent)',
+              }}
+            />
+          </div>
         </div>
       ) : null}
 
@@ -4060,35 +4303,40 @@ export const Timeline = React.memo(function Timeline({
         return (
           <>
             <div className="pointer-events-none absolute z-[24] overflow-hidden" style={{ left: headW, right: 0, top: TOOLBAR_H, bottom: H_SCROLL_H }}>
-              <div
-                data-timeline-range=""
-                className="absolute inset-y-0 left-0 border-x"
-                style={{
-                  transform: `translate3d(${fromX}px,0,0)`,
-                  width,
-                  borderColor: 'var(--tl-accent)',
-                  background: 'color-mix(in srgb, var(--tl-accent) 13%, transparent)',
-                }}
-              >
-                <div className="absolute inset-x-0 top-0" style={{ height: RULER_H, background: 'color-mix(in srgb, var(--tl-accent) 28%, transparent)' }} />
+              <div data-zoom-layer="view" className="absolute inset-0">
+                <div
+                  data-timeline-range=""
+                  className="absolute inset-y-0 left-0 border-x"
+                  style={{
+                    transform: `translate3d(${fromX}px,0,0)`,
+                    width,
+                    borderColor: 'var(--tl-accent)',
+                    background: 'color-mix(in srgb, var(--tl-accent) 13%, transparent)',
+                  }}
+                >
+                  <div className="absolute inset-x-0 top-0" style={{ height: RULER_H, background: 'color-mix(in srgb, var(--tl-accent) 28%, transparent)' }} />
+                </div>
               </div>
             </div>
             {/* pinned to the view's left while the band starts before it */}
             {fromX + width > 0 ? (
               <div className="pointer-events-none absolute z-[36] overflow-hidden" style={{ left: headW, right: 0, top: TOOLBAR_H + RULER_H + 3, height: 20 }}>
-                <div
-                  draggable={Boolean(rangeRef && range && !rangeDraft)}
-                  title={rangeRef ? t('host.rangeDrag') : undefined}
-                  onDragStart={(e) => {
-                    if (!rangeRef || !range) return;
-                    e.dataTransfer.setData(STUDIO_REF_TYPE, JSON.stringify([rangeRef(range)]));
-                    e.dataTransfer.setData('text/plain', label);
-                    e.dataTransfer.effectAllowed = 'copy';
-                  }}
-                  className={`absolute top-0 whitespace-nowrap rounded-[4px] px-1.5 py-[2px] text-[10.5px] font-medium leading-[15px] text-white tabular-nums shadow-[0_1px_4px_rgba(0,0,0,.25)] ${rangeRef ? 'pointer-events-auto cursor-grab active:cursor-grabbing' : ''}`}
-                  style={{ left: Math.max(4, fromX + 4), background: 'var(--tl-accent)' }}
-                >
-                  {label}
+                <div data-zoom-layer="view" className="absolute inset-0">
+                  <div
+                    data-zoom-keep=""
+                    draggable={Boolean(rangeRef && range && !rangeDraft)}
+                    title={rangeRef ? t('host.rangeDrag') : undefined}
+                    onDragStart={(e) => {
+                      if (!rangeRef || !range) return;
+                      e.dataTransfer.setData(STUDIO_REF_TYPE, JSON.stringify([rangeRef(range)]));
+                      e.dataTransfer.setData('text/plain', label);
+                      e.dataTransfer.effectAllowed = 'copy';
+                    }}
+                    className={`absolute top-0 origin-left whitespace-nowrap rounded-[4px] px-1.5 py-[2px] text-[10.5px] font-medium leading-[15px] text-white tabular-nums shadow-[0_1px_4px_rgba(0,0,0,.25)] ${rangeRef ? 'pointer-events-auto cursor-grab active:cursor-grabbing' : ''}`}
+                    style={{ left: Math.max(4, fromX + 4), background: 'var(--tl-accent)' }}
+                  >
+                    {label}
+                  </div>
                 </div>
               </div>
             ) : null}
@@ -4099,7 +4347,7 @@ export const Timeline = React.memo(function Timeline({
       <SelectionToolbar
         selection={barKey}
         measure={measureBar}
-        hidden={playing || scrubbing || Boolean(marquee || rangeDraft || drag.preview || laneOrder || assetHint)}
+        hidden={playing || scrubbing || zooming || Boolean(marquee || rangeDraft || drag.preview || laneOrder || assetHint)}
         lead={barLead}
         {...(barLabel ? { label: barLabel } : {})}
         tools={barTools}
@@ -4382,11 +4630,50 @@ function ModePicker({
 }
 
 /**
- * The playhead line — while playing it follows the clock itself, outside React.
- *
- * The clock ticks at 20 Hz; drawn tick by tick the line jumps, zoomed in by a dozen pixels. Each frame it moves on
- * from the last tick by the time since, and lines up at the next tick; when a new tick is slightly behind what was
- * drawn, it waits instead of stepping back.
+ * A playhead held at a place: an animation paused, its time the place in px from HELD_FROM to the left, so moving it is
+ * setting its time. A transform written from script made the browser lay the whole page out again on each move (all the
+ * timeline's clips); an animation's moves are the compositor's.
+ */
+const HELD_FROM = 100_000;
+const HELD_SPAN = 10_000_000;
+function holdAt(el: HTMLElement): Animation {
+  const a = el.animate([{ transform: `translate3d(${-HELD_FROM}px,0,0)` }, { transform: `translate3d(${HELD_SPAN - HELD_FROM}px,0,0)` }], { duration: HELD_SPAN, fill: 'both' });
+  a.pause();
+  return a;
+}
+
+/** The line under the ruler's colors: plays late, rendering, rendered, could not be rendered. */
+const PREVIEW_BAR: Record<PreviewBarRange['state'], string> = { late: '#e5484d', making: '#e8c547', ready: '#3dd68c', failed: '#8b8d98' };
+
+/**
+ * Under the ruler, where the viewer plays late, and its renders: red plays late (rendered once the film stops), yellow
+ * is rendering, green plays from its render. Each says so when pointed at; a press goes on to the ruler.
+ */
+function PreviewBar({ ranges, pxPerMs }: { ranges: readonly PreviewBarRange[]; pxPerMs: number }) {
+  const t = useT();
+  const title = (r: PreviewBarRange) => (r.state === 'late' ? t('timeline.previewLate')
+    : r.state === 'making' ? t('timeline.previewMaking').replace('{p}', String(Math.round((r.ratio ?? 0) * 100)))
+      : r.state === 'ready' ? t('timeline.previewReady') : t('timeline.previewFailed'));
+  return (
+    <>
+      {ranges.map((r) => (
+        <div
+          key={`${r.a}-${r.b}`}
+          data-preview-bar={r.state}
+          title={title(r)}
+          className="absolute bottom-0"
+          style={{ left: r.a * 1000 * pxPerMs, width: Math.max(2, (r.b - r.a) * 1000 * pxPerMs), height: 3, background: PREVIEW_BAR[r.state], opacity: 0.9 }}
+        />
+      ))}
+    </>
+  );
+}
+
+/**
+ * The playhead line — while playing it moves by itself, outside React and off the page's main thread: an animation
+ * from where the film is to its end, on the clock's line (`line`: where the film is at a moment, and how fast it goes),
+ * which the compositor draws every frame. It is made again only when the line changes (a seek, a loop, another speed),
+ * the timeline scrolls or zooms. Moved from script each frame instead, the editor laid out its whole page every frame.
  *
  * Follow-scroll happens here too: out of view, the timeline pages (the playhead at 10% from the left) rather than
  * recentring every step, which would slide constantly. For a while after the user scrolls, it does not follow.
@@ -4395,6 +4682,7 @@ function PlayheadTrack({
   clock,
   animate,
   x,
+  moveRef,
   pxPerMs,
   totalMs,
   scrollRef,
@@ -4403,8 +4691,10 @@ function PlayheadTrack({
   clock: PlaybackClock | null | undefined;
   /** Playing and not scrubbing: the line moves itself. Otherwise it is drawn at `x`. */
   animate: boolean;
-  /** Where the line is when not moving itself (scroll already taken off). */
-  x: number;
+  /** Where the line is when not moving itself (scroll already taken off); null: moved by `moveRef` (a scrub). */
+  x: number | null;
+  /** Set here: moves the line to x at once, outside React (a scrub moves it each frame). */
+  moveRef?: React.MutableRefObject<((x: number) => void) | null>;
   pxPerMs: number;
   totalMs: number;
   scrollRef: React.RefObject<HTMLDivElement | null>;
@@ -4412,47 +4702,93 @@ function PlayheadTrack({
 }) {
   const ref = React.useRef<HTMLDivElement>(null);
   const live = Boolean(clock) && animate;
+  /* still, or dragged: an animation held at the place (its time is the px), not a transform written from script,
+     which laid the page out again on every step of a drag */
+  const held = React.useRef<Animation | null>(null);
 
+  const hold = React.useCallback((at: number) => {
+    const el = ref.current;
+    if (!el) return;
+    held.current ??= holdAt(el);
+    held.current.currentTime = at + HELD_FROM;
+  }, []);
   React.useLayoutEffect(() => {
-    if (live || !ref.current) return;
-    ref.current.style.transform = `translate3d(${x}px,0,0)`;
-  }, [live, x]);
+    if (live || x == null) return;
+    hold(x);
+  }, [live, x, hold]);
+  React.useEffect(() => {
+    if (!moveRef) return undefined;
+    moveRef.current = (at) => { if (!live) hold(at); };
+    return () => { moveRef.current = null; };
+  }, [moveRef, live, hold]);
+  React.useEffect(() => {
+    if (!live) return undefined;
+    /* moving by itself: the held one gives way, and is made again when it stops */
+    held.current?.cancel();
+    held.current = null;
+    return undefined;
+  }, [live]);
+  React.useEffect(() => () => { held.current?.cancel(); }, []);
 
   React.useEffect(() => {
-    if (!live || !clock) return undefined;
+    const el = ref.current;
+    if (!live || !clock || !el) return undefined;
     const scroller = scrollRef.current;
-    let tick = { ms: clock.get(), at: performance.now() };
-    let shown = tick.ms;
     let userAt = -Infinity;
-    const off = clock.subscribe(() => { tick = { ms: clock.get(), at: performance.now() }; });
-    const onUser = () => { userAt = performance.now(); };
-    scroller?.addEventListener('wheel', onUser, { passive: true });
-    scroller?.addEventListener('pointerdown', onUser, { passive: true });
-    let raf = 0;
-    const frame = (now: number) => {
-      let ms = Math.min(tick.ms + Math.min(now - tick.at, 120), totalMs);
-      /* a new tick slightly behind what was drawn: wait, do not step back. Far behind (a seek, a loop): follow it. */
-      if (ms < shown && shown - ms < 80) ms = shown;
-      shown = ms;
-      const el = scrollRef.current;
-      const scrollLeft = el?.scrollLeft ?? 0;
-      const px = ms * pxPerMs;
-      if (el && now - userAt > 1500 && pxPerMs > 0) {
-        if (px < scrollLeft + FOLLOW_EDGE || px > scrollLeft + el.clientWidth - FOLLOW_EDGE) {
-          el.scrollLeft = Math.max(0, px - el.clientWidth * 0.1);
-        }
-      }
-      if (ref.current) {
-        ref.current.style.transform = `translate3d(${px - (el?.scrollLeft ?? scrollLeft) + PLAYHEAD_BLEED}px,0,0)`;
-      }
-      raf = requestAnimationFrame(frame);
+    let scroll = scroller?.scrollLeft ?? 0;
+    let width = scroller?.clientWidth ?? 0;
+    /* the line the animation runs on now, and the scroll it was made for */
+    let made: { ms: number; at: number; rate: number; scroll: number } | null = null;
+    let anim: Animation | null = null;
+    const lineNow = () => clock.line?.() ?? { ms: clock.get(), at: performance.now(), rate: 1 };
+    const make = () => {
+      const line = lineNow();
+      const from = Math.min(line.ms, totalMs);
+      const place = (ms: number) => `translate3d(${ms * pxPerMs - scroll + PLAYHEAD_BLEED}px,0,0)`;
+      anim?.cancel();
+      anim = el.animate([{ transform: place(from) }, { transform: place(totalMs) }], {
+        duration: Math.max(1, (totalMs - from) / Math.max(1e-6, line.rate)), easing: 'linear', fill: 'both',
+      });
+      /* on the page's clock: the document's timeline counts from the same origin as performance.now() */
+      anim.startTime = line.at;
+      made = { ...line, scroll };
     };
-    raf = requestAnimationFrame(frame);
+    /* a new line moves the film elsewhere than this one: within a pixel, it is the same line (the sound's small
+       corrections) */
+    const moved = () => {
+      const line = lineNow();
+      if (!made || line.rate !== made.rate || made.scroll !== scroll) return true;
+      const now = performance.now();
+      const at = (l: { ms: number; at: number; rate: number }) => l.ms + Math.max(0, now - l.at) * l.rate;
+      return Math.abs(at(line) - at(made)) * pxPerMs > 1;
+    };
+    const follow = () => {
+      const px = clock.get() * pxPerMs;
+      if (scroller && performance.now() - userAt > 1500 && pxPerMs > 0 && (px < scroll + FOLLOW_EDGE || px > scroll + width - FOLLOW_EDGE)) {
+        scroller.scrollLeft = Math.max(0, px - width * 0.1);
+        scroll = scroller.scrollLeft;
+      }
+    };
+    const tick = () => { follow(); if (moved()) make(); };
+    make();
+    tick();
+    const off = clock.subscribe(tick);
+    const onUser = () => { userAt = performance.now(); };
+    const onScroll = () => { scroll = scroller?.scrollLeft ?? 0; if (moved()) make(); };
+    const sized = new ResizeObserver(() => { width = scroller?.clientWidth ?? 0; });
+    if (scroller) {
+      scroller.addEventListener('wheel', onUser, { passive: true });
+      scroller.addEventListener('pointerdown', onUser, { passive: true });
+      scroller.addEventListener('scroll', onScroll, { passive: true });
+      sized.observe(scroller);
+    }
     return () => {
-      cancelAnimationFrame(raf);
       off();
+      anim?.cancel();
+      sized.disconnect();
       scroller?.removeEventListener('wheel', onUser);
       scroller?.removeEventListener('pointerdown', onUser);
+      scroller?.removeEventListener('scroll', onScroll);
     };
   }, [live, clock, pxPerMs, totalMs, scrollRef]);
 
