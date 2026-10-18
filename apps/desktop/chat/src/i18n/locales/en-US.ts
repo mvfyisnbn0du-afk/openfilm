@@ -136,6 +136,7 @@ export const enUS = {
     agentSetUp: 'Set up',
     agentWaiting: 'Signing in…',
     effort: 'Effort',
+    folder: 'Folder',
     model: 'Model',
     openAttachment: 'View {name}',
     openSettings: 'Open Settings',

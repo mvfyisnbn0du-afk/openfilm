@@ -51,7 +51,7 @@ interface AppBridge {
   /** the project's files (Studio's listing), for the @ menu */
   projectFiles(): Promise<{ files: Array<{ path: string; kind: string; size: number }>; pages?: Array<{ path: string; size: number }> }>;
   /** bring a file into the project (assets/upload/): from its path, or its bytes */
-  importFile(file: { path: string; name: string } | { bytes: ArrayBuffer; name: string }): Promise<{ ok: true; path: string } | { ok: false; error: string }>;
+  importFile(file: { path: string; name: string } | { bytes: ArrayBuffer; name: string }): Promise<{ ok: true; path: string; folder?: boolean } | { ok: false; error: string }>;
   onSelection(listener: (selection: StudioSelection) => void): () => void;
   setChatWidth(width: number, done?: boolean): void;
   setChatOpen(open: boolean): void;

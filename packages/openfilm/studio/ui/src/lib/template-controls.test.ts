@@ -69,6 +69,11 @@ it('a picture put in a page is named from the page\'s folder, as CSS writes a ur
   assert.equal(urlOf("url('x.png')"), 'x.png');
   assert.equal(urlOf('url(x.png)'), 'x.png');
   assert.equal(urlOf('none'), null);
+  assert.equal(urlOf('url("a\\"b.png")'), 'a"b.png');
+  const open = Date.now();
+  assert.equal(urlOf(`url("${'\\!'.repeat(40)}`), null);
+  assert.equal(urlOf(`url('${'\\&'.repeat(40)}`), null);
+  assert.ok(Date.now() - open < 100, 'a quote left open fails at once');
 });
 
 it('a picture is replaced with the CSS that draws another file in its place: content for an <img>, a background for a box', () => {
