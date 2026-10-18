@@ -177,6 +177,75 @@ test('a project\'s event stream reports the agent writing film.html', async () =
   assert.ok(got.find((e) => e.type === 'film').rev);
 });
 
+test('rename refreshes every open page immediately, including writes still waiting to settle', { timeout: 10_000 }, async () => {
+  const { project } = await (await api('/api/projects', { method: 'POST', body: { name: 'Refresh draft' } })).json();
+  const before = await (await api(`/api/projects/${project.id}`)).json();
+  const pages = Array.from({ length: 2 }, () => {
+    const ws = new WebSocket(`${studio.origin.replace(/^http/, 'ws')}/api/projects/${project.id}/events`, { headers: { 'x-studio-key': studio.key } });
+    const page = { ws, events: [] };
+    ws.onmessage = (event) => page.events.push(JSON.parse(String(event.data)));
+    return page;
+  });
+  try {
+    await Promise.all(pages.map(({ ws }) => new Promise((done, fail) => { ws.onopen = done; ws.onerror = fail; })));
+    await new Promise((r) => setTimeout(r, 600));
+    let current = before;
+    for (const [name, text] of [['Refresh film', null], ['Refresh final', filmHtml({ stage: { w: 800, h: 450 }, tracks: [] })]]) {
+      for (const page of pages) page.events.length = 0;
+      // A write just before rename must not be lost when its old watcher's settle timer is cancelled.
+      if (text) writeFileSync(join(current.project.path, 'film.html'), text);
+      const previous = current.project.path;
+      const renamed = (await (await api(`/api/projects/${project.id}`, { method: 'PATCH', body: { name } })).json()).project;
+      const refreshed = () => pages.every(({ events }) => ['film', 'files', 'history'].every((type) => events.some((e) => e.type === type)));
+      for (const end = Date.now() + 4000; !refreshed() && Date.now() < end;) await new Promise((r) => setTimeout(r, 25));
+      assert.ok(refreshed(), 'both existing sockets refresh without another write or reconnect');
+      current = await (await api(`/api/projects/${project.id}`)).json();
+      assert.equal(current.project.path, renamed.path);
+      assert.notEqual(current.project.path, previous);
+      if (text) assert.deepEqual(current.doc.stage, { w: 800, h: 450 });
+      else assert.equal(current.rev, before.rev, 'unchanged films still refresh the project path');
+      for (const { events } of pages) assert.ok(events.some((e) => e.type === 'film' && e.rev === ''), 'a forced refresh bypasses the editor’s unchanged-revision filter');
+      assert.equal((await fetch(`${before.folder}film.html`)).status, 200, 'the existing preview address resolves to the renamed folder');
+    }
+  } finally {
+    await Promise.all(pages.map(({ ws }) => new Promise((done) => { ws.onclose = done; ws.close(); })));
+  }
+});
+
+test('an open project keeps film, file, history and export events after rename without reconnecting', { timeout: 15_000 }, async () => {
+  const { project } = await (await api('/api/projects', { method: 'POST', body: { name: 'Watched draft' } })).json();
+  const ws = new WebSocket(`${studio.origin.replace(/^http/, 'ws')}/api/projects/${project.id}/events`, { headers: { 'x-studio-key': studio.key } });
+  const events = [];
+  ws.onmessage = (event) => events.push(JSON.parse(String(event.data)));
+  const waitFor = async (predicate, message) => {
+    for (const end = Date.now() + 4000; !events.some(predicate) && Date.now() < end;) await new Promise((r) => setTimeout(r, 25));
+    assert.ok(events.some(predicate), message);
+  };
+  try {
+    await new Promise((done, fail) => { ws.onopen = done; ws.onerror = fail; });
+    const renamed = (await (await api(`/api/projects/${project.id}`, { method: 'PATCH', body: { name: 'Watched film' } })).json()).project;
+    await new Promise((r) => setTimeout(r, 600));
+    events.length = 0;
+    writeFileSync(join(renamed.path, 'film.html'), filmHtml({ stage: { w: 640, h: 360 }, tracks: [] }));
+    writeFileSync(join(renamed.path, 'scene.html'), '<p>after rename</p>');
+    await waitFor((e) => e.type === 'film' && e.rev, 'the existing socket sees the new film revision');
+    await waitFor((e) => e.type === 'files' && e.paths?.includes('scene.html'), 'the existing socket sees new files');
+    const committed = await api(`/api/projects/${project.id}/history/commit`, { method: 'POST', body: { message: 'After rename' } });
+    assert.equal(committed.status, 200);
+    await waitFor((e) => e.type === 'history', 'the existing socket sees history changes');
+    assert.ok(events.some((e) => e.type === 'history-progress' && e.op === 'commit'));
+    const started = await api(`/api/projects/${project.id}/exports`, { method: 'POST', body: { kind: 'project', as: 'folder' } });
+    assert.equal(started.status, 200);
+    const job = (await started.json()).export;
+    await waitFor((e) => e.type === 'export' && e.job.id === job.id && ['done', 'failed'].includes(e.job.status), 'the existing socket sees the finished export');
+    const completed = events.find((e) => e.type === 'export' && e.job.id === job.id && e.job.status === 'done');
+    assert.ok(completed, 'the export finishes successfully');
+    assert.equal(readFileSync(join(completed.job.outputs[0], 'scene.html'), 'utf8'), '<p>after rename</p>');
+  } finally {
+    await new Promise((done) => { ws.onclose = done; ws.close(); });
+  }
+});
+
 test('a film whose clips have no ids comes back with each named after its file, as the preview names them', async () => {
   const { project } = await (await api('/api/projects', { method: 'POST', body: { path: join(scratch, 'Unnamed') } })).json();
   writeFileSync(join(project.path, 'film.html'), filmHtml({ stage: { w: 1920, h: 1080 }, tracks: [{ clips: [{ src: 'title.html' }, { src: 'title.html', at: 2 }] }] }));
@@ -470,7 +539,7 @@ test('an advertised Studio writes run.json, quits when asked by a key holder, an
   assert.equal(existsSync(run), false);
 });
 
-test('a project an app\'s agent is working in is marked so, and is not deleted until it stops', async () => {
+test('a project an app\'s agent is working in is marked so, and is neither renamed nor deleted until it stops', async () => {
   let working = [];
   const app = await startStudio({ port: 0, openBrowser: () => {}, working: () => working });
   try {
@@ -483,9 +552,18 @@ test('a project an app\'s agent is working in is marked so, and is not deleted u
     assert.equal(refused.status, 409);
     assert.equal((await refused.json()).code, 'agent-running');
     assert.ok(existsSync(project.path), 'its folder untouched');
+    const rename = await call(`/api/projects/${project.id}`, 'PATCH', { name: 'Busy renamed' });
+    assert.equal(rename.status, 409);
+    assert.equal((await rename.json()).code, 'agent-running');
+    assert.ok(existsSync(project.path), 'rename leaves the working folder untouched');
+    assert.equal((await (await call(`/api/projects/${project.id}`)).json()).project.path, project.path);
     working = [];
+    const renamed = await call(`/api/projects/${project.id}`, 'PATCH', { name: 'Busy renamed' });
+    assert.equal(renamed.status, 200, 'rename succeeds once the agent stops');
+    const moved = (await renamed.json()).project;
+    assert.ok(existsSync(moved.path));
     assert.equal((await call(`/api/projects/${project.id}`, 'DELETE')).status, 200, 'once the agent stops');
-    assert.ok(!existsSync(project.path), 'to the Trash');
+    assert.ok(!existsSync(moved.path), 'to the Trash');
   } finally {
     await app.close();
   }

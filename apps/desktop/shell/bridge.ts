@@ -10,12 +10,11 @@
  * (src/preload.cjs). Imported before Studio's modules and the chat's: Studio reads its host as it loads.
  */
 import { flushSync } from 'react-dom';
-import type { CommunityItem, HostAgent, HostAsk, HostUpdate, HostUpdateState, StudioCommand, StudioHost, StudioRef, StudioSelection } from 'openfilm/studio-ui/lib/host.ts';
+import type { CommunityItem, HostAgent, HostAsk, HostProject as Project, HostUpdate, HostUpdateState, StudioCommand, StudioHost, StudioRef, StudioSelection } from 'openfilm/studio-ui/lib/host.ts';
 
 type Listener<T> = (value: T) => void;
 type Stop = () => void;
 type Theme = 'light' | 'dark';
-type Project = { id: string; name: string; path: string };
 
 interface Native {
   platform: string;
@@ -131,14 +130,32 @@ theme.on((next) => native.setTheme(next));
 /* ── the project Studio shows (its address, /projects/<id>) ── */
 const project = signal<Project | null>(null);
 let projectReady: Promise<void> = Promise.resolve();
+let projectRequest = 0, projectReceived = 0;
+const projectId = () => /^\/projects\/([\w-]+)/.exec(location.pathname)?.[1] ?? null;
+function projectChanged(next: Project, request = ++projectRequest) {
+  if (next.id !== projectId() || request < projectReceived) return;
+  projectReceived = request;
+  const current = project.get();
+  if (current?.id === next.id && current.name === next.name && current.path === next.path) return;
+  project.set({ id: next.id, name: next.name, path: next.path });
+}
+/** A read begun before a rename must not restore the project's old folder. */
+function projectRead() {
+  const request = ++projectRequest;
+  return (next: Project) => projectChanged(next, request);
+}
 async function follow() {
-  const id = /^\/projects\/([\w-]+)/.exec(location.pathname)?.[1] ?? null;
-  if (!id || id === project.get()?.id) return;
+  /* A response from a previous visit must not win after leaving and returning to the same project. */
+  projectReceived = ++projectRequest;
+  const id = projectId();
+  if (!id) { project.set(null); return; }
+  if (id === project.get()?.id) return;
+  const receive = projectRead();
   try {
     const res = await fetch('/api/projects');
     const body = await res.json() as { projects?: Project[] };
     const found = body.projects?.find((p) => p.id === id);
-    if (found) project.set({ id: found.id, name: found.name, path: found.path });
+    if (found) receive(found);
   } catch { /* told next time the address changes */ }
 }
 for (const method of ['pushState', 'replaceState'] as const) {
@@ -254,6 +271,8 @@ const INSET_RIGHT = 138;
 const host: StudioHost = {
   version: 1,
   name: 'OpenFilm',
+  projectChanged,
+  projectRead,
   ...(mac ? { titlebar: { inset: INSET, onChange: (listener: Listener<number>) => { fullScreen.on((full) => listener(full ? 6 : INSET)); } } } : {}),
   ...(windows ? { titlebar: { inset: 6, insetRight: INSET_RIGHT } } : {}),
   /* in order, each with its picture: two pointed at quickly must not swap or share a screenshot */

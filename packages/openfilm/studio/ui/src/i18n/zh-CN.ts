@@ -163,6 +163,7 @@ export const zhCN: Words = {
     missing: '找不到文件夹',
     missingOpen: '此项目的文件夹已不在原处：它被移动、重命名或删除了。你可以将它从列表中移除。',
     agentRunning: 'Agent 运行中',
+    agentRunningRename: '智能体正在此项目中运行。请先停止它，再重命名项目。',
     agentRunningDelete: 'Agent 正在这个项目里运行，请先停止它，再删除项目。',
     agentRunningDeleteMany: '其中 {n} 个项目里有 Agent 正在运行，请先停止，再删除。',
     removeFromList: '从列表中移除',

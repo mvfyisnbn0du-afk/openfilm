@@ -162,6 +162,7 @@ export const ko: Words = {
     missing: '폴더를 찾을 수 없음',
     missingOpen: '이 프로젝트의 폴더가 더 이상 없습니다. 이동되었거나, 이름이 바뀌었거나, 삭제되었습니다. 목록에서 제거할 수 있습니다.',
     agentRunning: '에이전트 실행 중',
+    agentRunningRename: '이 프로젝트에서 에이전트가 실행 중입니다. 먼저 중지한 다음 프로젝트 이름을 변경하세요.',
     agentRunningDelete: '이 프로젝트에서 에이전트가 실행 중입니다. 먼저 중지한 다음 프로젝트를 삭제하세요.',
     agentRunningDeleteMany: '{n}개 프로젝트에서 에이전트가 실행 중입니다. 먼저 중지한 다음 삭제하세요.',
     removeFromList: '목록에서 제거',

@@ -162,6 +162,7 @@ export const es: Words = {
     missing: 'Carpeta no encontrada',
     missingOpen: 'La carpeta de este proyecto ya no está: se movió, se renombró o se eliminó. Puedes quitarlo de la lista.',
     agentRunning: 'Agente en marcha',
+    agentRunningRename: 'Hay un agente trabajando en este proyecto. Deténlo antes de cambiarle el nombre al proyecto.',
     agentRunningDelete: 'Un agente está trabajando en este proyecto. Detenlo primero y luego elimina el proyecto.',
     agentRunningDeleteMany: 'Un agente está trabajando en {n} de estos proyectos. Detenlo primero y luego elimínalos.',
     removeFromList: 'Quitar de la lista',

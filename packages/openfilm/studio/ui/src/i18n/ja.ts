@@ -162,6 +162,7 @@ export const ja: Words = {
     missing: 'フォルダーが見つかりません',
     missingOpen: 'このプロジェクトのフォルダーが見つかりません。移動、名前の変更、または削除されたようです。リストから削除できます。',
     agentRunning: 'エージェント実行中',
+    agentRunningRename: 'このプロジェクトでエージェントが実行中です。先に停止してから、プロジェクト名を変更してください。',
     agentRunningDelete: 'このプロジェクトでエージェントが実行中です。先に停止してから削除してください。',
     agentRunningDeleteMany: '{n} 件のプロジェクトでエージェントが実行中です。先に停止してから削除してください。',
     removeFromList: 'リストから削除',

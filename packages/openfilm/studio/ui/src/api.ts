@@ -3,6 +3,7 @@
  * cookie `/open` set; writes are refused from any other origin.
  */
 import type { ExportJob } from '@/lib/export-jobs';
+import { studioHost } from '@/lib/host';
 import { watchStudioVersion } from '@/lib/studio-version';
 
 /** `working`: an agent of the app's chat is working in it right now (it cannot be deleted meanwhile). */
@@ -105,9 +106,15 @@ export const api = {
   newProject: (name?: string) => call<{ project: Project }>('projects', { method: 'POST', json: { name } }).then((r) => r.project),
   /** open a folder (its full path) as a project: made one when it is not yet */
   openFolder: (path: string) => call<{ project: Project }>('projects', { method: 'POST', json: { path } }).then((r) => r.project),
-  rename: (id: string, name: string) => call<{ project: Project }>(p(id), { method: 'PATCH', json: { name } }).then((r) => r.project),
+  rename: (id: string, name: string) => call<{ project: Project }>(p(id), { method: 'PATCH', json: { name } }).then((r) => {
+    studioHost?.projectChanged?.(r.project);
+    return r.project;
+  }),
   forget: (id: string) => call<object>(p(id), { method: 'DELETE' }),
-  film: (id: string) => call<ProjectFilm>(p(id)),
+  film: (id: string) => {
+    const receive = studioHost?.projectRead?.();
+    return call<ProjectFilm>(p(id)).then((film) => { receive?.(film.project); return film; });
+  },
   /** the person opened it here: the one `openfilm open` alone comes back to */
   opened: (id: string) => call<{ project: Project }>(`${p(id)}/opened`, { method: 'POST' }),
   edit: (id: string, base: string | null, ops: Op[]) => call<{ text: string; rev: string; value: Film; doc: Film; rebased: boolean }>(`${p(id)}/edit`, { method: 'POST', json: { base, ops } }),

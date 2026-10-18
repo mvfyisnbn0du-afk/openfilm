@@ -2432,7 +2432,8 @@ export function ProjectView({ projectId, onProject, onLeave }: {
     try { const project = await api.rename(projectId, next); setLoaded((l) => (l ? { ...l, project } : l)); }
     catch (e) {
       setLoaded((l) => (l ? { ...l, project: { ...l.project, name: title } } : l));
-      toast.showError(e instanceof ApiError && e.status === 409 ? t('projects.renameTaken').replace('{name}', next) : t('project.renameFailed'));
+      toast.showError(e instanceof ApiError && e.body.code === 'agent-running' ? t('projects.agentRunningRename')
+        : e instanceof ApiError && e.status === 409 ? t('projects.renameTaken').replace('{name}', next) : t('project.renameFailed'));
     }
   };
   const [projectsOpen, setProjectsOpen] = React.useState(false);
