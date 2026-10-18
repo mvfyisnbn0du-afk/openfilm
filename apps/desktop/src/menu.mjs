@@ -32,9 +32,9 @@ export function applicationMenuTemplate({ productName, packaged, toggleChat, ope
       label: productName,
       submenu: [
         { role: 'about' },
+        ...updateItems,
         { type: 'separator' },
         settings,
-        ...updateItems,
         { type: 'separator' },
         { role: 'services' },
         { type: 'separator' },

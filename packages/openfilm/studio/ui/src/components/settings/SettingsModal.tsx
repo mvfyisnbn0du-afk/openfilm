@@ -445,13 +445,6 @@ function DeveloperSection() {
   };
   return (
     <SettingsPage note={t('settings.developer.intro')}>
-      <SettingsGroup title={t('settings.developer.debugGroup')}>
-        <SettingsItem
-          title={t('settings.developer.debug')}
-          description={t('settings.developer.debugHint')}
-          control={prefs ? <SettingsSwitch checked={prefs.debug === true} label={t('settings.developer.debug')} onChange={(on) => change({ debug: on })} /> : null}
-        />
-      </SettingsGroup>
       <SettingsGroup title={t('settings.developer.group')} footnote={t('settings.developer.where')}>
         {/* drawn once the app has said whether each is on: drawn off first, a switch slid on each time the page opened */}
         <SettingsItem
@@ -465,7 +458,7 @@ function DeveloperSection() {
           control={prefs ? <SettingsSwitch checked={prefs.logs} label={t('settings.developer.logs')} onChange={(on) => change({ logs: on })} /> : null}
         />
       </SettingsGroup>
-      {prefs?.debug === true && newestVersion() ? (
+      {newestVersion() ? (
         <SettingsGroup title={t('settings.developer.releaseGroup')}>
           <SettingsItem
             title={t('settings.developer.previewWhatsNew')}
@@ -495,7 +488,7 @@ function ShortcutsSection() {
   };
 
   const groups: Array<{ title: string; items: Array<{ label: string; keys: string[] }> }> = [
-    ...(studioHost?.settings ? [{ title: t('settings.title'), items: [{ label: t('settings.title'), keys: [k(',', { mod: true })] }] }] : []),
+    ...(studioHost?.settings ? [{ title: t('settings.sections.general'), items: [{ label: t('settings.title'), keys: [k(',', { mod: true })] }] }] : []),
     ...SHORTCUTS.map((group) => ({
       title: t(`settings.shortcuts.${group.group}`),
       items: group.rows.map((row) => ({ label: t(`settings.shortcuts.${row.label}`), keys: row.keys.map(keyText) })),

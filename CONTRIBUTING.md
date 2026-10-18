@@ -1,11 +1,5 @@
 # Contributing
 
-## Summary｜给用户看的摘要 — Contributor setup and validation
-
-Use Node 22.18 or later and pnpm 9. Keep pull requests focused, add regression tests for fixes and a changeset for
-user-facing changes, and run the tests, type checks and public audit. Desktop diagnostic UI is opt-in and independent
-of agent logging; the development convention below applies to new diagnostic controls.
-
 Thanks for helping. Issues and pull requests are welcome. Everything here runs on your machine with your own keys:
 nothing else is needed to run it, change it or test it.
 
@@ -112,28 +106,6 @@ from `packages/openfilm` as source, so a change to Studio shows in the app at it
 `pnpm --filter @openfilm/desktop release` builds an installable app into `apps/desktop/.release/` (git-ignored),
 unsigned unless `OPENFILM_SIGN_IDENTITY` and `APPLE_TEAM_ID` are set. A build you make is yours to try; before you
 distribute one, read [TRADEMARK.md](TRADEMARK.md): a fork published as its own needs its own name and icon.
-
-### Settings and diagnostic UI
-
-The native Settings menu opens General in the current page, including the launcher: Command-comma on macOS and
-Control-comma on Windows/Linux. Pages with settings use `useSettings()` from
-`studio/ui/src/components/settings/use-settings.ts` so the native menu and visible settings buttons share one dialog.
-The host's optional `settings.onOpen` event is separate from editor commands, so it also works with no project open.
-
-UI diagnostics use **Settings → Developer → Debug mode**, stored in the desktop's preferences as `debug`. It is off
-for new and older installations, in both source and packaged builds. `useDebugMode()` from
-`studio/ui/src/lib/debug.ts` follows changes live and returns false without a desktop host. Keep it independent from
-`logs` (full agent logs) and `changes` (file-change summaries).
-
-For new diagnostic controls, hide the entry with `useDebugMode()` and also guard any diagnostic action before it
-runs. Internal paths, instruction-file details, state probes and release previews belong behind this switch; the
-normal creative workflow remains available with it off. The release-notes preview in Developer settings is an
-example. Debug mode controls presentation, not authorization: existing trust checks and action confirmations still
-apply. Never rely on the build flavor, a URL parameter or browser storage to enable diagnostic UI by default.
-
-Check the off/on/off states in the native app, verify that another open tab follows the change, and confirm that the
-choice survives a restart without changing log preferences. A shortcut must also work from the launcher and while a
-text field has focus.
 
 ## The update feed and product.json
 

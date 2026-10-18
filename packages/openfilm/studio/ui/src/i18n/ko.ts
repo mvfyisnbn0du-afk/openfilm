@@ -1586,7 +1586,6 @@ export const ko: Words = {
       mcpUnfiltered: '{agent}는 자체 앱에서처럼 OpenFilm에서도 내 MCP 서버 {n}개를 모두 사용합니다.',
     },
     developer: {
-      debugGroup: "디버깅", debug: "디버그 모드", debugHint: "개발자 전용 기능과 내부 구현 정보를 표시합니다. 기본값은 꺼짐이며 전체 대화 로그와 별개입니다.",
       intro: '에이전트가 무엇을 왜 했는지 정확히 확인하기 위한 기능입니다. 에이전트의 동작은 바뀌지 않습니다.',
       group: '각 턴',
       changes: '각 턴의 변경 사항 보기',
