@@ -620,7 +620,7 @@ function WorkSummary({ items, durationMs }: { items: AgentActivityItem[]; durati
 
 const AGENT_NAMES: Record<string, string> = {
   codex: 'Codex', claude: 'Claude Code', gemini: 'Gemini CLI', copilot: 'GitHub Copilot', cursor: 'Cursor',
-  opencode: 'OpenCode', codebuddy: 'CodeBuddy', qwen: 'Qwen Code', kimi: 'Kimi',
+  opencode: 'OpenCode', codebuddy: 'CodeBuddy', qwen: 'Qwen Code', kimi: 'Kimi', minimax: 'MiniMax Code',
 };
 
 /** The hover-only line: transparent but keeping its space (nothing jumps as the mouse moves); always shown on devices without hover. */

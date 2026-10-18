@@ -137,6 +137,7 @@ export const es: Words = {
     agentSetUp: 'Configurar',
     agentWaiting: 'Iniciando sesión…',
     effort: 'Esfuerzo',
+    folder: 'Carpeta',
     model: 'Modelo',
     openAttachment: 'Ver {name}',
     openSettings: 'Abrir Configuración',
