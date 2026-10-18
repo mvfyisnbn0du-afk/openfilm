@@ -2,8 +2,8 @@
  * What the app's own agent (Pi, src/pi-agent.mjs) runs with, and how what it does reads in the chat (ACP).
  *
  * The person's own models, each set up on its own (agent-roster.mjs): its name, its service (an address on one of three
- * APIs, and its own key), the model asked for there and its reasoning efforts. Each is a provider of its own in Pi's
- * `models.json`, so the chat's menu switches between them (`modelOption`), one service to another.
+ * APIs, and its own key), the model asked for there, its reasoning efforts and its context length. Each is a provider
+ * of its own in Pi's `models.json`, so the chat's menu switches between them (`modelOption`), one service to another.
  *
  * Reads no Electron module, so `node --test` can use it.
  */
@@ -36,10 +36,24 @@ export function modelEffort(/** @type {unknown} */ levels, /** @type {unknown} *
   return { levels: offered, effort: offered.includes(String(effort)) ? String(effort) : offered[0] };
 }
 
+/** A context length for a model the person gave none: 128K. */
+const CONTEXT = 128_000;
+/** The most a model is asked to write in one answer: a quarter of 128K, so a long context does not ask for more. */
+const MAX_OUTPUT = 32_000;
+
+/**
+ * A model's context length as kept: a whole number of tokens from 32K to 10M, as the person gave it in Settings (the
+ * service documents it; OpenFilm cannot know it). Null for none or anything else: the model gets 128K.
+ */
+export function contextLength(/** @type {unknown} */ value) {
+  return typeof value === 'number' && Number.isInteger(value) && value >= 32_000 && value <= 10_000_000 ? value : null;
+}
+
 /**
  * One of the person's own models as the agent runs it: `id` (the app's, never shown), `name` (the menu's), Pi's `api`,
- * the service's `baseUrl`, the variable its key is in (`keyEnv`), the `model` asked for there and its efforts.
- * @typedef {{ id: string, name: string, api: string, baseUrl: string, keyEnv: string, model: string, levels: string[], effort: string }} OwnModel
+ * the service's `baseUrl`, the variable its key is in (`keyEnv`), the `model` asked for there, its efforts and its
+ * `context` length in tokens (128K when none).
+ * @typedef {{ id: string, name: string, api: string, baseUrl: string, keyEnv: string, model: string, levels: string[], effort: string, context?: number }} OwnModel
  */
 
 /** Pi's provider for one of the person's own models: each its own service. */
@@ -51,9 +65,6 @@ export const THINKING = (/** @type {string} */ id) => `${id}-thinking`;
 /* what a level is called on the wire: Pi's own names, but "none" for off on OpenAI's APIs */
 const wire = (/** @type {string} */ api, /** @type {string} */ level) => (level === 'off' && api !== 'anthropic-messages' ? 'none' : level);
 
-/** A context length for a model the service does not describe. */
-const CONTEXT = 128_000;
-
 /**
  * Pi's `models.json` for the person's own models: each its own provider (its address and key), twice when it offers
  * levels: as itself, told not to reason (`auto`: no reasoning setting is sent), and as THINKING(provider) told exactly
@@ -61,16 +72,19 @@ const CONTEXT = 128_000;
  * @param {OwnModel[]} models
  */
 export function modelsJson(models) {
-  const entry = (/** @type {OwnModel} */ m, /** @type {string[] | null} */ levels) => ({
-    id: m.model,
-    name: m.name,
-    input: ['text', 'image'],
-    contextWindow: CONTEXT,
-    maxTokens: Math.floor(CONTEXT / 4),
-    reasoning: Boolean(levels),
-    ...(levels ? { thinkingLevelMap: Object.fromEntries(EFFORTS.slice(1).map((l) => [l, levels.includes(l) ? wire(m.api, l) : null])) } : {}),
-    cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
-  });
+  const entry = (/** @type {OwnModel} */ m, /** @type {string[] | null} */ levels) => {
+    const context = contextLength(m.context) ?? CONTEXT;
+    return {
+      id: m.model,
+      name: m.name,
+      input: ['text', 'image'],
+      contextWindow: context,
+      maxTokens: Math.min(Math.floor(context / 4), MAX_OUTPUT),
+      reasoning: Boolean(levels),
+      ...(levels ? { thinkingLevelMap: Object.fromEntries(EFFORTS.slice(1).map((l) => [l, levels.includes(l) ? wire(m.api, l) : null])) } : {}),
+      cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+    };
+  };
   /** @type {Record<string, any>} */
   const providers = {};
   for (const m of models) {
