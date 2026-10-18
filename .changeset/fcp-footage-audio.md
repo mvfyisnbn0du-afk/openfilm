@@ -1,0 +1,8 @@
+---
+"openfilm": patch
+"@openfilm/desktop": patch
+---
+
+Keep footage audio connected to its own picture in Final Cut Pro exports, preserving source trims, volume and disabled audio. Export separate sound as audio-only clips.
+
+Match exported audio roles to Studio’s displayed row numbers, including overlapping clips and empty rows, and assign dialogue, effects and music roles to mixed stems.
