@@ -86,6 +86,16 @@ test('FCPXML also writes integer-rate, audio-only timelines with a full-length p
   assert.doesNotMatch(xml, /<video /);
 });
 
+test('mixed stems keep Voice and Footage in separate dialogue subroles', () => {
+  const roles = ['voice', 'footage', 'sfx', 'music'];
+  const xml = fcpxmlDocument({ ...timeline, video: [], files: [timeline.files[1]], audio: roles.map((role) => ({
+    enabled: true, role, clips: [{ name: `${role} stem`, fileId: 'file-2', start: 0, end: 90, in: 0, out: 90, enabled: true, gain: 0.5 }],
+  })) });
+  assert.deepEqual([...xml.matchAll(/<audio [^>]*role="([^"]+)"/g)].map((match) => match[1]),
+    ['dialogue.Voice', 'dialogue.Footage', 'effects', 'music']);
+  assert.equal((xml.match(/<adjust-volume amount="-6.0206dB"\/>/g) ?? []).length, 4);
+});
+
 test('FCPXML includes editable subtitle titles above pictures, clipped to the sequence, with escaped multiline text', () => {
   const xml = fcpxmlDocument(timeline, { cues: [
     { startMs: 1100, durMs: 700, text: 'Hello & <world>\n第二行', speaker: 'Ann' },

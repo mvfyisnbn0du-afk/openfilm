@@ -672,7 +672,7 @@ test('Final Cut Pro export packages FCPXML, rendered pages, audio and optional s
       assert.equal(found.clips.find((c) => c.name === 'click')?.role, 'OpenFilm A2');
       assert.equal(found.clips.find((c) => c.name === 'bed')?.role, 'OpenFilm A3');
     } else {
-      assert.equal(found.clips.find((c) => c.name === 'Voice stem')?.role, 'dialogue');
+      assert.equal(found.clips.find((c) => c.name === 'Voice stem')?.role, 'dialogue.Voice');
       assert.equal(found.clips.find((c) => c.name === 'SFX stem')?.role, 'effects');
       assert.equal(found.clips.find((c) => c.name === 'Music stem')?.role, 'music');
     }

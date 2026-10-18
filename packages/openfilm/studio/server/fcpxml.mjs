@@ -3,7 +3,7 @@ import { pathToFileURL } from 'node:url';
 import { frameSpan, nleRate, xmlEscape } from './nle.mjs';
 import { filmSubtitleCuesInRange, filmSubtitleSequence, filmSubtitleText } from './film-subtitle.mjs';
 
-const STEM_ROLES = { voice: 'dialogue', footage: 'dialogue', sfx: 'effects', music: 'music' };
+const STEM_ROLES = { voice: 'dialogue.Voice', footage: 'dialogue.Footage', sfx: 'effects', music: 'music' };
 // FCP's bundled template identifier, resolved by FCP on import rather than by the exporting machine.
 const BASIC_TITLE = '.../Titles.localized/Bumper:Opener.localized/Basic Title.localized/Basic Title.moti';
 
