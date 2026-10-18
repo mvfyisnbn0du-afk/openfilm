@@ -94,6 +94,32 @@ test('a model changed keeps its place, its id and, given none, its key; one remo
   assert.equal(closed.filter((id) => id === 'byok').length, 5, 'its sessions closed on each change: they run on the models set up');
 });
 
+test("a model's context length is kept when it holds (32K to 10M tokens), and dropped quietly when not: 128K then", async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'of-roster-'));
+  const r = roster(dir, async () => new Response('{}', { status: 200 }));
+  const big = await r.saveOwnModel({ format: 'responses', model: 'big', key: 'sk-a', context: 1_000_000 });
+  const odd = await r.saveOwnModel({ format: 'responses', model: 'odd', context: 1_000 });
+  const plain = await r.saveOwnModel({ format: 'responses', model: 'plain' });
+  assert.deepEqual(readChoices(dir).byok.models.map((m) => [m.model, m.context]), [['big', 1_000_000], ['odd', undefined], ['plain', undefined]]);
+  assert.equal(Object.hasOwn(readChoices(dir).byok.models[1], 'context'), false, 'none kept, not a null');
+  assert.deepEqual(r.harness('byok').models.map((m) => m.context), [1_000_000, undefined, undefined], 'the agent runs with it');
+  assert.equal(r.list().find((a) => a.id === 'byok').byok.models[0].context, 1_000_000, 'Settings shows it');
+  /* changed without one: back to none */
+  await r.saveOwnModel({ id: big.id, format: 'responses', model: 'big' });
+  assert.equal(readChoices(dir).byok.models[0].context, undefined);
+  assert.ok(odd.ok && plain.ok);
+
+  /* as read: a whole number in bounds is kept, anything else dropped */
+  const kept = (context) => {
+    writeFileSync(join(dir, 'agents.json'), JSON.stringify({ byok: { models: [{ id: 'a', format: 'chat', baseUrl: 'https://x.test/v1', model: 'm', context }] } }));
+    return readChoices(dir).byok.models[0].context;
+  };
+  assert.equal(kept(32_000), 32_000);
+  assert.equal(kept(10_000_000), 10_000_000);
+  assert.equal(kept(200_000), 200_000);
+  for (const bad of [31_999, 4_000, 10_000_001, 128_000.5, '200000', -1, 0, null, true, {}]) assert.equal(kept(bad), undefined, `${JSON.stringify(bad)} dropped`);
+});
+
 test('one service with several models, kept before each model was set up on its own, is those models on it, on its key', async () => {
   const dir = mkdtempSync(join(tmpdir(), 'of-roster-'));
   writeFileSync(join(dir, 'agents.json'), JSON.stringify({ byok: { format: 'chat', baseUrl: 'https://api.deepseek.com/v1', model: 'a', models: ['a', 'b'],

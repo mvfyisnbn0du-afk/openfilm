@@ -278,11 +278,17 @@ export function registerLocalAgentIpc(ipcMain, { trusted, binDir = null, fallbac
     entry.running = (entry.running ?? 0) + 1;
     onWorking(working());
     let result;
+    /* the error as the agent sent it (ACP's code, message and data), for the turn log */
+    let raw = null;
     try {
       result = { ok: true, stopReason: await entry.session.prompt([{ type: 'text', text }, ...images], { turnId: meta?.turnId }) };
     } catch (e) {
       /* `balance`: the service the app's own agent runs on has no balance left (agents.mjs), and where to top it up */
       result = { ok: false, error: e instanceof Error ? e.message : String(e), ...(e?.balance ? { balance: e.balance } : {}) };
+      /* the error the agent sent, under any rewording on the way (errorCause, explainFailure) */
+      let asSent = e;
+      while (asSent?.cause) asSent = asSent.cause;
+      if (typeof asSent?.code === 'number') raw = { code: asSent.code, message: asSent.message, data: asSent.data ?? null };
     } finally {
       activePrompts--;
       entry.running -= 1;
@@ -290,8 +296,9 @@ export function registerLocalAgentIpc(ipcMain, { trusted, binDir = null, fallbac
     }
     entry.lastUsed = Date.now();
     if (turn) {
-      /* a turn that failed: the step it stopped at, its program and what its process last wrote to stderr say why */
-      turn.file.write('done', result.ok ? result : { ...result, ...entry.session?.failure?.() });
+      /* a turn that failed: the error as the agent sent it, the step it stopped at, its program and what its process
+         last wrote to stderr say why */
+      turn.file.write('done', result.ok ? result : { ...result, ...(raw ? { raw } : {}), ...entry.session?.failure?.() });
       turn.file.end();
       turn.done = result;
       entry.turnEnded = Date.now();

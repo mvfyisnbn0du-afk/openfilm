@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { CLIENT_CAPABILITIES, CODEX_UTF8_CMD, agentShell, allowOption, codexDeveloperInstructions, codexLaunchEnv, legacyOptions, powerShellScript, readAgentStatus, signInError, codexTooOld, AGENTS, ownSignIn, codexServiceError, codexRefusal, codexNotice, explainFailure, stderrReason } from './agents.mjs';
+import { CLIENT_CAPABILITIES, CODEX_UTF8_CMD, agentShell, allowOption, codexDeveloperInstructions, codexLaunchEnv, errorCause, legacyOptions, powerShellScript, readAgentStatus, signInError, codexTooOld, AGENTS, ownSignIn, codexServiceError, codexRefusal, codexNotice, explainFailure, stderrReason } from './agents.mjs';
 
 test('an agent that asks: yes for good where it offers that, else yes this once; nothing to say yes with is null', () => {
   const options = [
@@ -85,6 +85,22 @@ test("the model service's refusal Codex sends as its reply fails the turn; a mod
   const other = codexRefusal({ message: 'Rate limit reached.', status: 429 }, '/usr/local/bin/codex', () => '0.163.0');
   assert.equal(other.message, 'Rate limit reached.');
   assert.equal(other.code, undefined);
+});
+
+test('a turn the agent ends with just "Internal error" says the reason in its data; the error as sent stays its cause', () => {
+  /* the ACP SDK's own shape for a thrown Error: its text as data.details */
+  const sent = Object.assign(new Error('Internal error'), { code: -32603, data: { details: 'Request timed out.' } });
+  const e = errorCause(sent);
+  assert.equal(e.message, 'Request timed out.');
+  assert.equal(e.cause, sent);
+  assert.equal(errorCause(Object.assign(new Error('Internal error'), { code: -32603, data: 'model not found' })).message, 'model not found');
+  /* an error that says its reason itself, or has none in data, as it came */
+  const said = Object.assign(new Error('The model service did not answer.'), { code: -32603, data: { details: 'Request timed out.' } });
+  assert.equal(errorCause(said), said);
+  const bare = Object.assign(new Error('Internal error'), { code: -32603, data: { errorKind: 'transport_lost' } });
+  assert.equal(errorCause(bare), bare);
+  const other = Object.assign(new Error('Invalid params'), { code: -32602, data: { message: 'x' } });
+  assert.equal(errorCause(other), other);
 });
 
 test("the person's own developer_instructions in Codex's config, read as TOML writes them; a profile's is not theirs at the top", () => {
@@ -195,6 +211,18 @@ test('a failure keeps what the agent said; one that says nothing says where it s
 
   const ended = explainFailure(new Error('Rate limit reached.'), { label: 'Kimi', exited: { code: null } });
   assert.equal(ended.message, 'Rate limit reached. Its process ended.');
+});
+
+test('"Internal error" with its reason in data: the reason is what the turn says, and the error as sent stays under it', () => {
+  const sent = Object.assign(new Error('Internal error'), { code: -32603, data: { details: 'Request timed out.' } });
+  const said = explainFailure(signInError('Codex', sent, { own: true }), { label: 'Codex', step: 'session/prompt' });
+  assert.equal(said.message, 'Request timed out.', 'a reason given is not "without saying why"');
+  let asSent = said;
+  while (asSent.cause) asSent = asSent.cause;
+  assert.equal(asSent, sent, 'the turn log reaches the error as the agent sent it');
+
+  const bare = explainFailure(signInError('Codex', Object.assign(new Error('Internal error'), { code: -32603 }), { own: true }), { label: 'Codex', step: 'session/prompt', exited: { code: 1 } });
+  assert.match(bare.message, /^Codex stopped while answering without saying why\. Its process ended with code 1\./);
 });
 
 test("what an agent's stderr says: the lines that name an error, else its last lines", () => {

@@ -665,17 +665,29 @@ export function codexTooOld(agent, path, e, versionOf = codexVersion) {
   return Object.assign(new Error(`Codex ${version} is older than OpenFilm needs (${CODEX_TESTED} or later): update Codex, then try again. ${why}`.trim()), { code: 'outdated' });
 }
 
+/** ACP's internal error: what an agent's own failures come as. */
+const INTERNAL_ERROR = -32603;
+
 /**
- * A session refused for the agent's sign-in, said so (`code: 'sign-in'`); any other error with its reason: an error
- * the agent sends as "Internal error" carries the reason in its `data` (Codex's settings it cannot read, for one).
+ * A session refused for the agent's sign-in, said so (`code: 'sign-in'`); any other error with its reason (errorCause).
  */
 export function signInError(label, e, { own = false } = {}) {
   if (e?.code === AUTH_REQUIRED) {
     return Object.assign(new Error(`${label} is not signed in. ${own ? `Sign in in ${label}, then try again.` : 'Sign in under Settings → Agents.'}`), { code: 'sign-in' });
   }
-  const data = e?.data;
+  return errorCause(e);
+}
+
+/**
+ * An error the agent sends as just "Internal error" with its reason: the reason is in its `data`, as a string or its
+ * `message` or `details` (the ACP SDK puts a thrown Error's text there; Codex its settings it cannot read). The error
+ * it came as stays its `cause`.
+ */
+export function errorCause(e) {
+  if (e?.code !== INTERNAL_ERROR || String(e.message ?? '').trim() !== 'Internal error') return e;
+  const data = e.data;
   const why = typeof data === 'string' ? data : [data?.message, data?.details].find((v) => typeof v === 'string') ?? '';
-  return why.trim() ? Object.assign(new Error(why.trim()), { code: e.code }) : e;
+  return why.trim() ? Object.assign(new Error(why.trim(), { cause: e }), { code: e.code }) : e;
 }
 
 /**
@@ -759,7 +771,7 @@ export function explainFailure(e, { label, step = null, stderr = '', exited = nu
     ended.trim(),
     tail ? `It last wrote: ${tail}` : bare ? 'If it cannot reach its service, check the network or proxy, then try again.' : '',
   ].filter(Boolean).join(' ');
-  return Object.assign(new Error(message), { ...(e?.code !== undefined ? { code: e.code } : {}), ...(step ? { step } : {}) });
+  return Object.assign(new Error(message, { cause: e }), { ...(e?.code !== undefined ? { code: e.code } : {}), ...(step ? { step } : {}) });
 }
 
 /** The answer that lets it go ahead (for good, where it offers that), or null when none does. */
@@ -1029,7 +1041,7 @@ export class AgentSession {
         const own = this.opts.harness?.models?.find((m) => m.id === this.modelNow) ?? this.opts.harness?.models?.[0];
         const broke = own ? outOfBalance({ id: own.name, baseUrl: own.baseUrl }, e) : null;
         if (broke) throw broke;
-        if (!isAgentId(this.opts.agent)) throw e;
+        if (!isAgentId(this.opts.agent)) throw errorCause(e);
         const said = signInError(this.spec.label, e, { own: this.spec.login === null });
         if (said.code === 'sign-in') noteSignedOut(this.opts.agent);
         throw await this.explain(said);

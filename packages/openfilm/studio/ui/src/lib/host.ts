@@ -233,12 +233,13 @@ export interface HostAgent {
 
 /**
  * One of the person's own models: its `id` (the app's), the `name` the chat's menu shows, its service (API `format`
- * and `baseUrl`), the `model` asked for there, its efforts, and the last four characters of its key.
+ * and `baseUrl`), the `model` asked for there, its efforts, its `context` length in tokens (none: 128K), and the last
+ * four characters of its key.
  */
-export interface HostOwnModel extends HostByokEffort { id: string; name: string; format: HostByokFormat; baseUrl: string; model: string; last4: string }
+export interface HostOwnModel extends HostByokEffort { id: string; name: string; format: HostByokFormat; baseUrl: string; model: string; context?: number; last4: string }
 
-/** What setting up one of the person's own models sends: `id` to change one, no `key` to keep its key. */
-export interface HostOwnModelConfig { id?: string; name?: string; format: HostByokFormat; baseUrl: string; model: string; key?: string; levels: HostByokEffortLevel[]; effort: HostByokEffortLevel }
+/** What setting up one of the person's own models sends: `id` to change one, no `key` to keep its key, no `context` for 128K. */
+export interface HostOwnModelConfig { id?: string; name?: string; format: HostByokFormat; baseUrl: string; model: string; key?: string; levels: HostByokEffortLevel[]; effort: HostByokEffortLevel; context?: number }
 
 /**
  * The reasoning efforts a model of the person's own key offers, in this order (`auto`: none is sent, the service decides),
