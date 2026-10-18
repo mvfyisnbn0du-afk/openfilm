@@ -1,14 +1,14 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import { once } from 'node:events';
+import fs from 'node:fs';
 import { mkdirSync, mkdtempSync, realpathSync, symlinkSync, writeFileSync } from 'node:fs';
+import { get } from 'node:http';
+import { syncBuiltinESMExports } from 'node:module';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { serve } from './host.mjs';
 import { locate } from './shared.mjs';
-import fs from 'node:fs';
-import { syncBuiltinESMExports } from 'node:module';
-import { get } from 'node:http';
-import { once } from 'node:events';
 
 test('cancelled media requests close their files so the project can be renamed', { timeout: 10000 }, async (t) => {
   const scratch = mkdtempSync(join(tmpdir(), 'of-host-cancel-'));

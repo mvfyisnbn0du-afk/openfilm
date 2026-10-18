@@ -120,6 +120,7 @@ export function folderFiles(root, { inject = `<script>${HOST_FLAG}</script>`, ti
       res.writeHead(200, headers).end(injectFirst(film ? holdPages(html) : html, start));
       return true;
     }
+    /* A cancelled preview is normal: pipeline closes its file; its callback deliberately ignores the error. */
     const range = /^bytes=(\d*)-(\d*)$/.exec(req.headers.range ?? '');
     if (range && (range[1] || range[2])) {
       /* `bytes=-500` is the last 500 bytes; an open end runs to the end of the file */

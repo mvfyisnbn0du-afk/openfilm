@@ -2,4 +2,4 @@
 "openfilm": patch
 ---
 
-Close media file streams when preview requests are cancelled, preventing leaked file handles from blocking project renames on Windows.
+Studio: a preview the player cancels closes its file, so a project can be renamed on Windows.
