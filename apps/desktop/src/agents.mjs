@@ -709,6 +709,60 @@ export function codexRefusal(refused, path, versionOf = codexVersion) {
   return Object.assign(new Error(`${refused.message} Update Codex${version ? ` (this one is ${version})` : ''}, or choose another model.`), { code: 'outdated' });
 }
 
+/**
+ * Codex's reconnects and retries ("Reconnecting... 2/5", "waiting for network"), and an error of a turn not running
+ * now: its adapter puts them in a session_info_update's `_meta.codex.error`, which says nothing in the chat. As the
+ * notice the chat shows (its words, then what it adds), or null.
+ */
+export function codexNotice(update) {
+  const error = update?.sessionUpdate === 'session_info_update' ? update._meta?.codex?.error : null;
+  const title = typeof error?.message === 'string' ? error.message.trim() : '';
+  if (!title) return null;
+  const details = typeof error.additionalDetails === 'string' ? error.additionalDetails.trim() : '';
+  return { sessionUpdate: 'notice', severity: error.willRetry ? 'warning' : 'error', title, ...(details ? { description: details } : {}) };
+}
+
+/** where each step of a session is, in words */
+const STEP_WORDS = Object.freeze({
+  start: 'as it started', initialize: 'as it started', authenticate: 'while signing in',
+  'session/new': 'while opening the session', 'session/prompt': 'while answering',
+});
+
+/** what an agent says when it says nothing: an error with no reason, or its process gone mid-request */
+const SAYS_NOTHING = /^(?:internal error|internal server error|unknown error|(?:acp )?connection closed|pending response rejected since connection got disposed)\.?$/i;
+
+/* stderr lines that never say why: a stack frame, a caret, a brace, a property of the error printed, Node's banner
+   and its "Emitted 'error' event" */
+const NOISE = /^(?:at\s|\^+$|[{}]$|[a-z]+: [-'\w]+,?$|Node\.js v|node:|throw\s|Emitted '\w+' event)/;
+const REASON = /error|fail|cannot|can't|refused|denied|not found|panic|timed? ?out|unable/i;
+
+/** What the last of an agent's stderr says: its last lines that name an error, else its last lines; at most 600 characters. */
+export function stderrReason(stderr = '') {
+  const lines = stderr.split(/\r?\n/).map((l) => l.trim()).filter((l) => l && !NOISE.test(l));
+  const reasons = lines.filter((l) => REASON.test(l));
+  return [...new Set((reasons.length ? reasons : lines).slice(-3))].join(' | ').slice(-600);
+}
+
+/**
+ * An agent's failure as it is: what it said when it said why; else the step it stopped at, how its process ended and
+ * the last it wrote to stderr; with neither, that an agent which cannot reach its service stops like this.
+ * @param {any} e @param {{ label: string, step?: string | null, stderr?: string, exited?: { code: number | null } | null }} at
+ */
+export function explainFailure(e, { label, step = null, stderr = '', exited = null }) {
+  const said = (e instanceof Error ? e.message : String(e ?? '')).trim();
+  const bare = !said || SAYS_NOTHING.test(said);
+  if (!bare && !exited) return e;
+  const tail = stderrReason(stderr);
+  const where = step && STEP_WORDS[step] ? ` ${STEP_WORDS[step]}` : '';
+  const ended = exited ? ` Its process ended${exited.code == null ? '' : ` with code ${exited.code}`}.` : '';
+  const message = [
+    bare ? `${label} stopped${where} without saying why.` : said,
+    ended.trim(),
+    tail ? `It last wrote: ${tail}` : bare ? 'If it cannot reach its service, check the network or proxy, then try again.' : '',
+  ].filter(Boolean).join(' ');
+  return Object.assign(new Error(message), { ...(e?.code !== undefined ? { code: e.code } : {}), ...(step ? { step } : {}) });
+}
+
 /** The answer that lets it go ahead (for good, where it offers that), or null when none does. */
 export function allowOption(params) {
   const options = params?.options ?? [];
@@ -774,13 +828,42 @@ export class AgentSession {
    */
   async start() {
     try {
-      return await this.open();
+      const info = await this.open();
+      this.step = null;
+      return info;
     } catch (e) {
-      throw codexTooOld(this.opts.agent, this.cli?.path, e);
+      throw await this.explain(codexTooOld(this.opts.agent, this.cli?.path, e));
     }
   }
 
+  /**
+   * An error with what the agent said, or, when it said nothing, where it stopped and what it last wrote. Its process
+   * may be ending as the request fails: how it ended is waited for, a second at most.
+   */
+  async explain(e) {
+    if (this.child && !this.exited && this.child.exitCode === null && this.child.signalCode === null) {
+      await new Promise((done) => { this.child.once('exit', done); setTimeout(done, 1000).unref?.(); });
+    }
+    return explainFailure(e, { label: this.spec.label, step: this.step, stderr: this.stderr, exited: this.exited ?? null });
+  }
+
+  /**
+   * What a failure needs said for the turn log: the step it stopped at, the program, its adapter, how its process
+   * ended, all it wrote to stderr, and where the agent keeps its own logs.
+   */
+  failure() {
+    return {
+      step: this.step ?? null,
+      program: this.cli?.path ?? null,
+      adapter: this.spec.adapter ?? null,
+      exit: this.exited ?? null,
+      stderr: this.stderr.slice(-8000),
+      ...(this.ownLogs ? { ownLogs: this.ownLogs } : {}),
+    };
+  }
+
   async open() {
+    this.step = 'start';
     const shell = agentShell(this.opts.agent, await loginShellVariables({ staleOk: true }));
     const harness = this.opts.harness ?? null;
     const cli = harness ? null : resolveAgentCli(this.opts.agent, { pathDirs: shell.PATH.split(PATH_SEP) });
@@ -813,6 +896,7 @@ export class AgentSession {
     const env = childEnvironment({ shell: { ...shell, PATH: path }, extra });
     const claude = this.spec.adapter === AGENTS.claude.adapter;
     if (this.spec.adapter === AGENTS.codex.adapter) {
+      this.ownLogs = shell.CODEX_HOME || join(homedir(), '.codex');
       const theirs = codexDeveloperInstructions(codexConfigText(shell));
       env.CODEX_CONFIG = JSON.stringify(mergeConfig({ developer_instructions: theirs ? `${theirs}\n\n${instructions}` : instructions }, skills?.codexConfig ?? {}));
     }
@@ -824,7 +908,7 @@ export class AgentSession {
       ? spawn(native.cmd, native.args, { ...native.options, cwd: this.opts.cwd, env, stdio: ['pipe', 'pipe', 'pipe'], windowsHide: true })
       : spawn(node.command, [...(node.env.ELECTRON_RUN_AS_NODE ? [AS_NODE] : []), script], { cwd: this.opts.cwd, env, stdio: ['pipe', 'pipe', 'pipe'], windowsHide: true });
     this.child.stderr.on('data', (d) => { this.stderr = (this.stderr + String(d)).slice(-16_000); });
-    this.child.once('exit', (code) => this.opts.onExit?.({ code, stderr: this.stderr }));
+    this.child.once('exit', (code) => { this.exited = { code }; this.opts.onExit?.({ code, stderr: this.stderr }); });
     this.child.once('error', () => {});
 
     const stream = acp.ndJsonStream(Writable.toWeb(this.child.stdin), Readable.toWeb(this.child.stdout));
@@ -843,12 +927,20 @@ export class AgentSession {
       .onNotification(acp.methods.client.session.update, (ctx) => {
         if (this.replaying) return;
         /* Codex's adapter sends the model service's refusal as the reply's words: kept to fail the turn with */
-        const refused = this.spec.adapter === AGENTS.codex.adapter ? codexServiceError(ctx.params.update) : null;
-        if (refused) this.refused = refused;
-        else this.opts.onUpdate?.(ctx.params.update);
+        const codex = this.spec.adapter === AGENTS.codex.adapter;
+        const refused = codex ? codexServiceError(ctx.params.update) : null;
+        if (refused) { this.refused = refused; return; }
+        this.opts.onUpdate?.(ctx.params.update);
+        /* and its reconnects and retries, which it says where the chat does not look, as notices (once each) */
+        const notice = codex ? codexNotice(ctx.params.update) : null;
+        if (notice && notice.title !== this.lastNotice) {
+          this.lastNotice = notice.title;
+          this.opts.onUpdate?.(notice);
+        }
       })
       .connect(stream);
 
+    this.step = 'initialize';
     const init = await this.conn.agent.request(acp.methods.agent.initialize, {
       protocolVersion: acp.PROTOCOL_VERSION,
       clientCapabilities: CLIENT_CAPABILITIES,
@@ -863,9 +955,11 @@ export class AgentSession {
     };
     /* the program's own sign-in, taken up (Cursor asks for this before any session) */
     if (this.spec.authenticate && (init.authMethods ?? []).some((m) => m.id === this.spec.authenticate)) {
+      this.step = 'authenticate';
       await this.conn.agent.request(acp.methods.agent.authenticate, { methodId: this.spec.authenticate }).catch((e) => { throw signInError(this.spec.label, e, { own: this.spec.login === null }); });
     }
 
+    this.step = 'session/new';
     let session = null;
     const resume = this.opts.resume;
     const caps = init.agentCapabilities ?? {};
@@ -928,8 +1022,10 @@ export class AgentSession {
     /* the message exactly as the agent gets it, for the turn log */
     this.opts.onSend?.({ prompt: [...told, ...blocks], ...meta });
     this.refused = null;
+    this.lastNotice = null;
+    this.step = 'session/prompt';
     const r = await this.conn.agent.request(acp.methods.agent.session.prompt, { sessionId: this.sessionId, prompt: [...told, ...blocks], ...meta })
-      .catch((e) => {
+      .catch(async (e) => {
         /* the app's own agent: a service with no balance left is said the same for every service, with its page */
         const own = this.opts.harness?.models?.find((m) => m.id === this.modelNow) ?? this.opts.harness?.models?.[0];
         const broke = own ? outOfBalance({ id: own.name, baseUrl: own.baseUrl }, e) : null;
@@ -937,8 +1033,9 @@ export class AgentSession {
         if (!isAgentId(this.opts.agent)) throw e;
         const said = signInError(this.spec.label, e, { own: this.spec.login === null });
         if (said.code === 'sign-in') noteSignedOut(this.opts.agent);
-        throw said;
+        throw await this.explain(said);
       });
+    this.step = null;
     if (this.refused) throw codexRefusal(this.refused, this.cli?.path);
     return r.stopReason;
   }

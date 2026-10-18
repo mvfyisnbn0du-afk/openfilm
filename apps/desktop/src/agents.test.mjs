@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { CLIENT_CAPABILITIES, CODEX_UTF8_CMD, agentShell, allowOption, codexDeveloperInstructions, codexLaunchEnv, legacyOptions, powerShellScript, readAgentStatus, signInError, codexTooOld, AGENTS, ownSignIn, codexServiceError, codexRefusal } from './agents.mjs';
+import { CLIENT_CAPABILITIES, CODEX_UTF8_CMD, agentShell, allowOption, codexDeveloperInstructions, codexLaunchEnv, legacyOptions, powerShellScript, readAgentStatus, signInError, codexTooOld, AGENTS, ownSignIn, codexServiceError, codexRefusal, codexNotice, explainFailure, stderrReason } from './agents.mjs';
 
 test('an agent that asks: yes for good where it offers that, else yes this once; nothing to say yes with is null', () => {
   const options = [
@@ -165,4 +165,40 @@ test('a Codex older than the ones tried, that did not start, is said to need an 
   const signIn = Object.assign(new Error('Codex is not signed in.'), { code: 'sign-in' });
   assert.equal(codexTooOld('codex', '/usr/local/bin/codex', signIn, () => '0.104.0'), signIn);
   assert.equal(codexTooOld('claude', '/usr/local/bin/claude', failed, () => '0.104.0'), failed);
+});
+
+test("Codex's reconnects and retries, which it says where the chat does not look, are notices in its words", () => {
+  const info = (error) => ({ sessionUpdate: 'session_info_update', _meta: { codex: { error } } });
+  assert.deepEqual(codexNotice(info({ message: 'Reconnecting... 2/5', additionalDetails: 'stream disconnected before completion: Connection refused (os error 61)', willRetry: true })), {
+    sessionUpdate: 'notice', severity: 'warning', title: 'Reconnecting... 2/5', description: 'stream disconnected before completion: Connection refused (os error 61)',
+  });
+  assert.deepEqual(codexNotice(info({ message: 'Quota exceeded.', additionalDetails: null, willRetry: false })), { sessionUpdate: 'notice', severity: 'error', title: 'Quota exceeded.' });
+  assert.equal(codexNotice(info({ message: ' ' })), null);
+  assert.equal(codexNotice({ sessionUpdate: 'session_info_update', _meta: { codex: { threadStatus: { type: 'idle' } } } }), null);
+  assert.equal(codexNotice({ sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: 'Hi' } }), null);
+});
+
+test('a failure keeps what the agent said; one that says nothing says where it stopped, how its process ended and what it wrote', () => {
+  const said = Object.assign(new Error('Codex process has exited with code 3:\nerror: failed to connect'), { code: 1001 });
+  assert.equal(explainFailure(said, { label: 'Codex', step: 'session/new' }), said);
+
+  const bare = explainFailure(Object.assign(new Error('Internal error'), { code: -32603 }), { label: 'Codex', step: 'session/prompt' });
+  assert.equal(bare.message, 'Codex stopped while answering without saying why. If it cannot reach its service, check the network or proxy, then try again.');
+  assert.equal(bare.code, -32603);
+  assert.equal(bare.step, 'session/prompt');
+
+  const crashed = explainFailure(new Error('ACP connection closed'), {
+    label: 'Codex', step: 'initialize', exited: { code: 1 },
+    stderr: "node:events:487\n      throw er; // Unhandled 'error' event\n      ^\n\nError: write EPIPE\n    at afterWriteDispatched (node:internal/stream_base_commons:159:15)\nEmitted 'error' event on Socket instance at:\n  errno: -32,\n  code: 'EPIPE',\n}\n\nNode.js v26.0.0\n",
+  });
+  assert.equal(crashed.message, 'Codex stopped as it started without saying why. Its process ended with code 1. It last wrote: Error: write EPIPE');
+
+  const ended = explainFailure(new Error('Rate limit reached.'), { label: 'Kimi', exited: { code: null } });
+  assert.equal(ended.message, 'Rate limit reached. Its process ended.');
+});
+
+test("what an agent's stderr says: the lines that name an error, else its last lines", () => {
+  assert.equal(stderrReason('starting\nwarning: slow disk\nlistening'), 'starting | warning: slow disk | listening');
+  assert.equal(stderrReason('ok\nError: cannot read config.toml\n    at load (x.js:1:1)\ndone'), 'Error: cannot read config.toml');
+  assert.equal(stderrReason(''), '');
 });

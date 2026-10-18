@@ -198,6 +198,8 @@ export function registerLocalAgentIpc(ipcMain, { trusted, binDir = null, fallbac
     const agent = opts?.agent;
     const cwd = opts?.cwd;
     const resume = typeof opts?.resume === 'string' && opts.resume ? opts.resume : null;
+    /* the turn it starts for: a start that fails is written in that turn's log, as a prompt that fails is */
+    const meta = opts?.meta && typeof opts.meta === 'object' ? opts.meta : null;
     if (!isChatAgent(agent)) return { ok: false, error: `Unknown agent: ${String(agent)}` };
     if (typeof cwd !== 'string' || !cwd) return { ok: false, error: 'Missing project folder.' };
     /* the conversation still open here (the page was reloaded): taken up as it is, no second process */
@@ -245,8 +247,14 @@ export function registerLocalAgentIpc(ipcMain, { trusted, binDir = null, fallbac
       entry.info = info;
       return { ok: true, key, info: { ...info, authMethods: [], mcp: false } };
     } catch (e) {
+      const result = { ok: false, error: e instanceof Error ? e.message : String(e), ...(e?.code ? { code: String(e.code) } : {}) };
+      if (meta?.turnId) {
+        const file = openLog(cwd, meta.turnId, (err) => log(`turn log ${meta.turnId}: ${err.message}\n`));
+        file?.write('start', { ...result, agent, cwd, resume, meta, ...entry.session?.failure?.() });
+        file?.end();
+      }
       close(key);
-      return { ok: false, error: e instanceof Error ? e.message : String(e), ...(e?.code ? { code: String(e.code) } : {}) };
+      return result;
     }
   });
 
@@ -282,8 +290,8 @@ export function registerLocalAgentIpc(ipcMain, { trusted, binDir = null, fallbac
     }
     entry.lastUsed = Date.now();
     if (turn) {
-      /* a turn that failed: what the agent's process last wrote to stderr says why */
-      turn.file.write('done', result.ok ? result : { ...result, stderr: String(entry.session?.stderr ?? '').slice(-8000) });
+      /* a turn that failed: the step it stopped at, its program and what its process last wrote to stderr say why */
+      turn.file.write('done', result.ok ? result : { ...result, ...entry.session?.failure?.() });
       turn.file.end();
       turn.done = result;
       entry.turnEnded = Date.now();
