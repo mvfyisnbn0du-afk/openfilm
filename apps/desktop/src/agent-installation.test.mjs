@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { mkdirSync, mkdtempSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { chosenProgram, claudeAppCli, claudeVersion, cmdTarget, codexVersion, consoleProgram, detectAgentInstallation, findExecutable, laterVersion, searchReport, windowsBinDirs } from './agent-installation.mjs';
+import { isDeepSeekHarness, chosenProgram, claudeAppCli, claudeVersion, cmdTarget, codexVersion, consoleProgram, detectAgentInstallation, findExecutable, laterVersion, searchReport, windowsBinDirs } from './agent-installation.mjs';
 
 test("an npm .cmd shim (Windows) runs its package's script: that is what gets started", () => {
   const npm = mkdtempSync(join(tmpdir(), 'of-npm-'));
@@ -262,4 +262,16 @@ test('Codex installed long ago beside the copy an app keeps up to date: the late
   assert.equal(detectAgentInstallation('codex', { ...opts, codexVersionOf: versions({ [onPath]: '0.170.0', [inApp]: '0.163.0' }) }).cli, onPath, 'the one on the PATH is the later');
   assert.equal(detectAgentInstallation('codex', { ...opts, codexVersionOf: versions({ [inApp]: '0.163.0' }) }).cli, onPath, 'one whose version can\'t be told stays');
   assert.equal(detectAgentInstallation('codex', { ...opts, chosen: onPath, codexVersionOf: versions({ [onPath]: '0.1.0', [inApp]: '0.163.0' }) }).cli, onPath, 'the one chosen, whatever its version');
+});
+
+test('Harness detection checks the package behind dsh', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'of-dsh-'));
+  const entry = join(dir, 'lib', 'bin.js');
+  mkdirSync(join(dir, 'lib'));
+  writeFileSync(entry, '');
+  assert.equal(isDeepSeekHarness(entry), false);
+  writeFileSync(join(dir, 'package.json'), JSON.stringify({ name: '@deepseek-ai/dsh' }));
+  assert.equal(isDeepSeekHarness(entry), true);
+  writeFileSync(join(dir, 'package.json'), JSON.stringify({ name: 'dancers-shell' }));
+  assert.equal(isDeepSeekHarness(entry), false);
 });

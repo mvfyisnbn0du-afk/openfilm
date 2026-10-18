@@ -179,7 +179,6 @@ export interface DesktopBridge {
   agents?: {
     list(): Promise<RosterAgent[]>;
     connect(id: LocalAgentId): Promise<{ ok: boolean; error?: string }>;
-    configure?(id: LocalAgentId): Promise<{ ok: boolean; error?: string }>;
     onChange(listener: (agents: RosterAgent[]) => void): () => void;
   };
   /** Studio's Settings, on Agents (or Providers). */

@@ -247,8 +247,8 @@ function run(cmd, args, timeoutMs = 10_000, { cwd, env, options } = {}) {
 const winArg = (a) => (/^[\w.:\\/=+@-]+$/.test(a) ? a : `"${String(a).replace(/"/g, '""')}"`);
 
 /** The app's own Node running a script, through as-node.mjs: what the script starts does not run Electron as Node. */
-const AS_NODE_URL = new URL('./as-node.mjs', import.meta.url).href;
-const AS_NODE = fileURLToPath(AS_NODE_URL);
+const AS_NODE = fileURLToPath(new URL('./as-node.mjs', import.meta.url));
+const NATIVE_PRELOAD_URL = new URL('./native-agent-preload.mjs', import.meta.url).href.replace('/app.asar/', '/app.asar.unpacked/');
 
 /**
  * How to start a program found for an agent: itself, a script with the app's own Node (an npm install on Windows), or
@@ -264,11 +264,10 @@ function starting(cliPath, args) {
 
 /** DSH needs its entry to remain main; its Windows sandbox helpers also require real Node. */
 export function nativeAgentLaunch(id, cliPath, args, shell) {
-  if (id !== 'deepseek' || !/\.(?:c|m)?js$/i.test(cliPath)) return starting(cliPath, args);
-  if (!windows) return { cmd: nodeBinary(), args: ['--import', AS_NODE_URL, cliPath, ...args], env: { ELECTRON_RUN_AS_NODE: '1' }, options: {} };
+  if (!windows || id !== 'deepseek' || !/\.(?:c|m)?js$/i.test(cliPath)) return starting(cliPath, args);
   const node = findExecutable('node', [], shell);
   if (!node) throw new Error('DeepSeek Harness needs Node.js on PATH. Install Node.js, then reconnect.');
-  return { cmd: node, args: ['--import', AS_NODE_URL, cliPath, ...args], env: {}, options: {} };
+  return { cmd: node, args: ['--import', NATIVE_PRELOAD_URL, cliPath, ...args], env: {}, options: {} };
 }
 
 /**

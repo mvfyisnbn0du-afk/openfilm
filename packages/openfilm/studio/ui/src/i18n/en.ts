@@ -1535,7 +1535,6 @@ export const en = {
       unavailable: 'Not available yet: coming in an update',
       checking: 'Checking…',
       connect: 'Connect',
-      configure: 'Configure',
       disconnect: 'Disconnect',
       disconnectHint: 'Stops OpenFilm using it; its sign-in stays. To use another account, switch accounts in {name}, then connect it again.',
       accountChatgpt: 'ChatGPT account',

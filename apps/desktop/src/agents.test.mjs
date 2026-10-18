@@ -1,6 +1,9 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { dirname } from 'node:path';
+import { dirname, join } from 'node:path';
+import { mkdtempSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { spawnSync } from 'node:child_process';
 import { CLIENT_CAPABILITIES, CODEX_UTF8_CMD, agentShell, allowOption, codexDeveloperInstructions, codexLaunchEnv, errorCause, flatConfigOptions, legacyOptions, nativeAgentLaunch, powerShellScript, readAgentStatus, signInError, codexTooOld } from './agents.mjs';
 
 test('Windows Harness uses the installed Node for its sandbox helpers', { skip: process.platform !== 'win32' }, () => {
@@ -9,6 +12,7 @@ test('Windows Harness uses the installed Node for its sandbox helpers', { skip: 
   assert.equal(launch.cmd.toLowerCase(), process.execPath.toLowerCase());
   assert.equal(launch.args[0], '--import');
   assert.ok(launch.args[1].startsWith('file:///'));
+  assert.ok(launch.args[1].endsWith('/native-agent-preload.mjs'));
   assert.deepEqual(launch.args.slice(2), ['C:/npm/dsh/bin.js', ...args]);
   assert.deepEqual(launch.env, {}, 'does not run Electron or pass its Node-mode flag');
   assert.throws(() => nativeAgentLaunch('deepseek', 'C:/npm/dsh/bin.js', args, { PATH: '' }), /needs Node.js/);
@@ -180,4 +184,14 @@ test('a Codex older than the ones tried, that did not start, is said to need an 
   const signIn = Object.assign(new Error('Codex is not signed in.'), { code: 'sign-in' });
   assert.equal(codexTooOld('codex', '/usr/local/bin/codex', signIn, () => '0.104.0'), signIn);
   assert.equal(codexTooOld('claude', '/usr/local/bin/claude', failed, () => '0.104.0'), failed);
+});
+
+test('native preload preserves the main entry and hides child windows', { skip: process.platform !== 'win32' }, () => {
+  const dir = mkdtempSync(join(tmpdir(), 'of-native-'));
+  const script = join(dir, 'entry.mjs');
+  writeFileSync(script, 'import { spawn } from "node:child_process"; console.log(JSON.stringify({ main: import.meta.main, hidden: spawn.hidesWindows, mode: process.env.ELECTRON_RUN_AS_NODE ?? null, args: process.argv.slice(2) }));');
+  const launch = nativeAgentLaunch('deepseek', script, ['--profile', 'acp'], { PATH: dirname(process.execPath) });
+  const result = spawnSync(launch.cmd, launch.args, { encoding: 'utf8', env: { ...process.env, ELECTRON_RUN_AS_NODE: '1' } });
+  assert.equal(result.status, 0, result.stderr);
+  assert.deepEqual(JSON.parse(result.stdout), { main: true, hidden: true, mode: null, args: ['--profile', 'acp'] });
 });

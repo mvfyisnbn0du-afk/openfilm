@@ -106,6 +106,19 @@ export function claudeVersion(file) {
   return real.split(/[\\/]/).reverse().find((part) => /^\d+\.\d+\.\d+$/.test(part)) ?? null;
 }
 
+/** Distinguish DeepSeek Harness from Dancer's shell, which also installs `dsh`. */
+export function isDeepSeekHarness(file) {
+  let real;
+  try { real = realpathSync(file); } catch { return false; }
+  for (let dir = dirname(real), up = 0; up < 3; dir = dirname(dir), up += 1) {
+    try {
+      const pkg = JSON.parse(readFileSync(join(dir, 'package.json'), 'utf8'));
+      if (pkg.name === '@deepseek-ai/dsh') return true;
+    } catch { /* not here */ }
+  }
+  return false;
+}
+
 /** What versions of Codex said of themselves (`codex --version`), by program and its time: each asked once. */
 const codexAsked = new Map();
 
@@ -311,6 +324,7 @@ export function detectAgentInstallation(id, { home = homedir(), env = process.en
   const dirs = [...pathDirs, ...(program.dirs?.(home) ?? [])];
   let cli = null;
   for (const name of program.names) if (!cli) cli = findExecutable(name, dirs, env, { win });
+  if (id === 'deepseek' && cli && !isDeepSeekHarness(cli)) cli = null;
   if (cli) {
     /* Claude Code both on the PATH (an npm install that is never updated, say) and in the Claude app, which keeps its
        own up to date: the later one, whose models are the current ones. One whose version can't be told stays. */

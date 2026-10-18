@@ -275,12 +275,6 @@ export function createRoster(deps) {
     list,
     refresh,
 
-    /** Harness credentials live in its Web UI, even when ACP already reports ready. */
-    async configure(id) {
-      if (id !== 'deepseek') return { ok: false, error: `No configuration UI for ${id}` };
-      return deps.openSignIn(id);
-    },
-
     /** Connect: back on here; its own sign-in when it needs one. */
     async connect(id) {
       if (!AGENT_IDS.includes(id)) return { ok: false, error: `No agent ${id}` };
@@ -291,7 +285,6 @@ export function createRoster(deps) {
         if (isOwn(id)) {
           deps.closeSessions(id);
           const [now] = (await refresh()).filter((a) => a.id === id);
-          if (id === 'deepseek') return await deps.openSignIn(id);
           if (now?.status !== 'sign-in') return { ok: true };
           const opened = await deps.openSignIn(id);
           if (!opened.ok) { live.errors[id] = opened.error ?? 'Terminal did not open.'; changed(); return { ok: false, error: live.errors[id] }; }

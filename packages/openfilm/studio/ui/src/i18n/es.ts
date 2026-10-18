@@ -1534,7 +1534,6 @@ export const es: Words = {
       unavailable: 'Aún no disponible: llegará en una actualización',
       checking: 'Comprobando…',
       connect: 'Conectar',
-      configure: 'Configurar',
       disconnect: 'Desconectar',
       disconnectHint: 'Deja de usarlo en OpenFilm; su sesión se mantiene. Para usar otra cuenta, cambia de cuenta en {name} y vuelve a conectarlo.',
       accountChatgpt: 'Cuenta de ChatGPT',

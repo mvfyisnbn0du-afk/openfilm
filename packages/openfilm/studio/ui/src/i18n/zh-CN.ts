@@ -1535,7 +1535,6 @@ export const zhCN: Words = {
       unavailable: '暂未开放，后续版本推出',
       checking: '正在检查…',
       connect: '连接',
-      configure: '配置',
       disconnect: '断开连接',
       disconnectHint: '停止在 OpenFilm 中使用，它的登录保持不变。想用别的账号，先在 {name} 里切换账号，再回来重新连接。',
       accountChatgpt: 'ChatGPT 账号',

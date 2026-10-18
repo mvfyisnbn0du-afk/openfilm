@@ -187,11 +187,6 @@ export function AgentsSection() {
     if (agent.status === 'ready' && chosen) {
       return (
         <>
-          {agent.id === 'deepseek' && host.configure ? (
-            <SettingsButton variant="quiet" disabled={working} onClick={() => act(agent.id, () => host.configure!(agent.id))}>
-              {t('settings.agents.configure')}
-            </SettingsButton>
-          ) : null}
           <SettingsButton variant="quiet" disabled={working} title={agent.id === 'byok' ? undefined : t('settings.agents.disconnectHint').replaceAll('{name}', agent.name)}
             onClick={() => act(agent.id, () => host.disconnect(agent.id))}>
             {t('settings.agents.disconnect')}
