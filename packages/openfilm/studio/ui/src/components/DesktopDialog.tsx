@@ -37,6 +37,7 @@ const AGENTS: { id: string; name: string }[] = [
   { id: 'opencode', name: 'OpenCode' },
   { id: 'qwen', name: 'Qwen Code' },
   { id: 'kimi', name: 'Kimi' },
+  { id: 'minimax', name: 'MiniMax Code' },
 ];
 
 const SYSTEM_NAMES = { mac: 'macOS', win: 'Windows' } as const;

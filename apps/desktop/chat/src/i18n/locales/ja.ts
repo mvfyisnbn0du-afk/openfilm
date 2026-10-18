@@ -137,6 +137,7 @@ export const ja: Words = {
     agentSetUp: '設定',
     agentWaiting: 'サインイン中…',
     effort: '思考レベル',
+    folder: 'フォルダ',
     model: 'モデル',
     openAttachment: '{name} を表示',
     openSettings: '設定を開く',

@@ -137,6 +137,7 @@ export const ko: Words = {
     agentSetUp: '설정',
     agentWaiting: '로그인하는 중…',
     effort: '추론 강도',
+    folder: '폴더',
     model: '모델',
     openAttachment: '{name} 보기',
     openSettings: '설정 열기',

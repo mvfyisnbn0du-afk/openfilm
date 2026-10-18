@@ -28,7 +28,7 @@ interface Native {
   /* the window's tabs (src/tabs.mjs) */
   tabs: NonNullable<StudioHost['tabs']>;
   localAgents: Record<string, unknown>;
-  importFile(request: { projectId: string; path: string; name: string }): Promise<{ ok: true; path: string } | { ok: false; error: string }>;
+  importFile(request: { projectId: string; path: string; name: string }): Promise<{ ok: true; path: string; folder?: boolean } | { ok: false; error: string }>;
   chat: Record<string, (...args: never[]) => Promise<unknown>>;
   /* the composer's Skills button (src/skills-ipc.mjs) */
   skills: Record<string, (...args: never[]) => Promise<unknown>>;

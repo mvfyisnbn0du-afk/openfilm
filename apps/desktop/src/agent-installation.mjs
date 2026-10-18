@@ -20,6 +20,7 @@ export const AGENT_DOWNLOADS = Object.freeze({
   codebuddy: 'https://www.workbuddy.ai/docs/cli/installation',
   qwen: 'https://github.com/QwenLM/qwen-code',
   kimi: 'https://www.kimi.com/code',
+  minimax: 'https://www.npmjs.com/package/@minimax-ai/code',
 });
 
 /**
@@ -37,6 +38,8 @@ export const AGENT_PROGRAMS = Object.freeze({
   qwen: { names: ['qwen'] },
   /* Kimi Code's own installer keeps it in ~/.kimi-code/bin; kimi-cli (uv) puts it in ~/.local/bin */
   kimi: { names: ['kimi'], dirs: (home) => [join(home, '.kimi-code', 'bin')] },
+  /* MiniMax Code's own installer keeps it in ~/.minimax-code/bin */
+  minimax: { names: ['mcode'], dirs: (home) => [join(home, '.minimax-code', 'bin')] },
 });
 
 export function executableFile(path) {

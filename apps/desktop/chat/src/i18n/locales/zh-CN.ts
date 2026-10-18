@@ -137,6 +137,7 @@ export const zhCN: Words = {
     agentSetUp: '设置',
     agentWaiting: '正在登录…',
     effort: '思考强度',
+    folder: '文件夹',
     model: '模型',
     openAttachment: '查看 {name}',
     openSettings: '打开设置',
