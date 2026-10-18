@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { EventEmitter } from 'node:events';
-import { keepWindowOnClose } from './window-lifecycle.mjs';
+import { closeTabOrWindow, keepWindowOnClose, quitAfterStudio } from './window-lifecycle.mjs';
 
 class Window extends EventEmitter {
   visible = true;
@@ -44,3 +44,60 @@ test('Windows and Linux window close still follows the existing quit path', () =
   assert.equal(win.destroyed, true);
   assert.equal(saved, 1);
 });
+
+for (const platform of ['darwin', 'win32', 'linux']) {
+  test(`Close Tab on ${platform} closes a project, and only macOS closes an empty window`, () => {
+    const win = new Window(), closed = [];
+    const mac = platform === 'darwin';
+    keepWindowOnClose(win, { mac, isQuitting: () => false, save: () => {} });
+    closeTabOrWindow(win, { mac, activeId: 'project', closeTab: (id) => closed.push(id) });
+    assert.deepEqual(closed, ['project']);
+    assert.equal(win.visible, true);
+    closeTabOrWindow(win, { mac, activeId: null, closeTab: (id) => closed.push(id) });
+    assert.equal(win.visible, !mac);
+    assert.equal(win.destroyed, false, 'Ctrl-W must not exit Windows/Linux from the projects page');
+    assert.deepEqual(closed, ['project']);
+  });
+}
+
+for (const phase of ['Studio starting', 'Studio startup failed']) {
+  test(`explicit Quit closes macOS window while ${phase}`, () => {
+    const win = new Window();
+    let quitting = false, agentsClosed = 0;
+    keepWindowOnClose(win, { mac: true, isQuitting: () => quitting, save: () => {} });
+    quitAfterStudio({ preventDefault() { assert.fail('without Studio, Quit must proceed'); } }, {
+      quitting, markQuitting: () => { quitting = true; }, studio: null,
+      closeAgents: () => agentsClosed++, quit: () => assert.fail('no second Quit needed'),
+    });
+    win.close();
+    assert.equal(quitting, true);
+    assert.equal(win.destroyed, true);
+    assert.equal(agentsClosed, 1);
+  });
+}
+
+for (const fail of [false, true]) {
+  test(`Quit waits for Studio then re-enters without another shutdown, failure=${fail}`, async () => {
+    const win = new Window();
+    let quitting = false, stopped = 0, resolve, reject;
+    const done = new Promise((yes, no) => { resolve = yes; reject = no; });
+    const studio = { quit: () => { stopped++; return done; } };
+    keepWindowOnClose(win, { mac: true, isQuitting: () => quitting, save: () => {} });
+    let prevented = false;
+    const options = () => ({
+      quitting, markQuitting: () => { quitting = true; }, studio, closeAgents: () => {},
+      quit: () => {
+        quitAfterStudio({ preventDefault() { assert.fail('second Quit must proceed'); } }, options());
+        win.close();
+      },
+    });
+    quitAfterStudio({ preventDefault() { prevented = true; } }, options());
+    assert.equal(prevented, true);
+    assert.equal(quitting, true);
+    assert.equal(win.destroyed, false);
+    if (fail) reject(new Error('Studio already stopped')); else resolve();
+    await done.catch(() => {});
+    assert.equal(win.destroyed, true);
+    assert.equal(stopped, 1);
+  });
+}
