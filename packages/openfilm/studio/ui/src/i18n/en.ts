@@ -428,7 +428,7 @@ export const en = {
     nleDraftTitle: '{app} draft',
     nleSrt: 'Include subtitles (SRT)',
     nleSubs: 'Include subtitles',
-    nleHintFinalCut: 'You can export FCPXML on any platform. Since Final Cut Pro only supports macOS, users on other platforms need to move the export folder to a Mac to import it. In Final Cut Pro: File › Import › XML. Pages become video clips with alpha; their text and animation stay rendered. Subtitles become editable title clips above the picture tracks, with an SRT copy; Studio subtitle styling is not preserved. Keep the folder in place, or relink after moving it.',
+    nleHintFinalCut: 'Creates a folder with the FCPXML and a media folder. In Final Cut Pro: File › Import › XML. Subtitles come as title clips, with an SRT copy. Final Cut Pro is Mac only: on Windows or Linux, move the folder to a Mac and relink.',
     nleHintPremiere: 'Creates a folder with the XML and a media folder. In Premiere Pro: File › Import. Keep the folder where it is, or relink after moving it.',
     nleHintResolve: 'Creates a folder with the XML and a media folder. In DaVinci Resolve: File › Import › Timeline. Keep the folder where it is, or relink after moving it.',
     nleHintDraft: "Makes a draft in {app}'s drafts folder, so it is on {app}'s home screen (if {app} is open, restart it). Pages come as clips with alpha, subtitles as a text track.",
