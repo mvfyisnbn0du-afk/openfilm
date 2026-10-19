@@ -10,9 +10,19 @@ test('every provider has its mark', () => {
   assert.deepEqual(missing, [], `no mark in studio/ui/src/lib/provider-marks.ts for: ${missing.join(', ')}`);
 });
 
-test('a mark is a 24 × 24 drawing, one path or its parts', () => {
+test('a mark has a finite, positive square viewport, one path or its parts', () => {
   for (const [id, mark] of Object.entries(MARKS)) {
-    assert.equal(mark.viewBox, '0 0 24 24', id);
+    const viewport = mark.viewBox.trim().split(/[\s,]+/).map(Number);
+    assert.equal(viewport.length, 4, `${id}: viewBox needs x, y, width and height`);
+    assert.ok(viewport.every(Number.isFinite), `${id}: viewBox must be finite`);
+    assert.ok(viewport[2] > 0, `${id}: viewBox width must be positive`);
+    assert.equal(viewport[2], viewport[3], `${id}: viewBox must be square`);
     assert.ok(mark.parts?.length ? mark.parts.every((p) => /^[Mm]/.test(p.d)) : /^[Mm]/.test(mark.d), id);
   }
+});
+
+
+test('Devin retains its original viewport and nonzero fill rule', () => {
+  assert.equal(MARKS.devin.viewBox, '48 48 330 330');
+  assert.equal(MARKS.devin.fillRule, 'nonzero');
 });
