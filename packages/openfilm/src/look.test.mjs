@@ -68,6 +68,18 @@ test('a transparent clip keeps its alpha in a media sheet, so its cells show the
   for (const cell of cells) assert.deepEqual(cell, { width: 480, height: 480, depth: 8, alpha: true });
 });
 
+const vp9 = /^\s*\S+\s+libvpx-vp9\s/m.test(spawnSync('ffmpeg', ['-hide_banner', '-encoders'], { encoding: 'utf8' }).stdout ?? '');
+
+test('a transparent WebM keeps its alpha in a media sheet', { timeout: 60_000, skip: !vp9 && 'this ffmpeg has no libvpx-vp9' }, async (t) => {
+  const dir = mkdtempSync(join(tmpdir(), 'of-look-webm-'));
+  t.after(() => rmSync(dir, { recursive: true, force: true }));
+  const file = encode(join(dir, 'layer.webm'), 'color=c=red@0.5:s=64x64:r=12:d=1,format=yuva420p', '-c:v', 'libvpx-vp9', '-auto-alt-ref', '0');
+  const cells = sheetCells(t);
+  assert.equal((await look([file], { count: 4 })).ok, true);
+  assert.equal(cells.length, 4);
+  for (const cell of cells) assert.deepEqual(cell, { width: 480, height: 480, depth: 8, alpha: true });
+});
+
 /* the pages under test/: each one a mistake an agent makes (or one that only looks like one), and what look says */
 const page = (name) => fileURLToPath(new URL(`../test/${name}`, import.meta.url));
 const run = async (name) => { const r = await look([page(name)], {}); return { ok: r.ok !== false, text: r.lines.join('\n') }; };

@@ -8,6 +8,13 @@ import { blockDiff, checkSound, cutText, fileOf, ffmpeg, filmSound, fmt, hash, h
 
 const MEDIA = /\.(mp4|mov|m4v|webm|mkv|avi|png|jpe?g|webp|gif|mp3|wav|m4a|aac|ogg|flac)$/i;
 const CELL_WIDTH = 480;
+/* VP9's and VP8's alpha is a side channel ffmpeg's own decoders drop: libvpx reads it, when this ffmpeg has it */
+const LIBVPX = { vp9: 'libvpx-vp9', vp8: 'libvpx' };
+let decoders;
+const hasDecoder = (name) => {
+  decoders ??= spawnSync('ffmpeg', ['-hide_banner', '-decoders'], { encoding: 'utf8', windowsHide: true }).stdout ?? '';
+  return new RegExp(`^\\s*\\S+\\s+${name}\\s`, 'm').test(decoders);
+};
 
 export async function look(args, opts = {}) {
   const { film: target, at, range } = parseTarget(args);
@@ -313,7 +320,7 @@ async function lookMedia(target, at, range, opts) {
   const file = resolve(target);
   if (!existsSync(file) || !statSync(file).isFile()) throw new UsageError(`${target}: no such file`);
   const dir = outDir(homeFor(dirname(file)), 'look');
-  const probe = spawnSync('ffprobe', ['-v', 'error', '-show_entries', 'format=duration:stream=codec_type,width,height,avg_frame_rate,r_frame_rate', '-of', 'json', file], { encoding: 'utf8', windowsHide: true });
+  const probe = spawnSync('ffprobe', ['-v', 'error', '-show_entries', 'format=duration:stream=codec_type,codec_name,width,height,avg_frame_rate,r_frame_rate:stream_tags=alpha_mode', '-of', 'json', file], { encoding: 'utf8', windowsHide: true });
   let info;
   try { info = JSON.parse(probe.stdout); } catch { return { ok: false, lines: [`✗ ${target}: ffprobe cannot read it`], files: [] }; }
   const video = (info.streams ?? []).find((x) => x.codec_type === 'video');
@@ -326,10 +333,12 @@ async function lookMedia(target, at, range, opts) {
   const fps = video ? rate(video.avg_frame_rate) ?? rate(video.r_frame_rate) : null;
   const name = basename(file, extname(file));
   const head = `${basename(file)}  ${video ? `${w}×${h}` : 'sound only'}${dur ? ` · ${fmt(dur)}` : ''}${fps && !still ? ` · ${Number(fps.toFixed(3))} fps` : ''}${audio ? ' · with sound' : ''}`;
+  const libvpx = video?.tags?.alpha_mode === '1' && LIBVPX[video.codec_name];
+  const decode = libvpx && hasDecoder(libvpx) ? ['-c:v', libvpx] : [];
   const grab = (t, thumbnail = false) => {
     const out = join(dir, `.${name}-${fmt(t)}.png`);
     // Resize before base64 embedding: full-size high-bit-depth PNGs can exceed Node's string limit together. 8 bits, alpha kept.
-    const r = spawnSync('ffmpeg', ['-v', 'error', '-y', ...(still ? [] : ['-ss', String(t)]), '-i', file,
+    const r = spawnSync('ffmpeg', ['-v', 'error', '-y', ...(still ? [] : ['-ss', String(t)]), ...decode, '-i', file,
       ...(thumbnail ? ['-vf', `scale=${CELL_WIDTH}:-1,format=rgb24|rgba`] : []), '-frames:v', '1', out], { windowsHide: true });
     if (r.status !== 0) throw new Error(`ffmpeg could not take a frame at ${fmt(t)}`);
     const png = readFileSync(out); rmSync(out, { force: true }); return png;
