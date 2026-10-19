@@ -16,6 +16,9 @@ export const enUS = {
   },
   act: {
     waitingForYou: 'Waiting for you',
+    /* the app's own agent, after two minutes with nothing from the model (some think for minutes first) */
+    waitingForModel: 'Waiting for the model',
+    waitingForModelHint: "Some models think for a long while before they start to answer. Stop if you don't want to wait.",
     asset: {
       genImage: 'Generating image',
       genVideo: 'Generating video',
@@ -136,16 +139,23 @@ export const enUS = {
     agentSetUp: 'Set up',
     agentWaiting: 'Signing in…',
     effort: 'Effort',
-    folder: 'Folder',
+    filesFailed: 'Couldn\'t attach {names}: {error} Remove it to send.',
+    filesPending: 'The files are still being attached.',
     model: 'Model',
+    /* the one value of a model or an effort the agent offers no choice of */
+    optionDefault: 'Default',
     openAttachment: 'View {name}',
+    revealFolder: 'Show {name} in its folder',
     openSettings: 'Open Settings',
     queued: 'Queued — sends when this turn finishes.',
     queuedCancel: 'Don\'t send',
+    copyDiagnostics: 'Copy diagnostic report',
+    copyDiagnosticsHint: 'What OpenFilm finds on this computer and its recent problems, to paste into an issue',
+    diagnosticsCopied: 'Copied',
     removeFile: 'Remove file',
     removeImage: 'Remove image',
     speed: 'Speed',
-    thumbOnly: 'A thumbnail kept with the message. The original went to the agent and lives in the project assets.',
+    thumbOnly: 'A thumbnail kept with the message. The original stays where it was, or in the project if it was pasted.',
   },
   library: {
     removeReference: 'Remove reference',
