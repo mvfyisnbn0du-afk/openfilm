@@ -19,11 +19,11 @@ test("an npm .cmd shim (Windows) runs its package's script: that is what gets st
 test('Claude Code as the Claude app keeps it: straight in a version folder, or one build folder down; newest first', () => {
   const home = mkdtempSync(join(tmpdir(), 'of-home-'));
   const root = join(home, 'Library/Application Support/Claude/claude-code');
-  assert.equal(claudeAppCli(home), null);
+  assert.equal(claudeAppCli(home, { win: false }), null);
   const old = join(root, '2.1.9', 'claude.app/Contents/MacOS/claude');
   const recent = join(root, '2.1.10', 'f2326db61802', 'claude.app/Contents/MacOS/claude');
   for (const file of [old, recent]) { mkdirSync(join(file, '..'), { recursive: true }); writeFileSync(file, '', { mode: 0o755 }); }
-  assert.equal(claudeAppCli(home), recent);
+  assert.equal(claudeAppCli(home, { win: false }), recent);
 });
 
 test("an agent is found by any of its names, and in its own installer's folder off the PATH (Kimi Code's ~/.kimi-code/bin)", () => {
