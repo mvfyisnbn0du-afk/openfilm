@@ -16,6 +16,7 @@
  * Under a connected agent: the skills and the MCP servers the person added to it themselves, each off in the app until
  * let in (its maker's own are always on).
  */
+import { OWN_AGENT_IDS } from 'openfilm/agents';
 import React from 'react';
 import { Check, Copy, Download, KeyRound, Loader2, Plus, X } from 'lucide-react';
 import { useLanguage, useT } from '@/i18n';
@@ -46,7 +47,7 @@ function useHostAgents(): HostAgent[] | null {
 }
 
 /** The person's own agents (the app's AGENTS), in the roster's order. */
-const OWN: readonly HostAgentId[] = ['codex', 'claude', 'copilot', 'cursor', 'opencode', 'codebuddy', 'qwen', 'kimi', 'minimax'];
+const OWN: readonly HostAgentId[] = OWN_AGENT_IDS;
 /** whose maker's mark is its company's */
 function AgentMark({ id }: { id: HostAgentId }) {
   return id === 'byok' ? <KeyRound size={16} /> : <ProviderMark id={agentMark(id)} size={17} />;
@@ -140,6 +141,7 @@ export function AgentsSection() {
   };
 
   const hintOf = (report: HostAgentDiagnosis) => {
+    if (report.reason) return report.reason;
     switch (report.hint) {
       case 'chosen-missing': return t('settings.agents.hintChosenMissing');
       case 'wsl': return t('settings.agents.hintWsl');

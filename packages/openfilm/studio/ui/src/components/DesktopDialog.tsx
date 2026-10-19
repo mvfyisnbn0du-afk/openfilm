@@ -6,6 +6,7 @@
  * has Studio open the installer in the person's browser (the website when this build names no place for
  * installers); Studio sends nothing else.
  */
+import { OWN_AGENT_IDS, AGENT_CATALOG } from 'openfilm/agents';
 import React from 'react';
 import { createPortal } from 'react-dom';
 import { ArrowLeftRight, Bot, FileDown, Gauge, History, MonitorPlay, PackageCheck, RefreshCw, X } from 'lucide-react';
@@ -28,16 +29,7 @@ const FEATURES: { key: string; icon: React.ReactNode }[] = [
 ];
 
 /** The agents it finds on the computer, by their marks (Codex's is OpenAI's). */
-const AGENTS: { id: string; name: string }[] = [
-  { id: 'claude', name: 'Claude Code' },
-  { id: 'openai', name: 'Codex' },
-  { id: 'copilot', name: 'GitHub Copilot' },
-  { id: 'cursor', name: 'Cursor' },
-  { id: 'opencode', name: 'OpenCode' },
-  { id: 'qwen', name: 'Qwen Code' },
-  { id: 'kimi', name: 'Kimi' },
-  { id: 'minimax', name: 'MiniMax Code' },
-];
+const AGENTS = OWN_AGENT_IDS.map((id) => ({ id: AGENT_CATALOG[id].mark ?? id, name: AGENT_CATALOG[id].label }));
 
 const SYSTEM_NAMES = { mac: 'macOS', win: 'Windows' } as const;
 

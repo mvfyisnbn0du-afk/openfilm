@@ -5,40 +5,21 @@
  * cmd.exe (agents.mjs). A program the person chose themselves (Settings → Agents → Locate) comes before any of these.
  * Reads no Electron module, so `node --test` can use it.
  */
+import { AGENT_CATALOG } from 'openfilm/agents';
 import { execFileSync } from 'node:child_process';
 import { accessSync, closeSync, constants, lstatSync, openSync, readFileSync, readSync, readdirSync, realpathSync, statSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { delimiter, dirname, isAbsolute, join } from 'node:path';
 
-export const AGENT_DOWNLOADS = Object.freeze({
-  claude: 'https://claude.com/download',
-  codex: 'https://developers.openai.com/codex',
-  copilot: 'https://github.com/features/copilot/cli',
-  cursor: 'https://cursor.com/cli',
-  opencode: 'https://opencode.ai/download',
-  codebuddy: 'https://www.workbuddy.ai/docs/cli/installation',
-  qwen: 'https://github.com/QwenLM/qwen-code',
-  kimi: 'https://www.kimi.com/code',
-  minimax: 'https://www.npmjs.com/package/@minimax-ai/code',
-});
-
-/**
- * Each agent's program, by the names it installs (the first found counts), and the folders its own installer puts it
- * in beside the usual ones (HOME_BIN_CANDIDATES): those are not always on the PATH an app gets.
- */
-export const AGENT_PROGRAMS = Object.freeze({
-  claude: { names: ['claude'] },
-  codex: { names: ['codex'] },
-  copilot: { names: ['copilot'] },
-  cursor: { names: ['cursor-agent'] },
-  opencode: { names: ['opencode'], dirs: (home) => [join(home, '.opencode', 'bin')] },
-  codebuddy: { names: ['codebuddy', 'cbc'] },
-  qwen: { names: ['qwen'] },
-  /* Kimi Code's own installer keeps it in ~/.kimi-code/bin; kimi-cli (uv) puts it in ~/.local/bin */
-  kimi: { names: ['kimi'], dirs: (home) => [join(home, '.kimi-code', 'bin')] },
-  /* MiniMax Code's own installer keeps it in ~/.minimax-code/bin */
-  minimax: { names: ['mcode'], dirs: (home) => [join(home, '.minimax-code', 'bin')] },
-});
+export const AGENT_DOWNLOADS = Object.freeze(Object.fromEntries(
+  Object.entries(AGENT_CATALOG).map(([id, agent]) => [id, agent.install]),
+));
+export const AGENT_PROGRAMS = Object.freeze(Object.fromEntries(
+  Object.entries(AGENT_CATALOG).map(([id, agent]) => [id, {
+    names: agent.names,
+    dirs: (home) => (agent.binDirs ?? []).map((parts) => join(home, ...parts)),
+  }]),
+));
 
 export function executableFile(path) {
   try { accessSync(path, constants.X_OK); return statSync(path).isFile(); } catch { return false; }
@@ -204,19 +185,22 @@ function unique(dirs, win) {
 /* an environment spread from Windows' own has its Path as well as the PATH set on purpose: that one wins */
 const pathIn = (env) => env?.PATH ?? valueOf(env, 'PATH') ?? '';
 
-export function findExecutable(name, extraDirs = [], env = process.env, { win = windows } = {}) {
+export function findExecutable(name, extraDirs = [], env = process.env, { win = windows, accept = null } = {}) {
   const path = pathIn(env);
   for (const dir of unique([...path.split(win ? ';' : delimiter), ...extraDirs], win)) {
     for (const suffix of win ? WIN_SUFFIXES : ['']) {
       const file = join(dir, name + suffix);
-      if (win ? presentFile(file) : executableFile(file)) return win && isCmdScript(file) ? cmdTarget(file) ?? file : file;
+      if (win ? presentFile(file) : executableFile(file)) {
+        const program = win && isCmdScript(file) ? cmdTarget(file) ?? file : file;
+        if (!accept || accept(program)) return program;
+      }
     }
   }
   return null;
 }
 
 /* what a shim runs: "%dp0%\…" (npm), "%~dp0\…" (pnpm, Yarn); never the node.exe it may run it with */
-const SHIM_TARGET = /"%(?:~dp0|_?dp0%)\\?([^"%]+?\.(?:js|cjs|mjs|exe|cmd|bat))"/gi;
+const SHIM_TARGET = /"%(?:~dp0|_?dp0%)\\?([^"%]+)"/gi;
 const scriptFirst = (rel) => (/\.(?:c|m)?js$/i.test(rel) ? 0 : /\.exe$/i.test(rel) ? 1 : 2);
 
 /**
@@ -225,17 +209,19 @@ const scriptFirst = (rel) => (/\.(?:c|m)?js$/i.test(rel) ? 0 : /\.exe$/i.test(re
  * the program itself, for this machine's chip; when there is none, not the script (the chat starts Codex as a shell
  * command, which a script is not): the shim it came from instead. Null when the shim says nothing that is there.
  */
-export function cmdTarget(cmd, depth = 0) {
-  let text = '';
-  try { text = readFileSync(cmd, 'utf8'); } catch { return null; }
-  const rels = [...new Set([...text.matchAll(SHIM_TARGET)].map((m) => m[1]))]
-    .filter((rel) => !/(?:^|[\\/])node\.exe$/i.test(rel))
-    .sort((a, b) => scriptFirst(a) - scriptFirst(b));
-  for (const rel of rels) {
-    const target = join(dirname(cmd), ...rel.split(/[\\/]+/));
+export function cmdTarget(cmd) {
+  const pending = [cmd], seen = new Set();
+  while (pending.length) {
+    const target = pending.pop();
     if (isCmdScript(target)) {
-      const next = depth < 3 && existsFile(target) ? cmdTarget(target, depth + 1) : null;
-      if (next) return next;
+      let real, text;
+      try { real = realpathSync(target); text = readFileSync(real, 'utf8'); } catch { continue; }
+      if (seen.has(real)) continue;
+      seen.add(real);
+      const rels = [...new Set([...text.matchAll(SHIM_TARGET)].map((m) => m[1]))]
+        .filter((rel) => !/(?:^|[\\/])node(?:\.exe)?$/i.test(rel))
+        .sort((a, b) => scriptFirst(a) - scriptFirst(b));
+      for (const rel of rels.reverse()) pending.push(join(dirname(target), ...rel.split(/[\\/]+/)));
       continue;
     }
     if (/[\\/]@openai[\\/]codex[\\/]/i.test(target) && /\.js$/i.test(target)) {
@@ -275,13 +261,18 @@ function codexInApps(/** @type {string[]} */ applicationDirs) {
  * The program the person chose for an agent, as it can be started: a `.cmd` shim's target, the `.cmd` beside a
  * PowerShell shim (`.ps1`), the program inside a folder or an app chosen instead of it. Null when it is not there.
  */
-export function chosenProgram(path, { names = [], win = windows } = {}) {
+export function chosenProgram(path, { names = [], win = windows, accept = null } = {}) {
   if (typeof path !== 'string' || !isAbsolute(path)) return null;
   let folder = false;
   try { folder = statSync(path).isDirectory(); } catch { /* a file, or not there */ }
   if (folder) {
-    const inApp = /\.app$/i.test(path) ? [...CODEX_IN_APP, ...names.map((n) => `Contents/MacOS/${n}`)].map((p) => join(path, p)).find(executableFile) : null;
-    return inApp ?? names.map((n) => findExecutable(n, [path, join(path, 'bin')], { PATH: '' }, { win })).find(Boolean) ?? null;
+    const inApp = /\.app$/i.test(path) ? [...CODEX_IN_APP, ...names.map((n) => `Contents/MacOS/${n}`)].map((p) => join(path, p)).find((file) => executableFile(file) && (!accept || accept(file))) : null;
+    if (inApp) return inApp;
+    for (const name of names) {
+      const found = findExecutable(name, [path, join(path, 'bin')], { PATH: '' }, { win, accept });
+      if (found) return found;
+    }
+    return null;
   }
   if (win) {
     if (/\.ps1$/i.test(path)) {
@@ -294,6 +285,54 @@ export function chosenProgram(path, { names = [], win = windows } = {}) {
   return executableFile(path) || (/\.(?:c|m)?js$/i.test(path) && existsFile(path)) ? path : null;
 }
 
+/** Resolve a program and verify its identity without executing it. All discovery sources use this check. */
+export function inspectProgram(definition, file, { win = windows } = {}) {
+  let accepted, rejected;
+  const path = chosenProgram(file, { names: definition.names, win, accept: (candidate) => {
+    const result = verifyProgram(definition, candidate, win);
+    if (result.ok) accepted = result;
+    else rejected ??= result;
+    return result.ok;
+  } });
+  if (!path) return rejected ?? { ok: false, path: null, code: 'not-a-program', error: 'That is not a program this computer can start.' };
+  return accepted ?? verifyProgram(definition, path, win);
+}
+
+function verifyProgram(definition, path, win) {
+  const expected = definition.identity?.npmPackage;
+  if (!expected) return { ok: true, path };
+  const reject = (code, error) => ({ ok: false, path, code, error });
+  const unknown = () => reject('unverified-program', `Cannot verify that this is ${definition.label}. Choose its installed command entry (${definition.names.join(', ')}).`);
+  if (win && isCmdScript(path)) return unknown();
+  let real;
+  try { real = realpathSync(path); } catch { return unknown(); }
+  for (let dir = dirname(real);;) {
+    const manifest = join(dir, 'package.json');
+    if (existsFile(manifest)) {
+      let pkg;
+      try { pkg = JSON.parse(readFileSync(manifest, 'utf8')); } catch { return unknown(); }
+      if (!pkg || typeof pkg !== 'object' || Array.isArray(pkg) || ('name' in pkg && (typeof pkg.name !== 'string' || !pkg.name))) return unknown();
+      if (pkg.name) {
+        if (pkg.name !== expected) return reject('identity-mismatch', `This program belongs to ${pkg.name}, not ${definition.label} (${expected}).`);
+        const bins = typeof pkg.bin === 'string' ? { [pkg.name.split('/').at(-1)]: pkg.bin } : pkg.bin;
+        if (!bins || typeof bins !== 'object') return unknown();
+        for (const [name, entry] of Object.entries(bins)) {
+          const named = definition.names.some((candidate) => win ? candidate.toLowerCase() === name.toLowerCase() : candidate === name);
+          if (!named || typeof entry !== 'string') continue;
+          try {
+            const declared = realpathSync(join(dir, entry));
+            if (win ? declared.toLowerCase() === real.toLowerCase() : declared === real) return { ok: true, path: real };
+          } catch { /* a declared entry that is no longer installed */ }
+        }
+        return reject('identity-mismatch', `This file is not a declared command entry for ${definition.label} (${expected}).`);
+      }
+    }
+    const parent = dirname(dir);
+    if (parent === dir) return unknown();
+    dir = parent;
+  }
+}
+
 /**
  * The command line program, or the copy inside the maker's own desktop app (many people only ever installed the
  * app): Codex ships inside Codex.app and ChatGPT.app; the Claude app keeps Claude Code under Application Support, one
@@ -304,11 +343,18 @@ export function detectAgentInstallation(id, { home = homedir(), env = process.en
   applicationDirs = ['/Applications', join(home, 'Applications')], chosen = null, others = [], win = windows, codexVersionOf = codexVersion } = {}) {
   const program = AGENT_PROGRAMS[id] ?? { names: [id] };
   const install = AGENT_DOWNLOADS[id] ?? null;
-  const picked = chosen ? chosenProgram(chosen, { names: program.names, win }) : null;
-  if (picked) return { installed: true, cli: picked, source: 'chosen', install };
+  const definition = AGENT_CATALOG[id] ?? { label: id, names: program.names };
+  const check = (file) => inspectProgram(definition, file, { win });
+  const picked = chosen ? check(chosen) : null;
+  if (picked?.ok) return { installed: true, cli: picked.path, source: 'chosen', install };
   const dirs = [...pathDirs, ...(program.dirs?.(home) ?? [])];
   let cli = null;
-  for (const name of program.names) if (!cli) cli = findExecutable(name, dirs, env, { win });
+  for (const name of program.names) {
+    if (cli) break;
+    let checked;
+    findExecutable(name, dirs, env, { win, accept: (file) => { checked = check(file); return checked.ok; } });
+    if (checked?.ok) cli = checked.path;
+  }
   if (cli) {
     /* Claude Code both on the PATH (an npm install that is never updated, say) and in the Claude app, which keeps its
        own up to date: the later one, whose models are the current ones. One whose version can't be told stays. */
@@ -330,7 +376,7 @@ export function detectAgentInstallation(id, { home = homedir(), env = process.en
   }
   if (id === 'codex') cli = codexInApps(applicationDirs)[0] ?? null;
   if (!cli && id === 'claude') cli = claudeAppCli(home);
-  if (!cli) cli = others.find((file) => (win ? presentFile(file) : executableFile(file))) ?? null;
+  if (!cli) cli = others.map(check).find((result) => result.ok)?.path ?? null;
   return { installed: Boolean(cli), cli, source: cli ? 'app' : null, install };
 }
 
@@ -347,8 +393,9 @@ export function searchReport(id, { home = homedir(), env = process.env, pathDirs
       for (const suffix of ['', '.exe', '.cmd', '.bat', '.ps1']) {
         const file = join(dir, name + suffix);
         if (!presentFile(file)) continue;
-        const runs = isCmdScript(file) ? cmdTarget(file) : /\.ps1$/i.test(file) ? null : file;
-        files.push({ file, runs, usable: win ? suffix !== '' && suffix !== '.ps1' : executableFile(file) });
+        const checked = inspectProgram(AGENT_CATALOG[id] ?? { label: id, names: program.names }, file, { win });
+        const supported = win ? suffix !== '' && suffix !== '.ps1' : executableFile(file);
+        files.push({ file, runs: checked.path, usable: supported && checked.ok, ...(!checked.ok ? { reason: checked.error } : {}) });
       }
     }
   }

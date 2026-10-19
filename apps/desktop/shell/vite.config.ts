@@ -1,4 +1,4 @@
-import { defineConfig, type Plugin } from 'vite';
+import { defineConfig, normalizePath, type Plugin } from 'vite';
 import react from '@vitejs/plugin-react';
 import tailwind from '@tailwindcss/vite';
 import type { Plugin as PostcssPlugin } from 'postcss';
@@ -11,7 +11,7 @@ import { fileURLToPath } from 'node:url';
  * Studio as its editor (studio-process.mjs `editorDir`). Studio's sources are the open-source ones as they are.
  */
 const STUDIO = join(dirname(createRequire(import.meta.url).resolve('openfilm/package.json')), 'studio/ui/src/');
-const CHAT = fileURLToPath(new URL('../chat/src/', import.meta.url));
+const CHAT = normalizePath(fileURLToPath(new URL('../chat/src/', import.meta.url)));
 
 /** `@/…` is the importing file's own tree: Studio's files and the chat's each name their `src` so. */
 function twoTrees(): Plugin {

@@ -1,7 +1,6 @@
 /**
- * The chat's agents: the person's own Claude Code, Codex, GitHub Copilot, Cursor, OpenCode, CodeBuddy, Qwen Code,
- * Kimi or MiniMax Code, driven over the Agent Client Protocol (ACP): a child process speaking JSON-RPC over
- * stdin/stdout.
+ * The chat's own programs (openfilm/agents), driven over the Agent Client Protocol (ACP): a child process
+ * speaking JSON-RPC over stdin/stdout.
  * The app is the client: initialize, session/new (or session/resume for a conversation from before), session/prompt;
  * session/update draws the chat, and session/request_permission asks the person in the chat.
  *
@@ -32,9 +31,11 @@ import { dirname, isAbsolute, join } from 'node:path';
 import { Readable, Writable } from 'node:stream';
 import { fileURLToPath } from 'node:url';
 import * as acp from '@agentclientprotocol/sdk';
+import { AGENT_CATALOG } from 'openfilm/agents';
 import { PATH_SEP, childEnvironment, lastPathSource, loginShellEnvironment, loginShellVariables, shellSubset } from './environment.mjs';
-import { AGENT_PROGRAMS, HOME_BIN_CANDIDATES, chosenProgram, codexVersion, consoleProgram, detectAgentInstallation, laterVersion, searchReport } from './agent-installation.mjs';
+import { AGENT_PROGRAMS, HOME_BIN_CANDIDATES, inspectProgram, codexVersion, consoleProgram, detectAgentInstallation, laterVersion, searchReport } from './agent-installation.mjs';
 import { logSwitches } from './agent-logs.mjs';
+import { launchProgram } from './agent-launch.mjs';
 import { mergeConfig, sessionSkills } from './agent-skills.mjs';
 import { nodeBinary } from './node-runtime.mjs';
 import { outOfBalance } from './pi-config.mjs';
@@ -51,34 +52,14 @@ const require = createRequire(import.meta.url);
  * how Claude Code and Codex are told them instead).
  */
 export const AGENTS = Object.freeze({
+  ...AGENT_CATALOG,
   claude: {
-    label: 'Claude Code',
-    adapter: '@agentclientprotocol/claude-agent-acp',
+    ...AGENT_CATALOG.claude,
     env: (path) => ({ CLAUDE_CODE_EXECUTABLE: path }),
-    auth: ['auth', 'status'],
-    login: ['auth', 'login'],
-    /* of the shell only its PATH, proxies, config folder and locale, as 0.1.5 had it and ChatCut has it: a key or
-       gateway set there (ANTHROPIC_*) would take the place of the person's Claude subscription */
+    // Do not replace the person's subscription with API credentials from their shell.
     fromShell: shellSubset,
-    /* signed in to the person's Claude subscription, the way its adapter offers it (ACP terminal auth), in Terminal */
-    acpSignIn: 'claude-ai-login',
-    systemPrompt: true,
   },
-  codex: {
-    label: 'Codex',
-    adapter: '@agentclientprotocol/codex-acp',
-    env: (path) => codexLaunchEnv(path),
-    auth: ['login', 'status'],
-    login: ['login'],
-    systemPrompt: true,
-  },
-  copilot: { label: 'GitHub Copilot', args: ['--acp', '--allow-all'], login: ['login'], approve: true },
-  cursor: { label: 'Cursor', args: ['--force', 'acp'], auth: ['status'], login: ['login'], authenticate: 'cursor_login', approve: true },
-  opencode: { label: 'OpenCode', args: ['acp'], login: ['auth', 'login'], approve: true },
-  codebuddy: { label: 'CodeBuddy', args: ['--acp', '--permission-mode', 'bypassPermissions'], login: [], approve: true },
-  qwen: { label: 'Qwen Code', args: ['--acp', '--approval-mode', 'yolo'], login: [], approve: true },
-  kimi: { label: 'Kimi', args: ['acp'], login: ['login'], approve: true },
-  minimax: { label: 'MiniMax Code', args: ['acp'], login: ['login'], approve: true },
+  codex: { ...AGENT_CATALOG.codex, env: (path) => codexLaunchEnv(path) },
 });
 
 export const isAgentId = (id) => typeof id === 'string' && Object.hasOwn(AGENTS, id);
@@ -241,23 +222,8 @@ function run(cmd, args, timeoutMs = 10_000, { cwd, env, options } = {}) {
   });
 }
 
-/* one word of a cmd.exe command line: quoted when it has to be */
-const winArg = (a) => (/^[\w.:\\/=+@-]+$/.test(a) ? a : `"${String(a).replace(/"/g, '""')}"`);
-
-/** The app's own Node running a script, through as-node.mjs: what the script starts does not run Electron as Node. */
+/** The app's adapters and Pi still run through its own Node wrapper. */
 const AS_NODE = fileURLToPath(new URL('./as-node.mjs', import.meta.url));
-
-/**
- * How to start a program found for an agent: itself, a script with the app's own Node (an npm install on Windows), or
- * a `.cmd` shim whose target could not be told, through cmd.exe. `options` go to spawn.
- */
-function starting(cliPath, args) {
-  if (/\.(?:c|m)?js$/i.test(cliPath)) return { cmd: nodeBinary(), args: [AS_NODE, cliPath, ...args], env: { ELECTRON_RUN_AS_NODE: '1' }, options: {} };
-  if (windows && /\.(?:cmd|bat)$/i.test(cliPath)) {
-    return { cmd: process.env.ComSpec || 'cmd.exe', args: ['/d', '/s', '/c', `"${[cliPath, ...args].map(winArg).join(' ')}"`], env: {}, options: { windowsVerbatimArguments: true } };
-  }
-  return { cmd: cliPath, args, env: {}, options: {} };
-}
 
 /**
  * A program the person chose for an agent, tried: it has to start and answer `--version`. `{ ok, version }`, or why
@@ -266,10 +232,14 @@ function starting(cliPath, args) {
 export async function checkAgentProgram(id, path) {
   const spec = AGENTS[id];
   if (!spec) return { ok: false, error: `No agent ${id}`, code: 'not-a-program' };
-  const cli = chosenProgram(path, { names: AGENT_PROGRAMS[id]?.names ?? [id] });
-  if (!cli) return { ok: false, error: 'That is not a program this computer can start.', code: 'not-a-program' };
-  const how = starting(cli, ['--version']);
-  const r = await run(how.cmd, how.args, 20_000, { env: childEnvironment({ shell: await loginShellVariables(), extra: how.env }), options: how.options });
+  const checked = inspectProgram(spec, path);
+  if (!checked.ok) return { ok: false, error: checked.error, code: checked.code };
+  const cli = checked.path;
+  const shell = agentShell(id, await loginShellVariables());
+  let how;
+  try { how = launchProgram(spec, cli, ['--version'], shell); }
+  catch (e) { return { ok: false, error: e.message, code: 'did-not-start' }; }
+  const r = await run(how.cmd, how.args, 20_000, { env: childEnvironment({ shell, extra: how.env }), options: how.options });
   if (!r.ok) return { ok: false, error: r.out.trim().slice(0, 400), code: 'did-not-start' };
   return { ok: true, path: cli, version: r.stdout.trim().split(/\r?\n/)[0] ?? '' };
 }
@@ -299,13 +269,16 @@ export async function diagnoseAgent(id, { appVersion = '' } = {}) {
   const report = searchReport(id, { env: { PATH: shell.PATH }, pathDirs: searchDirs() });
   const wsl = windows && !found ? await inWsl(names) : null;
   const chosen = chosenPaths[id] ?? null;
+  const selected = chosen ? inspectProgram(spec, chosen) : null;
+  const selectedError = selected && !selected.ok && selected.code !== 'not-a-program' ? selected.error : null;
+  const reason = found ? null : selectedError ?? report.files.find((file) => file.reason)?.reason ?? null;
   const hint = found ? null : chosen ? 'chosen-missing' : wsl ? 'wsl' : report.files.length ? 'unusable' : 'none';
   const lines = [
     `OpenFilm ${appVersion}`.trim(),
     `Agent: ${spec.label} (${names.join(', ')})`,
     `System: ${process.platform} ${release()} ${arch()}`,
     `PATH from: ${lastPathSource() ?? 'unknown'}`,
-    `Chosen: ${chosen ?? '(none)'}`,
+    `Chosen: ${chosen ?? '(none)'}${selected && !selected.ok ? ` (${selected.error})` : ''}`,
     `Found: ${found ? `${found.path} (${found.source})` : '(not found)'}`,
     ...(windows ? [
       `npm global folder: ${slow.npmPrefix ?? '(unknown)'}`,
@@ -314,12 +287,12 @@ export async function diagnoseAgent(id, { appVersion = '' } = {}) {
     ] : []),
     '',
     `Files named ${names.join(', ')}:`,
-    ...(report.files.length ? report.files.map((f) => `  ${f.file}${f.runs && f.runs !== f.file ? ` -> ${f.runs}` : ''}${f.usable ? '' : ' (cannot be started)'}`) : ['  (none)']),
+    ...(report.files.length ? report.files.map((f) => `  ${f.file}${f.runs && f.runs !== f.file ? ` -> ${f.runs}` : ''}${f.usable ? '' : ` (${f.reason ?? 'cannot be started'})`}`) : ['  (none)']),
     '',
     `Folders searched (${report.searched.length}):`,
     ...report.searched.map((d) => `  ${d}`),
   ];
-  return { found: found?.path ?? null, program: names[0], hint, text: lines.join('\n') };
+  return { found: found?.path ?? null, program: names[0], hint, ...(reason ? { reason } : {}), text: lines.join('\n') };
 }
 
 /**
@@ -339,8 +312,9 @@ export async function agentStatus(id, cliPath) {
   const spec = AGENTS[id];
   if (!spec || !cliPath) return { signedIn: null, account: null };
   if (!spec.auth) return { signedIn: await acpSignedIn(id), account: null };
-  const how = starting(cliPath, spec.auth);
-  const r = await run(how.cmd, how.args, 10_000, { env: childEnvironment({ shell: agentShell(id, await loginShellVariables()), extra: how.env }), options: how.options });
+  const shell = agentShell(id, await loginShellVariables());
+  const how = launchProgram(spec, cliPath, spec.auth, shell);
+  const r = await run(how.cmd, how.args, 10_000, { env: childEnvironment({ shell, extra: how.env }), options: how.options });
   return readAgentStatus(id, r.stdout, r.out);
 }
 
@@ -387,12 +361,14 @@ export function acpSignedIn(id) {
   const answer = (async () => {
     probeDir ??= mkdtempSync(join(tmpdir(), 'openfilm-agent-'));
     const session = new AgentSession({ agent: id, cwd: probeDir });
+    let timer;
     try {
-      await Promise.race([session.start(), new Promise((_, fail) => setTimeout(() => fail(new Error('timed out')), 30_000))]);
+      await Promise.race([session.start(), new Promise((_, fail) => { timer = setTimeout(() => fail(new Error('timed out')), 30_000); })]);
       return true;
     } catch (e) {
       return e?.code === 'sign-in' ? false : null;
     } finally {
+      clearTimeout(timer);
       session.close();
     }
   })();
@@ -441,14 +417,15 @@ export async function agentSignInMethods(id) {
   const shell = agentShell(id, await loginShellVariables());
   const cli = resolveAgentCli(id, { pathDirs: shell.PATH.split(PATH_SEP) });
   if (!cli) return [];
-  const launch = adapterLaunch(id, cli.path);
-  const child = spawn(launch.cmd, launch.args, { env: childEnvironment({ shell, extra: launch.env }), stdio: ['pipe', 'pipe', 'ignore'], windowsHide: true });
+  const launch = agentLaunch(id, cli.path, shell);
+  const child = spawn(launch.cmd, launch.args, { ...launch.options, env: childEnvironment({ shell, extra: launch.env }), stdio: ['pipe', 'pipe', 'ignore'], windowsHide: true });
   child.once('error', () => {});
+  let timer;
   try {
     const conn = acp.client({ name: 'openfilm-desktop' }).connect(acp.ndJsonStream(Writable.toWeb(child.stdin), Readable.toWeb(child.stdout)));
     const init = await Promise.race([
       conn.agent.request(acp.methods.agent.initialize, { protocolVersion: acp.PROTOCOL_VERSION, clientCapabilities: CLIENT_CAPABILITIES, clientInfo: CLIENT_INFO }),
-      new Promise((_, fail) => setTimeout(() => fail(new Error('timed out')), 30_000)),
+      new Promise((_, fail) => { timer = setTimeout(() => fail(new Error('timed out')), 30_000); }),
     ]);
     return (init.authMethods ?? []).filter((m) => m?.type === 'terminal' && m.id && m.name).map((m) => ({
       id: String(m.id), name: String(m.name), ...(m.description ? { description: String(m.description) } : {}),
@@ -457,6 +434,7 @@ export async function agentSignInMethods(id) {
   } catch {
     return [];
   } finally {
+    clearTimeout(timer);
     child.kill();
   }
 }
@@ -468,7 +446,8 @@ export async function agentSignInMethods(id) {
  */
 export async function openAgentSignIn(id) {
   const spec = AGENTS[id];
-  const pathDirs = (await loginShellEnvironment()).PATH.split(PATH_SEP);
+  const signInShell = await loginShellEnvironment();
+  const pathDirs = signInShell.PATH.split(PATH_SEP);
   const cli = spec ? resolveAgentCli(id, { pathDirs }) : null;
   if (!spec || !cli) return { ok: false, error: `${spec?.label ?? id} is not installed on this computer.` };
   asked.delete(id);
@@ -476,13 +455,16 @@ export async function openAgentSignIn(id) {
   if (spec.acpSignIn) {
     const way = (await agentSignInMethods(id)).find((w) => w.id === spec.acpSignIn);
     if (!way) return { ok: false, error: `${spec.label} did not offer a way to sign in.` };
-    const launch = adapterLaunch(id, cli.path);
-    how = { cmd: launch.cmd, args: [...launch.args, ...way.args], env: { ...launch.env, ...way.env } };
+    const launch = agentLaunch(id, cli.path, signInShell, way.args);
+    how = { ...launch, env: { ...launch.env, ...way.env } };
   }
+  try {
+    how ??= windows && /\.(?:cmd|bat)$/i.test(cli.path)
+      ? { cmd: cli.path, args: spec.login, env: {} } : launchProgram(spec, cli.path, spec.login, signInShell);
+  } catch (e) { return { ok: false, error: e.message }; }
   if (process.platform === 'win32') {
     /* a PowerShell window of its own running a script, as ChatCut does: no command line for cmd.exe to unquote (a path
        with a space in it), and left open so its sign-in can be read and answered (it runs a shim itself) */
-    how ??= /\.(?:cmd|bat)$/i.test(cli.path) ? { cmd: cli.path, args: spec.login, env: {} } : starting(cli.path, spec.login);
     try {
       const dir = join(tmpdir(), 'openfilm-sign-in');
       mkdirSync(dir, { recursive: true });
@@ -497,9 +479,7 @@ export async function openAgentSignIn(id) {
       return { ok: true };
     } catch (e) { return { ok: false, error: e instanceof Error ? e.message : String(e) }; }
   }
-  const script = how
-    ? signInScript('/usr/bin/env', [...Object.entries(how.env).map(([k, v]) => `${k}=${v}`), how.cmd, ...how.args])
-    : signInScript(cli.path, spec.login);
+  const script = signInScript('/usr/bin/env', [...Object.entries(how.env).map(([k, v]) => `${k}=${v}`), how.cmd, ...how.args]);
   const r = await run('/usr/bin/osascript', ['-e', script], 15_000);
   return r.ok ? { ok: true } : { ok: false, error: r.out.trim() || 'Terminal did not open.' };
 }
@@ -544,13 +524,14 @@ function adapterScript(pkg) {
   return join(dirname(manifest), bin ?? json.main ?? 'index.js');
 }
 
-/** How an agent's adapter starts: the app's Node running its script (on Electron, through as-node.mjs), told where the person's program is. */
-function adapterLaunch(id, cliPath) {
+/** A terminal sign-in uses the same ACP command as the session, including a native agent's arguments. */
+function agentLaunch(id, cliPath, shell, extraArgs = []) {
   const spec = AGENTS[id];
+  if (!spec.adapter) return launchProgram(spec, cliPath, [...spec.args, ...extraArgs], shell);
   const node = nodeRuntime();
   return {
     cmd: node.command,
-    args: [...(node.env.ELECTRON_RUN_AS_NODE ? [AS_NODE] : []), adapterScript(spec.adapter)],
+    args: [...(node.env.ELECTRON_RUN_AS_NODE ? [AS_NODE] : []), adapterScript(spec.adapter), ...extraArgs],
     env: { ...node.env, ...spec.env(cliPath) },
   };
 }
@@ -686,6 +667,16 @@ export function allowOption(params) {
   return (options.find((o) => o.kind === 'allow_always') ?? options.find((o) => o.kind === 'allow_once'))?.optionId ?? null;
 }
 
+/** Flatten ACP provider groups for the chat picker; keep each model's opaque routing value intact. */
+export function flatConfigOptions(options) {
+  return options?.map((option) => ({
+    ...option,
+    ...(Array.isArray(option.options) ? {
+      options: option.options.flatMap((choice) => Array.isArray(choice.options) ? choice.options : [choice]),
+    } : {}),
+  })) ?? null;
+}
+
 /** The older session lists (`models`, `modes`) as the config options the chat's menu reads. */
 export function legacyOptions(session) {
   const out = [];
@@ -775,8 +766,10 @@ export class AgentSession {
     this.logging = this.opts.logDir && cli && !this.spec.adapter
       ? await logSwitches(this.opts.agent, { base: this.opts.logDir, shell, cwd: this.opts.cwd }).catch(() => null) : null;
     /* an agent that speaks ACP itself: its own program, started as the registry starts it */
-    const native = cli && !this.spec.adapter ? starting(cli.path, [...this.spec.args, ...(this.logging?.args ?? []), ...(skills?.args ?? [])]) : null;
-    const extra = { ...this.opts.env, ...(native ? native.env : node.env), ...(cli && this.spec.env ? this.spec.env(cli.path) : {}), ...own, ...skills?.env, ...this.logging?.env };
+    const launch = harness
+      ? { cmd: node.command, args: [...(node.env.ELECTRON_RUN_AS_NODE ? [AS_NODE] : []), fileURLToPath(new URL('./pi-agent.mjs', import.meta.url))], env: node.env }
+      : agentLaunch(this.opts.agent, cli.path, shell, [...(this.logging?.args ?? []), ...(skills?.args ?? [])]);
+    const extra = { ...this.opts.env, ...launch.env, ...own, ...skills?.env, ...this.logging?.env };
     /* OpenCode's inline configuration carries both its skills and, in Developer mode, its logging */
     if (skills?.env?.OPENCODE_CONFIG_CONTENT && this.logging?.env?.OPENCODE_CONFIG_CONTENT) {
       extra.OPENCODE_CONFIG_CONTENT = JSON.stringify(mergeConfig(JSON.parse(skills.env.OPENCODE_CONFIG_CONTENT), JSON.parse(this.logging.env.OPENCODE_CONFIG_CONTENT)));
@@ -790,10 +783,7 @@ export class AgentSession {
     /* the others have no place for it: the session's first message carries it */
     this.instructions = harness || this.spec.systemPrompt ? null : instructions;
 
-    const script = harness ? fileURLToPath(new URL('./pi-agent.mjs', import.meta.url)) : native ? null : adapterScript(this.spec.adapter);
-    this.child = native
-      ? spawn(native.cmd, native.args, { ...native.options, cwd: this.opts.cwd, env, stdio: ['pipe', 'pipe', 'pipe'], windowsHide: true })
-      : spawn(node.command, [...(node.env.ELECTRON_RUN_AS_NODE ? [AS_NODE] : []), script], { cwd: this.opts.cwd, env, stdio: ['pipe', 'pipe', 'pipe'], windowsHide: true });
+    this.child = spawn(launch.cmd, launch.args, { ...launch.options, cwd: this.opts.cwd, env, stdio: ['pipe', 'pipe', 'pipe'], windowsHide: true });
     this.child.stderr.on('data', (d) => { this.stderr = (this.stderr + String(d)).slice(-16_000); });
     this.child.once('exit', (code) => this.opts.onExit?.({ code, stderr: this.stderr }));
     this.child.once('error', () => {});
@@ -812,7 +802,9 @@ export class AgentSession {
         return answers ? { action: 'accept', content: formContent(questions, answers) } : { action: 'decline' };
       })
       .onNotification(acp.methods.client.session.update, (ctx) => {
-        if (!this.replaying) this.opts.onUpdate?.(ctx.params.update);
+        const update = ctx.params.update;
+        if (update.configOptions) update.configOptions = flatConfigOptions(update.configOptions);
+        if (!this.replaying) this.opts.onUpdate?.(update);
       })
       .connect(stream);
 
@@ -855,7 +847,7 @@ export class AgentSession {
       agentInfo: init.agentInfo ?? null,
       models: session.models ?? null,
       modes: session.modes ?? null,
-      configOptions: session.configOptions ?? (this.legacy ? legacyOptions(session) : null),
+      configOptions: flatConfigOptions(session.configOptions) ?? (this.legacy ? legacyOptions(session) : null),
       /* what a prompt may carry besides text (pictures, for one): the agent says so as it shakes hands */
       promptCapabilities: caps.promptCapabilities ?? null,
       /* a message sent while it works joins the turn it is in (steer), as in its own chat */
@@ -868,7 +860,7 @@ export class AgentSession {
     this.opened = {
       program: harness ? 'pi' : cli.path,
       /* the command line the agent's process was started with: its own program, or the app's Node running its adapter (or Pi) */
-      command: native ? [native.cmd, ...native.args] : [node.command, ...(node.env.ELECTRON_RUN_AS_NODE ? [AS_NODE] : []), script],
+      command: [launch.cmd, ...launch.args],
       adapter: this.spec.adapter ?? null,
       env: Object.fromEntries(Object.entries(extra).map(([k, v]) => [k, secret.has(k) || /KEY|TOKEN|SECRET|PASSWORD/i.test(k) ? '(hidden)' : k === 'OPENFILM_PI' ? JSON.parse(v) : v])),
       ...(env.CODEX_CONFIG ? { codexConfig: JSON.parse(env.CODEX_CONFIG) } : {}),
@@ -929,6 +921,7 @@ export class AgentSession {
     if (this.legacy && configId === 'mode') return this.setMode(value);
     if (this.legacy && configId === 'model') return this.conn.agent.request('session/set_model', { sessionId: this.sessionId, modelId: value });
     const r = await this.conn.agent.request(acp.methods.agent.session.setConfigOption, { sessionId: this.sessionId, configId, value });
+    if (r?.configOptions) r.configOptions = flatConfigOptions(r.configOptions);
     this.noteModel(r?.configOptions);
     return r;
   }

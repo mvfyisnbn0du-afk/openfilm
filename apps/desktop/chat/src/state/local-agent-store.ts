@@ -9,6 +9,7 @@
  * ACP configOption ids) and the option list each last reported, so the menu shows "6 Astra · Medium" before the
  * first message (the list only comes with a session).
  */
+import { AGENT_IDS, AGENT_FORCED_PREFS } from 'openfilm/agents';
 import { create } from 'zustand';
 import {
   desktopBridge,
@@ -22,7 +23,6 @@ export type AgentPick = LocalAgentId;
 
 type ConfigOptions = NonNullable<LocalAgentSessionInfo['configOptions']>;
 
-const AGENT_IDS: readonly LocalAgentId[] = ['codex', 'claude', 'copilot', 'cursor', 'opencode', 'codebuddy', 'qwen', 'kimi', 'minimax', 'byok'];
 const isAgent = (v: unknown): v is LocalAgentId => AGENT_IDS.includes(v as LocalAgentId);
 
 interface Persisted {
@@ -218,21 +218,6 @@ export const useLocalAgents = create<LocalAgentStore>((set, get) => ({
     }
   },
 }));
-
-/**
- * What the app sets for every agent and the menu does not offer: full access (it works in the person's own project
- * folder, every step is in the edit and version history and can be undone; clicking "Allow" a dozen times a turn
- * protects nothing). Ids differ between the adapters; an option a session does not have is skipped. The other agents
- * are started with it (their own flags, apps/desktop/src/agents.mjs), except Kimi and MiniMax Code, whose ACP servers
- * take no flag.
- */
-const AGENT_FORCED_PREFS: Partial<Record<LocalAgentId, Record<string, unknown>>> = {
-  claude: { mode: 'bypassPermissions' },
-  codex: { mode: 'agent-full-access' },
-  kimi: { mode: 'yolo' },
-  minimax: { permissionMode: 'bypassPermissions' },
-  byok: { mode: 'agent-full-access' },
-};
 
 /** picks the menu no longer offers: plan mode (Claude Code's `plan`, Codex's collaboration mode) */
 const DROPPED_PREFS = new Set(['plan', 'collaboration_mode']);

@@ -1,8 +1,8 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdirSync, mkdtempSync, symlinkSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, symlinkSync, writeFileSync, rmSync, realpathSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { delimiter, join } from 'node:path';
 import { chosenProgram, claudeAppCli, claudeVersion, cmdTarget, codexVersion, consoleProgram, detectAgentInstallation, findExecutable, laterVersion, searchReport, windowsBinDirs } from './agent-installation.mjs';
 
 test("an npm .cmd shim (Windows) runs its package's script: that is what gets started", () => {
@@ -188,7 +188,7 @@ test('the report: every folder searched, each file with the name, what a shim ru
   assert.deepEqual(report.files, [
     { file: join(npm, 'qwen'), runs: join(npm, 'qwen'), usable: false },
     { file: join(npm, 'qwen.cmd'), runs: script, usable: true },
-    { file: join(npm, 'qwen.ps1'), runs: null, usable: false },
+    { file: join(npm, 'qwen.ps1'), runs: script, usable: false },
   ]);
 });
 
@@ -262,4 +262,22 @@ test('Codex installed long ago beside the copy an app keeps up to date: the late
   assert.equal(detectAgentInstallation('codex', { ...opts, codexVersionOf: versions({ [onPath]: '0.170.0', [inApp]: '0.163.0' }) }).cli, onPath, 'the one on the PATH is the later');
   assert.equal(detectAgentInstallation('codex', { ...opts, codexVersionOf: versions({ [inApp]: '0.163.0' }) }).cli, onPath, 'one whose version can\'t be told stays');
   assert.equal(detectAgentInstallation('codex', { ...opts, chosen: onPath, codexVersionOf: versions({ [onPath]: '0.1.0', [inApp]: '0.163.0' }) }).cli, onPath, 'the one chosen, whatever its version');
+});
+
+test('an unrelated dsh earlier on PATH does not hide Harness installed later', (t) => {
+  const home = realpathSync(mkdtempSync(join(tmpdir(), 'of-dsh-path-')));
+  t.after(() => rmSync(home, { recursive: true, force: true }));
+  const other = join(home, 'other'), harness = join(home, 'harness');
+  mkdirSync(other); mkdirSync(harness);
+  for (const dir of [other, harness]) {
+    writeFileSync(join(dir, 'dsh'), '', { mode: 0o755 });
+    writeFileSync(join(dir, 'dsh.mjs'), '');
+    writeFileSync(join(dir, 'dsh.cmd'), '@echo off\r\nnode "%dp0%dsh" %*\r\n');
+  }
+  writeFileSync(join(other, 'package.json'), JSON.stringify({ name: 'dancers-shell', bin: { dsh: 'dsh' } }));
+  writeFileSync(join(harness, 'package.json'), JSON.stringify({ name: '@deepseek-ai/dsh', bin: { dsh: 'dsh' } }));
+  for (const win of [false, true]) {
+    const found = detectAgentInstallation('deepseek', { home, env: { PATH: [other, harness].join(win ? ';' : delimiter) }, pathDirs: [], win });
+    assert.equal(found.cli, join(harness, 'dsh'));
+  }
 });

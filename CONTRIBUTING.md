@@ -173,6 +173,35 @@ maintainer reviews every pull request, and may ask for changes. It is squash-mer
 commit's: name the part and the change, as the history does (`Studio: …`, `CLI: …`, `Desktop: …`). Add a changeset
 when the change ships (above, Releases).
 
+## Adding a chat agent
+
+The desktop chat uses ACP over stdio, as in [#65](https://github.com/openfilm/openfilm/pull/65). Standard agents are
+listed once in [src/agent-catalog.mjs](packages/openfilm/src/agent-catalog.mjs). Add a record with its label,
+executable names, official install page, ACP arguments and sign-in arguments. The roster, installation search,
+chat, settings, ids and types read that record; do not add another copy of their lists.
+
+Optional fields cover package identity for ambiguous program names (`identity.npmPackage`), installer folders (`binDirs`, path
+segments relative to the home folder), an existing maker's mark (`mark`), ACP terminal authentication (`acpSignIn`) and session preferences (`prefs`, using option ids the real
+agent advertises). An agent without a mark uses the existing letter fallback. Marks come from the sources named in
+`provider-marks.ts`. `approve` follows the desktop's existing policy for permission requests; it is explicit per agent.
+
+Use `runtime: 'node'` for a program that needs the person's Node.js and must stay the main entry module. Other programs
+use the app's runtime when needed. Sessions, login and version checks all use the same launch planner.
+When identity is declared, every discovery source (including Locate and fallback paths) must resolve to that package's
+declared `bin` entry. Symlinks and npm shims are resolved before checking the nearest named package. Unknown wrappers
+are reported as unverified; choose the underlying installed entry instead. Adding a standard agent needs no ID-specific
+branch in discovery or launch. Vendor adapters and private configuration handling still require their own code.
+
+Keep protocol traffic on stdout and diagnostics on stderr. Test startup, a turn and sign-in errors against a local
+fake ACP process, and report what the real installed program did, including its version. Test both Windows program
+shims and Unix executable discovery. Never include a credential. Exercise the real entry point: a fixture that requires
+its script to be the main module catches wrapper regressions. Models, modes and resumable sessions come from the
+agent's advertised capabilities, not a duplicated model list.
+
+Claude Code and Codex still need their bundled adapters and launch environment. Skill filtering and readers for an
+agent's private usage records also need agent-specific code when supported; adding a catalog record does not claim
+those features. Do not read or write the person's own credentials or config to connect an agent.
+
 ## License
 
 What you contribute is under the [MIT license](LICENSE), like the rest of the code. There is no agreement to sign.

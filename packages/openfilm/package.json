@@ -35,7 +35,8 @@
     "./skills-cli": "./src/skills-cli.mjs",
     "./studio": "./studio/server/server.mjs",
     "./studio-ui/*": "./studio/ui/src/*",
-    "./package.json": "./package.json"
+    "./package.json": "./package.json",
+    "./agents": "./src/agent-catalog.mjs"
   },
   "files": [
     "README.md",

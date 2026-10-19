@@ -1,10 +1,10 @@
-import { MARKS } from '@/lib/provider-marks';
+import { MARKS } from '../../lib/provider-marks';
 
 /** A provider's or an agent's mark (lib/provider-marks.ts), or, for one with none yet, its letter in a rounded square. */
-export function ProviderMark({ id, size = 18 }: { id: string; size?: number }) {
+export function ProviderMark({ id, size = 18, className = 'text-[var(--text)]' }: { id: string; size?: number; className?: string }) {
   const mark = MARKS[id];
   return (
-    <span className="inline-flex shrink-0 items-center justify-center text-[var(--text)]" style={{ width: size, height: size }} aria-hidden>
+    <span className={`inline-flex shrink-0 items-center justify-center ${className}`} style={{ width: size, height: size }} aria-hidden>
       {mark ? (
         <svg width={size} height={size} viewBox={mark.viewBox} fill="currentColor" fillRule="evenodd" className="block">
           {mark.parts ? mark.parts.map((part) => <path key={part.d} d={part.d} fillOpacity={part.opacity} />) : <path d={mark.d} />}

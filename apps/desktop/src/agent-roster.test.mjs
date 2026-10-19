@@ -17,6 +17,19 @@ const roster = (dataDir, fetch, extra = {}) => createRoster({
   ...extra,
 });
 
+test('connecting ready Harness keeps Terminal closed', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'of-roster-'));
+  const opened = [];
+  const r = roster(dir, undefined, {
+    localAgents: async () => [{ id: 'deepseek', cli: { path: 'dsh' }, signedIn: true }],
+    openSignIn: async (id) => { opened.push(id); return { ok: true }; },
+  });
+  await r.refresh();
+  assert.deepEqual(await r.connect('deepseek'), { ok: true });
+  assert.equal(r.list().find((a) => a.id === 'deepseek').status, 'ready');
+  assert.deepEqual(opened, []);
+});
+
 test('each API format is asked in its own shape, with a picture', () => {
   const r = probeRequest('responses', 'https://api.openai.com/v1/', 'k', 'm');
   assert.equal(r.url, 'https://api.openai.com/v1/responses');
@@ -243,4 +256,17 @@ test('Codex is connected from the start, Claude Code once the person connects it
   assert.deepEqual(readChoices(dir).disconnected, ['claude']);
   writeFileSync(join(dir, 'agents.json'), JSON.stringify({ disconnected: [] }));
   assert.deepEqual(readChoices(dir).disconnected, [], 'connected before: still connected');
+});
+
+test('signed-out Harness opens Terminal and waits through the normal sign-in path', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'of-roster-'));
+  const opened = [];
+  const r = roster(dir, undefined, {
+    localAgents: async () => [{ id: 'deepseek', cli: { path: 'dsh' }, signedIn: false }],
+    openSignIn: async (id) => { opened.push(id); return { ok: true }; },
+  });
+  assert.deepEqual(await r.connect('deepseek'), { ok: true });
+  assert.deepEqual(opened, ['deepseek']);
+  assert.equal(r.list().find((a) => a.id === 'deepseek').status, 'waiting');
+  r.disconnect('deepseek');
 });

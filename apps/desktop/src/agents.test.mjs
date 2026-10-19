@@ -1,6 +1,41 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { CLIENT_CAPABILITIES, CODEX_UTF8_CMD, agentShell, allowOption, codexDeveloperInstructions, codexLaunchEnv, errorCause, legacyOptions, powerShellScript, readAgentStatus, signInError, codexTooOld } from './agents.mjs';
+import { dirname, join } from 'node:path';
+import { mkdtempSync, writeFileSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { spawnSync } from 'node:child_process';
+import { launchProgram } from './agent-launch.mjs';
+import { AGENT_CATALOG } from 'openfilm/agents';
+import { CLIENT_CAPABILITIES, CODEX_UTF8_CMD, agentShell, allowOption, codexDeveloperInstructions, codexLaunchEnv, errorCause, flatConfigOptions, legacyOptions, powerShellScript, readAgentStatus, signInError, codexTooOld } from './agents.mjs';
+
+test('Harness uses the installed Node and preserves its main entry', () => {
+  const args = ['--profile', 'acp'];
+  const launch = launchProgram(AGENT_CATALOG.deepseek, 'C:/npm/dsh/bin.js', args, { PATH: dirname(process.execPath) });
+  assert.equal(launch.cmd.toLowerCase(), process.execPath.toLowerCase());
+  assert.equal(launch.args[0], '--import');
+  assert.ok(launch.args[1].startsWith('file:///'));
+  assert.ok(launch.args[1].endsWith('/native-agent-preload.mjs'));
+  assert.deepEqual(launch.args.slice(2), ['C:/npm/dsh/bin.js', ...args]);
+  assert.deepEqual(launch.env, {}, 'uses the declared Node runtime');
+  assert.throws(() => launchProgram(AGENT_CATALOG.deepseek, 'C:/npm/dsh/bin.js', args, { PATH: '' }), /needs Node.js/);
+});
+
+test('grouped ACP models expose selectable model names while preserving opaque route values', () => {
+  const flash = { value: '["deepseek-official","deepseek-v4-flash"]', name: 'DeepSeek V4 Flash' };
+  const pro = { value: '["deepseek-official","deepseek-v4-pro"]', name: 'DeepSeek V4 Pro' };
+  const other = { value: 'other/pro', name: 'Other Pro' };
+  const input = [{ id: 'model', category: 'model', currentValue: flash.value, options: [
+    { group: 'deepseek-official', name: 'DeepSeek', options: [flash, pro] },
+    { group: 'other', name: 'Other', options: [other] },
+  ] }, { id: 'effort', options: [{ value: 'high', name: 'High' }] }];
+  const result = flatConfigOptions(input);
+  assert.deepEqual(result[0].options, [flash, pro, other]);
+  assert.equal(result[0].currentValue, flash.value);
+  assert.deepEqual(result[1], input[1]);
+  assert.equal(input[0].options.length, 2);
+  assert.deepEqual(flatConfigOptions(result), result);
+  assert.equal(flatConfigOptions(null), null);
+});
 
 test('an agent that asks: yes for good where it offers that, else yes this once; nothing to say yes with is null', () => {
   const options = [
@@ -151,4 +186,18 @@ test('a Codex older than the ones tried, that did not start, is said to need an 
   const signIn = Object.assign(new Error('Codex is not signed in.'), { code: 'sign-in' });
   assert.equal(codexTooOld('codex', '/usr/local/bin/codex', signIn, () => '0.104.0'), signIn);
   assert.equal(codexTooOld('claude', '/usr/local/bin/claude', failed, () => '0.104.0'), failed);
+});
+
+test('native preload preserves the main entry and clears Electron mode', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'of-native-'));
+  try {
+    const script = join(dir, 'entry.mjs');
+    writeFileSync(script, 'import { spawn } from "node:child_process"; console.log(JSON.stringify({ main: import.meta.main, hidden: spawn.hidesWindows ?? false, mode: process.env.ELECTRON_RUN_AS_NODE ?? null, args: process.argv.slice(2) }));');
+    const args = ['--profile', 'acp'];
+    const result = spawnSync(process.execPath, ['--import', new URL('./native-agent-preload.mjs', import.meta.url).href, script, ...args], {
+      encoding: 'utf8', env: { ...process.env, ELECTRON_RUN_AS_NODE: '1' },
+    });
+    assert.equal(result.status, 0, result.stderr);
+    assert.deepEqual(JSON.parse(result.stdout), { main: true, hidden: process.platform === 'win32', mode: null, args });
+  } finally { rmSync(dir, { recursive: true, force: true }); }
 });
