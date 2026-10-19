@@ -44,9 +44,9 @@ const require = createRequire(import.meta.url);
 
 /**
  * Each agent: through an adapter the app carries (`adapter`, told where the person's program is by `env`), or the
- * person's program itself with `args`. Signed in? `auth` asks the program (its words say); without it, a session is
- * opened and closed (acpSignedIn). `login` is its own sign-in, run in Terminal (none: the program itself, which asks
- * for one on its first run). `authenticate`: the ACP auth method that takes up the program's own sign-in.
+ * person's program itself with `args`. Signed in? `statusArgs` asks the program (its words say); without it, a session is
+ * opened and closed (acpSignedIn). `signIn` selects CLI arguments or an advertised terminal method.
+ * `sessionAuthMethod` invokes ACP authentication inside the session.
  * `approve`: it asks permission for what the app lets every agent do (see the chat's AGENT_FORCED_PREFS), so the app
  * answers yes itself. The others are told the app's INSTRUCTIONS in the first message of a session (`systemPrompt`:
  * how Claude Code and Codex are told them instead).
@@ -311,9 +311,9 @@ export async function agentSignedIn(id, cliPath) {
 export async function agentStatus(id, cliPath) {
   const spec = AGENTS[id];
   if (!spec || !cliPath) return { signedIn: null, account: null };
-  if (!spec.auth) return { signedIn: await acpSignedIn(id), account: null };
+  if (!spec.statusArgs) return { signedIn: await acpSignedIn(id), account: null };
   const shell = agentShell(id, await loginShellVariables());
-  const how = launchProgram(spec, cliPath, spec.auth, shell);
+  const how = launchProgram(spec, cliPath, spec.statusArgs, shell);
   const r = await run(how.cmd, how.args, 10_000, { env: childEnvironment({ shell, extra: how.env }), options: how.options });
   return readAgentStatus(id, r.stdout, r.out);
 }
@@ -409,11 +409,11 @@ export function agentShell(id, shell) {
 /**
  * The ways an agent's adapter offers to sign in in a terminal (ACP terminal auth; Claude Code's: its subscription and
  * Anthropic Console). `[{ id, name, description?, args, env }]`, asked of the adapter as it shakes hands; none for an
- * agent signed in its own way (no `acpSignIn`) or one that cannot be started.
+ * agent signed in its own way (no `signIn.terminalMethod`) or one that cannot be started.
  */
 export async function agentSignInMethods(id) {
   const spec = AGENTS[id];
-  if (!spec?.acpSignIn) return [];
+  if (!spec?.signIn.terminalMethod) return [];
   const shell = agentShell(id, await loginShellVariables());
   const cli = resolveAgentCli(id, { pathDirs: shell.PATH.split(PATH_SEP) });
   if (!cli) return [];
@@ -441,7 +441,7 @@ export async function agentSignInMethods(id) {
 
 /**
  * Sign in: Terminal runs the program's own sign-in, which opens the maker's own page. The app touches nothing. One
- * signed in the way its adapter offers (`acpSignIn`, that way's id) runs the adapter with that way's arguments, as ACP
+ * signed in the way its adapter offers (`signIn.terminalMethod`, that way's id) runs the adapter with that way's arguments, as ACP
  * has a client do it.
  */
 export async function openAgentSignIn(id) {
@@ -452,15 +452,15 @@ export async function openAgentSignIn(id) {
   if (!spec || !cli) return { ok: false, error: `${spec?.label ?? id} is not installed on this computer.` };
   asked.delete(id);
   let how = null;
-  if (spec.acpSignIn) {
-    const way = (await agentSignInMethods(id)).find((w) => w.id === spec.acpSignIn);
-    if (!way) return { ok: false, error: `${spec.label} did not offer a way to sign in.` };
+  if (spec.signIn.terminalMethod) {
+    const way = (await agentSignInMethods(id)).find((w) => w.id === spec.signIn.terminalMethod);
+    if (!way) return { ok: false, error: `${spec.label} did not offer terminal sign-in method "${spec.signIn.terminalMethod}".` };
     const launch = agentLaunch(id, cli.path, signInShell, way.args);
     how = { ...launch, env: { ...launch.env, ...way.env } };
   }
   try {
     how ??= windows && /\.(?:cmd|bat)$/i.test(cli.path)
-      ? { cmd: cli.path, args: spec.login, env: {} } : launchProgram(spec, cli.path, spec.login, signInShell);
+      ? { cmd: cli.path, args: spec.signIn.command, env: {} } : launchProgram(spec, cli.path, spec.signIn.command, signInShell);
   } catch (e) { return { ok: false, error: e.message }; }
   if (process.platform === 'win32') {
     /* a PowerShell window of its own running a script, as ChatCut does: no command line for cmd.exe to unquote (a path
@@ -821,8 +821,8 @@ export class AgentSession {
       ...(claude ? { _meta: { systemPrompt: { append: instructions }, ...(skills?.claude ? { claudeCode: { options: skills.claude } } : {}) } } : {}),
     };
     /* the program's own sign-in, taken up (Cursor asks for this before any session) */
-    if (this.spec.authenticate && (init.authMethods ?? []).some((m) => m.id === this.spec.authenticate)) {
-      await this.conn.agent.request(acp.methods.agent.authenticate, { methodId: this.spec.authenticate }).catch((e) => { throw signInError(this.spec.label, e); });
+    if (this.spec.sessionAuthMethod && (init.authMethods ?? []).some((m) => m.id === this.spec.sessionAuthMethod)) {
+      await this.conn.agent.request(acp.methods.agent.authenticate, { methodId: this.spec.sessionAuthMethod }).catch((e) => { throw signInError(this.spec.label, e); });
     }
 
     let session = null;

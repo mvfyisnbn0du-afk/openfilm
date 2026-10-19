@@ -180,17 +180,47 @@ listed once in [src/agent-catalog.mjs](packages/openfilm/src/agent-catalog.mjs).
 executable names, official install page, ACP arguments and sign-in arguments. The roster, installation search,
 chat, settings, ids and types read that record; do not add another copy of their lists.
 
-Optional fields cover package identity for ambiguous program names (`identity.npmPackage`), installer folders (`binDirs`, path
-segments relative to the home folder), an existing maker's mark (`mark`), ACP terminal authentication (`acpSignIn`) and session preferences (`prefs`, using option ids the real
-agent advertises). An agent without a mark uses the existing letter fallback. Marks come from the sources named in
-`provider-marks.ts`. `approve` follows the desktop's existing policy for permission requests; it is explicit per agent.
+Choose exactly one ACP connection: `adapter` names a bundled adapter; otherwise `args` contains the installed
+program's ACP arguments. Only a direct program can set `runtime: 'node'` when it needs the person's Node.js and must
+stay the main entry module. Sessions, login and version checks share the launch planner.
 
-Use `runtime: 'node'` for a program that needs the person's Node.js and must stay the main entry module. Other programs
-use the app's runtime when needed. Sessions, login and version checks all use the same launch planner.
-When identity is declared, every discovery source (including Locate and fallback paths) must resolve to that package's
-declared `bin` entry. Symlinks and npm shims are resolved before checking the nearest named package. Unknown wrappers
-are reported as unverified; choose the underlying installed entry instead. Adding a standard agent needs no ID-specific
-branch in discovery or launch. Vendor adapters and private configuration handling still require their own code.
+Login is explicit, with no fallback or priority between methods:
+
+```js
+signIn: { command: ['login'] }              // Run the installed CLI with these arguments.
+signIn: { command: [] }                     // Run the CLI's own interactive setup.
+signIn: { terminalMethod: 'hermes-setup' }   // Use this advertised ACP terminal method's arguments/env.
+```
+
+`statusArgs` queries CLI login status; without it, OpenFilm probes an ACP session. `sessionAuthMethod` invokes ACP
+`authenticate` after initialization; it does not open a sign-in terminal. A terminal method must be advertised in
+`initialize.authMethods`; a missing ID reports the expected method and does not silently try another login path.
+
+Optional `identity.npmPackage` checks local package/bin ownership. Every discovery source, including Locate and
+fallback paths, must resolve to that package's declared `bin`. Symlinks and npm shims are resolved before checking
+the nearest named package. Unknown wrappers are unverified; choose the installed entry instead. This is a check
+against accidental same-name collisions, not a package authenticity guarantee. Without `identity`, there is no
+package identity check; do not add an npm-only rule to agents that also ship native installers without supporting those.
+
+`binDirs` lists path segments relative to home. `mark` selects an existing mark (sources in `provider-marks.ts`);
+otherwise the UI uses a letter. `prefs` contains option IDs the real agent advertises. `approve` follows the existing
+permission policy; it is explicit per agent. Vendor adapters and private configuration still need their own code.
+
+Validate each addition at three separate levels:
+
+| Check | Evidence | What it cannot prove |
+| --- | --- | --- |
+| Configuration | `pnpm typecheck`; desktop tests compile `agent-catalog.types.ts`, including invalid combinations, and check catalog values. | CLI arguments and method IDs match a real release. |
+| Local integration | Desktop tests exercise program discovery, package/bin checks, launch and a fake ACP subprocess. | Authentication and behavior of the installed vendor program. |
+| Real program | Record OS, program version/install source, discovery/Locate, sign-in, model selection and a turn, with results. Mark untested cases as pending. | Other OS/install sources or future program versions. |
+
+Run `pnpm --filter @openfilm/desktop test` for the catalog type/contract and local integration checks. Type regression
+fixtures use `@ts-expect-error`: if a forbidden combination becomes accepted, the test fails. Do not treat the fake
+server as evidence that the vendor's CLI parameters are correct. Full workspace checks still apply before merging.
+
+The discovery report's `runs` is the resolved entry (or null); `usable` means that entry passed discovery checks,
+not that it has started or authenticated. A `.ps1` with a resolvable sibling `.cmd` is usable through that entry;
+an orphan is not. Failed entries include a reason. Windows discovery does not select the adjacent Unix shim.
 
 Keep protocol traffic on stdout and diagnostics on stderr. Test startup, a turn and sign-in errors against a local
 fake ACP process, and report what the real installed program did, including its version. Test both Windows program

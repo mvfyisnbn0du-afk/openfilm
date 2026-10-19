@@ -393,9 +393,12 @@ export function searchReport(id, { home = homedir(), env = process.env, pathDirs
       for (const suffix of ['', '.exe', '.cmd', '.bat', '.ps1']) {
         const file = join(dir, name + suffix);
         if (!presentFile(file)) continue;
-        const checked = inspectProgram(AGENT_CATALOG[id] ?? { label: id, names: program.names }, file, { win });
-        const supported = win ? suffix !== '' && suffix !== '.ps1' : executableFile(file);
-        files.push({ file, runs: checked.path, usable: supported && checked.ok, ...(!checked.ok ? { reason: checked.error } : {}) });
+        // Windows discovery uses the .cmd/.exe entry, not the adjacent Unix shim.
+        const checked = win && suffix === ''
+          ? { ok: false, path: null, error: 'Use the Windows .cmd or .exe entry instead of this Unix shim.' }
+          : inspectProgram(AGENT_CATALOG[id] ?? { label: id, names: program.names }, file, { win });
+        // Report the resolved entry, just as Locate does; a .ps1 can resolve through its sibling .cmd.
+        files.push({ file, runs: checked.path, usable: checked.ok, ...(!checked.ok ? { reason: checked.error } : {}) });
       }
     }
   }

@@ -186,9 +186,9 @@ test('the report: every folder searched, each file with the name, what a shim ru
   const report = searchReport('qwen', { home, env: { PATH: `${npm};${npm.toUpperCase()}` }, pathDirs: [join(home, 'other')], win: true });
   assert.deepEqual(report.searched, [npm, join(home, 'other')], 'each folder once, whatever its case');
   assert.deepEqual(report.files, [
-    { file: join(npm, 'qwen'), runs: join(npm, 'qwen'), usable: false },
+    { file: join(npm, 'qwen'), runs: null, usable: false, reason: 'Use the Windows .cmd or .exe entry instead of this Unix shim.' },
     { file: join(npm, 'qwen.cmd'), runs: script, usable: true },
-    { file: join(npm, 'qwen.ps1'), runs: script, usable: false },
+    { file: join(npm, 'qwen.ps1'), runs: script, usable: true },
   ]);
 });
 
@@ -280,4 +280,22 @@ test('an unrelated dsh earlier on PATH does not hide Harness installed later', (
     const found = detectAgentInstallation('deepseek', { home, env: { PATH: [other, harness].join(win ? ';' : delimiter) }, pathDirs: [], win });
     assert.equal(found.cli, join(harness, 'dsh'));
   }
+});
+
+
+test('a PowerShell shim is usable through its sibling cmd; an orphan has no resolved entry', () => {
+  const home = mkdtempSync(join(tmpdir(), 'of-ps1-'));
+  try {
+    const shim = put(join(home, 'qwen.ps1'), '');
+    const opts = { home, env: { PATH: '' }, pathDirs: [home], win: true };
+    const orphan = searchReport('qwen', opts).files.find((file) => file.file === shim);
+    assert.equal(orphan.runs, null);
+    assert.equal(orphan.usable, false);
+    assert.ok(orphan.reason);
+    const entry = put(join(home, 'cli.js'), '');
+    put(join(home, 'qwen.cmd'), npmShim('cli.js'));
+    const resolved = searchReport('qwen', opts).files.find((file) => file.file === shim);
+    assert.deepEqual(resolved, { file: shim, runs: entry, usable: true });
+    assert.equal(chosenProgram(shim, { win: true }), entry);
+  } finally { rmSync(home, { recursive: true, force: true }); }
 });

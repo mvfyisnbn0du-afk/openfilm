@@ -2,60 +2,71 @@
 /** The chat's ACP agents. Add a standard agent here; the roster, launcher and both UIs read this catalog. */
 
 /**
- * @typedef {{ label: string, names: string[], install: string, args?: string[], login: string[], auth?: string[],
- *   binDirs?: string[][], identity?: { npmPackage: string }, runtime?: 'app' | 'node', adapter?: string,
- *   mark?: string, approve?: boolean, systemPrompt?: boolean,
- *   authenticate?: string, acpSignIn?: string, prefs?: Record<string, string> }} AgentDefinition
+ * Exactly one ACP entry: a bundled adapter, or the installed command with ACP arguments.
+ * @typedef {{ adapter: string, args?: never, runtime?: never } |
+ *   { adapter?: never, args: string[], runtime?: 'app' | 'node' }} AgentConnection
+ *
+ * Terminal methods come from initialize.authMethods; command arguments run the installed CLI.
+ * An empty command runs the CLI's own interactive setup. There is no fallback between these methods.
+ * @typedef {{ command: string[], terminalMethod?: never } |
+ *   { command?: never, terminalMethod: string }} AgentSignIn
+ *
+ * statusArgs queries CLI login status; omitted means probe an ACP session.
+ * sessionAuthMethod invokes ACP authenticate after initialization, independently of terminal sign-in.
+ * identity checks local package/bin ownership, not authenticity; omitted means no package identity check.
+ * @typedef {{ label: string, names: string[], install: string, signIn: AgentSignIn, statusArgs?: string[],
+ *   binDirs?: string[][], identity?: { npmPackage: string }, mark?: string, approve?: boolean,
+ *   systemPrompt?: boolean, sessionAuthMethod?: string, prefs?: Record<string, string> } & AgentConnection} AgentDefinition
  */
 
 /** @satisfies {Record<string, AgentDefinition>} */
 const definitions = {
   codex: {
     label: 'Codex', names: ['codex'], install: 'https://developers.openai.com/codex', mark: 'openai',
-    adapter: '@agentclientprotocol/codex-acp', auth: ['login', 'status'], login: ['login'], systemPrompt: true,
+    adapter: '@agentclientprotocol/codex-acp', statusArgs: ['login', 'status'], signIn: { command: ['login'] }, systemPrompt: true,
     prefs: { mode: 'agent-full-access' },
   },
   claude: {
     label: 'Claude Code', names: ['claude'], install: 'https://claude.com/download',
-    adapter: '@agentclientprotocol/claude-agent-acp', auth: ['auth', 'status'], login: ['auth', 'login'],
-    acpSignIn: 'claude-ai-login', systemPrompt: true, prefs: { mode: 'bypassPermissions' },
+    adapter: '@agentclientprotocol/claude-agent-acp', statusArgs: ['auth', 'status'],
+    signIn: { terminalMethod: 'claude-ai-login' }, systemPrompt: true, prefs: { mode: 'bypassPermissions' },
   },
   copilot: {
     label: 'GitHub Copilot', names: ['copilot'], install: 'https://github.com/features/copilot/cli',
-    args: ['--acp', '--allow-all'], login: ['login'], approve: true,
+    args: ['--acp', '--allow-all'], signIn: { command: ['login'] }, approve: true,
   },
   cursor: {
     label: 'Cursor', names: ['cursor-agent'], install: 'https://cursor.com/cli',
-    args: ['--force', 'acp'], auth: ['status'], login: ['login'], authenticate: 'cursor_login', approve: true,
+    args: ['--force', 'acp'], statusArgs: ['status'], signIn: { command: ['login'] }, sessionAuthMethod: 'cursor_login', approve: true,
   },
   opencode: {
     label: 'OpenCode', names: ['opencode'], install: 'https://opencode.ai/download', binDirs: [['.opencode', 'bin']],
-    args: ['acp'], login: ['auth', 'login'], approve: true,
+    args: ['acp'], signIn: { command: ['auth', 'login'] }, approve: true,
   },
   codebuddy: {
     label: 'CodeBuddy', names: ['codebuddy', 'cbc'], install: 'https://www.workbuddy.ai/docs/cli/installation',
-    args: ['--acp', '--permission-mode', 'bypassPermissions'], login: [], approve: true,
+    args: ['--acp', '--permission-mode', 'bypassPermissions'], signIn: { command: [] }, approve: true,
   },
   qwen: {
     label: 'Qwen Code', names: ['qwen'], install: 'https://github.com/QwenLM/qwen-code',
-    args: ['--acp', '--approval-mode', 'yolo'], login: [], approve: true,
+    args: ['--acp', '--approval-mode', 'yolo'], signIn: { command: [] }, approve: true,
   },
   kimi: {
     label: 'Kimi', names: ['kimi'], install: 'https://www.kimi.com/code', binDirs: [['.kimi-code', 'bin']],
-    args: ['acp'], login: ['login'], approve: true, prefs: { mode: 'yolo' },
+    args: ['acp'], signIn: { command: ['login'] }, approve: true, prefs: { mode: 'yolo' },
   },
   minimax: {
     label: 'MiniMax Code', names: ['mcode'], install: 'https://www.npmjs.com/package/@minimax-ai/code', binDirs: [['.minimax-code', 'bin']],
-    args: ['acp'], login: ['login'], approve: true, prefs: { permissionMode: 'bypassPermissions' },
+    args: ['acp'], signIn: { command: ['login'] }, approve: true, prefs: { permissionMode: 'bypassPermissions' },
   },
   deepseek: {
     label: 'DeepSeek Harness', names: ['dsh'], install: 'https://www.npmjs.com/package/@deepseek-ai/dsh', mark: 'deepseek',
     identity: { npmPackage: '@deepseek-ai/dsh' }, runtime: 'node',
-    args: ['--profile', 'acp'], login: ['web'], approve: true,
+    args: ['--profile', 'acp'], signIn: { command: ['web'] }, approve: true,
   },
   hermes: {
     label: 'Hermes Agent', names: ['hermes'], install: 'https://hermes-agent.nousresearch.com/docs/user-guide/features/acp', mark: 'hermesagent',
-    args: ['acp'], login: ['acp', '--setup'], acpSignIn: 'hermes-setup', approve: true,
+    args: ['acp'], signIn: { terminalMethod: 'hermes-setup' }, approve: true,
   },
 };
 

@@ -4,8 +4,10 @@ import { mkdtempSync, mkdirSync, writeFileSync, rmSync, symlinkSync, realpathSyn
 import { tmpdir } from 'node:os';
 import { spawnSync } from 'node:child_process';
 import { join } from 'node:path';
+import { fileURLToPath } from 'node:url';
+import ts from 'typescript';
 import { AGENT_CATALOG, OWN_AGENT_IDS, AGENT_IDS, AGENT_NAMES, AGENT_FORCED_PREFS } from 'openfilm/agents';
-import { AGENTS, AgentSession, agentSignInMethods, checkAgentProgram, isAgentId, setChosenPaths } from './agents.mjs';
+import { AGENTS, AgentSession, agentSignInMethods, openAgentSignIn, checkAgentProgram, isAgentId, setChosenPaths } from './agents.mjs';
 import { AGENT_DOWNLOADS, AGENT_PROGRAMS, detectAgentInstallation } from './agent-installation.mjs';
 import { readChoices } from './agent-roster.mjs';
 
@@ -14,18 +16,23 @@ const server = String.raw`
 import { createInterface } from 'node:readline';
 const args = process.argv.slice(2);
 if (args[0] === '--profile' && !import.meta.main) throw new Error('Harness entry must remain main');
-const correct = JSON.stringify(args) === JSON.stringify(args[0] === '--profile' ? ['--profile', 'acp'] : ['acp']);
+const correct = JSON.stringify(args) === JSON.stringify(args[0] === '--profile' ? ['--profile', 'acp'] : args[0] === '--force' ? ['--force', 'acp'] : ['acp']);
 if (!correct) throw new Error('Incorrect ACP arguments: ' + JSON.stringify(args));
 const send = (value) => process.stdout.write(JSON.stringify({ jsonrpc: '2.0', ...value }) + '\n');
-let model = 'first', prompt, permission, waiting;
+let model = 'first', prompt, permission, waiting, authenticated = false;
 const options = () => [{ id: 'model', name: 'Model', category: 'model', type: 'select', currentValue: model,
   options: [{ group: 'provider', name: 'Provider', options: [{ value: 'first', name: 'First' }, { value: 'second', name: 'Second' }] }] }];
 for await (const line of createInterface({ input: process.stdin })) {
   const request = JSON.parse(line);
   const { id, method, params } = request;
   if (method === 'initialize') send({ id, result: { protocolVersion: 1, agentCapabilities: { sessionCapabilities: { resume: {} } },
-    agentInfo: { name: 'fixture', version: '1' }, authMethods: [{ id: 'hermes-setup', name: 'Configure Hermes provider', type: 'terminal', args: ['--setup'] }] } });
-  else if (method === 'session/new' || method === 'session/resume') {
+    agentInfo: { name: 'fixture', version: '1' }, authMethods: [{ id: 'cursor_login', name: 'Cursor' }, { id: 'hermes-setup', name: 'Configure Hermes provider', type: 'terminal', args: ['--setup'] }] } });
+  else if (method === 'authenticate') {
+    if (params.methodId !== 'cursor_login') throw new Error('Incorrect session authentication method');
+    authenticated = true;
+    send({ id, result: {} });
+  } else if (method === 'session/new' || method === 'session/resume') {
+    if (args[0] === '--force' && !authenticated) throw new Error('Session authentication was skipped');
     if (process.env.OPENFILM_TEST_SIGNED_OUT === '1') send({ id, error: { code: -32000, message: 'Authentication required' } });
     else send({ id, result: { sessionId: params.sessionId ?? 'fixture-session', configOptions: options() } });
   } else if (method === 'session/set_config_option') {
@@ -70,6 +77,16 @@ test('one catalog drives discovery, launch, names, roster choices and session pr
       assert.deepEqual(AGENTS[id].args, agent.args);
       assert.ok(agent.adapter || agent.args?.length, id);
       assert.equal(new URL(agent.install).protocol, 'https:');
+      const nonemptyStrings = (values, field) => {
+        assert.ok(Array.isArray(values), `${id}.${field} must be an array`);
+        assert.ok(values.every((value) => typeof value === 'string' && value.trim()), `${id}.${field} contains an empty value`);
+      };
+      nonemptyStrings(agent.names, 'names');
+      if (agent.args) nonemptyStrings(agent.args, 'args');
+      if (agent.statusArgs) nonemptyStrings(agent.statusArgs, 'statusArgs');
+      if (agent.signIn.command) nonemptyStrings(agent.signIn.command, 'signIn.command');
+      else assert.ok(agent.signIn.terminalMethod?.trim(), `${id}.signIn.terminalMethod must not be empty`);
+      if (agent.identity) assert.ok(agent.identity.npmPackage.trim(), `${id}.identity.npmPackage must not be empty`);
     }
     assert.equal(isAgentId('__proto__'), false);
     assert.equal(isAgentId('toString'), false);
@@ -178,4 +195,39 @@ test('an ACP status probe exits after closing its session without leaving its ti
     assert.equal(result.status, 0, result.stderr);
     assert.equal(result.stdout.trim(), 'true');
   } finally { rmSync(dir, { recursive: true, force: true }); }
+});
+
+
+test('catalog types reject ambiguous startup, sign-in and misspelled fields', () => {
+  const program = ts.createProgram([fileURLToPath(new URL('./agent-catalog.types.ts', import.meta.url))], {
+    noEmit: true, strict: true, allowJs: true, skipLibCheck: true,
+    target: ts.ScriptTarget.ESNext, module: ts.ModuleKind.NodeNext, moduleResolution: ts.ModuleResolutionKind.NodeNext,
+  });
+  const errors = ts.getPreEmitDiagnostics(program);
+  assert.equal(errors.length, 0, ts.formatDiagnosticsWithColorAndContext(errors, {
+    getCurrentDirectory: ts.sys.getCurrentDirectory, getCanonicalFileName: (file) => file, getNewLine: () => '\n',
+  }));
+});
+
+test('a missing advertised terminal method explains the mismatch without falling back to a CLI login', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'of-agent-signin-'));
+  try {
+    const program = join(dir, 'fixture.mjs');
+    writeFileSync(program, server.replace('hermes-setup', 'another-method'));
+    setChosenPaths({ hermes: program });
+    assert.deepEqual(await openAgentSignIn('hermes'), {
+      ok: false, error: 'Hermes Agent did not offer terminal sign-in method "hermes-setup".',
+    });
+  } finally { setChosenPaths({}); rmSync(dir, { recursive: true, force: true }); }
+});
+
+
+test('Cursor invokes its advertised session authentication before opening a session', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'of-agent-authenticate-'));
+  const program = join(dir, 'fixture.mjs');
+  writeFileSync(program, server);
+  setChosenPaths({ cursor: program });
+  const session = new AgentSession({ agent: 'cursor', cwd: dir });
+  try { assert.equal((await session.start()).sessionId, 'fixture-session'); }
+  finally { session.close(); setChosenPaths({}); rmSync(dir, { recursive: true, force: true }); }
 });
