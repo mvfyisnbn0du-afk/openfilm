@@ -13,7 +13,7 @@
  */
 import { execFileSync, spawn } from 'node:child_process';
 import { mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
-import { dirname, join, resolve } from 'node:path';
+import { join, posix } from 'node:path';
 import { INSTALL_WORDS as WORDS } from './i18n/install-window.mjs';
 import { isNewer } from './update-controller.mjs';
 
@@ -55,7 +55,7 @@ export function installerPid(bundleId, run = (file, args) => execFileSync(file, 
 }
 
 /** The .app the running executable is in (…/OpenFilm.app/Contents/MacOS/OpenFilm). */
-export const appBundle = (execPath) => resolve(dirname(execPath), '..', '..');
+export const appBundle = (execPath) => posix.resolve(posix.dirname(execPath), '..', '..');
 
 /* waits for ShipIt ($1) to finish, at most HAND_OFF_SECONDS, then opens the app ($2) */
 export const HAND_OFF_SCRIPT = [
