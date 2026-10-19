@@ -49,9 +49,9 @@ const npmShim = (rel) => `@ECHO off\r\nGOTO start\r\n:find_dp0\r\nSET dp0=%~dp0\
 
 test("npm's shim as it is written today: what it runs, never the node.exe it checks for first", () => {
   const npm = mkdtempSync(join(tmpdir(), 'of-npm-'));
-  const script = put(join(npm, 'node_modules', '@google', 'gemini-cli', 'dist', 'index.js'));
-  put(join(npm, 'gemini.cmd'), npmShim('node_modules\\@google\\gemini-cli\\dist\\index.js'));
-  assert.equal(cmdTarget(join(npm, 'gemini.cmd')), script);
+  const script = put(join(npm, 'node_modules', '@qwen-code', 'qwen-code', 'cli.js'));
+  put(join(npm, 'qwen.cmd'), npmShim('node_modules\\@qwen-code\\qwen-code\\cli.js'));
+  assert.equal(cmdTarget(join(npm, 'qwen.cmd')), script);
 });
 
 test("Codex's npm shim: its own program for this machine's chip, not the script that starts it", () => {
@@ -179,16 +179,16 @@ test('a program found some other way (a Store app) is used last', () => {
 test('the report: every folder searched, each file with the name, what a shim runs, and what cannot be started', () => {
   const home = mkdtempSync(join(tmpdir(), 'of-home-'));
   const npm = join(home, 'npm');
-  const script = put(join(npm, 'node_modules', '@google', 'gemini-cli', 'dist', 'index.js'));
-  put(join(npm, 'gemini'), '#!/bin/sh');
-  put(join(npm, 'gemini.cmd'), npmShim('node_modules\\@google\\gemini-cli\\dist\\index.js'));
-  put(join(npm, 'gemini.ps1'), '');
-  const report = searchReport('gemini', { home, env: { PATH: `${npm};${npm.toUpperCase()}` }, pathDirs: [join(home, 'other')], win: true });
+  const script = put(join(npm, 'node_modules', '@qwen-code', 'qwen-code', 'cli.js'));
+  put(join(npm, 'qwen'), '#!/bin/sh');
+  put(join(npm, 'qwen.cmd'), npmShim('node_modules\\@qwen-code\\qwen-code\\cli.js'));
+  put(join(npm, 'qwen.ps1'), '');
+  const report = searchReport('qwen', { home, env: { PATH: `${npm};${npm.toUpperCase()}` }, pathDirs: [join(home, 'other')], win: true });
   assert.deepEqual(report.searched, [npm, join(home, 'other')], 'each folder once, whatever its case');
   assert.deepEqual(report.files, [
-    { file: join(npm, 'gemini'), runs: join(npm, 'gemini'), usable: false },
-    { file: join(npm, 'gemini.cmd'), runs: script, usable: true },
-    { file: join(npm, 'gemini.ps1'), runs: null, usable: false },
+    { file: join(npm, 'qwen'), runs: join(npm, 'qwen'), usable: false },
+    { file: join(npm, 'qwen.cmd'), runs: script, usable: true },
+    { file: join(npm, 'qwen.ps1'), runs: null, usable: false },
   ]);
 });
 
@@ -262,4 +262,23 @@ test('Codex installed long ago beside the copy an app keeps up to date: the late
   assert.equal(detectAgentInstallation('codex', { ...opts, codexVersionOf: versions({ [onPath]: '0.170.0', [inApp]: '0.163.0' }) }).cli, onPath, 'the one on the PATH is the later');
   assert.equal(detectAgentInstallation('codex', { ...opts, codexVersionOf: versions({ [inApp]: '0.163.0' }) }).cli, onPath, 'one whose version can\'t be told stays');
   assert.equal(detectAgentInstallation('codex', { ...opts, chosen: onPath, codexVersionOf: versions({ [onPath]: '0.1.0', [inApp]: '0.163.0' }) }).cli, onPath, 'the one chosen, whatever its version');
+});
+
+test("Cursor installed as `agent` alone is found; another program called `agent` is not taken for it", () => {
+  if (process.platform === 'win32') return;
+  const home = mkdtempSync(join(tmpdir(), 'of-home-'));
+  const exe = (file) => { mkdirSync(join(file, '..'), { recursive: true }); writeFileSync(file, '', { mode: 0o755 }); return file; };
+  /* some other tool's `agent` */
+  const other = join(home, 'other-bin');
+  exe(join(other, 'agent'));
+  assert.equal(detectAgentInstallation('cursor', { home, env: { PATH: '' }, pathDirs: [other] }).cli, null);
+  /* Cursor's installer: its own folder, linked as `agent` (the legacy `cursor-agent` link gone) */
+  const real = exe(join(home, '.local/share/cursor-agent/versions/2026.10.16-e3cb207/cursor-agent'));
+  const bin = join(home, '.local/bin');
+  mkdirSync(bin, { recursive: true });
+  symlinkSync(real, join(bin, 'agent'));
+  assert.equal(detectAgentInstallation('cursor', { home, env: { PATH: '' }, pathDirs: [other, bin] }).cli, join(bin, 'agent'));
+  /* both links, as the installer makes them now: `cursor-agent` first */
+  symlinkSync(real, join(bin, 'cursor-agent'));
+  assert.equal(detectAgentInstallation('cursor', { home, env: { PATH: '' }, pathDirs: [bin] }).cli, join(bin, 'cursor-agent'));
 });

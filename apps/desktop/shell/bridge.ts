@@ -27,7 +27,6 @@ interface Native {
   /* the window's tabs (src/tabs.mjs) */
   tabs: NonNullable<StudioHost['tabs']>;
   localAgents: Record<string, unknown>;
-  importFile(request: { projectId: string; path: string; name: string }): Promise<{ ok: true; path: string; folder?: boolean } | { ok: false; error: string }>;
   chat: Record<string, (...args: never[]) => Promise<unknown>>;
   /* the composer's Skills button (src/skills-ipc.mjs) */
   skills: Record<string, (...args: never[]) => Promise<unknown>>;
@@ -36,6 +35,7 @@ interface Native {
   setTheme(theme: Theme): void;
   onFullScreen(listener: Listener<boolean>): Stop;
   onToggleChat(listener: Listener<void>): Stop;
+  onOpenSettings(listener: Listener<void>): Stop;
   onStudioBrowser(listener: Listener<unknown>): Stop;
   onFfmpeg(listener: Listener<unknown>): Stop;
   onUpdate(listener: Listener<unknown>): Stop;
@@ -130,32 +130,26 @@ theme.on((next) => native.setTheme(next));
 /* ── the project Studio shows (its address, /projects/<id>) ── */
 const project = signal<Project | null>(null);
 let projectReady: Promise<void> = Promise.resolve();
-let projectRequest = 0, projectReceived = 0;
+let projectRequest = 0;
 const projectId = () => /^\/projects\/([\w-]+)/.exec(location.pathname)?.[1] ?? null;
-function projectChanged(next: Project, request = ++projectRequest) {
-  if (next.id !== projectId() || request < projectReceived) return;
-  projectReceived = request;
+function projectChanged(next: Project, request?: number) {
+  if (next.id !== projectId()) return;
+  if (request === undefined) projectRequest += 1;
+  else if (request !== projectRequest) return;
   const current = project.get();
   if (current?.id === next.id && current.name === next.name && current.path === next.path) return;
   project.set({ id: next.id, name: next.name, path: next.path });
 }
-/** A read begun before a rename must not restore the project's old folder. */
-function projectRead() {
-  const request = ++projectRequest;
-  return (next: Project) => projectChanged(next, request);
-}
 async function follow() {
-  /* A response from a previous visit must not win after leaving and returning to the same project. */
-  projectReceived = ++projectRequest;
+  /* Reads from before a rename or a previous visit cannot restore an old folder. */
+  const request = ++projectRequest;
   const id = projectId();
-  if (!id) { project.set(null); return; }
-  if (id === project.get()?.id) return;
-  const receive = projectRead();
+  if (!id) return; // Keep the chat mounted while the project list covers it.
   try {
     const res = await fetch('/api/projects');
     const body = await res.json() as { projects?: Project[] };
     const found = body.projects?.find((p) => p.id === id);
-    if (found) receive(found);
+    if (found) projectChanged(found, request);
   } catch { /* told next time the address changes */ }
 }
 for (const method of ['pushState', 'replaceState'] as const) {
@@ -272,7 +266,6 @@ const host: StudioHost = {
   version: 1,
   name: 'OpenFilm',
   projectChanged,
-  projectRead,
   ...(mac ? { titlebar: { inset: INSET, onChange: (listener: Listener<number>) => { fullScreen.on((full) => listener(full ? 6 : INSET)); } } } : {}),
   ...(windows ? { titlebar: { inset: 6, insetRight: INSET_RIGHT } } : {}),
   /* in order, each with its picture: two pointed at quickly must not swap or share a screenshot */
@@ -283,6 +276,7 @@ const host: StudioHost = {
   onSelection: (next) => selection.set(next),
   onHover: (ref) => hover.set(ref ?? null),
   onCommand: (listener) => { command = listener; },
+  settings: { onOpen: (listener) => native.onOpenSettings(listener) },
   /* read live: Studio may read the panel before or after the kept layout arrives */
   panel: {
     label: 'Chat',
@@ -337,7 +331,6 @@ function commandFor(ref: StudioRef): StudioCommand {
     case 'example': return { type: 'show-examples', open: { kind: 'example', id: ref.id } };
   }
 }
-const uploadName = (name: string) => name.split(/[\\/]/).pop()!.replace(/[\u0000-\u001f]+/g, '').slice(0, 200) || 'file';
 
 (window as unknown as { openfilmDesktop: unknown }).openfilmDesktop = {
   bridgeVersion: '1',
@@ -394,19 +387,6 @@ const uploadName = (name: string) => name.split(/[\\/]/).pop()!.replace(/[\u0000
     const id = project.get()?.id;
     if (!id) return { files: [] };
     try { return await (await fetch(`/api/projects/${encodeURIComponent(id)}/files`)).json(); } catch { return { files: [] }; }
-  },
-  /* a file brought into the chat goes into the project (assets/upload/), through Studio's own import: a file on the
-     disk by its path (the app reads it), one with no path (pasted) by its bytes */
-  async importFile(file: { path: string; name: string } | { bytes: ArrayBuffer; name: string }) {
-    const id = project.get()?.id;
-    if (!id) return { ok: false, error: 'No project is open.' };
-    const name = uploadName(file.name);
-    if ('path' in file) return native.importFile({ projectId: id, path: file.path, name });
-    try {
-      const res = await fetch(`/api/projects/${encodeURIComponent(id)}/files?path=${encodeURIComponent(`assets/upload/${name}`)}`, { method: 'PUT', body: file.bytes });
-      const answer = await res.json().catch(() => ({})) as { path?: string; error?: string };
-      return res.ok ? { ok: true, path: answer.path } : { ok: false, error: answer.error ?? `Studio answered ${res.status}` };
-    } catch (error) { return { ok: false, error: (error as Error).message }; }
   },
   setChatWidth: (width: number, done?: boolean) => setChatWidth(width, done === true),
   setChatOpen,

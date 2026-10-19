@@ -17,6 +17,9 @@ export const ja: Words = {
   },
   act: {
     waitingForYou: 'あなたの返答を待っています',
+    /* the app's own agent, after two minutes with nothing from the model (some think for minutes first) */
+    waitingForModel: 'モデルの応答を待っています',
+    waitingForModelHint: 'モデルによっては、答え始めるまで長く考えることがあります。待たない場合は停止してください。',
     asset: {
       genImage: '画像を作成中',
       genVideo: 'ビデオを作成中',
@@ -137,16 +140,23 @@ export const ja: Words = {
     agentSetUp: '設定',
     agentWaiting: 'サインイン中…',
     effort: '思考レベル',
-    folder: 'フォルダ',
+    filesFailed: '{names} を追加できませんでした：{error} 削除してから送信してください。',
+    filesPending: 'ファイルを追加しています。',
     model: 'モデル',
+    /* the one value of a model or an effort the agent offers no choice of */
+    optionDefault: 'デフォルト',
     openAttachment: '{name} を表示',
+    revealFolder: '{name} をフォルダに表示',
     openSettings: '設定を開く',
     queued: '待機中 — このターンが終わると送信されます。',
     queuedCancel: '送信しない',
+    copyDiagnostics: '診断レポートをコピー',
+    copyDiagnosticsHint: 'このコンピュータで OpenFilm が見つけた状況と最近の問題。issue に貼り付けられます',
+    diagnosticsCopied: 'コピーしました',
     removeFile: 'ファイルを削除',
     removeImage: '画像を削除',
     speed: '速度',
-    thumbOnly: 'メッセージにはサムネイルだけが残ります。元のファイルはエージェントに送られ、プロジェクトの素材に保存されています。',
+    thumbOnly: 'メッセージにはサムネイルだけが残ります。元のファイルは元の場所にあります。貼り付けたものはプロジェクトに保存されています。',
   },
   library: {
     removeReference: '参照を削除',

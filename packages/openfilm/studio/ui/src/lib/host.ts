@@ -18,12 +18,12 @@ export interface HostProject { id: string; name: string; path: string }
 export interface StudioHost {
   /** the version of this interface the app speaks */
   version: 1;
+  /** The native Settings menu asks the current page to open General, including the launcher. */
+  settings?: { onOpen: (listener: () => void) => () => void };
   /** the app's name, for the person */
   name?: string;
-  /** A successful rename: the chat keeps its project identity but uses the new name and folder immediately. */
+  /** A successful rename, here or in another page: the chat keeps its identity but uses the new name and folder. */
   projectChanged?: (project: HostProject) => void;
-  /** Begin reading a project, returning a receiver that ignores a response older than a rename or navigation. */
-  projectRead?: () => (project: HostProject) => void;
   /**
    * The window has no title bar of its own: Studio's top bar is where the window is dragged, and `inset` pixels at its
    * left (macOS) and `insetRight` at its right (Windows) are left free for the window's controls. `onChange` tells of a
@@ -97,6 +97,8 @@ export interface StudioHost {
     locate?: (id: HostAgentId, words?: { title?: string; button?: string }) => Promise<{ ok: boolean; error?: string; code?: 'not-a-program' | 'did-not-start' | string }>;
     useAutomatic?: (id: HostAgentId) => Promise<unknown>;
     diagnose?: (id: HostAgentId) => Promise<HostAgentDiagnosis | null>;
+    /** The app's part of Settings → Developer's diagnostic report: the app, and each agent's program, version and state, as text. */
+    report?: () => Promise<string>;
     /**
      * One of the person's own models set up (no `id`) or changed: checked before it is kept. A key left empty keeps its
      * own, or takes the one of another model on the same address.
@@ -149,7 +151,8 @@ export interface StudioHost {
    * its top bar (where the projects button and the title are otherwise), with a `+` that opens the projects window to
    * pick the project a new tab shows (`open`; one open already is shown). With no tab open the page is at `/`, and
    * Studio shows the projects there. `list` gives the tabs and which is this page's (`self`); `onChange` every change.
-   * A page `report`s what it shows (its title, an export's progress, its project gone: its tab closes). Studio's
+   * A page `report`s what it shows (its title, an export's progress, its project gone: its tab closes), and `retitle`s
+   * another tab whose project it renamed. Studio's
    * "open this project" (heard by every page) goes to `openRequest`, which the app settles once; `onPick` is the app
    * asking for the projects window (a new tab from its menu).
    */
@@ -162,6 +165,8 @@ export interface StudioHost {
     open: (projectId: string) => void;
     move: (id: string, index: number) => void;
     report: (state: { title?: string; exporting?: number | null; gone?: boolean }) => void;
+    /** another tab's title, its project renamed from this page's tabs (its page may be gone, and cannot say it) */
+    retitle?: (id: string, title: string) => Promise<unknown>;
     openRequest: (to: string) => void;
     onPick: (listener: () => void) => () => void;
   };
@@ -200,7 +205,7 @@ export interface HostUpdateState {
 /** An update of the app, ready to install or installing; `waiting`: why the last Restart did not go ahead. */
 export type HostUpdate = { status: 'ready' | 'installing'; version: string; waiting?: 'agent-busy' | 'exporting' | 'install-failed' | null };
 
-export type HostAgentId = 'codex' | 'claude' | 'gemini' | 'copilot' | 'cursor' | 'opencode' | 'codebuddy' | 'qwen' | 'kimi' | 'minimax' | 'byok';
+export type HostAgentId = 'codex' | 'claude' | 'copilot' | 'cursor' | 'opencode' | 'codebuddy' | 'qwen' | 'kimi' | 'minimax' | 'byok';
 /**
  * What was searched for an agent (`agents.diagnose`): the report to copy, the program's name, where it was found, and
  * when it was not, why: chosen-missing (the program chosen is gone) · wsl (only inside WSL, which the app cannot use) ·
@@ -238,12 +243,13 @@ export interface HostAgent {
 
 /**
  * One of the person's own models: its `id` (the app's), the `name` the chat's menu shows, its service (API `format`
- * and `baseUrl`), the `model` asked for there, its efforts, and the last four characters of its key.
+ * and `baseUrl`), the `model` asked for there, its efforts, its `context` length in tokens (none: 128K), and the last
+ * four characters of its key.
  */
-export interface HostOwnModel extends HostByokEffort { id: string; name: string; format: HostByokFormat; baseUrl: string; model: string; last4: string }
+export interface HostOwnModel extends HostByokEffort { id: string; name: string; format: HostByokFormat; baseUrl: string; model: string; context?: number; last4: string }
 
-/** What setting up one of the person's own models sends: `id` to change one, no `key` to keep its key. */
-export interface HostOwnModelConfig { id?: string; name?: string; format: HostByokFormat; baseUrl: string; model: string; key?: string; levels: HostByokEffortLevel[]; effort: HostByokEffortLevel }
+/** What setting up one of the person's own models sends: `id` to change one, no `key` to keep its key, no `context` for 128K. */
+export interface HostOwnModelConfig { id?: string; name?: string; format: HostByokFormat; baseUrl: string; model: string; key?: string; levels: HostByokEffortLevel[]; effort: HostByokEffortLevel; context?: number }
 
 /**
  * The reasoning efforts a model of the person's own key offers, in this order (`auto`: none is sent, the service decides),

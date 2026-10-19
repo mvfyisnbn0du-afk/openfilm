@@ -45,17 +45,16 @@
  * into `.film/logs/<turn>.model.jsonl`, as the app's own agent writes its own.
  */
 import { randomUUID } from 'node:crypto';
-import { homedir } from 'node:os';
+import { join } from 'node:path';
+import { recordProblem, problemsFile } from 'openfilm/problems';
 import { LOG_SETTLE_MS } from './agent-logs.mjs';
 import { RECORDED_AGENTS, agentRecordCalls, compactCalls } from './agent-records.mjs';
 import { skillStore } from './agent-skills.mjs';
-import { AgentSession, HARNESS_AGENTS, isAgentId, isChatAgent, listAgents, openAgentSignIn } from './agents.mjs';
-import { loggedBlocks, openLog, writeModelLog } from './chat-store.mjs';
+import { AGENTS, AgentSession, HARNESS_AGENTS, isAgentId, isChatAgent, listAgents, openAgentSignIn, probeFolder } from './agents.mjs';
+import { loggedBlocks, logsDir, openLog, writeModelLog } from './chat-store.mjs';
 import { loginShellVariables } from './environment.mjs';
 
 const TURN_LOG_MAX = 5000;
-/** A background turn settles after the same quiet period as the chat's unprompted turns. */
-const ADOPTED_QUIET_MS = 30_000;
 /** what the agent sends between turns, kept for a turn of its own the page may open for it */
 const BETWEEN_TURNS_MAX = 500;
 /** a session nobody has spoken in for this long closes; how often that is looked at */
@@ -65,8 +64,8 @@ const IDLE_CHECK_MS = 60_000;
 const PROBE_COMMANDS_MS = 1500;
 /** how long after its turn a session whose skills changed closes: the page has settled the turn by then */
 const STALE_CLOSE_MS = 3000;
-/** the pictures one message may carry, and how big each (base64 of a JPEG at most 1280 px wide) */
-const PROMPT_IMAGES_MAX = 8;
+/** the pictures one message may carry (the page's PROMPT_PICTURES_MAX), and how big each (base64, at most 2000 px a side) */
+const PROMPT_IMAGES_MAX = 20;
 const PROMPT_IMAGE_MAX_CHARS = 8 * 1024 * 1024;
 const IMAGE_TYPES = new Set(['image/jpeg', 'image/png', 'image/webp']);
 
@@ -99,6 +98,33 @@ function imageBlocks(images) {
 }
 
 /**
+ * The error as the agent sent it (ACP's code, message and data), under any rewording on the way (errorCause,
+ * explainFailure), for the turn log; null when it sent none.
+ */
+export function sentError(e) {
+  let asSent = e;
+  while (asSent?.cause) asSent = asSent.cause;
+  return typeof asSent?.code === 'number' ? { code: asSent.code, message: asSent.message, data: asSent.data ?? null } : null;
+}
+
+/**
+ * An agent that did not start, did not answer, or whose process ended by itself, as Studio's problems keep it
+ * (openfilm's problems.mjs): why, the step it stopped at, its program, the last of its stderr, and where its turn's log
+ * is.
+ * @param {{ agent: string, cwd: string, session?: any }} entry @param {string} step @param {any} e @param {string | null} [turnId]
+ */
+export function agentProblem(entry, step, e, turnId = null) {
+  const failure = entry.session?.failure?.() ?? {};
+  const stderr = String(failure.stderr ?? entry.session?.stderr ?? '').trim().split(/\r?\n/).slice(-5).join('\n');
+  return {
+    area: 'agent', agent: AGENTS[entry.agent]?.label ?? (entry.agent === 'byok' ? 'Own key' : entry.agent), agentId: entry.agent,
+    what: e instanceof Error ? e.message : String(e), step: failure.step ?? e?.step ?? step, ...(e?.code != null ? { code: String(e.code) } : {}),
+    project: entry.cwd, ...(turnId ? { log: join(logsDir(entry.cwd), `${turnId.replace(/:/g, '-')}.jsonl`) } : {}),
+    ...(failure.program ? { program: failure.program } : {}), ...(stderr ? { stderr } : {}), ...(failure.ownLogs ? { ownLogs: failure.ownLogs } : {}),
+  };
+}
+
+/**
  * @param {import('electron').IpcMain} ipcMain
  * `harness(id)` gives the app's own agent ('byok') what it runs with (agent-roster.mjs), resolved as
  * each session starts.
@@ -114,47 +140,26 @@ function imageBlocks(images) {
 export function registerLocalAgentIpc(ipcMain, { trusted, binDir = null, fallbackDir = null, env = {}, harness = async () => null, log = () => {}, onWorking = () => {}, onAsking = () => {}, logDir = () => null, skills = null }) {
   const harnessFor = async (agent) => (HARNESS_AGENTS.includes(agent) ? harness(agent) : undefined);
   const skillRecord = skills ? skillStore(skills.dataDir) : null;
+  /* what went wrong, kept in Studio's home with Studio's own problems (openfilm's problems.mjs), for its report */
+  const problems = env.OPENFILM_HOME ? problemsFile(env.OPENFILM_HOME) : undefined;
+  const noteProblem = (entry, step, e, turnId = null) => recordProblem(agentProblem(entry, step, e, turnId), { file: problems });
   /** a session's skills and MCP servers: OpenFilm's, and of the person's own those let in (agent-skills.mjs) */
   const skillsFor = (agent) => (skills && skillRecord ? { ...skills, allowed: skillRecord.allowed(agent), mcpAllowed: skillRecord.mcpAllowed(agent) } : null);
   /** @type {Map<string, { session: AgentSession, sender: import('electron').WebContents, pending: Map<string, (answer: any) => void>, agent: string, cwd: string, turn: any }>} */
   const sessions = new Map();
   let activePrompts = 0;
-  /* A finished prompt still belongs to its folder until the page drains its last updates and acknowledges it. */
-  const isWorking = (entry) => entry.running > 0 || Boolean(entry.turn) || Boolean(entry.adoptedBusy) || entry.pending.size > 0;
-  const working = () => [...new Set([...sessions.values()].filter(isWorking).map((entry) => entry.cwd))];
+  /** the folders a turn is running in now: what a project cannot be deleted from under */
+  const working = () => [...new Set([...sessions.values()].filter((entry) => entry.running > 0).map((entry) => entry.cwd))];
   /** the folders where an agent waits for the person's answer (a permission, a question): told on each change */
-  const tellAsking = () => {
-    onAsking([...new Set([...sessions.values()].filter((entry) => entry.pending.size > 0).map((entry) => entry.cwd))]);
-    onWorking(working());
-  };
+  const tellAsking = () => onAsking([...new Set([...sessions.values()].filter((entry) => entry.pending.size > 0).map((entry) => entry.cwd))]);
   const handle = (channel, fn) => ipcMain.handle(channel, (event, opts) => {
     if (!trusted(event)) throw new Error('not the chat');
     return fn(event, opts);
   });
-  const closeWhenRested = (entry) => {
-    setTimeout(() => {
-      if (sessions.get(entry.key) === entry && !isWorking(entry)) close(entry.key);
-    }, STALE_CLOSE_MS).unref?.();
-  };
-  const adoptedRested = (entry) => {
-    clearTimeout(entry.adoptedTimer);
-    entry.adoptedTimer = null;
-    if (entry.adoptedBusy) { entry.adoptedBusy = false; onWorking(working()); }
-    if (entry.stale) closeWhenRested(entry);
-  };
-  const adoptedWorking = (entry) => {
-    clearTimeout(entry.adoptedTimer);
-    entry.adoptedTimer = setTimeout(() => adoptedRested(entry), ADOPTED_QUIET_MS);
-    entry.adoptedTimer.unref?.();
-    if (!entry.adoptedBusy) { entry.adoptedBusy = true; onWorking(working()); }
-  };
 
   const send = (entry, key, payload) => {
     /* anything it says counts as use: a session working on its own is not idle */
     entry.lastUsed = Date.now();
-    /* The same first updates as the chat's opensUnprompted: usage/settings and late tool output are not new work. */
-    if (!entry.turn && (entry.adoptedBusy || (payload.kind === 'update'
-      && ['agent_message_chunk', 'agent_thought_chunk', 'tool_call', 'plan'].includes(payload.update?.sessionUpdate)))) adoptedWorking(entry);
     if (entry.turn && !entry.turn.done) { const { kind, ...fields } = payload; entry.turn.file.write(kind, fields); }
     else if (entry.adopted) { const { kind, ...fields } = payload; entry.adopted.write(kind, fields); }
     else {
@@ -174,12 +179,10 @@ export function registerLocalAgentIpc(ipcMain, { trusted, binDir = null, fallbac
   const close = (key) => {
     const entry = sessions.get(key);
     if (!entry) return;
-    const wasWorking = isWorking(entry);
     for (const answer of entry.pending.values()) answer(null);
     entry.session.close();
-    clearTimeout(entry.adoptedTimer);
     sessions.delete(key);
-    if (wasWorking) onWorking(working());
+    if (entry.running > 0) onWorking(working());
   };
 
   handle('desktop:local-agents:list', () => listAgents());
@@ -207,7 +210,7 @@ export function registerLocalAgentIpc(ipcMain, { trusted, binDir = null, fallbac
       let commands = null;
       let said = () => {};
       const heard = new Promise((done) => { said = done; });
-      session = new AgentSession({ agent, cwd: homedir(), binDir, fallbackDir, env, harness: await harnessFor(agent),
+      session = new AgentSession({ agent, cwd: probeFolder(), binDir, fallbackDir, env, harness: await harnessFor(agent),
         onUpdate: (update) => { if (update?.sessionUpdate === 'available_commands_update') { commands = update.availableCommands ?? null; said(); } } });
       const info = await session.start();
       await Promise.race([heard, new Promise((done) => setTimeout(done, PROBE_COMMANDS_MS))]);
@@ -226,6 +229,8 @@ export function registerLocalAgentIpc(ipcMain, { trusted, binDir = null, fallbac
     const agent = opts?.agent;
     const cwd = opts?.cwd;
     const resume = typeof opts?.resume === 'string' && opts.resume ? opts.resume : null;
+    /* the turn it starts for: a start that fails is written in that turn's log, as a prompt that fails is */
+    const meta = opts?.meta && typeof opts.meta === 'object' ? opts.meta : null;
     if (!isChatAgent(agent)) return { ok: false, error: `Unknown agent: ${String(agent)}` };
     if (typeof cwd !== 'string' || !cwd) return { ok: false, error: 'Missing project folder.' };
     /* the conversation still open here (the page was reloaded): taken up as it is, no second process */
@@ -236,7 +241,7 @@ export function registerLocalAgentIpc(ipcMain, { trusted, binDir = null, fallbac
     }
     const key = randomUUID();
     const pending = new Map();
-    const entry = { key, sender: event.sender, pending, session: null, agent, cwd, turn: null, lastUsed: Date.now() };
+    const entry = { sender: event.sender, pending, session: null, agent, cwd, turn: null, lastUsed: Date.now() };
     try {
       entry.session = new AgentSession({
         agent,
@@ -251,17 +256,23 @@ export function registerLocalAgentIpc(ipcMain, { trusted, binDir = null, fallbac
         onUpdate: (update) => send(entry, key, { kind: 'update', update }),
         onPermission: (params) => new Promise((resolve) => {
           const requestId = randomUUID();
-          pending.set(requestId, (optionId) => { if (!entry.turn) adoptedWorking(entry); pending.delete(requestId); tellAsking(); resolve(optionId); });
+          pending.set(requestId, (optionId) => { pending.delete(requestId); tellAsking(); resolve(optionId); });
           send(entry, key, { kind: 'permission', requestId, params });
           tellAsking();
         }),
         onQuestion: (ask) => new Promise((resolve) => {
           const requestId = randomUUID();
-          pending.set(requestId, (answers) => { if (!entry.turn) adoptedWorking(entry); pending.delete(requestId); tellAsking(); resolve(answers); });
+          pending.set(requestId, (answers) => { pending.delete(requestId); tellAsking(); resolve(answers); });
           send(entry, key, { kind: 'question', requestId, ...ask });
           tellAsking();
         }),
-        onExit: (info) => { send(entry, key, { kind: 'exit', ...info }); const wasWorking = isWorking(entry); clearTimeout(entry.adoptedTimer); sessions.delete(key); if (wasWorking) onWorking(working()); },
+        onExit: (info) => {
+          /* ended by itself (not closed here), and not well: a problem */
+          if (sessions.get(key) === entry && info.code) noteProblem(entry, 'exit', new Error(`${AGENTS[agent]?.label ?? agent}'s process ended with code ${info.code}.`), entry.turn && !entry.turn.done ? entry.turn.meta?.turnId : null);
+          send(entry, key, { kind: 'exit', ...info });
+          sessions.delete(key);
+          if (entry.running > 0) onWorking(working());
+        },
         onSend: (sent) => {
           const file = entry.turn && !entry.turn.done ? entry.turn.file : entry.adopted;
           file?.write('sent', { ...sent, prompt: loggedBlocks(cwd, sent.prompt) });
@@ -273,8 +284,17 @@ export function registerLocalAgentIpc(ipcMain, { trusted, binDir = null, fallbac
       entry.info = info;
       return { ok: true, key, info: { ...info, authMethods: [], mcp: false } };
     } catch (e) {
+      const result = { ok: false, error: e instanceof Error ? e.message : String(e), ...(e?.code ? { code: String(e.code) } : {}) };
+      if (meta?.turnId) {
+        const raw = sentError(e);
+        const file = openLog(cwd, meta.turnId, (err) => log(`turn log ${meta.turnId}: ${err.message}\n`));
+        file?.write('start', { ...result, agent, cwd, resume, meta, ...(raw ? { raw } : {}), ...entry.session?.failure?.() });
+        file?.end();
+      }
+      /* one not installed, or not set up, is not a problem of the app's: the chat says what to do */
+      if (e?.code !== 'not-installed' && e?.code !== 'not-ready') noteProblem(entry, 'start', e, meta?.turnId ?? null);
       close(key);
-      return { ok: false, error: e instanceof Error ? e.message : String(e), ...(e?.code ? { code: String(e.code) } : {}) };
+      return result;
     }
   });
 
@@ -296,14 +316,17 @@ export function registerLocalAgentIpc(ipcMain, { trusted, binDir = null, fallbac
     const from = Date.now();
     activePrompts++;
     entry.running = (entry.running ?? 0) + 1;
-    adoptedRested(entry);
     onWorking(working());
     let result;
+    /* the error as the agent sent it (ACP's code, message and data), for the turn log */
+    let raw = null;
     try {
       result = { ok: true, stopReason: await entry.session.prompt([{ type: 'text', text }, ...images], { turnId: meta?.turnId }) };
     } catch (e) {
       /* `balance`: the service the app's own agent runs on has no balance left (agents.mjs), and where to top it up */
       result = { ok: false, error: e instanceof Error ? e.message : String(e), ...(e?.balance ? { balance: e.balance } : {}) };
+      raw = sentError(e);
+      if (!e?.balance) noteProblem(entry, 'prompt', e, meta?.turnId ?? null);
     } finally {
       activePrompts--;
       entry.running -= 1;
@@ -311,13 +334,14 @@ export function registerLocalAgentIpc(ipcMain, { trusted, binDir = null, fallbac
     }
     entry.lastUsed = Date.now();
     if (turn) {
-      /* a turn that failed: what the agent's process last wrote to stderr says why */
-      turn.file.write('done', result.ok ? result : { ...result, stderr: String(entry.session?.stderr ?? '').slice(-8000) });
+      /* a turn that failed: the error as the agent sent it, the step it stopped at, its program and what its process
+         last wrote to stderr say why */
+      turn.file.write('done', result.ok ? result : { ...result, ...(raw ? { raw } : {}), ...entry.session?.failure?.() });
       turn.file.end();
       turn.done = result;
       entry.turnEnded = Date.now();
       /* its skills changed while it worked: closed now its turn is over (refreshSkills) */
-      if (entry.stale) closeWhenRested(entry);
+      if (entry.stale) setTimeout(() => { if (sessions.get(key) === entry && !(entry.running > 0)) close(key); }, STALE_CLOSE_MS);
       void keepAgentRecord({ agent: entry.agent, sessionId: entry.info?.sessionId, cwd: entry.cwd, turnId: meta.turnId, from, to: entry.turnEnded, agentLog: entry.session.opened?.log, log });
       /* the page that asked may be gone (reloaded): say it on the channel too */
       if (!entry.sender.isDestroyed()) entry.sender.send('desktop:local-agents:event', { key, kind: 'done', turnId: meta.turnId, ...result });
@@ -332,11 +356,7 @@ export function registerLocalAgentIpc(ipcMain, { trusted, binDir = null, fallbac
 
   handle('desktop:local-agents:ack', (_event, opts) => {
     const entry = sessions.get(opts?.key);
-    if (entry?.turn && entry.turn.done && entry.turn.meta?.turnId === opts?.turnId) {
-      entry.turn = null;
-      onWorking(working());
-      if (entry.stale) closeWhenRested(entry);
-    }
+    if (entry?.turn && entry.turn.done && entry.turn.meta?.turnId === opts?.turnId) entry.turn = null;
     return { ok: true };
   });
 
@@ -372,8 +392,7 @@ export function registerLocalAgentIpc(ipcMain, { trusted, binDir = null, fallbac
       const meta = opts?.meta && typeof opts.meta === 'object' ? opts.meta : null;
       entry.adopted.write('prompt', { agent: entry.agent, cwd: entry.cwd, session: entry.info ?? null, opened: entry.session?.opened ?? null, meta, unprompted: true, text: '' });
       for (const { kind, ...fields } of entry.between ?? []) entry.adopted.write(kind, fields);
-      adoptedWorking(entry);
-    } else adoptedRested(entry);
+    }
     entry.between = [];
     return { ok: true };
   });
@@ -418,13 +437,13 @@ export function registerLocalAgentIpc(ipcMain, { trusted, binDir = null, fallbac
   const idle = setInterval(() => {
     const now = Date.now();
     for (const [key, entry] of [...sessions]) {
-      if (!isWorking(entry) && entry.pending.size === 0 && now - (entry.lastUsed ?? 0) > IDLE_MS) close(key);
+      if (!(entry.running > 0) && !entry.turn && entry.pending.size === 0 && now - (entry.lastUsed ?? 0) > IDLE_MS) close(key);
     }
   }, IDLE_CHECK_MS);
   idle.unref?.();
 
   return {
-    isBusy: () => activePrompts > 0 || [...sessions.values()].some(isWorking),
+    isBusy: () => activePrompts > 0,
     working,
     closeAll: () => [...sessions.keys()].forEach(close),
     /** an agent disconnected in Settings: its sessions close */
@@ -436,7 +455,7 @@ export function registerLocalAgentIpc(ipcMain, { trusted, binDir = null, fallbac
     refreshSkills: (agent) => {
       for (const [key, entry] of [...sessions]) {
         if (entry.agent !== agent) continue;
-        if (isWorking(entry)) entry.stale = true; else close(key);
+        if (entry.running > 0) entry.stale = true; else close(key);
       }
     },
   };

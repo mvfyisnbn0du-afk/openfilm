@@ -94,6 +94,32 @@ test('a model changed keeps its place, its id and, given none, its key; one remo
   assert.equal(closed.filter((id) => id === 'byok').length, 5, 'its sessions closed on each change: they run on the models set up');
 });
 
+test("a model's context length is kept when it holds (32K to 10M tokens), and dropped quietly when not: 128K then", async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'of-roster-'));
+  const r = roster(dir, async () => new Response('{}', { status: 200 }));
+  const big = await r.saveOwnModel({ format: 'responses', model: 'big', key: 'sk-a', context: 1_000_000 });
+  const odd = await r.saveOwnModel({ format: 'responses', model: 'odd', context: 1_000 });
+  const plain = await r.saveOwnModel({ format: 'responses', model: 'plain' });
+  assert.deepEqual(readChoices(dir).byok.models.map((m) => [m.model, m.context]), [['big', 1_000_000], ['odd', undefined], ['plain', undefined]]);
+  assert.equal(Object.hasOwn(readChoices(dir).byok.models[1], 'context'), false, 'none kept, not a null');
+  assert.deepEqual(r.harness('byok').models.map((m) => m.context), [1_000_000, undefined, undefined], 'the agent runs with it');
+  assert.equal(r.list().find((a) => a.id === 'byok').byok.models[0].context, 1_000_000, 'Settings shows it');
+  /* changed without one: back to none */
+  await r.saveOwnModel({ id: big.id, format: 'responses', model: 'big' });
+  assert.equal(readChoices(dir).byok.models[0].context, undefined);
+  assert.ok(odd.ok && plain.ok);
+
+  /* as read: a whole number in bounds is kept, anything else dropped */
+  const kept = (context) => {
+    writeFileSync(join(dir, 'agents.json'), JSON.stringify({ byok: { models: [{ id: 'a', format: 'chat', baseUrl: 'https://x.test/v1', model: 'm', context }] } }));
+    return readChoices(dir).byok.models[0].context;
+  };
+  assert.equal(kept(32_000), 32_000);
+  assert.equal(kept(10_000_000), 10_000_000);
+  assert.equal(kept(200_000), 200_000);
+  for (const bad of [31_999, 4_000, 10_000_001, 128_000.5, '200000', -1, 0, null, true, {}]) assert.equal(kept(bad), undefined, `${JSON.stringify(bad)} dropped`);
+});
+
 test('one service with several models, kept before each model was set up on its own, is those models on it, on its key', async () => {
   const dir = mkdtempSync(join(tmpdir(), 'of-roster-'));
   writeFileSync(join(dir, 'agents.json'), JSON.stringify({ byok: { format: 'chat', baseUrl: 'https://api.deepseek.com/v1', model: 'a', models: ['a', 'b'],
@@ -116,15 +142,15 @@ test('one service with several models, kept before each model was set up on its 
 test("Codex and Claude Code are shown in the chat from the start, the person's other agents once connected or switched on", async () => {
   const dir = mkdtempSync(join(tmpdir(), 'of-roster-'));
   const found = (id, cli) => ({ id, cli, signedIn: true, install: 'https://example.test', setupRequired: null });
-  const r = roster(dir, undefined, { localAgents: async () => [found('codex', null), found('claude', null), found('gemini', { path: '/bin/gemini' }), found('kimi', null)] });
+  const r = roster(dir, undefined, { localAgents: async () => [found('codex', null), found('claude', null), found('qwen', { path: '/bin/qwen' }), found('kimi', null)] });
   const list = await r.refresh();
   const of = (id) => list.find((a) => a.id === id);
   assert.equal(of('codex').shown, true, 'not installed, still shown');
-  assert.equal(of('gemini').status, 'ready');
-  assert.equal(of('gemini').shown, false, 'installed, not chosen yet');
+  assert.equal(of('qwen').status, 'ready');
+  assert.equal(of('qwen').shown, false, 'installed, not chosen yet');
   assert.equal(of('kimi').status, 'missing');
-  await r.connect('gemini');
-  assert.equal(r.list().find((a) => a.id === 'gemini').shown, true, 'connected: chosen');
+  await r.connect('qwen');
+  assert.equal(r.list().find((a) => a.id === 'qwen').shown, true, 'connected: chosen');
   r.setShown('kimi', true);
   assert.equal(readChoices(dir).shown.kimi, true);
 });
@@ -159,6 +185,16 @@ test('an agent not found can be pointed at: the program is tried first, kept, an
   assert.deepEqual(readChoices(dir).paths, {});
   assert.deepEqual(used.at(-1), {});
   assert.deepEqual(await r.locate('byok'), { ok: false, error: 'No agent byok' }, 'only the person\'s own programs');
+});
+
+test('choices about an agent the app no longer has are dropped quietly', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'of-roster-'));
+  writeFileSync(join(dir, 'agents.json'), JSON.stringify({ shown: { gemini: true, kimi: true }, paths: { gemini: '/bin/gemini' }, disconnected: ['gemini', 'claude'] }));
+  const choices = readChoices(dir);
+  assert.equal('gemini' in choices.shown, false);
+  assert.equal(choices.shown.kimi, true);
+  assert.deepEqual(choices.paths, {});
+  assert.deepEqual(choices.disconnected, ['claude']);
 });
 
 test('a kept path for something that is not one of the agents is dropped', () => {
@@ -207,4 +243,34 @@ test('Codex is connected from the start, Claude Code once the person connects it
   assert.deepEqual(readChoices(dir).disconnected, ['claude']);
   writeFileSync(join(dir, 'agents.json'), JSON.stringify({ disconnected: [] }));
   assert.deepEqual(readChoices(dir).disconnected, [], 'connected before: still connected');
+});
+
+test('a sign-in in Terminal is waited for asking only that agent, until it is signed in or the wait is over', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'of-roster-'));
+  const cursor = (signedIn) => ({ id: 'cursor', cli: { path: '/bin/cursor-agent' }, signedIn, install: null, setupRequired: null });
+  let signedIn = false;
+  let all = 0;
+  const asked = [];
+  const r = roster(dir, undefined, {
+    localAgents: async () => { all++; return [cursor(signedIn)]; },
+    localAgent: async (id) => { asked.push(id); return cursor(signedIn); },
+    signInWait: { ms: 2000, pollMs: 10 },
+  });
+  assert.deepEqual(await r.connect('cursor'), { ok: true });
+  await new Promise((done) => setTimeout(done, 50));
+  assert.equal(r.list().find((a) => a.id === 'cursor').status, 'waiting');
+  const before = all;
+  signedIn = true;
+  await new Promise((done) => setTimeout(done, 50));
+  assert.equal(r.list().find((a) => a.id === 'cursor').status, 'ready');
+  assert.ok(asked.length > 1 && asked.every((id) => id === 'cursor'));
+  assert.equal(all, before, 'the other agents are not asked while it waits');
+
+  /* a sign-in never finished: asked about until the wait is over, then it needs its sign-in again */
+  const late = roster(mkdtempSync(join(tmpdir(), 'of-roster-')), undefined, {
+    localAgents: async () => [cursor(false)], localAgent: async () => cursor(false), signInWait: { ms: 40, pollMs: 10 },
+  });
+  await late.connect('cursor');
+  await new Promise((done) => setTimeout(done, 120));
+  assert.equal(late.list().find((a) => a.id === 'cursor').status, 'sign-in');
 });

@@ -13,10 +13,11 @@ function loadSource(context, source) {
   vm.runInContext(js.replace(/^export /gm, '').replace(/^\{\s*\};?$/gm, ''), context);
 }
 function harness() {
-  const requests = [];
+  const requests = [], sockets = [], timers = [];
   const events = new Map();
   const element = () => ({ style: {}, dataset: {}, toggleAttribute() {} });
-  const location = { pathname: '/projects/a' };
+  const column = element();
+  const location = { pathname: '/projects/a', protocol: 'http:', host: 'localhost:4787' };
   const native = {
     platform: 'linux',
     hello: async () => ({ chatOpen: true, chatWidth: 420, chatMin: 340, studioMin: 640, fullScreen: false }),
@@ -27,8 +28,15 @@ function harness() {
     window: { openfilmNative: native },
     location,
     history: Object.fromEntries(['pushState', 'replaceState'].map((method) => [method, (_state, _title, url) => { location.pathname = url; }])),
-    document: { documentElement: element(), getElementById: element, createElement: element, head: { append() {} } },
+    document: { documentElement: element(), getElementById: () => column, createElement: element, head: { append() {} } },
     MutationObserver: class { observe() {} },
+    WebSocket: class {
+      constructor(url) { this.url = url; sockets.push(this); }
+      close() { this.closed = true; }
+      emit(event) { this.onmessage({ data: JSON.stringify(event) }); }
+    },
+    setTimeout: (fn) => { timers.push(fn); return timers.length; },
+    clearTimeout: (id) => { timers[id - 1] = null; },
     innerWidth: 1280,
     addEventListener: (name, listener) => events.set(name, listener),
     flushSync: (fn) => fn(),
@@ -40,10 +48,16 @@ function harness() {
   context.studioHost = context.window.openfilmHost;
   loadSource(context, apiSource);
   const api = vm.runInContext('api', context);
+  const projectEvents = vm.runInContext('projectEvents', context);
   const bridge = context.window.openfilmDesktop;
   const changed = [];
   bridge.onProject((project) => changed.push({ ...project }));
-  return { api, bridge, native, requests, changed, navigate: (path) => context.history.pushState(null, '', path) };
+  return {
+    api, bridge, native, requests, changed, sockets, column,
+    subscribe: (id = 'a', listener = () => {}) => projectEvents(id, listener),
+    reconnect: () => { sockets.at(-1).onclose(); timers.at(-1)(); sockets.at(-1).onopen(); },
+    navigate: (path) => context.history.pushState(null, '', path),
+  };
 }
 const project = (name = 'Untitled', id = 'a') => ({ id, name, path: `/projects/${name}`, openedAt: 1, missing: false });
 const shown = (p) => ({ id: p.id, name: p.name, path: p.path });
@@ -68,7 +82,7 @@ test('a confirmed rename updates the existing chat immediately, ahead of its pen
   assert.equal(h.bridge.chat, chat, 'the same chat bridge stays attached');
 });
 
-test('a film read begun before rename cannot restore the old folder; a later refresh updates it', async () => {
+test('film reads cannot restore an old folder after a confirmed rename', async () => {
   const h = harness();
   await opened(h);
   const oldFilm = h.api.film('a');
@@ -78,24 +92,43 @@ test('a film read begun before rename cannot restore the old folder; a later ref
   h.requests[1].respond({ project: project(), text: '' });
   await oldFilm;
   assert.deepEqual({ ...(await h.bridge.hello()).project }, shown(project('My film')));
-
-  const refreshed = h.api.film('a');
-  h.requests[3].respond({ project: project('Renamed elsewhere'), text: '' });
-  await refreshed;
-  assert.deepEqual({ ...(await h.bridge.hello()).project }, shown(project('Renamed elsewhere')));
-  assert.deepEqual(h.changed.map((p) => p.name), ['Untitled', 'My film', 'Renamed elsewhere']);
+  assert.deepEqual(h.changed.map((p) => p.name), ['Untitled', 'My film']);
 });
 
-test('the newest completed film read wins when replies arrive out of order', async () => {
+test('the shared project stream updates chat for a rename in another page', async () => {
   const h = harness();
   await opened(h);
-  const older = h.api.film('a');
-  const newer = h.api.film('a');
-  h.requests[2].respond({ project: project('Latest'), text: '' });
-  await newer;
-  h.requests[1].respond({ project: project('Older'), text: '' });
-  await older;
-  assert.deepEqual({ ...(await h.bridge.hello()).project }, shown(project('Latest')));
+  const received = [];
+  h.subscribe('a', (event) => received.push(event.type));
+  h.subscribe('a');
+  assert.equal(h.sockets.length, 1);
+  const renamed = project('Renamed elsewhere');
+  h.sockets[0].emit({ type: 'project', project: renamed });
+  h.sockets[0].emit({ type: 'film', rev: '' });
+  assert.deepEqual({ ...(await h.bridge.hello()).project }, shown(renamed));
+  assert.deepEqual(h.changed.map((p) => p.name), ['Untitled', 'Renamed elsewhere']);
+  assert.deepEqual(received, ['project', 'film']);
+  assert.equal(h.requests.length, 1, 'current project metadata needs no extra HTTP lookup');
+});
+
+test('the project snapshot on reconnect repairs a rename missed while disconnected', async () => {
+  const h = harness();
+  await opened(h);
+  const received = [];
+  h.subscribe('a', (event) => received.push(event.type));
+  h.reconnect();
+  assert.equal(h.sockets.length, 2);
+  h.sockets[1].emit({ type: 'project', project: project('Renamed while offline') });
+  assert.deepEqual({ ...(await h.bridge.hello()).project }, shown(project('Renamed while offline')));
+  assert.deepEqual(received, ['film', 'files', 'history', 'project']);
+});
+
+test('an initial project snapshot prevents an older list response from restoring the old folder', async () => {
+  const h = harness();
+  h.subscribe();
+  h.sockets[0].emit({ type: 'project', project: project('Current folder') });
+  h.requests[0].respond({ projects: [project()] });
+  assert.deepEqual({ ...(await h.bridge.hello()).project }, shown(project('Current folder')));
 });
 
 test('an earlier project-list response cannot replace the project reached by navigation', async () => {
@@ -109,32 +142,50 @@ test('an earlier project-list response cannot replace the project reached by nav
   assert.deepEqual({ ...(await h.bridge.hello()).project }, shown(project('Project B', 'b')));
 });
 
-test('rename and film replies for a previous project cannot replace the newly opened project', async () => {
+test('a previous project rename does not cancel the newly opened project lookup', async () => {
   const h = harness();
   await opened(h);
-  const oldFilm = h.api.film('a');
   const rename = h.api.rename('a', 'Renamed A');
+  h.subscribe('a');
   h.navigate('/projects/b');
-  h.requests[3].respond({ projects: [project('Project B', 'b')] });
-  await h.bridge.hello();
-  h.requests[2].respond({ project: project('Renamed A') });
-  h.requests[1].respond({ project: project(), text: '' });
-  await Promise.all([rename, oldFilm]);
+  h.requests[1].respond({ project: project('Renamed A') });
+  await rename;
+  h.sockets[0].emit({ type: 'project', project: project('Renamed A again') });
+  h.requests[2].respond({ projects: [project('Project B', 'b')] });
   assert.deepEqual({ ...(await h.bridge.hello()).project }, shown(project('Project B', 'b')));
 });
 
-test('leaving and returning to a project invalidates reads from the earlier visit', async () => {
+test('leaving keeps the chat mounted and returning invalidates reads from the earlier visit', async () => {
   const h = harness();
   await opened(h);
-  const oldFilm = h.api.film('a');
-  h.navigate('/');
-  assert.equal((await h.bridge.hello()).project, null);
+  const chat = h.bridge.chat;
   h.navigate('/projects/a');
-  h.requests[1].respond({ project: project('Earlier visit'), text: '' });
-  await oldFilm;
+  h.navigate('/');
+  assert.equal(h.column.hidden, true);
+  assert.deepEqual({ ...(await h.bridge.hello()).project }, shown(project()));
+  assert.equal(h.bridge.chat, chat);
+  assert.deepEqual(h.changed, [shown(project())], 'no null/reset project notification on leaving');
+  h.navigate('/projects/a');
+  assert.equal(h.column.hidden, false);
+  h.requests[1].respond({ projects: [project('Earlier visit')] });
   await tick();
   assert.deepEqual(h.changed.map((p) => p.name), ['Untitled']);
   h.requests[2].respond({ projects: [project('Current visit')] });
+  assert.deepEqual({ ...(await h.bridge.hello()).project }, shown(project('Current visit')));
+});
+
+test('late events from an unsubscribed project stream cannot overwrite its next visit', async () => {
+  const h = harness();
+  await opened(h);
+  const stop = h.subscribe();
+  stop();
+  assert.equal(h.sockets[0].closed, true);
+  h.navigate('/');
+  h.navigate('/projects/a');
+  h.subscribe();
+  h.sockets[1].emit({ type: 'project', project: project('Current visit') });
+  h.sockets[0].emit({ type: 'project', project: project('Previous visit') });
+  h.requests[1].respond({ projects: [project()] });
   assert.deepEqual({ ...(await h.bridge.hello()).project }, shown(project('Current visit')));
 });
 

@@ -2,9 +2,9 @@
  * Settings → Agents, inside an app that has a chat (lib/host.ts `agents`): the agents its chat can use, each connected
  * or not and shown in the chat's menu or not.
  *
- * Codex, Claude Code, Gemini CLI and the others are the person's own programs, on the account signed in on the
- * computer: connecting opens their own sign-in only when they are signed out (the app waits for it), disconnecting
- * only stops the app using them, and connecting again uses the account signed in then (switched in the agent itself).
+ * Codex, Claude Code and the others are the person's own programs, on the account signed in on the computer:
+ * connecting opens their own sign-in only when they are signed out (the app waits for it), disconnecting only stops
+ * the app using them, and connecting again uses the account signed in then (switched in the agent itself).
  * Claude Code's and Codex's rows say whose account it is, and Codex's what is left of its plan. Codex and Claude Code
  * are always listed under the person's agents, with the person's own key; the others there once switched on (connecting
  * one does), else under "More agents", with where to get them when they are not installed. The person's own key is on a service of theirs, with a model that reads pictures (the agent looks at its own frames).
@@ -20,6 +20,7 @@ import React from 'react';
 import { Check, Copy, Download, KeyRound, Loader2, Plus, X } from 'lucide-react';
 import { useLanguage, useT } from '@/i18n';
 import { BYOK_EFFORTS, studioHost, type HostAgent, type HostAgentDiagnosis, type HostAgentId, type HostAgentUsage, type HostByokEffort, type HostByokEffortLevel, type HostByokFormat, type HostOwnModel } from '@/lib/host';
+import { parseContextLength } from '@/lib/context-length';
 
 /** What is left of the plan: what Codex can say (the app's agent-usage.mjs; Claude Code's own report is wrong for Team accounts). */
 const PLAN_AGENTS: readonly HostAgentId[] = ['codex'];
@@ -27,6 +28,7 @@ import { ProviderMark } from './ProviderMark';
 import { agentMark } from '@/lib/provider-marks';
 import { SettingsSelect } from './SettingsSelect';
 import { SettingsButton, SettingsField, SettingsGroup, SettingsInset, SettingsItem, SettingsLinkButton, SettingsPage, SettingsStatus, SettingsSwitch, settingsError } from './ui';
+import { ReportLink } from './DiagnosticsGroup';
 
 function useHostAgents(): HostAgent[] | null {
   const [agents, setAgents] = React.useState<HostAgent[] | null>(null);
@@ -45,7 +47,7 @@ function useHostAgents(): HostAgent[] | null {
 }
 
 /** The person's own agents (the app's AGENTS), in the roster's order. */
-const OWN: readonly HostAgentId[] = ['codex', 'claude', 'gemini', 'copilot', 'cursor', 'opencode', 'codebuddy', 'qwen', 'kimi', 'minimax'];
+const OWN: readonly HostAgentId[] = ['codex', 'claude', 'copilot', 'cursor', 'opencode', 'codebuddy', 'qwen', 'kimi', 'minimax'];
 /** whose maker's mark is its company's */
 function AgentMark({ id }: { id: HostAgentId }) {
   return id === 'byok' ? <KeyRound size={16} /> : <ProviderMark id={agentMark(id)} size={17} />;
@@ -315,6 +317,8 @@ export function AgentsSection() {
             ) : null}
             {open ? <OwnModels agent={agent} onDone={() => setKeyOpen(false)} /> : null}
             {said ? <p className={settingsError}>{said}</p> : null}
+            {/* what to send when it keeps failing */}
+            {said ? <ReportLink /> : null}
           </div>
         ) : null}
       </SettingsItem>
@@ -452,8 +456,9 @@ function OwnModels({ agent, onDone }: { agent: HostAgent; onDone: () => void }) 
 
 /**
  * One own model, set up or changed: its name (the model, when empty), the API format, the service's address, the
- * model asked for there, the key (left empty: its own, or another model's on the same address), and the efforts it
- * takes (each a toggle, at least one on) with the one a conversation starts on. Checked before it is kept.
+ * model asked for there, the key (left empty: its own, or another model's on the same address), the efforts it takes
+ * (each a toggle, at least one on) with the one a conversation starts on, and its context length (empty: 128K).
+ * Checked before it is kept.
  */
 function OwnModelForm({ model, models, onDone }: { model?: HostOwnModel; models: HostOwnModel[]; onDone: () => void }) {
   const t = useT();
@@ -465,6 +470,9 @@ function OwnModelForm({ model, models, onDone }: { model?: HostOwnModel; models:
   const [modelId, setModelId] = React.useState(model?.model ?? '');
   const [key, setKey] = React.useState('');
   const [effort, setEffort] = React.useState<HostByokEffort>({ levels: model?.levels ?? ['auto'], effort: model?.effort ?? 'auto' });
+  const [contextText, setContextText] = React.useState(model?.context ? String(model.context) : '');
+  /* {} when empty (128K), null when what is typed does not hold */
+  const context = parseContextLength(contextText);
   const [state, setState] = React.useState<{ busy: boolean; error: string | null }>({ busy: false, error: null });
   /* another model on this address, whose key an empty field takes */
   const sameService = models.find((m) => m.id !== model?.id && addressKey(m.baseUrl) === addressKey(baseUrl));
@@ -473,11 +481,11 @@ function OwnModelForm({ model, models, onDone }: { model?: HostOwnModel; models:
     if (FORMATS.some((f) => f.address === baseUrl.trim()) || !baseUrl.trim()) setBaseUrl(FORMATS.find((f) => f.value === next)!.address);
     setFormat(next);
   };
-  const ready = modelId.trim() && baseUrl.trim() && (key.trim() || model || sameService);
+  const ready = modelId.trim() && baseUrl.trim() && (key.trim() || model || sameService) && context;
   const save = () => {
     if (!host || !ready) return;
     setState({ busy: true, error: null });
-    void host.saveOwnModel({ ...(model ? { id: model.id } : {}), name, format, baseUrl, model: modelId, ...(key.trim() ? { key } : {}), levels: effort.levels, effort: effort.effort })
+    void host.saveOwnModel({ ...(model ? { id: model.id } : {}), name, format, baseUrl, model: modelId, ...(key.trim() ? { key } : {}), levels: effort.levels, effort: effort.effort, ...context })
       .then((r) => { if (r.ok) onDone(); else setState({ busy: false, error: r.error || t('settings.agents.failed') }); })
       .catch((e: unknown) => setState({ busy: false, error: e instanceof Error ? e.message : String(e) }));
   };
@@ -514,6 +522,16 @@ function OwnModelForm({ model, models, onDone }: { model?: HostOwnModel; models:
         <div className="flex min-w-0 flex-1 flex-col gap-2">
           <EffortPicker value={effort} onChange={setEffort} />
           <p className="text-[12.5px] leading-relaxed text-[var(--text-faint)]">{t('settings.agents.effortHint')}</p>
+        </div>
+      </div>
+      <div className="flex items-start gap-2">
+        <span className="flex h-10 items-center">{label(t('settings.agents.context'))}</span>
+        <div className="flex min-w-0 flex-1 flex-col gap-2">
+          <SettingsField value={contextText} onChange={(e) => setContextText(e.target.value)} inputMode="numeric" placeholder="128000"
+            aria-label={t('settings.agents.context')} aria-invalid={!context} className="font-mono placeholder:font-sans" spellCheck={false} />
+          <p className={context ? 'text-[12.5px] leading-relaxed text-[var(--text-faint)]' : 'text-[12.5px] leading-relaxed text-[var(--err)]'}>
+            {t(context ? 'settings.agents.contextHint' : 'settings.agents.contextBad')}
+          </p>
         </div>
       </div>
       {state.error ? <p className={settingsError}>{state.error}</p> : null}

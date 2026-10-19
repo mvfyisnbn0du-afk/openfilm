@@ -36,7 +36,7 @@ test('continuous main-track pictures occupy the primary storyline instead of con
     ] },
     { enabled: true, clips: [{ name: 'overlay', fileId: 'file-3', start: 45, end: 75, in: 5, out: 35, enabled: true }] },
   ], audio: [{ enabled: true, clips: [{ name: 'music', fileId: 'file-2', start: 0, end: 90, in: 0, out: 90, enabled: true }] }] });
-  assert.match(xml, /<spine>\s*<asset-clip ref="file-1" name="first" lane="0"/);
+  assert.match(xml, /<spine>\s*<clip format="sequence-format" name="first" lane="0"/);
   assert.match(xml, /name="second" lane="0" offset="30030\/30000s" start="15015\/30000s"/);
   assert.doesNotMatch(xml, /<gap /);
   // A connection's offset uses its parent's source timeline, not the sequence timeline.
@@ -55,14 +55,17 @@ test('FCPXML keeps exact NTSC times, source trims, layering, transforms and sepa
   assert.ok(sourceUrl);
   assert.equal(fileURLToPath(sourceUrl), timeline.files[0].path);
   assert.match(sourceUrl, /%E7%94%B5%E5%BD%B1\/shot%20&%20one.mov$/);
-  assert.match(xml, /lane="0" offset="15015\/30000s" start="30030\/30000s" duration="45045\/30000s" enabled="1" srcEnable="video"/);
+  assert.match(xml, /lane="0" offset="15015\/30000s" start="30030\/30000s" duration="45045\/30000s" enabled="1"/);
   assert.match(xml, /name="overlay" lane="1"/);
+  assert.match(xml, /<video ref="file-1" name="footage" offset="30030\/30000s" start="30030\/30000s" duration="45045\/30000s">/);
+  assert.doesNotMatch(xml, /<asset-clip |srcEnable=/);
   assert.match(xml, /<adjust-conform type="none"\/>/);
   assert.match(xml, /position="44.444444 25" scale="2 2"/);
-  assert.match(xml, /name="sound" lane="-1"[^>]*srcEnable="audio"/);
+  assert.match(xml, /<audio ref="file-1" name="sound" lane="-1"/);
   assert.match(xml, /amount="-6.0206dB"/);
   assert.match(xml, /name="muted" lane="-2"[^>]*enabled="0"/);
   assert.match(xml, /<keyframe time="0\/30000s" value="-120dB"/);
+  assert.doesNotMatch(xml, /<keyframe[^>]*(?:interp|curve)=/, 'FCP audio volume parameters do not accept interpolation attributes');
   assert.doesNotMatch(xml, /Infinity|NaN|undefined/);
 });
 
@@ -73,14 +76,24 @@ test('only real empty intervals become primary gaps, with overlays anchored in s
   assert.equal((xml.match(/<gap /g) ?? []).length, 2);
   assert.match(xml, /name="footage" lane="0" offset="15015\/30000s" start="30030\/30000s"/);
   assert.match(xml, /name="overlay" lane="1" offset="45045\/30000s" start="0\/30000s"/);
-  assert.doesNotMatch(xml, /duration="90090\/30000s">\s*<asset-clip ref="file-1"/);
+  assert.doesNotMatch(xml, /duration="90090\/30000s">\s*<clip /);
 });
 
 test('FCPXML also writes integer-rate, audio-only timelines with a full-length primary storyline', () => {
   const xml = fcpxmlDocument({ ...timeline, rate: nleRate(25), video: [], files: [timeline.files[1]], audio: [timeline.audio[1]] });
   assert.match(xml, /frameDuration="1\/25s"/);
   assert.match(xml, /<gap name="OpenFilm" offset="0\/25s" start="0s" duration="90\/25s">/);
-  assert.doesNotMatch(xml, /srcEnable="video"/);
+  assert.doesNotMatch(xml, /<video /);
+});
+
+test('mixed stems keep Voice and Footage in separate dialogue subroles', () => {
+  const roles = ['voice', 'footage', 'sfx', 'music'];
+  const xml = fcpxmlDocument({ ...timeline, video: [], files: [timeline.files[1]], audio: roles.map((role) => ({
+    enabled: true, role, clips: [{ name: `${role} stem`, fileId: 'file-2', start: 0, end: 90, in: 0, out: 90, enabled: true, gain: 0.5 }],
+  })) });
+  assert.deepEqual([...xml.matchAll(/<audio [^>]*role="([^"]+)"/g)].map((match) => match[1]),
+    ['dialogue.Voice', 'dialogue.Footage', 'effects', 'music']);
+  assert.equal((xml.match(/<adjust-volume amount="-6.0206dB"\/>/g) ?? []).length, 4);
 });
 
 test('FCPXML includes editable subtitle titles above pictures, clipped to the sequence, with escaped multiline text', () => {
@@ -100,6 +113,28 @@ test('FCPXML includes editable subtitle titles above pictures, clipped to the se
   assert.match(xml, /name="End"[^>]*duration="3003\/30000s"/);
   assert.doesNotMatch(xml, /Outside/);
   assert.doesNotMatch(fcpxmlDocument(timeline), /<title |<effect /);
+});
+
+test('subtitle titles keep their relative size and white outlined text across sequence resolutions', () => {
+  for (const [width, height, fontSize, shadowOffset, shadowBlurRadius] of [
+    [320, 180, 48, '2.4 270', 21.12],
+    [1920, 1080, 48, '2.4 270', 21.12],
+    [3840, 2160, 48, '2.4 270', 21.12],
+    [360, 640, 27, '1.35 270', 11.88],
+    [1080, 1920, 27, '1.35 270', 11.88],
+    [1080, 1080, 48, '2.4 270', 21.12],
+  ]) {
+    const xml = fcpxmlDocument({ ...timeline, width, height }, { cues: [{ startMs: 0, durMs: 1000, text: 'Subtitle' }] });
+    const style = xml.match(/<text-style font=[^>]+/)?.[0];
+    assert.ok(style);
+    assert.equal(Number(style.match(/fontSize="([^"]+)"/)?.[1]), fontSize, `${width}×${height}`);
+    assert.match(style, /fontColor="1 1 1 1"/);
+    assert.match(style, /strokeColor="0 0 0 1"/);
+    assert.match(style, /shadowColor="0 0 0 0.72"/);
+    assert.equal(style.match(/shadowOffset="([^"]+)"/)?.[1], shadowOffset);
+    assert.equal(Number(style.match(/shadowBlurRadius="([^"]+)"/)?.[1]), shadowBlurRadius);
+    assert.equal(Number(style.match(/strokeWidth="([^"]+)"/)?.[1]), -2, 'negative stroke width keeps both fill and outline');
+  }
 });
 
 test('subtitle titles on an audio-only timeline omit empty cues and end at the next subtitle', () => {

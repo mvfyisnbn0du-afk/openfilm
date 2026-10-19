@@ -1,20 +1,22 @@
 /**
  * The agents the chat can use, as Settings → Agents shows them, and the person's choices about them:
  *
- *   · codex, claude, gemini, copilot, cursor, opencode, codebuddy, qwen, kimi, minimax — the person's own agents
- *     (agents.mjs): Codex, Claude Code, Gemini CLI, GitHub Copilot, Cursor, OpenCode, CodeBuddy, Qwen Code, Kimi and
- *     MiniMax Code. Each uses the account signed in on the computer as it is: connecting opens Terminal for its own
- *     sign-in command only when it is signed out, disconnecting only stops OpenFilm using it, and connecting again
- *     uses whichever account is signed in then (one switched in the agent or its maker's app). `account` says whose it
- *     is. Codex and Claude Code are shown in the chat's menu from the start; the others once the person connects one or
- *     switches it on. Codex is connected from the start, Claude Code once the person connects it.
+ *   · codex, claude, copilot, cursor, opencode, codebuddy, qwen, kimi, minimax — the person's own agents (agents.mjs):
+ *     Codex, Claude Code, GitHub Copilot, Cursor, OpenCode, CodeBuddy, Qwen Code, Kimi and MiniMax Code. Each uses
+ *     the account signed in on the computer as it is: connecting opens Terminal for its own sign-in command only when
+ *     it is signed out (never Codex's: it is signed in in Codex, so one found is connected), disconnecting only stops
+ *     OpenFilm using it, and connecting again uses whichever account is signed in then (one switched in the agent or
+ *     its maker's app). `account` says whose it is. Codex and Claude Code are shown in the chat's menu from the start;
+ *     the others once the person connects one or switches it on. Codex is connected from the start, Claude Code once
+ *     the person connects it.
  *   · byok — the app's own agent (Pi, pi-agent.mjs) on the person's own models, each set up on its own: the name the
  *     chat's menu shows, its service (an address on a standard API in one of three formats: the OpenAI Responses API
  *     (…/v1/responses), the OpenAI Chat Completions API (…/v1/chat/completions) or the Anthropic Messages API
- *     (…/v1/messages); Pi speaks each), its own key, the model asked for there, and the reasoning efforts the person
- *     says it takes and the one it starts on (`auto` alone, sending no reasoning setting, when they said nothing). The
- *     chat's menu switches between them, the first one to begin with. Each has to read pictures (the agent looks at its
- *     own frames): setting one up sends it one small request with a picture, and a model that cannot take it is refused.
+ *     (…/v1/messages); Pi speaks each), its own key, the model asked for there, the reasoning efforts the person
+ *     says it takes and the one it starts on (`auto` alone, sending no reasoning setting, when they said nothing), and
+ *     its context length, when they gave one (128K when not). The chat's menu switches between them, the first one to
+ *     begin with. Each has to read pictures (the agent looks at its own frames): setting one up sends it one small
+ *     request with a picture, and a model that cannot take it is refused.
  *
  * One of the person's own agents not found where it is looked for can be pointed at (`locate`): the program they choose
  * is tried (it has to answer `--version`) and used from then on, until they go back to finding it (`useAutomatic`).
@@ -32,15 +34,11 @@
 import { randomBytes } from 'node:crypto';
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { PI_APIS, modelEffort } from './pi-config.mjs';
+import { PI_APIS, contextLength, modelEffort } from './pi-config.mjs';
 
-/** The person's own agents, as agents.mjs AGENTS has them. */
-export const OWN_AGENT_IDS = Object.freeze(['codex', 'claude', 'gemini', 'copilot', 'cursor', 'opencode', 'codebuddy', 'qwen', 'kimi', 'minimax']);
-export const AGENT_IDS = Object.freeze([...OWN_AGENT_IDS, 'byok']);
-export const AGENT_NAMES = Object.freeze({
-  codex: 'Codex', claude: 'Claude Code', gemini: 'Gemini CLI', copilot: 'GitHub Copilot', cursor: 'Cursor', opencode: 'OpenCode',
-  codebuddy: 'CodeBuddy', qwen: 'Qwen Code', kimi: 'Kimi', minimax: 'MiniMax Code', byok: 'Own key',
-});
+import { AGENT_DEFINITIONS, AGENT_IDS, OWN_AGENT_IDS, isAgentId } from './agent-definitions.mjs';
+export { AGENT_IDS, OWN_AGENT_IDS } from './agent-definitions.mjs';
+export const AGENT_NAMES = Object.freeze(Object.fromEntries(AGENT_IDS.map((id) => [id, AGENT_DEFINITIONS[id].name])));
 const isOwn = (id) => OWN_AGENT_IDS.includes(id);
 
 /** The API formats a key can be for, and the address each starts with. */
@@ -55,9 +53,12 @@ const DEFAULT_SHOWN = { codex: true, claude: true, byok: false };
 /* Codex is used as it is signed in on the computer from the start; Claude Code only once the person connects it, which
    signs in to their Claude subscription the first time */
 const DEFAULT_DISCONNECTED = Object.freeze(['claude']);
-/** How long a sign-in in Terminal is waited for, asked about every few seconds. */
-const SIGN_IN_WAIT_MS = 5 * 60_000;
-const SIGN_IN_POLL_MS = 3000;
+/**
+ * How long a sign-in in Terminal is waited for, asked about every few seconds: a person may first sign in to the
+ * maker's site, with a code sent to them (five minutes, as it was, was too short for Cursor's). Once it is over, the
+ * window coming back into focus asks again (Settings → Agents).
+ */
+const SIGN_IN_WAIT = { ms: 15 * 60_000, pollMs: 3000 };
 
 /** A red 16 × 16 picture, for asking a model whether it reads pictures. */
 const PROBE_PNG = 'iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAIAAACQkWg2AAAAFklEQVR4nGN4pqFBEmIY1TCqYfhqAACM5TYQULtblwAAAABJRU5ErkJggg==';
@@ -67,7 +68,7 @@ function readJson(path, fallback) {
   try { return JSON.parse(readFileSync(path, 'utf8')); } catch { return fallback; }
 }
 
-/** The person's choices, as kept. */
+/** The person's choices, as kept. One about an agent the app no longer has is left out. */
 export function readChoices(dataDir) {
   const raw = readJson(join(dataDir, 'agents.json'), {});
   const shown = { ...DEFAULT_SHOWN };
@@ -78,17 +79,23 @@ export function readChoices(dataDir) {
   for (const id of OWN_AGENT_IDS) if (typeof raw.paths?.[id] === 'string' && raw.paths[id]) paths[id] = raw.paths[id];
   return {
     shown,
-    disconnected: Array.isArray(raw.disconnected) ? raw.disconnected.filter((id) => AGENT_IDS.includes(id)) : [...DEFAULT_DISCONNECTED],
+    disconnected: Array.isArray(raw.disconnected) ? raw.disconnected.filter((id) => isAgentId(id)) : [...DEFAULT_DISCONNECTED],
     byok,
     paths,
   };
 }
 
+/** A model's context length, as kept: there only when the person gave one that holds. */
+const ownContext = (/** @type {unknown} */ value) => {
+  const context = contextLength(value);
+  return context ? { context } : {};
+};
+
 /**
- * The person's own models as kept: `[{ id, name, format, baseUrl, model, levels, effort, last4 }]`, the first the one a
- * conversation starts on. One without a known format, an address or a model is left out. Kept before each model was set
- * up on its own (one service, its models by name, `efforts` by name): each of those models on that service (`m1`, `m2`…),
- * on the key kept then.
+ * The person's own models as kept: `[{ id, name, format, baseUrl, model, levels, effort, context?, last4 }]`, the first
+ * the one a conversation starts on. One without a known format, an address or a model is left out; a context length
+ * that does not hold is dropped. Kept before each model was set up on its own (one service, its models by name,
+ * `efforts` by name): each of those models on that service (`m1`, `m2`…), on the key kept then.
  */
 export function ownModels(raw) {
   if (!raw || typeof raw !== 'object') return [];
@@ -107,7 +114,7 @@ export function ownModels(raw) {
     const id = String(m?.id ?? '');
     if (!model || !baseUrl || !Object.hasOwn(BYOK_FORMATS, m?.format) || !/^[a-z0-9]+$/.test(id) || ids.has(id)) return [];
     ids.add(id);
-    return [{ id, name: String(m.name ?? '').trim() || model, format: m.format, baseUrl, model, ...modelEffort(m.levels, m.effort), last4: String(m.last4 ?? '') }];
+    return [{ id, name: String(m.name ?? '').trim() || model, format: m.format, baseUrl, model, ...modelEffort(m.levels, m.effort), ...ownContext(m.context), last4: String(m.last4 ?? '') }];
   });
 }
 
@@ -178,6 +185,7 @@ export async function probeModel({ format, baseUrl, key, model, fetch: fetchImpl
  * @param {{
  *   dataDir: string,
  *   localAgents: () => Promise<Array<{ id: string, cli: { path: string } | null, signedIn: boolean | null, account?: object | null, problem?: string, install: string | null, setupRequired: string | null }>>,
+ *   localAgent?: (id: string) => Promise<{ id: string, cli: { path: string } | null, signedIn: boolean | null, account?: object | null, problem?: string, install: string | null, setupRequired: string | null }>,
  *   openSignIn: (id: string) => Promise<{ ok: boolean, error?: string }>,
  *   usePaths?: (paths: Record<string, string>) => void,
  *   pickProgram?: (id: string, words?: { title?: string, button?: string }) => Promise<string | null>,
@@ -187,7 +195,9 @@ export async function probeModel({ format, baseUrl, key, model, fetch: fetchImpl
  *   seal: (text: string) => Buffer, unseal: (data: Buffer) => string,
  *   onChange: (list: any[]) => void,
  *   fetch?: typeof fetch,
+ *   signInWait?: { ms: number, pollMs: number },
  * }} deps
+ * `localAgent(id)`: one agent as `localAgents` has it, asked alone while its sign-in is waited for (`signInWait`).
  */
 export function createRoster(deps) {
   const { dataDir } = deps;
@@ -233,7 +243,7 @@ export function createRoster(deps) {
   function list() {
     return AGENT_IDS.map((id) => ({
       id,
-      name: AGENT_NAMES[id],
+      name: AGENT_DEFINITIONS[id].name,
       shown: choices.shown[id] ?? false,
       ...stateOf(id),
       ...(live.errors[id] ? { error: live.errors[id] } : {}),
@@ -251,13 +261,23 @@ export function createRoster(deps) {
     return list();
   }
 
+  /** The one agent signed in to, asked again: alone when it can be, not every agent every few seconds. */
+  async function lookAgain(id) {
+    if (!deps.localAgent) { await refresh(); return; }
+    const one = await deps.localAgent(id).catch(() => null);
+    if (!one) return;
+    local = [...(local ?? []).filter((a) => a.id !== id), one];
+    changed();
+  }
+
   async function waitForSignIn(id) {
     live.waiting[id] = true;
     changed();
-    const until = Date.now() + SIGN_IN_WAIT_MS;
+    const wait = deps.signInWait ?? SIGN_IN_WAIT;
+    const until = Date.now() + wait.ms;
     while (Date.now() < until && live.waiting[id]) {
-      await new Promise((done) => setTimeout(done, SIGN_IN_POLL_MS));
-      await refresh();
+      await new Promise((done) => setTimeout(done, wait.pollMs));
+      await lookAgain(id);
       if (local?.find((a) => a.id === id)?.signedIn !== false) break;
     }
     delete live.waiting[id];
@@ -270,7 +290,7 @@ export function createRoster(deps) {
 
     /** Connect: back on here; its own sign-in when it needs one. */
     async connect(id) {
-      if (!AGENT_IDS.includes(id)) return { ok: false, error: `No agent ${id}` };
+      if (!isAgentId(id)) return { ok: false, error: `No agent ${id}` };
       delete live.errors[id];
       /* connecting one is choosing it: it is shown in the chat (and among the person's agents in Settings) */
       save({ ...choices, shown: { ...choices.shown, [id]: true }, disconnected: choices.disconnected.filter((a) => a !== id) });
@@ -295,7 +315,7 @@ export function createRoster(deps) {
 
     /** Disconnect here only: its sessions close; its own sign-in stays as it is (connecting again uses it as it is then). */
     disconnect(id) {
-      if (!AGENT_IDS.includes(id)) return;
+      if (!isAgentId(id)) return;
       delete live.waiting[id];
       deps.closeSessions(id);
       save({ ...choices, disconnected: [...new Set([...choices.disconnected, id])] });
@@ -342,16 +362,17 @@ export function createRoster(deps) {
     },
 
     setShown(id, shown) {
-      if (!AGENT_IDS.includes(id)) return;
+      if (!isAgentId(id)) return;
       save({ ...choices, shown: { ...choices.shown, [id]: shown === true } });
     },
 
     /**
      * One of the person's own models, set up or changed (`id` names one already set up): its name (the model, when
-     * none), its API format, the service's address, the model asked for there, its key, and its efforts (pi-config.mjs
-     * EFFORTS: the ones it takes and the one it starts on). A key left empty keeps the one it has, or takes the key of
-     * another model on the same address. Checked first (the key is taken, the model reads pictures).
-     * @param {{ id?: string, name?: string, format: string, baseUrl?: string, model: string, key?: string, levels?: string[], effort?: string }} config
+     * none), its API format, the service's address, the model asked for there, its key, its efforts (pi-config.mjs
+     * EFFORTS: the ones it takes and the one it starts on) and its context length (none: 128K). A key left empty keeps
+     * the one it has, or takes the key of another model on the same address. Checked first (the key is taken, the
+     * model reads pictures).
+     * @param {{ id?: string, name?: string, format: string, baseUrl?: string, model: string, key?: string, levels?: string[], effort?: string, context?: number }} config
      * @returns {Promise<{ ok: true, id: string } | { ok: false, error: string, code?: string }>}
      */
     async saveOwnModel(config) {
@@ -371,7 +392,7 @@ export function createRoster(deps) {
       if (!probe.ok) return probe;
       let id = before?.id;
       while (!id || models.some((m) => m.id === id && m !== before)) id = randomBytes(4).toString('hex');
-      const entry = { id, name: String(config.name ?? '').trim() || model, format: config.format, baseUrl, model, ...modelEffort(config.levels, config.effort), last4: key.slice(-4) };
+      const entry = { id, name: String(config.name ?? '').trim() || model, format: config.format, baseUrl, model, ...modelEffort(config.levels, config.effort), ...ownContext(config.context), last4: key.slice(-4) };
       writeKeys({ ...byokKeys(), [id]: key });
       delete live.errors.byok;
       save({
@@ -408,7 +429,7 @@ export function createRoster(deps) {
       const own = models.map((m, i) => {
         const keyEnv = `OPENFILM_BYOK_KEY_${i + 1}`;
         env[keyEnv] = keyOf(m.id);
-        return { id: m.id, name: m.name, api: PI_APIS[m.format], baseUrl: m.baseUrl, keyEnv, model: m.model, levels: [...m.levels], effort: m.effort };
+        return { id: m.id, name: m.name, api: PI_APIS[m.format], baseUrl: m.baseUrl, keyEnv, model: m.model, levels: [...m.levels], effort: m.effort, ...ownContext(m.context) };
       });
       return { home: join(dataDir, 'agents', 'byok', 'pi'), models: own, model: own[0].id, env };
     },

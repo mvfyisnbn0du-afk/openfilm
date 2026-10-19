@@ -17,6 +17,9 @@ export const ko: Words = {
   },
   act: {
     waitingForYou: '답변을 기다리는 중',
+    /* the app's own agent, after two minutes with nothing from the model (some think for minutes first) */
+    waitingForModel: '모델 응답을 기다리는 중',
+    waitingForModelHint: '어떤 모델은 답하기 시작하기 전에 오래 생각합니다. 기다리지 않으려면 중지하세요.',
     asset: {
       genImage: '이미지 생성 중',
       genVideo: '비디오 생성 중',
@@ -137,16 +140,23 @@ export const ko: Words = {
     agentSetUp: '설정',
     agentWaiting: '로그인하는 중…',
     effort: '추론 강도',
-    folder: '폴더',
+    filesFailed: '{names}을(를) 추가하지 못했습니다: {error} 제거한 뒤 보내세요.',
+    filesPending: '파일을 추가하는 중입니다.',
     model: '모델',
+    /* the one value of a model or an effort the agent offers no choice of */
+    optionDefault: '기본값',
     openAttachment: '{name} 보기',
+    revealFolder: '폴더에서 {name} 보기',
     openSettings: '설정 열기',
     queued: '대기 중 — 이번 턴이 끝나면 보냅니다.',
     queuedCancel: '보내지 않기',
+    copyDiagnostics: '진단 보고서 복사',
+    copyDiagnosticsHint: '이 컴퓨터에서 OpenFilm이 확인한 상태와 최근 문제, issue에 붙여 넣을 수 있습니다',
+    diagnosticsCopied: '복사됨',
     removeFile: '파일 제거',
     removeImage: '이미지 제거',
     speed: '속도',
-    thumbOnly: '메시지에는 썸네일만 남겨 두었습니다. 원본은 에이전트에게 전달되었고 프로젝트 에셋에 있습니다.',
+    thumbOnly: '메시지에는 썸네일만 남겨 두었습니다. 원본은 원래 위치에 있고, 붙여 넣은 파일은 프로젝트에 저장되어 있습니다.',
   },
   library: {
     removeReference: '참조 제거',

@@ -1,5 +1,5 @@
 /**
- * Where the person's own agents are (agents.mjs AGENTS: Claude Code, Codex, Gemini CLI, …). Only real installations count: a config folder survives an
+ * Where the person's own agents are (agents.mjs AGENTS: Claude Code, Codex, Qwen Code, …). Only real installations count: a config folder survives an
  * uninstall and is never evidence. On Windows an install by npm, pnpm or Yarn leaves a `.cmd` shim, which no program
  * can start without a shell: what it runs is used instead (cmdTarget), and one that cannot be read is started through
  * cmd.exe (agents.mjs). A program the person chose themselves (Settings → Agents → Locate) comes before any of these.
@@ -10,18 +10,8 @@ import { accessSync, closeSync, constants, lstatSync, openSync, readFileSync, re
 import { homedir } from 'node:os';
 import { delimiter, dirname, isAbsolute, join } from 'node:path';
 
-export const AGENT_DOWNLOADS = Object.freeze({
-  claude: 'https://claude.com/download',
-  codex: 'https://developers.openai.com/codex',
-  gemini: 'https://geminicli.com',
-  copilot: 'https://github.com/features/copilot/cli',
-  cursor: 'https://cursor.com/cli',
-  opencode: 'https://opencode.ai/download',
-  codebuddy: 'https://www.workbuddy.ai/docs/cli/installation',
-  qwen: 'https://github.com/QwenLM/qwen-code',
-  kimi: 'https://www.kimi.com/code',
-  minimax: 'https://www.npmjs.com/package/@minimax-ai/code',
-});
+import { AGENT_DEFINITIONS, OWN_AGENT_IDS } from './agent-definitions.mjs';
+export const AGENT_DOWNLOADS = Object.freeze(Object.fromEntries(OWN_AGENT_IDS.map((id) => [id, AGENT_DEFINITIONS[id].install])));
 
 /**
  * Each agent's program, by the names it installs (the first found counts), and the folders its own installer puts it
@@ -30,9 +20,10 @@ export const AGENT_DOWNLOADS = Object.freeze({
 export const AGENT_PROGRAMS = Object.freeze({
   claude: { names: ['claude'] },
   codex: { names: ['codex'] },
-  gemini: { names: ['gemini'] },
   copilot: { names: ['copilot'] },
-  cursor: { names: ['cursor-agent'] },
+  /* Cursor's installer names it `agent`, and `cursor-agent` as before; a program called `agent` counts only when it is
+     Cursor's (its own folder is cursor-agent), as other tools are called that too */
+  cursor: { names: ['cursor-agent', 'agent'], ours: (file, name) => name === 'cursor-agent' || inCursorFolder(file) },
   opencode: { names: ['opencode'], dirs: (home) => [join(home, '.opencode', 'bin')] },
   codebuddy: { names: ['codebuddy', 'cbc'] },
   qwen: { names: ['qwen'] },
@@ -41,6 +32,13 @@ export const AGENT_PROGRAMS = Object.freeze({
   /* MiniMax Code's own installer keeps it in ~/.minimax-code/bin */
   minimax: { names: ['mcode'], dirs: (home) => [join(home, '.minimax-code', 'bin')] },
 });
+
+/** Whether a program is the one in Cursor's own folder (…/cursor-agent/…), followed through its link. */
+export function inCursorFolder(file) {
+  let real = file;
+  try { real = realpathSync(file); } catch { /* as it is */ }
+  return /[\\/]cursor-agent[\\/]/i.test(real);
+}
 
 export function executableFile(path) {
   try { accessSync(path, constants.X_OK); return statSync(path).isFile(); } catch { return false; }
@@ -310,7 +308,15 @@ export function detectAgentInstallation(id, { home = homedir(), env = process.en
   if (picked) return { installed: true, cli: picked, source: 'chosen', install };
   const dirs = [...pathDirs, ...(program.dirs?.(home) ?? [])];
   let cli = null;
-  for (const name of program.names) if (!cli) cli = findExecutable(name, dirs, env, { win });
+  for (const name of program.names) {
+    if (cli) break;
+    if (!program.ours) { cli = findExecutable(name, dirs, env, { win }); continue; }
+    /* each folder in turn: another program by that name earlier on the PATH does not hide the agent's */
+    for (const dir of unique([...pathIn(env).split(win ? ';' : delimiter), ...dirs], win)) {
+      const file = findExecutable(name, [dir], { PATH: '' }, { win });
+      if (file && program.ours(file, name)) { cli = file; break; }
+    }
+  }
   if (cli) {
     /* Claude Code both on the PATH (an npm install that is never updated, say) and in the Claude app, which keeps its
        own up to date: the later one, whose models are the current ones. One whose version can't be told stays. */

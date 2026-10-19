@@ -9,7 +9,7 @@ import { loggedBlocks, readLog, writeModelLog } from './chat-store.mjs';
 /** An agent speaking ACP that keeps every prompt it is sent in `out`, one JSON line each. */
 function fakeAgent(out) {
   const dir = mkdtempSync(join(tmpdir(), 'of-fake-agent-'));
-  const file = join(dir, 'gemini.mjs');
+  const file = join(dir, 'qwen.mjs');
   writeFileSync(file, `
 import { appendFileSync } from 'node:fs';
 import { Readable, Writable } from 'node:stream';
@@ -17,7 +17,11 @@ import * as acp from ${JSON.stringify(import.meta.resolve('@agentclientprotocol/
 const connection = new acp.AgentSideConnection(() => ({
   async initialize() { return { protocolVersion: acp.PROTOCOL_VERSION, agentCapabilities: { promptCapabilities: { image: true } }, agentInfo: { name: 'fake', version: '1' }, authMethods: [] }; },
   async newSession() { return { sessionId: 'fake-session' }; },
-  async prompt(params) { appendFileSync(${JSON.stringify(out)}, JSON.stringify({ argv: process.argv.slice(2), prompt: params.prompt }) + '\\n'); return { stopReason: 'end_turn' }; },
+  async prompt(params) {
+    appendFileSync(${JSON.stringify(out)}, JSON.stringify({ argv: process.argv.slice(2), prompt: params.prompt }) + '\\n');
+    await connection.sessionUpdate({ sessionId: params.sessionId, update: { sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: 'Done.' } } });
+    return { stopReason: 'end_turn' };
+  },
   async cancel() {},
 }), acp.ndJsonStream(Writable.toWeb(process.stdout), Readable.toWeb(process.stdin)));
 await connection.closed;
@@ -27,10 +31,10 @@ await connection.closed;
 
 test('the turn log has what the agent was started with and each message as it got it: the app\'s words before the first, no key\'s value', { timeout: 60_000 }, async () => {
   const out = join(mkdtempSync(join(tmpdir(), 'of-fake-out-')), 'prompts.jsonl');
-  setChosenPaths({ gemini: fakeAgent(out) });
+  setChosenPaths({ qwen: fakeAgent(out) });
   const sent = [];
   const session = new AgentSession({
-    agent: 'gemini',
+    agent: 'qwen',
     cwd: mkdtempSync(join(tmpdir(), 'of-project-')),
     binDir: '/app/bin',
     env: { OPENFILM_HOME: '/data', SOME_API_KEY: 'sk-secret' },

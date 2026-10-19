@@ -10,10 +10,10 @@
 import type { Balance } from './balance';
 
 /** The coding agents the shell can connect to its MCP endpoint. */
-export type DesktopAgentId = 'claude' | 'codex' | 'cursor' | 'copilot' | 'gemini' | 'opencode' | 'codebuddy' | 'devin';
+export type DesktopAgentId = 'claude' | 'codex' | 'cursor' | 'copilot' | 'opencode' | 'codebuddy' | 'devin';
 
-/** The chat's agents: the person's own (Codex, Claude Code, Gemini CLI, …), and the app's own on their own key. */
-export type LocalAgentId = 'claude' | 'codex' | 'gemini' | 'copilot' | 'cursor' | 'opencode' | 'codebuddy' | 'qwen' | 'kimi' | 'minimax' | 'byok';
+/** The chat's agents: the person's own (Codex, Claude Code, Qwen Code, …), and the app's own on their own key. */
+export type LocalAgentId = 'claude' | 'codex' | 'copilot' | 'cursor' | 'opencode' | 'codebuddy' | 'qwen' | 'kimi' | 'minimax' | 'byok';
 
 /** One agent as the app's roster has it (apps/desktop/src/agent-roster.mjs; Studio's lib/host.ts HostAgent). */
 export interface RosterAgent {
@@ -180,6 +180,8 @@ export interface DesktopBridge {
     list(): Promise<RosterAgent[]>;
     connect(id: LocalAgentId): Promise<{ ok: boolean; error?: string }>;
     onChange(listener: (agents: RosterAgent[]) => void): () => void;
+    /** The diagnostic report (the computer, the last week's problems, the agents) on the clipboard. Older shells lack it. */
+    copyReport?(): Promise<{ ok: boolean }>;
   };
   /** Studio's Settings, on Agents (or Providers). */
   openSettings?(section?: 'agents' | 'providers'): void;
@@ -193,8 +195,11 @@ export interface DesktopBridge {
     signIn(agent: LocalAgentId): Promise<{ ok: true } | { ok: false; error: string }>;
     /** Opens a session and closes it at once, only for its options. Sends no message, so costs nothing. */
     probe(agent: LocalAgentId): Promise<{ ok: true; info: LocalAgentSessionInfo } | { ok: false; error: string; code?: string }>;
-    /** `resume`: the agent's own id of a conversation it had (an earlier start's info.sessionId), to go on with */
-    start(agent: LocalAgentId, cwd: string, resume?: string | null): Promise<
+    /**
+     * `resume`: the agent's own id of a conversation it had (an earlier start's info.sessionId), to go on with.
+     * `meta`: the turn it starts for, whose log says why when it does not start.
+     */
+    start(agent: LocalAgentId, cwd: string, resume?: string | null, meta?: LocalAgentTurnMeta): Promise<
       | { ok: true; key: string; info: LocalAgentSessionInfo }
       | { ok: false; error: string; code?: string; install?: string }
     >;
