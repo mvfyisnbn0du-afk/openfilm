@@ -30,7 +30,7 @@ test('the render command accepts decimal frame rates and still rejects invalid r
   }
 });
 
-test('the render command preserves fractional frame rates through encoding, blur and parallel parts', { skip: !hasFfmpeg && 'no ffmpeg', timeout: 120_000 }, () => {
+test('the render command renders 29.97 as exactly 30000/1001, and keeps another decimal rate, through encoding, blur and parallel parts', { skip: !hasFfmpeg && 'no ffmpeg', timeout: 120_000 }, () => {
   const dir = mkdtempSync(join(tmpdir(), 'of-render-fractional-'));
   try {
     writeFileSync(join(dir, 'p.html'), '<!doctype html><body style="margin:0"><script>window.film = { duration: 0.5, width: 320, height: 180, frame(t) { document.body.style.background = `hsl(${t * 360}, 80%, 50%)`; } };</script>');
@@ -38,7 +38,7 @@ test('the render command preserves fractional frame rates through encoding, blur
     mkdirSync(join(dir, '.film'));
     writeFileSync(join(dir, '.film', 'opened'), '');
     const cli = fileURLToPath(new URL('../bin/openfilm.mjs', import.meta.url));
-    for (const [fps, rate, workers, samples] of [[29.97, '2997/100', 1, 1], [30000 / 1001, '30000/1001', 2, 2]]) {
+    for (const [fps, rate, workers, samples] of [[29.97, '30000/1001', 1, 1], [30000 / 1001, '30000/1001', 2, 2], [12.5, '25/2', 1, 1]]) {
       const out = join(dir, `${fps}.mp4`);
       execFileSync(process.execPath, [cli, 'render', '--fps', String(fps), '--workers', String(workers), '--samples', String(samples), '--out', out], { cwd: dir, timeout: 60_000, stdio: 'pipe' });
       const { streams: [video] } = JSON.parse(execFileSync('ffprobe', ['-v', 'error', '-count_frames', '-select_streams', 'v:0', '-show_entries', 'stream=r_frame_rate,avg_frame_rate,nb_read_frames', '-of', 'json', out], { encoding: 'utf8' }));
