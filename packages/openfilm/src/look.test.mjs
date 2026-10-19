@@ -4,19 +4,15 @@ import { fileURLToPath } from 'node:url';
 import { look } from './look.mjs';
 import { filmHtml } from './film-doc.mjs';
 import { chromium } from 'playwright-core';
+import { spawnSync } from 'node:child_process';
+import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 
-test('high-bit-depth media sheets embed thumbnails; single frames keep their full resolution', { timeout: 60_000 }, async (t) => {
-  const { mkdtempSync, readFileSync, rmSync } = await import('node:fs');
-  const { tmpdir } = await import('node:os');
-  const { join } = await import('node:path');
-  const { spawnSync } = await import('node:child_process');
-  const dir = mkdtempSync(join(tmpdir(), 'of-look-media-'));
-  t.after(() => rmSync(dir, { recursive: true, force: true }));
-  const file = join(dir, 'camera.mkv');
-  const encoded = spawnSync('ffmpeg', ['-v', 'error', '-y', '-f', 'lavfi', '-i', 'testsrc2=s=3840x2880:r=12:d=1', '-pix_fmt', 'yuv420p10le', '-c:v', 'ffv1', file]);
-  assert.equal(encoded.status, 0, String(encoded.stderr));
+/** The PNGs a media sheet embeds, as { width, height, depth, alpha }: look's browser is watched as it is given its page. */
+function sheetCells(t) {
+  const cells = [];
   const launch = chromium.launch.bind(chromium);
-  let embedded = 0;
   t.mock.method(chromium, 'launch', async (opts) => {
     const browser = await launch(opts);
     const newPage = browser.newPage.bind(browser);
@@ -26,10 +22,7 @@ test('high-bit-depth media sheets embed thumbnails; single frames keep their ful
       t.mock.method(page, 'setContent', async (html, opts) => {
         for (const [, data] of html.matchAll(/src="data:image\/png;base64,([^"]+)"/g)) {
           const png = Buffer.from(data, 'base64');
-          assert.equal(png.readUInt32BE(16), 480);
-          assert.equal(png.readUInt32BE(20), 360);
-          assert.equal(png[24], 8);
-          embedded++;
+          cells.push({ width: png.readUInt32BE(16), height: png.readUInt32BE(20), depth: png[24], alpha: png[25] === 6 });
         }
         return setContent(html, opts);
       });
@@ -37,17 +30,42 @@ test('high-bit-depth media sheets embed thumbnails; single frames keep their ful
     });
     return browser;
   });
+  return cells;
+}
+
+const encode = (file, input, ...out) => {
+  const r = spawnSync('ffmpeg', ['-v', 'error', '-y', '-f', 'lavfi', '-i', input, ...out, file]);
+  assert.equal(r.status, 0, String(r.stderr));
+  return file;
+};
+
+test('high-bit-depth media sheets embed thumbnails; single frames keep their full resolution', { timeout: 60_000 }, async (t) => {
+  const dir = mkdtempSync(join(tmpdir(), 'of-look-media-'));
+  t.after(() => rmSync(dir, { recursive: true, force: true }));
+  const file = encode(join(dir, 'camera.mkv'), 'testsrc2=s=640x480:r=12:d=1', '-pix_fmt', 'yuv420p10le', '-c:v', 'ffv1');
+  const cells = sheetCells(t);
   for (const opts of [{ count: 4 }, {}]) {
     const r = await look([file], opts);
     assert.equal(r.ok, true);
     assert.ok(readFileSync(r.files[0]).length > 0);
   }
-  assert.equal(embedded, 16);
+  assert.equal(cells.length, 16);
+  for (const cell of cells) assert.deepEqual(cell, { width: 480, height: 360, depth: 8, alpha: false });
   const single = await look([file, '0']);
   const png = readFileSync(single.files[0]);
-  assert.equal(png.readUInt32BE(16), 3840);
-  assert.equal(png.readUInt32BE(20), 2880);
+  assert.equal(png.readUInt32BE(16), 640);
+  assert.equal(png.readUInt32BE(20), 480);
   assert.equal(png[24], 16);
+});
+
+test('a transparent clip keeps its alpha in a media sheet, so its cells show the checkerboard behind it', { timeout: 60_000 }, async (t) => {
+  const dir = mkdtempSync(join(tmpdir(), 'of-look-alpha-'));
+  t.after(() => rmSync(dir, { recursive: true, force: true }));
+  const file = encode(join(dir, 'layer.mov'), 'color=c=red@0.5:s=64x64:r=12:d=1,format=rgba', '-c:v', 'prores_ks', '-profile:v', '4444');
+  const cells = sheetCells(t);
+  assert.equal((await look([file], { count: 4 })).ok, true);
+  assert.equal(cells.length, 4);
+  for (const cell of cells) assert.deepEqual(cell, { width: 480, height: 480, depth: 8, alpha: true });
 });
 
 /* the pages under test/: each one a mistake an agent makes (or one that only looks like one), and what look says */

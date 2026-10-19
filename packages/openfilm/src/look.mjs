@@ -328,9 +328,9 @@ async function lookMedia(target, at, range, opts) {
   const head = `${basename(file)}  ${video ? `${w}×${h}` : 'sound only'}${dur ? ` · ${fmt(dur)}` : ''}${fps && !still ? ` · ${Number(fps.toFixed(3))} fps` : ''}${audio ? ' · with sound' : ''}`;
   const grab = (t, thumbnail = false) => {
     const out = join(dir, `.${name}-${fmt(t)}.png`);
-    // Resize before base64 embedding: full-size high-bit-depth PNGs can exceed Node's string limit together.
+    // Resize before base64 embedding: full-size high-bit-depth PNGs can exceed Node's string limit together. 8 bits, alpha kept.
     const r = spawnSync('ffmpeg', ['-v', 'error', '-y', ...(still ? [] : ['-ss', String(t)]), '-i', file,
-      ...(thumbnail ? ['-vf', `scale=${CELL_WIDTH}:-1,format=rgb24`] : []), '-frames:v', '1', out], { windowsHide: true });
+      ...(thumbnail ? ['-vf', `scale=${CELL_WIDTH}:-1,format=rgb24|rgba`] : []), '-frames:v', '1', out], { windowsHide: true });
     if (r.status !== 0) throw new Error(`ffmpeg could not take a frame at ${fmt(t)}`);
     const png = readFileSync(out); rmSync(out, { force: true }); return png;
   };
