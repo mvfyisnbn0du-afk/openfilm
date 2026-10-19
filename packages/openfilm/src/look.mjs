@@ -7,6 +7,7 @@ import { FrameError, launch, SOFTWARE_GL } from './host.mjs';
 import { blockDiff, checkSound, cutText, fileOf, ffmpeg, filmSound, fmt, hash, homeFor, mix, open, outDir, parseTarget, SAME_LIMIT, shown, shuffled, spread, UsageError } from './shared.mjs';
 
 const MEDIA = /\.(mp4|mov|m4v|webm|mkv|avi|png|jpe?g|webp|gif|mp3|wav|m4a|aac|ogg|flac)$/i;
+const CELL_WIDTH = 480;
 
 export async function look(args, opts = {}) {
   const { film: target, at, range } = parseTarget(args);
@@ -269,7 +270,7 @@ async function waveform(s, from, to) {
 
 async function sheet(browser, shots, meta, from, to, wave, marks, label = 'sound mix') {
   const cols = shots.length <= 4 ? shots.length : shots.length <= 9 ? 3 : 4;
-  const cellW = 480;
+  const cellW = CELL_WIDTH;
   const cellH = Math.round((cellW * meta.height) / meta.width);
   /* a sound on its own has no frames: the sheet keeps the width of four, the waveform fills it */
   const W = (cols || 4) * (cellW + 6) - 6;
@@ -325,9 +326,11 @@ async function lookMedia(target, at, range, opts) {
   const fps = video ? rate(video.avg_frame_rate) ?? rate(video.r_frame_rate) : null;
   const name = basename(file, extname(file));
   const head = `${basename(file)}  ${video ? `${w}×${h}` : 'sound only'}${dur ? ` · ${fmt(dur)}` : ''}${fps && !still ? ` · ${Number(fps.toFixed(3))} fps` : ''}${audio ? ' · with sound' : ''}`;
-  const grab = (t) => {
+  const grab = (t, thumbnail = false) => {
     const out = join(dir, `.${name}-${fmt(t)}.png`);
-    const r = spawnSync('ffmpeg', ['-v', 'error', '-y', ...(still ? [] : ['-ss', String(t)]), '-i', file, '-frames:v', '1', out], { windowsHide: true });
+    // Resize before base64 embedding: full-size high-bit-depth PNGs can exceed Node's string limit together.
+    const r = spawnSync('ffmpeg', ['-v', 'error', '-y', ...(still ? [] : ['-ss', String(t)]), '-i', file,
+      ...(thumbnail ? ['-vf', `scale=${CELL_WIDTH}:-1,format=rgb24`] : []), '-frames:v', '1', out], { windowsHide: true });
     if (r.status !== 0) throw new Error(`ffmpeg could not take a frame at ${fmt(t)}`);
     const png = readFileSync(out); rmSync(out, { force: true }); return png;
   };
@@ -349,7 +352,7 @@ async function lookMedia(target, at, range, opts) {
     }
     const browser = await launch(opts.launch);
     try {
-      const shots = times.map((t) => ({ t, png: grab(t) }));
+      const shots = times.map((t) => ({ t, png: grab(t, true) }));
       const out = join(dir, `${name}-${Number(from.toFixed(3))}-${fmt(to)}.png`);
       writeFileSync(out, await sheet(browser, shots, { width: w || 1920, height: h || 1080 }, from, to, wave, [], 'its sound'));
       files.push(out);

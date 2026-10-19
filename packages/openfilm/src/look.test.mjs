@@ -3,6 +3,52 @@ import assert from 'node:assert/strict';
 import { fileURLToPath } from 'node:url';
 import { look } from './look.mjs';
 import { filmHtml } from './film-doc.mjs';
+import { chromium } from 'playwright-core';
+
+test('high-bit-depth media sheets embed thumbnails; single frames keep their full resolution', { timeout: 60_000 }, async (t) => {
+  const { mkdtempSync, readFileSync, rmSync } = await import('node:fs');
+  const { tmpdir } = await import('node:os');
+  const { join } = await import('node:path');
+  const { spawnSync } = await import('node:child_process');
+  const dir = mkdtempSync(join(tmpdir(), 'of-look-media-'));
+  t.after(() => rmSync(dir, { recursive: true, force: true }));
+  const file = join(dir, 'camera.mkv');
+  const encoded = spawnSync('ffmpeg', ['-v', 'error', '-y', '-f', 'lavfi', '-i', 'testsrc2=s=3840x2880:r=12:d=1', '-pix_fmt', 'yuv420p10le', '-c:v', 'ffv1', file]);
+  assert.equal(encoded.status, 0, String(encoded.stderr));
+  const launch = chromium.launch.bind(chromium);
+  let embedded = 0;
+  t.mock.method(chromium, 'launch', async (opts) => {
+    const browser = await launch(opts);
+    const newPage = browser.newPage.bind(browser);
+    t.mock.method(browser, 'newPage', async (opts) => {
+      const page = await newPage(opts);
+      const setContent = page.setContent.bind(page);
+      t.mock.method(page, 'setContent', async (html, opts) => {
+        for (const [, data] of html.matchAll(/src="data:image\/png;base64,([^"]+)"/g)) {
+          const png = Buffer.from(data, 'base64');
+          assert.equal(png.readUInt32BE(16), 480);
+          assert.equal(png.readUInt32BE(20), 360);
+          assert.equal(png[24], 8);
+          embedded++;
+        }
+        return setContent(html, opts);
+      });
+      return page;
+    });
+    return browser;
+  });
+  for (const opts of [{ count: 4 }, {}]) {
+    const r = await look([file], opts);
+    assert.equal(r.ok, true);
+    assert.ok(readFileSync(r.files[0]).length > 0);
+  }
+  assert.equal(embedded, 16);
+  const single = await look([file, '0']);
+  const png = readFileSync(single.files[0]);
+  assert.equal(png.readUInt32BE(16), 3840);
+  assert.equal(png.readUInt32BE(20), 2880);
+  assert.equal(png[24], 16);
+});
 
 /* the pages under test/: each one a mistake an agent makes (or one that only looks like one), and what look says */
 const page = (name) => fileURLToPath(new URL(`../test/${name}`, import.meta.url));
