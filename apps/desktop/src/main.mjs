@@ -26,7 +26,7 @@ import { registerLocalAgentIpc } from './local-agents-ipc.mjs';
 import { readPreferences, registerChatIpc } from './chat-ipc.mjs';
 import { registerSkillsIpc } from './skills-ipc.mjs';
 import { createRoster } from './agent-roster.mjs';
-import { checkAgentProgram, closeEverySession, diagnoseAgent, listAgents, localAgent, openAgentSignIn, setChosenPaths } from './agents.mjs';
+import { checkAgentProgram, closeEverySession, diagnoseAgent, listAgents, localAgent, openAgentInstaller, openAgentSignIn, setChosenPaths } from './agents.mjs';
 import { agentUsage, forgetAgentUsage } from './agent-usage.mjs';
 import { installOpenfilmCommand } from './openfilm-command.mjs';
 import { startUpdates } from './updates.mjs';
@@ -529,6 +529,8 @@ async function start() {
     localAgents: listAgents,
     localAgent,
     openSignIn: openAgentSignIn,
+    /* an agent's official installer, in a terminal window, once the person agreed to it in Settings → Agents */
+    openInstaller: openAgentInstaller,
     /* sessions closed on connecting and disconnecting: the next look at its usage is for whichever account is used now */
     closeSessions: (id) => { forgetAgentUsage(id); localAgents?.closeAgent(id); },
     seal,
@@ -554,6 +556,7 @@ async function start() {
   agentHandle('desktop:agents:usage', ({ id, fresh }) => agentUsage(String(id), { fresh: fresh === true }));
   agentHandle('desktop:agents:locate', ({ id, words }) => roster.locate(String(id), words));
   agentHandle('desktop:agents:automatic', ({ id }) => roster.useAutomatic(String(id)));
+  agentHandle('desktop:agents:install', ({ id }) => roster.install(String(id)));
   agentHandle('desktop:agents:diagnose', ({ id }) => roster.diagnose(String(id)));
   /* the app's part of Studio's diagnostic report (app-report.mjs): the agents as found now, each one's --version */
   const appReport = () => gatherAppReport({ list: () => roster.refresh(), check: checkAgentProgram }, {

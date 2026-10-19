@@ -49,6 +49,7 @@ contextBridge.exposeInMainWorld('openfilmNative', {
     setShown: (id, shown) => ipcRenderer.invoke('desktop:agents:shown', { id, shown: shown === true }),
     locate: (id, words) => ipcRenderer.invoke('desktop:agents:locate', { id, words }),
     useAutomatic: (id) => ipcRenderer.invoke('desktop:agents:automatic', { id }),
+    install: (id) => ipcRenderer.invoke('desktop:agents:install', { id }),
     diagnose: (id) => ipcRenderer.invoke('desktop:agents:diagnose', { id }),
     report: () => ipcRenderer.invoke('desktop:agents:report'),
     /* the whole diagnostic report on the clipboard (main.mjs): the chat's, by a turn that failed */
