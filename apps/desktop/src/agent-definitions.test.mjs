@@ -1,4 +1,5 @@
 import { test } from 'node:test';
+import { once } from 'node:events';
 import assert from 'node:assert/strict';
 import { mkdtempSync, mkdirSync, writeFileSync, rmSync, symlinkSync, realpathSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -54,6 +55,14 @@ for await (const line of createInterface({ input: process.stdin })) {
   }
 }
 `;
+
+// Windows keeps a running process's working directory locked after kill() returns.
+async function closeSession(session) {
+  const child = session.child;
+  const closed = child && child.exitCode === null && child.signalCode === null ? once(child, 'close') : null;
+  session.close();
+  if (closed) await closed;
+}
 
 test('shared definitions drive discovery, launch, names, roster choices and session preferences', () => {
   assert.deepEqual(Object.keys(AGENTS).sort(), [...OWN_AGENT_IDS].sort());
@@ -151,16 +160,16 @@ test('both new native agents complete ACP sessions, switch models, stream replie
         await session.cancel();
         assert.equal(await turn, 'cancelled');
         await assert.rejects(session.prompt([{ type: 'text', text: 'disconnect' }]), /closed|disposed/i);
-      } finally { session.close(); }
+      } finally { await closeSession(session); }
       const resumed = new AgentSession({ agent, cwd: dir, resume: 'saved-session' });
       try {
         const info = await resumed.start();
         assert.equal(info.resumed, true);
         assert.equal(info.sessionId, 'saved-session');
-      } finally { resumed.close(); }
+      } finally { await closeSession(resumed); }
       const signedOut = new AgentSession({ agent, cwd: dir, env: { OPENFILM_TEST_SIGNED_OUT: '1' } });
       try { await assert.rejects(signedOut.start(), (error) => error.code === 'sign-in'); }
-      finally { signedOut.close(); }
+      finally { await closeSession(signedOut); }
     }
     setChosenPaths({ hermes: program });
     assert.deepEqual(await agentSignInMethods('hermes'), [{ id: 'hermes-setup', name: 'Configure Hermes provider', args: ['--setup'], env: {} }]);
@@ -229,5 +238,9 @@ test('Cursor invokes its advertised session authentication before opening a sess
   setChosenPaths({ cursor: program });
   const session = new AgentSession({ agent: 'cursor', cwd: dir });
   try { assert.equal((await session.start()).sessionId, 'fixture-session'); }
-  finally { session.close(); setChosenPaths({}); rmSync(dir, { recursive: true, force: true }); }
+  finally {
+    await closeSession(session);
+    assert.ok(session.child.exitCode !== null || session.child.signalCode !== null, 'fixture must exit before its directory is removed');
+    setChosenPaths({}); rmSync(dir, { recursive: true, force: true });
+  }
 });
