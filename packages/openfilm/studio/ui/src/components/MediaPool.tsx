@@ -1,6 +1,6 @@
 /**
- * Studio's media pane, kept the way editors keep media (CapCut's media panel, DaVinci's Media Pool): everything at
- * one top level called All, folders as tiles beside the files, double-click a folder to go in.
+ * Studio's media pane: everything at one top level called All, folders as tiles beside the files, double-click a
+ * folder to go in.
  *
  * The top level is assets/ itself plus every web page of the project (its scenes). A person can make folders and
  * drag files into them. Paths are not shown: Reveal in Finder and Copy path are on the right-click menu.
