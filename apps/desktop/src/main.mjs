@@ -21,6 +21,7 @@ import { startWindowStudio } from './studio.mjs';
 import { CHAT_MIN, STUDIO_MIN, WINDOW_MIN, placeOnDisplays, readWindowState, writeWindowState } from './window-state.mjs';
 import { createPagePresentation, preparePage, revealPage } from './page-presentation.mjs';
 import { closeTabOrWindow, keepWindowOnClose, quitAfterStudio } from './window-lifecycle.mjs';
+import { appLanguage } from './i18n/language.mjs';
 import { applicationMenuTemplate } from './menu.mjs';
 import { registerLocalAgentIpc } from './local-agents-ipc.mjs';
 import { readPreferences, registerChatIpc } from './chat-ipc.mjs';
@@ -473,11 +474,14 @@ async function start() {
   win.on('closed', () => { win = null; views.clear(); pagePresentation = null; app.quit(); });
 
   ipcMain.on('desktop:theme', (event, next) => { if (fromPage(event)) setTheme(next); });
-  /* the page's language, kept for what the app shows before a page is up (the update installed at launch) */
+  /* the page's language, kept for what the app shows before a page is up (the update installed at launch), and
+     the menu bar's (showMenu) */
+  let menuLanguage = null;
   ipcMain.on('desktop:language', (event, next) => {
     if (!fromPage(event) || typeof next !== 'string' || next === state.language) return;
     state = { ...state, language: next.slice(0, 20) };
     try { writeWindowState(DATA, state); } catch { /* kept until next time */ }
+    showMenu();
   });
   ipcMain.handle('desktop:hello', (event) => {
     if (!fromPage(event)) throw new Error('not the window\'s page');
@@ -637,32 +641,40 @@ async function start() {
   ipcMain.handle('desktop:update-state', (event) => (fromPage(event) ? updates?.snapshot() ?? null : null));
   ipcMain.handle('desktop:update-check', (event) => (fromPage(event) ? updates?.check() ?? null : null));
 
-  Menu.setApplicationMenu(Menu.buildFromTemplate(applicationMenuTemplate({
-    productName: PRODUCT_NAME,
-    packaged: app.isPackaged,
-    toggleChat: () => activeView()?.webContents.send('desktop:toggle-chat'),
-    openProject: () => void openProjectFolder(),
-    openSettings: () => { focusWindow(); activeView()?.webContents.send('desktop:open-settings'); },
-    reload: () => activeView()?.webContents.reload(),
-    devTools: () => activeView()?.webContents.toggleDevTools(),
-    tabs: {
-      /* the projects window, in the page in front, to pick the project a new tab shows */
-      open: () => activeView()?.webContents.send('desktop:tabs:pick') ?? views.get(HOME)?.webContents.focus(),
-      close: () => closeTabOrWindow(win, { mac, activeId: tabs?.activeId(), closeTab }),
-      reopen: () => { const tab = tabs?.reopen(); if (tab) showTab(tab.id); },
-      step: (by) => {
-        const list = tabs?.list() ?? [];
-        const i = list.findIndex((t) => t.active);
-        if (list.length > 1) showTab(list[(i + by + list.length) % list.length].id);
+  /* the menu bar speaks the page's language (the system's until the page says), built again when it changes */
+  function showMenu() {
+    const language = appLanguage(state.language, app.getPreferredSystemLanguages());
+    if (language === menuLanguage) return;
+    menuLanguage = language;
+    Menu.setApplicationMenu(Menu.buildFromTemplate(applicationMenuTemplate({
+      language,
+      productName: PRODUCT_NAME,
+      packaged: app.isPackaged,
+      toggleChat: () => activeView()?.webContents.send('desktop:toggle-chat'),
+      openProject: () => void openProjectFolder(),
+      openSettings: () => { focusWindow(); activeView()?.webContents.send('desktop:open-settings'); },
+      reload: () => activeView()?.webContents.reload(),
+      devTools: () => activeView()?.webContents.toggleDevTools(),
+      tabs: {
+        /* the projects window, in the page in front, to pick the project a new tab shows */
+        open: () => activeView()?.webContents.send('desktop:tabs:pick') ?? views.get(HOME)?.webContents.focus(),
+        close: () => closeTabOrWindow(win, { mac, activeId: tabs?.activeId(), closeTab }),
+        reopen: () => { const tab = tabs?.reopen(); if (tab) showTab(tab.id); },
+        step: (by) => {
+          const list = tabs?.list() ?? [];
+          const i = list.findIndex((t) => t.active);
+          if (list.length > 1) showTab(list[(i + by + list.length) % list.length].id);
+        },
+        pick: (n) => { const list = tabs?.list() ?? []; const tab = n === 9 ? list.at(-1) : list[n - 1]; if (tab) showTab(tab.id); },
       },
-      pick: (n) => { const list = tabs?.list() ?? []; const tab = n === 9 ? list.at(-1) : list[n - 1]; if (tab) showTab(tab.id); },
-    },
-    updates: updates.packaged ? {
-      check: () => updates.manualCheck(),
-      beta: updates.channel() === 'beta',
-      setBeta: (on) => updates.setChannel(on ? 'beta' : 'stable'),
-    } : null,
-  })));
+      updates: updates.packaged ? {
+        check: () => updates.manualCheck(menuLanguage),
+        beta: updates.channel() === 'beta',
+        setBeta: (on) => updates.setChannel(on ? 'beta' : 'stable'),
+      } : null,
+    })));
+  }
+  showMenu();
 
   win.show();
   if (needFfmpeg) {
