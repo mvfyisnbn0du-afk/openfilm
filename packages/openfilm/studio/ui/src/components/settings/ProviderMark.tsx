@@ -6,7 +6,7 @@ export function ProviderMark({ id, size = 18, className = 'text-[var(--text)]' }
   return (
     <span className={`inline-flex shrink-0 items-center justify-center ${className}`} style={{ width: size, height: size }} aria-hidden>
       {mark ? (
-        <svg width={size} height={size} viewBox={mark.viewBox} fill="currentColor" fillRule="evenodd" className="block">
+        <svg width={size} height={size} viewBox={mark.viewBox} fill="currentColor" fillRule={mark.fillRule ?? 'evenodd'} className="block">
           {mark.parts ? mark.parts.map((part) => <path key={part.d} d={part.d} fillOpacity={part.opacity} />) : <path d={mark.d} />}
         </svg>
       ) : id ? (
