@@ -194,7 +194,8 @@ test('rename refreshes only its open pages, including writes still waiting to se
   try {
     await Promise.all(sockets.map(({ ws }) => new Promise((done, fail) => { ws.onopen = done; ws.onerror = fail; })));
     await new Promise((r) => setTimeout(r, 600));
-    assert.deepEqual(unaffected.events, [{ type: 'project', project: other }], 'every connection receives its current project');
+    /* only the project event: on a Mac the watcher can still report the new project's own files after the wait */
+    assert.deepEqual(unaffected.events.filter((e) => e.type === 'project'), [{ type: 'project', project: other }], 'every connection receives its current project');
     unaffected.events.length = 0;
     let current = before;
     for (const [name, text] of [['Refresh film', null], ['Refresh final', filmHtml({ stage: { w: 800, h: 450 }, tracks: [] })]]) {
