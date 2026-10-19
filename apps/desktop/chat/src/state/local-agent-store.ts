@@ -10,7 +10,7 @@
  * first message (the list only comes with a session).
  */
 import { create } from 'zustand';
-import { AGENT_IDS } from '../../../src/agent-catalog.mjs';
+import { isAgentId as isAgent } from '../../../src/agent-definitions.mjs';
 import {
   desktopBridge,
   type LocalAgentId,
@@ -22,8 +22,6 @@ import { forgetLocalAgentSessions, keepCommands, readCommands } from '@/lib/loca
 export type AgentPick = LocalAgentId;
 
 type ConfigOptions = NonNullable<LocalAgentSessionInfo['configOptions']>;
-
-const isAgent = (v: unknown): v is LocalAgentId => AGENT_IDS.includes(v as LocalAgentId);
 
 interface Persisted {
   picked: LocalAgentId;

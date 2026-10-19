@@ -6,7 +6,7 @@
  * has Studio open the installer in the person's browser (the website when this build names no place for
  * installers); Studio sends nothing else.
  */
-import { AGENT_NAMES } from '../../../../../../apps/desktop/src/agent-catalog.mjs';
+import { AGENT_DEFINITIONS } from '../../../../../../apps/desktop/src/agent-definitions.mjs';
 import React from 'react';
 import { createPortal } from 'react-dom';
 import { ArrowLeftRight, Bot, FileDown, Gauge, History, MonitorPlay, PackageCheck, RefreshCw, X } from 'lucide-react';
@@ -137,8 +137,8 @@ export function DesktopDialog({ open, onClose }: { open: boolean; onClose: () =>
             <div className="text-[11px] font-medium uppercase tracking-[0.1em] text-[var(--text-faint)]">{t('desktop.worksWith')}</div>
             <div className="mt-2.5 flex flex-wrap items-center gap-1.5">
               {AGENTS.map((id) => (
-                <Tooltip key={id} label={AGENT_NAMES[id]}>
-                  <span aria-label={AGENT_NAMES[id]} className="flex h-8 w-8 items-center justify-center rounded-[9px] border border-white/10 bg-white/[0.06] transition hover:border-white/25 hover:bg-white/[0.12]">
+                <Tooltip key={id} label={AGENT_DEFINITIONS[id].name}>
+                  <span aria-label={AGENT_DEFINITIONS[id].name} className="flex h-8 w-8 items-center justify-center rounded-[9px] border border-white/10 bg-white/[0.06] transition hover:border-white/25 hover:bg-white/[0.12]">
                     <ProviderMark id={agentMark(id)} size={15} />
                   </span>
                 </Tooltip>

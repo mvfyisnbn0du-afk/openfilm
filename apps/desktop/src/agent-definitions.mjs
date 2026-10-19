@@ -1,6 +1,7 @@
 // @ts-check
-/** Desktop agent metadata shared by the roster and UI builds; launch and sign-in behavior stay in agents.mjs. */
-export const AGENT_CATALOG = Object.freeze({
+/** Desktop metadata only; discovery, launch and sign-in behavior stay in their existing modules. */
+/** @satisfies {Record<string, { name: string, install: `https://${string}` | null }>} */
+const definitions = {
   codex: { name: 'Codex', install: 'https://developers.openai.com/codex' },
   claude: { name: 'Claude Code', install: 'https://claude.com/download' },
   copilot: { name: 'GitHub Copilot', install: 'https://github.com/features/copilot/cli' },
@@ -11,9 +12,19 @@ export const AGENT_CATALOG = Object.freeze({
   kimi: { name: 'Kimi', install: 'https://www.kimi.com/code/docs/en/kimi-code-cli/guides/getting-started.html' },
   minimax: { name: 'MiniMax Code', install: 'https://www.npmjs.com/package/@minimax-ai/code' },
   byok: { name: 'Own key', install: null },
-});
+};
 
-export const AGENT_IDS = Object.freeze(/** @type {(keyof typeof AGENT_CATALOG)[]} */ (Object.keys(AGENT_CATALOG)));
+/** @type {Readonly<{ [Id in keyof typeof definitions]: Readonly<typeof definitions[Id]> }>} */
+export const AGENT_DEFINITIONS = Object.freeze(definitions);
+/** @typedef {keyof typeof AGENT_DEFINITIONS} AgentId */
+
+export const AGENT_IDS = Object.freeze(/** @type {AgentId[]} */ (Object.keys(AGENT_DEFINITIONS)));
 export const OWN_AGENT_IDS = Object.freeze(AGENT_IDS.filter((id) => id !== 'byok'));
-export const AGENT_NAMES = Object.freeze(Object.fromEntries(AGENT_IDS.map((id) => [id, AGENT_CATALOG[id].name])));
-export const AGENT_DOWNLOADS = Object.freeze(Object.fromEntries(OWN_AGENT_IDS.map((id) => [id, AGENT_CATALOG[id].install])));
+
+/** All desktop choices, including own key; safe for persisted data and unknown historical ids.
+ * @param {unknown} value
+ * @returns {value is AgentId}
+ */
+export function isAgentId(value) {
+  return typeof value === 'string' && Object.hasOwn(AGENT_DEFINITIONS, value);
+}

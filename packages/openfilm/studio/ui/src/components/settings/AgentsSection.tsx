@@ -16,7 +16,7 @@
  * Under a connected agent: the skills and the MCP servers the person added to it themselves, each off in the app until
  * let in (its maker's own are always on).
  */
-import { OWN_AGENT_IDS } from '../../../../../../../apps/desktop/src/agent-catalog.mjs';
+import { OWN_AGENT_IDS } from '../../../../../../../apps/desktop/src/agent-definitions.mjs';
 import React from 'react';
 import { Check, Copy, Download, KeyRound, Loader2, Plus, X } from 'lucide-react';
 import { useLanguage, useT } from '@/i18n';

@@ -10,8 +10,8 @@ import { accessSync, closeSync, constants, lstatSync, openSync, readFileSync, re
 import { homedir } from 'node:os';
 import { delimiter, dirname, isAbsolute, join } from 'node:path';
 
-import { AGENT_DOWNLOADS } from './agent-catalog.mjs';
-export { AGENT_DOWNLOADS } from './agent-catalog.mjs';
+import { AGENT_DEFINITIONS, OWN_AGENT_IDS } from './agent-definitions.mjs';
+export const AGENT_DOWNLOADS = Object.freeze(Object.fromEntries(OWN_AGENT_IDS.map((id) => [id, AGENT_DEFINITIONS[id].install])));
 
 /**
  * Each agent's program, by the names it installs (the first found counts), and the folders its own installer puts it
