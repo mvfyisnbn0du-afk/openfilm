@@ -48,6 +48,27 @@ test("the registry's variables are handed on expanded, so an agent finds cmd.exe
   assert.match(env.PATH, /^C:\\Windows\\system32;/);
 });
 
+test('only REG_EXPAND_SZ values are expanded, as Windows does: a REG_SZ one keeps its %VARIABLE% as it is', () => {
+  const machine = new Set();
+  const user = new Set();
+  const env = registryVariables({
+    machine: parseRegQuery([
+      '    ComSpec    REG_EXPAND_SZ    %SystemRoot%\\system32\\cmd.exe',
+      '    Literal    REG_SZ    %SystemRoot%\\kept',
+      '    Path    REG_SZ    %SystemRoot%\\system32;C:\\Tools',
+      '    SystemRoot    REG_SZ    C:\\Windows',
+    ].join('\r\n'), machine),
+    user: parseRegQuery(USER, user),
+    source: { USERPROFILE: PROFILE },
+    expand: { machine, user },
+  });
+  assert.deepEqual([...machine], ['ComSpec']);
+  assert.equal(env.ComSpec, 'C:\\Windows\\system32\\cmd.exe');
+  assert.equal(env.Literal, '%SystemRoot%\\kept');
+  assert.equal(env.TEMP, `${PROFILE}\\AppData\\Local\\Temp`);
+  assert.match(env.PATH, /^%SystemRoot%\\system32;C:\\Tools;C:\\Users\\someone\\AppData\\Local\\Microsoft\\WindowsApps;/);
+});
+
 test('the environment is read again once it is old, sooner when asked; a failed read keeps the last good one', async () => {
   let clock = 0;
   const reads = [];
