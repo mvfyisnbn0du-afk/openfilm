@@ -1,15 +1,15 @@
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
-import { stripTypeScriptTypes } from 'node:module';
 import { test } from 'node:test';
 import vm from 'node:vm';
+import ts from 'typescript';
 
 const bridgeSource = readFileSync(new URL('../shell/bridge.ts', import.meta.url), 'utf8');
 const apiSource = readFileSync(new URL('../../../packages/openfilm/studio/ui/src/api.ts', import.meta.url), 'utf8');
 
 // Run the real bridge and API together; only their native, DOM and network boundaries are replaced.
 function loadSource(context, source) {
-  const js = stripTypeScriptTypes(source.replace(/^import .*;\n/gm, ''), { mode: 'transform' });
+  const js = ts.transpileModule(source.replace(/^import .*;\n/gm, ''), { compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.ESNext } }).outputText;
   vm.runInContext(js.replace(/^export /gm, '').replace(/^\{\s*\};?$/gm, ''), context);
 }
 function harness() {
