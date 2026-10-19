@@ -36,7 +36,7 @@
     "./studio": "./studio/server/server.mjs",
     "./studio-ui/*": "./studio/ui/src/*",
     "./package.json": "./package.json",
-    "./agents": "./src/agent-catalog.mjs"
+    "./agents": "./src/agent-definitions.mjs"
   },
   "files": [
     "README.md",

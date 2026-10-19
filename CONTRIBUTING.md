@@ -176,7 +176,7 @@ when the change ships (above, Releases).
 ## Adding a chat agent
 
 The desktop chat uses ACP over stdio, as in [#65](https://github.com/openfilm/openfilm/pull/65). Standard agents are
-listed once in [src/agent-catalog.mjs](packages/openfilm/src/agent-catalog.mjs). Add a record with its label,
+listed once in [src/agent-definitions.mjs](packages/openfilm/src/agent-definitions.mjs). Add a record with its label,
 executable names, official install page, ACP arguments and sign-in arguments. The roster, installation search,
 chat, settings, ids and types read that record; do not add another copy of their lists.
 
@@ -210,11 +210,11 @@ Validate each addition at three separate levels:
 
 | Check | Evidence | What it cannot prove |
 | --- | --- | --- |
-| Configuration | `pnpm typecheck`; desktop tests compile `agent-catalog.types.ts`, including invalid combinations, and check catalog values. | CLI arguments and method IDs match a real release. |
+| Configuration | `pnpm typecheck`; desktop tests compile `agent-definitions.types.ts`, including invalid combinations, and check definition values. | CLI arguments and method IDs match a real release. |
 | Local integration | Desktop tests exercise program discovery, package/bin checks, launch and a fake ACP subprocess. | Authentication and behavior of the installed vendor program. |
 | Real program | Record OS, program version/install source, discovery/Locate, sign-in, model selection and a turn, with results. Mark untested cases as pending. | Other OS/install sources or future program versions. |
 
-Run `pnpm --filter @openfilm/desktop test` for the catalog type/contract and local integration checks. Type regression
+Run `pnpm --filter @openfilm/desktop test` for the agent definition type/contract and local integration checks. Type regression
 fixtures use `@ts-expect-error`: if a forbidden combination becomes accepted, the test fails. Do not treat the fake
 server as evidence that the vendor's CLI parameters are correct. Full workspace checks still apply before merging.
 
@@ -229,7 +229,7 @@ its script to be the main module catches wrapper regressions. Models, modes and 
 agent's advertised capabilities, not a duplicated model list.
 
 Claude Code and Codex still need their bundled adapters and launch environment. Skill filtering and readers for an
-agent's private usage records also need agent-specific code when supported; adding a catalog record does not claim
+agent's private usage records also need agent-specific code when supported; adding an agent definition does not claim
 those features. Do not read or write the person's own credentials or config to connect an agent.
 
 ## License

@@ -1,4 +1,4 @@
-// Compiled by agent-catalog.test.mjs. Each expect-error must remain a real type error.
+// Compiled by agent-definitions.test.mjs. Each expect-error must remain a real type error.
 import type { AgentDefinition } from 'openfilm/agents';
 
 const direct = {

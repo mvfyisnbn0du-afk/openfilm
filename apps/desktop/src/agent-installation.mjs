@@ -5,17 +5,17 @@
  * cmd.exe (agents.mjs). A program the person chose themselves (Settings → Agents → Locate) comes before any of these.
  * Reads no Electron module, so `node --test` can use it.
  */
-import { AGENT_CATALOG } from 'openfilm/agents';
+import { AGENT_DEFINITIONS } from 'openfilm/agents';
 import { execFileSync } from 'node:child_process';
 import { accessSync, closeSync, constants, lstatSync, openSync, readFileSync, readSync, readdirSync, realpathSync, statSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { delimiter, dirname, isAbsolute, join } from 'node:path';
 
 export const AGENT_DOWNLOADS = Object.freeze(Object.fromEntries(
-  Object.entries(AGENT_CATALOG).map(([id, agent]) => [id, agent.install]),
+  Object.entries(AGENT_DEFINITIONS).map(([id, agent]) => [id, agent.install]),
 ));
 export const AGENT_PROGRAMS = Object.freeze(Object.fromEntries(
-  Object.entries(AGENT_CATALOG).map(([id, agent]) => [id, {
+  Object.entries(AGENT_DEFINITIONS).map(([id, agent]) => [id, {
     names: agent.names,
     dirs: (home) => (agent.binDirs ?? []).map((parts) => join(home, ...parts)),
   }]),
@@ -343,7 +343,7 @@ export function detectAgentInstallation(id, { home = homedir(), env = process.en
   applicationDirs = ['/Applications', join(home, 'Applications')], chosen = null, others = [], win = windows, codexVersionOf = codexVersion } = {}) {
   const program = AGENT_PROGRAMS[id] ?? { names: [id] };
   const install = AGENT_DOWNLOADS[id] ?? null;
-  const definition = AGENT_CATALOG[id] ?? { label: id, names: program.names };
+  const definition = AGENT_DEFINITIONS[id] ?? { label: id, names: program.names };
   const check = (file) => inspectProgram(definition, file, { win });
   const picked = chosen ? check(chosen) : null;
   if (picked?.ok) return { installed: true, cli: picked.path, source: 'chosen', install };
@@ -396,7 +396,7 @@ export function searchReport(id, { home = homedir(), env = process.env, pathDirs
         // Windows discovery uses the .cmd/.exe entry, not the adjacent Unix shim.
         const checked = win && suffix === ''
           ? { ok: false, path: null, error: 'Use the Windows .cmd or .exe entry instead of this Unix shim.' }
-          : inspectProgram(AGENT_CATALOG[id] ?? { label: id, names: program.names }, file, { win });
+          : inspectProgram(AGENT_DEFINITIONS[id] ?? { label: id, names: program.names }, file, { win });
         // Report the resolved entry, just as Locate does; a .ps1 can resolve through its sibling .cmd.
         files.push({ file, runs: checked.path, usable: checked.ok, ...(!checked.ok ? { reason: checked.error } : {}) });
       }

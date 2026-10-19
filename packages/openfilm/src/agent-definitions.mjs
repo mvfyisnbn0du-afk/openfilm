@@ -1,5 +1,5 @@
 // @ts-check
-/** The chat's ACP agents. Add a standard agent here; the roster, launcher and both UIs read this catalog. */
+/** The chat's ACP agents. Add a standard agent here; the roster, launcher and both UIs read these definitions. */
 
 /**
  * Exactly one ACP entry: a bundled adapter, or the installed command with ACP arguments.
@@ -71,13 +71,13 @@ const definitions = {
 };
 
 /** @type {Readonly<Record<keyof typeof definitions, AgentDefinition>>} */
-export const AGENT_CATALOG = Object.freeze(definitions);
-export const OWN_AGENT_IDS = Object.freeze(/** @type {(keyof typeof definitions)[]} */ (Object.keys(AGENT_CATALOG)));
+export const AGENT_DEFINITIONS = Object.freeze(definitions);
+export const OWN_AGENT_IDS = Object.freeze(/** @type {(keyof typeof definitions)[]} */ (Object.keys(AGENT_DEFINITIONS)));
 export const AGENT_IDS = Object.freeze([...OWN_AGENT_IDS, 'byok']);
 /** @type {Readonly<Record<string, string>>} */
-export const AGENT_NAMES = Object.freeze({ ...Object.fromEntries(OWN_AGENT_IDS.map((id) => [id, AGENT_CATALOG[id].label])), byok: 'Own key' });
+export const AGENT_NAMES = Object.freeze({ ...Object.fromEntries(OWN_AGENT_IDS.map((id) => [id, AGENT_DEFINITIONS[id].label])), byok: 'Own key' });
 /** @type {Readonly<Partial<Record<keyof typeof definitions | 'byok', Record<string, string>>>>} */
 export const AGENT_FORCED_PREFS = Object.freeze({
-  ...Object.fromEntries(OWN_AGENT_IDS.filter((id) => AGENT_CATALOG[id].prefs).map((id) => [id, AGENT_CATALOG[id].prefs])),
+  ...Object.fromEntries(OWN_AGENT_IDS.filter((id) => AGENT_DEFINITIONS[id].prefs).map((id) => [id, AGENT_DEFINITIONS[id].prefs])),
   byok: { mode: 'agent-full-access' },
 });

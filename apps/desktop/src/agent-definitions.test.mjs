@@ -6,7 +6,7 @@ import { spawnSync } from 'node:child_process';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import ts from 'typescript';
-import { AGENT_CATALOG, OWN_AGENT_IDS, AGENT_IDS, AGENT_NAMES, AGENT_FORCED_PREFS } from 'openfilm/agents';
+import { AGENT_DEFINITIONS, OWN_AGENT_IDS, AGENT_IDS, AGENT_NAMES, AGENT_FORCED_PREFS } from 'openfilm/agents';
 import { AGENTS, AgentSession, agentSignInMethods, openAgentSignIn, checkAgentProgram, isAgentId, setChosenPaths } from './agents.mjs';
 import { AGENT_DOWNLOADS, AGENT_PROGRAMS, detectAgentInstallation } from './agent-installation.mjs';
 import { readChoices } from './agent-roster.mjs';
@@ -55,11 +55,11 @@ for await (const line of createInterface({ input: process.stdin })) {
 }
 `;
 
-test('one catalog drives discovery, launch, names, roster choices and session preferences', () => {
+test('shared definitions drive discovery, launch, names, roster choices and session preferences', () => {
   assert.deepEqual(Object.keys(AGENTS).sort(), [...OWN_AGENT_IDS].sort());
   assert.deepEqual(Object.keys(AGENT_PROGRAMS).sort(), [...OWN_AGENT_IDS].sort());
   assert.deepEqual(Object.keys(AGENT_DOWNLOADS).sort(), [...OWN_AGENT_IDS].sort());
-  const dir = mkdtempSync(join(tmpdir(), 'of-catalog-'));
+  const dir = mkdtempSync(join(tmpdir(), 'of-definitions-'));
   try {
     const paths = Object.fromEntries(OWN_AGENT_IDS.map((id) => [id, `/chosen/${id}`]));
     writeFileSync(join(dir, 'agents.json'), JSON.stringify({ paths, shown: { deepseek: true, hermes: true }, disconnected: ['hermes'] }));
@@ -69,7 +69,7 @@ test('one catalog drives discovery, launch, names, roster choices and session pr
     assert.equal(choices.shown.hermes, true);
     assert.deepEqual(choices.disconnected, ['hermes']);
     for (const id of OWN_AGENT_IDS) {
-      const agent = AGENT_CATALOG[id];
+      const agent = AGENT_DEFINITIONS[id];
       assert.match(id, /^[a-z][a-z0-9-]*$/);
       assert.ok(agent.label && agent.names.length);
       assert.equal(AGENT_NAMES[id], agent.label);
@@ -198,8 +198,8 @@ test('an ACP status probe exits after closing its session without leaving its ti
 });
 
 
-test('catalog types reject ambiguous startup, sign-in and misspelled fields', () => {
-  const program = ts.createProgram([fileURLToPath(new URL('./agent-catalog.types.ts', import.meta.url))], {
+test('agent definition types reject ambiguous startup, sign-in and misspelled fields', () => {
+  const program = ts.createProgram([fileURLToPath(new URL('./agent-definitions.types.ts', import.meta.url))], {
     noEmit: true, strict: true, allowJs: true, skipLibCheck: true,
     target: ts.ScriptTarget.ESNext, module: ts.ModuleKind.NodeNext, moduleResolution: ts.ModuleResolutionKind.NodeNext,
   });

@@ -5,19 +5,19 @@ import { mkdtempSync, writeFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { spawnSync } from 'node:child_process';
 import { launchProgram } from './agent-launch.mjs';
-import { AGENT_CATALOG } from 'openfilm/agents';
+import { AGENT_DEFINITIONS } from 'openfilm/agents';
 import { CLIENT_CAPABILITIES, CODEX_UTF8_CMD, agentShell, allowOption, codexDeveloperInstructions, codexLaunchEnv, errorCause, flatConfigOptions, legacyOptions, powerShellScript, readAgentStatus, signInError, codexTooOld } from './agents.mjs';
 
 test('Harness uses the installed Node and preserves its main entry', () => {
   const args = ['--profile', 'acp'];
-  const launch = launchProgram(AGENT_CATALOG.deepseek, 'C:/npm/dsh/bin.js', args, { PATH: dirname(process.execPath) });
+  const launch = launchProgram(AGENT_DEFINITIONS.deepseek, 'C:/npm/dsh/bin.js', args, { PATH: dirname(process.execPath) });
   assert.equal(launch.cmd.toLowerCase(), process.execPath.toLowerCase());
   assert.equal(launch.args[0], '--import');
   assert.ok(launch.args[1].startsWith('file:///'));
   assert.ok(launch.args[1].endsWith('/native-agent-preload.mjs'));
   assert.deepEqual(launch.args.slice(2), ['C:/npm/dsh/bin.js', ...args]);
   assert.deepEqual(launch.env, {}, 'uses the declared Node runtime');
-  assert.throws(() => launchProgram(AGENT_CATALOG.deepseek, 'C:/npm/dsh/bin.js', args, { PATH: '' }), /needs Node.js/);
+  assert.throws(() => launchProgram(AGENT_DEFINITIONS.deepseek, 'C:/npm/dsh/bin.js', args, { PATH: '' }), /needs Node.js/);
 });
 
 test('grouped ACP models expose selectable model names while preserving opaque route values', () => {

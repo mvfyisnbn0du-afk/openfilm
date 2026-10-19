@@ -31,7 +31,7 @@ import { dirname, isAbsolute, join } from 'node:path';
 import { Readable, Writable } from 'node:stream';
 import { fileURLToPath } from 'node:url';
 import * as acp from '@agentclientprotocol/sdk';
-import { AGENT_CATALOG } from 'openfilm/agents';
+import { AGENT_DEFINITIONS } from 'openfilm/agents';
 import { PATH_SEP, childEnvironment, lastPathSource, loginShellEnvironment, loginShellVariables, shellSubset } from './environment.mjs';
 import { AGENT_PROGRAMS, HOME_BIN_CANDIDATES, inspectProgram, codexVersion, consoleProgram, detectAgentInstallation, laterVersion, searchReport } from './agent-installation.mjs';
 import { logSwitches } from './agent-logs.mjs';
@@ -52,14 +52,14 @@ const require = createRequire(import.meta.url);
  * how Claude Code and Codex are told them instead).
  */
 export const AGENTS = Object.freeze({
-  ...AGENT_CATALOG,
+  ...AGENT_DEFINITIONS,
   claude: {
-    ...AGENT_CATALOG.claude,
+    ...AGENT_DEFINITIONS.claude,
     env: (path) => ({ CLAUDE_CODE_EXECUTABLE: path }),
     // Do not replace the person's subscription with API credentials from their shell.
     fromShell: shellSubset,
   },
-  codex: { ...AGENT_CATALOG.codex, env: (path) => codexLaunchEnv(path) },
+  codex: { ...AGENT_DEFINITIONS.codex, env: (path) => codexLaunchEnv(path) },
 });
 
 export const isAgentId = (id) => typeof id === 'string' && Object.hasOwn(AGENTS, id);
