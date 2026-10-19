@@ -6,7 +6,6 @@
  * has Studio open the installer in the person's browser (the website when this build names no place for
  * installers); Studio sends nothing else.
  */
-import { AGENT_DEFINITIONS } from '../../../../../../apps/desktop/src/agent-definitions.mjs';
 import React from 'react';
 import { createPortal } from 'react-dom';
 import { ArrowLeftRight, Bot, FileDown, Gauge, History, MonitorPlay, PackageCheck, RefreshCw, X } from 'lucide-react';
@@ -14,7 +13,6 @@ import { useT } from '@/i18n';
 import { desktopBuild, desktopSystem } from '@/lib/desktop-build';
 import { BrandLogo } from './BrandLogo';
 import { ProviderMark } from './settings/ProviderMark';
-import { agentMark } from '@/lib/provider-marks';
 import { Tooltip } from './Tooltip';
 
 /* what the app does: the chat and the editor together, the agents, the engine, no setup, and staying current */
@@ -30,7 +28,16 @@ const FEATURES: { key: string; icon: React.ReactNode }[] = [
 ];
 
 /** The agents it finds on the computer, by their marks (Codex's is OpenAI's). */
-const AGENTS = ['claude', 'codex', 'copilot', 'cursor', 'opencode', 'qwen', 'kimi', 'minimax'] as const;
+const AGENTS: { id: string; name: string }[] = [
+  { id: 'claude', name: 'Claude Code' },
+  { id: 'openai', name: 'Codex' },
+  { id: 'copilot', name: 'GitHub Copilot' },
+  { id: 'cursor', name: 'Cursor' },
+  { id: 'opencode', name: 'OpenCode' },
+  { id: 'qwen', name: 'Qwen Code' },
+  { id: 'kimi', name: 'Kimi' },
+  { id: 'minimax', name: 'MiniMax Code' },
+];
 
 const SYSTEM_NAMES = { mac: 'macOS', win: 'Windows' } as const;
 
@@ -136,10 +143,10 @@ export function DesktopDialog({ open, onClose }: { open: boolean; onClose: () =>
           <div>
             <div className="text-[11px] font-medium uppercase tracking-[0.1em] text-[var(--text-faint)]">{t('desktop.worksWith')}</div>
             <div className="mt-2.5 flex flex-wrap items-center gap-1.5">
-              {AGENTS.map((id) => (
-                <Tooltip key={id} label={AGENT_DEFINITIONS[id].name}>
-                  <span aria-label={AGENT_DEFINITIONS[id].name} className="flex h-8 w-8 items-center justify-center rounded-[9px] border border-white/10 bg-white/[0.06] transition hover:border-white/25 hover:bg-white/[0.12]">
-                    <ProviderMark id={agentMark(id)} size={15} />
+              {AGENTS.map(({ id, name }) => (
+                <Tooltip key={id} label={name}>
+                  <span aria-label={name} className="flex h-8 w-8 items-center justify-center rounded-[9px] border border-white/10 bg-white/[0.06] transition hover:border-white/25 hover:bg-white/[0.12]">
+                    <ProviderMark id={id} size={15} />
                   </span>
                 </Tooltip>
               ))}
