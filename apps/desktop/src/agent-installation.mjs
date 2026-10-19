@@ -10,17 +10,8 @@ import { accessSync, closeSync, constants, lstatSync, openSync, readFileSync, re
 import { homedir } from 'node:os';
 import { delimiter, dirname, isAbsolute, join } from 'node:path';
 
-export const AGENT_DOWNLOADS = Object.freeze({
-  claude: 'https://claude.com/download',
-  codex: 'https://developers.openai.com/codex',
-  copilot: 'https://github.com/features/copilot/cli',
-  cursor: 'https://cursor.com/cli',
-  opencode: 'https://opencode.ai/download',
-  codebuddy: 'https://www.codebuddy.cn/docs/cli/installation',
-  qwen: 'https://github.com/QwenLM/qwen-code',
-  kimi: 'https://www.kimi.com/code/docs/en/kimi-code-cli/guides/getting-started.html',
-  minimax: 'https://www.npmjs.com/package/@minimax-ai/code',
-});
+import { AGENT_DOWNLOADS } from './agent-catalog.mjs';
+export { AGENT_DOWNLOADS } from './agent-catalog.mjs';
 
 /**
  * Each agent's program, by the names it installs (the first found counts), and the folders its own installer puts it

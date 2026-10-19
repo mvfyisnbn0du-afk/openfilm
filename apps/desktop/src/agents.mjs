@@ -38,6 +38,7 @@ import { logSwitches } from './agent-logs.mjs';
 import { mergeConfig, sessionSkills } from './agent-skills.mjs';
 import { nodeBinary } from './node-runtime.mjs';
 import { outOfBalance } from './pi-config.mjs';
+import { AGENT_NAMES } from './agent-catalog.mjs';
 
 const require = createRequire(import.meta.url);
 
@@ -53,7 +54,7 @@ const require = createRequire(import.meta.url);
  */
 export const AGENTS = Object.freeze({
   claude: {
-    label: 'Claude Code',
+    label: AGENT_NAMES.claude,
     adapter: '@agentclientprotocol/claude-agent-acp',
     env: (path) => ({ CLAUDE_CODE_EXECUTABLE: path }),
     auth: ['auth', 'status'],
@@ -66,7 +67,7 @@ export const AGENTS = Object.freeze({
     systemPrompt: true,
   },
   codex: {
-    label: 'Codex',
+    label: AGENT_NAMES.codex,
     adapter: '@agentclientprotocol/codex-acp',
     env: (path) => codexLaunchEnv(path),
     /* asked only for whose account it is: Codex is signed in in Codex (its app, or `codex login`) */
@@ -74,16 +75,16 @@ export const AGENTS = Object.freeze({
     login: null,
     systemPrompt: true,
   },
-  copilot: { label: 'GitHub Copilot', args: ['--acp', '--allow-all'], login: ['login'], approve: true },
-  cursor: { label: 'Cursor', args: ['--force', 'acp'], auth: ['status'], login: ['login'], authenticate: 'cursor_login', approve: true },
-  opencode: { label: 'OpenCode', args: ['acp'], login: ['auth', 'login'], approve: true },
+  copilot: { label: AGENT_NAMES.copilot, args: ['--acp', '--allow-all'], login: ['login'], approve: true },
+  cursor: { label: AGENT_NAMES.cursor, args: ['--force', 'acp'], auth: ['status'], login: ['login'], authenticate: 'cursor_login', approve: true },
+  opencode: { label: AGENT_NAMES.opencode, args: ['acp'], login: ['auth', 'login'], approve: true },
   /* CodeBuddy is the China edition unless the person's shell says otherwise: the program itself defaults to the
      international site (www.codebuddy.ai) whichever site it was signed in on, out of reach from China */
-  codebuddy: { label: 'CodeBuddy', args: ['--acp', '--permission-mode', 'bypassPermissions'], login: [], approve: true,
+  codebuddy: { label: AGENT_NAMES.codebuddy, args: ['--acp', '--permission-mode', 'bypassPermissions'], login: [], approve: true,
     defaults: { CODEBUDDY_INTERNET_ENVIRONMENT: 'internal' } },
-  qwen: { label: 'Qwen Code', args: ['--acp', '--approval-mode', 'yolo'], login: [], approve: true },
-  kimi: { label: 'Kimi', args: ['acp'], login: ['login'], approve: true },
-  minimax: { label: 'MiniMax Code', args: ['acp'], login: ['login'], approve: true },
+  qwen: { label: AGENT_NAMES.qwen, args: ['--acp', '--approval-mode', 'yolo'], login: [], approve: true },
+  kimi: { label: AGENT_NAMES.kimi, args: ['acp'], login: ['login'], approve: true },
+  minimax: { label: AGENT_NAMES.minimax, args: ['acp'], login: ['login'], approve: true },
 });
 
 export const isAgentId = (id) => typeof id === 'string' && Object.hasOwn(AGENTS, id);

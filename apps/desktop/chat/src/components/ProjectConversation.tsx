@@ -1,6 +1,7 @@
 'use client';
 
 import React from 'react';
+import { AGENT_NAMES } from '../../../src/agent-catalog.mjs';
 import type { PublicProgressSnapshot, TurnAttachment } from '@openfilm/shared';
 import { BellRing, Check, ChevronRight, Copy } from 'lucide-react';
 import { AgentActivityList, formatWorkDuration, StatusLine, type AgentActivityItem } from './AgentActivityRow';
@@ -618,10 +619,6 @@ function WorkSummary({ items, durationMs }: { items: AgentActivityItem[]; durati
   );
 }
 
-const AGENT_NAMES: Record<string, string> = {
-  codex: 'Codex', claude: 'Claude Code', copilot: 'GitHub Copilot', cursor: 'Cursor', opencode: 'OpenCode',
-  codebuddy: 'CodeBuddy', qwen: 'Qwen Code', kimi: 'Kimi', minimax: 'MiniMax Code',
-};
 
 /** The hover-only line: transparent but keeping its space (nothing jumps as the mouse moves); always shown on devices without hover. */
 /* Kept visible by keyboard focus only (:focus-visible): after a click on copy the focus stays on the button,

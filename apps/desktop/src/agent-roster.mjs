@@ -36,13 +36,8 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { PI_APIS, contextLength, modelEffort } from './pi-config.mjs';
 
-/** The person's own agents, as agents.mjs AGENTS has them. */
-export const OWN_AGENT_IDS = Object.freeze(['codex', 'claude', 'copilot', 'cursor', 'opencode', 'codebuddy', 'qwen', 'kimi', 'minimax']);
-export const AGENT_IDS = Object.freeze([...OWN_AGENT_IDS, 'byok']);
-export const AGENT_NAMES = Object.freeze({
-  codex: 'Codex', claude: 'Claude Code', copilot: 'GitHub Copilot', cursor: 'Cursor', opencode: 'OpenCode', codebuddy: 'CodeBuddy',
-  qwen: 'Qwen Code', kimi: 'Kimi', minimax: 'MiniMax Code', byok: 'Own key',
-});
+import { AGENT_IDS, OWN_AGENT_IDS, AGENT_NAMES } from './agent-catalog.mjs';
+export { AGENT_IDS, OWN_AGENT_IDS, AGENT_NAMES } from './agent-catalog.mjs';
 const isOwn = (id) => OWN_AGENT_IDS.includes(id);
 
 /** The API formats a key can be for, and the address each starts with. */

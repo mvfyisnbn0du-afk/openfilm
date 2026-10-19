@@ -16,6 +16,7 @@
  * Under a connected agent: the skills and the MCP servers the person added to it themselves, each off in the app until
  * let in (its maker's own are always on).
  */
+import { OWN_AGENT_IDS } from '../../../../../../../apps/desktop/src/agent-catalog.mjs';
 import React from 'react';
 import { Check, Copy, Download, KeyRound, Loader2, Plus, X } from 'lucide-react';
 import { useLanguage, useT } from '@/i18n';
@@ -46,8 +47,6 @@ function useHostAgents(): HostAgent[] | null {
   return agents;
 }
 
-/** The person's own agents (the app's AGENTS), in the roster's order. */
-const OWN: readonly HostAgentId[] = ['codex', 'claude', 'copilot', 'cursor', 'opencode', 'codebuddy', 'qwen', 'kimi', 'minimax'];
 /** whose maker's mark is its company's */
 function AgentMark({ id }: { id: HostAgentId }) {
   return id === 'byok' ? <KeyRound size={16} /> : <ProviderMark id={agentMark(id)} size={17} />;
@@ -329,7 +328,7 @@ export function AgentsSection() {
   const byId = (id: HostAgentId) => list.find((a) => a.id === id);
   /* always yours: Codex, Claude Code and your own key; then the others switched on, the rest under "More" */
   const always = (['codex', 'claude', 'byok'] as const).map(byId).filter((a): a is HostAgent => Boolean(a));
-  const others = list.filter((a) => OWN.includes(a.id) && !always.includes(a));
+  const others = list.filter((a) => a.id !== 'byok' && OWN_AGENT_IDS.includes(a.id) && !always.includes(a));
   const more = others.filter((a) => !a.shown);
   return (
     <SettingsPage note={t('settings.agents.intro')}>
