@@ -162,7 +162,7 @@ test('an agent not found can be pointed at: the program is tried first, kept, an
   const used = [];
   const asked = [];
   const r = roster(dir, undefined, {
-    localAgents: async () => [{ id: 'codex', cli: null, signedIn: null, install: 'https://developers.openai.com/codex', setupRequired: null }],
+    localAgents: async () => [{ id: 'codex', cli: null, signedIn: null, install: 'https://chatgpt.com/download/', setupRequired: null }],
     pickProgram: async (id, words) => { asked.push([id, words]); return picked; },
     checkProgram: async () => check,
     usePaths: (paths) => used.push(paths),

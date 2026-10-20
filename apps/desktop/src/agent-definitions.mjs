@@ -2,7 +2,7 @@
 /** Desktop metadata only; discovery, launch and sign-in behavior stay in their existing modules. */
 /** @satisfies {Record<string, { name: string, install: `https://${string}` | null }>} */
 const definitions = {
-  codex: { name: 'Codex', install: 'https://developers.openai.com/codex' },
+  codex: { name: 'Codex', install: 'https://chatgpt.com/download/' },
   claude: { name: 'Claude Code', install: 'https://claude.com/download' },
   copilot: { name: 'GitHub Copilot', install: 'https://github.com/features/copilot/cli' },
   cursor: { name: 'Cursor', install: 'https://cursor.com/cli' },

@@ -124,7 +124,7 @@ test('the program the person chose comes first; it can be a shim, the .cmd besid
   const mine = put(join(home, 'mine', 'codex'), '', 0o755);
   const opts = { home, env: { PATH: bin }, pathDirs: [], applicationDirs: [] };
   if (process.platform !== 'win32') {
-    assert.deepEqual(detectAgentInstallation('codex', opts), { installed: true, cli: onPath, source: 'path', install: 'https://developers.openai.com/codex' });
+    assert.deepEqual(detectAgentInstallation('codex', opts), { installed: true, cli: onPath, source: 'path', install: 'https://chatgpt.com/download/' });
     assert.equal(detectAgentInstallation('codex', { ...opts, chosen: mine }).source, 'chosen');
     assert.equal(detectAgentInstallation('codex', { ...opts, chosen: mine }).cli, mine);
     assert.equal(detectAgentInstallation('codex', { ...opts, chosen: join(home, 'gone') }).cli, onPath, 'one chosen and gone: found as before');
@@ -173,7 +173,7 @@ test('a program found some other way (a Store app) is used last', () => {
   const store = put(join(home, 'Store', 'OpenAI.Codex', 'codex.exe'), '', 0o755);
   const opts = { home, env: { PATH: '' }, pathDirs: [], applicationDirs: [] };
   assert.equal(detectAgentInstallation('codex', opts).cli, null);
-  assert.deepEqual(detectAgentInstallation('codex', { ...opts, others: [store] }), { installed: true, cli: store, source: 'app', install: 'https://developers.openai.com/codex' });
+  assert.deepEqual(detectAgentInstallation('codex', { ...opts, others: [store] }), { installed: true, cli: store, source: 'app', install: 'https://chatgpt.com/download/' });
 });
 
 test('the report: every folder searched, each file with the name, what a shim runs, and what cannot be started', () => {
@@ -258,7 +258,7 @@ test('Codex installed long ago beside the copy an app keeps up to date: the late
   const versions = (map) => (file) => map[file] ?? null;
   const opts = { home, env: { PATH: bin }, pathDirs: [], applicationDirs: [apps] };
   assert.deepEqual(detectAgentInstallation('codex', { ...opts, codexVersionOf: versions({ [onPath]: '0.42.0', [inApp]: '0.163.0' }) }),
-    { installed: true, cli: inApp, source: 'app', install: 'https://developers.openai.com/codex' });
+    { installed: true, cli: inApp, source: 'app', install: 'https://chatgpt.com/download/' });
   assert.equal(detectAgentInstallation('codex', { ...opts, others: [store], codexVersionOf: versions({ [onPath]: '0.42.0', [inApp]: '0.163.0', [store]: '0.170.0' }) }).cli, store, 'the latest of them');
   assert.equal(detectAgentInstallation('codex', { ...opts, codexVersionOf: versions({ [onPath]: '0.170.0', [inApp]: '0.163.0' }) }).cli, onPath, 'the one on the PATH is the later');
   assert.equal(detectAgentInstallation('codex', { ...opts, codexVersionOf: versions({ [inApp]: '0.163.0' }) }).cli, onPath, 'one whose version can\'t be told stays');
