@@ -42,6 +42,59 @@ const CONTEXT = 128_000;
 const MAX_OUTPUT = 32_000;
 
 /**
+ * The pictures one request carries at most (their base64, bytes): 32 MB, the request size Anthropic's API documents
+ * as its limit. Pi makes each picture at most 2000 px and 4.5 MB as it reads it (its defaults), so
+ * a frame keeps its full quality; but every picture goes again with each request after it, and the context's token
+ * count hardly sees a picture's bytes, so nothing else keeps a conversation that looks at many frames under a service's
+ * size limit. Past this, the oldest are left out of the request (never out of the conversation).
+ */
+export const IMAGE_BUDGET = 32 * 1024 * 1024;
+/** A model service refusing a request as too large: HTTP 413, as services and the proxies before them say it. */
+export const TOO_LARGE = /^\s*413\b|request entity too large|payload too large|request_too_large|request too large/i;
+
+/**
+ * The tool results whose pictures a request carries: the latest few that hold one. An older one's pictures are left out
+ * of the request; the agent reads a file again when it needs to look back.
+ */
+export const KEEP_PICTURE_RESULTS = 5;
+
+/**
+ * The conversation as one request sends it: pictures only in the latest KEEP_PICTURE_RESULTS tool results that hold
+ * one, and all of them within `budget` (bytes of base64), the newest kept. Each picture left out is a line saying so
+ * and which file it was, so the agent can read it again. `messages` the same when nothing is left out; `kept`, the
+ * bytes of the pictures that go.
+ * @param {any[]} messages @param {number} budget
+ * @returns {{ messages: any[], kept: number }}
+ */
+export function fitImages(messages, budget) {
+  /* which file each tool call read, to name a picture left out */
+  const paths = new Map();
+  for (const m of messages) {
+    if (m?.role !== 'assistant' || !Array.isArray(m.content)) continue;
+    for (const c of m.content) if (c?.type === 'toolCall' && typeof c.arguments?.path === 'string') paths.set(c.id, c.arguments.path);
+  }
+  let used = 0;
+  let cut = false;
+  let results = 0;
+  const out = [...messages];
+  for (let i = out.length - 1; i >= 0; i--) {
+    const m = out[i];
+    if (!Array.isArray(m?.content) || !m.content.some((c) => c?.type === 'image')) continue;
+    const old = m.role === 'toolResult' && ++results > KEEP_PICTURE_RESULTS;
+    const content = m.content.map((c) => {
+      if (c?.type !== 'image') return c;
+      const size = String(c.data ?? '').length;
+      if (!old && used + size <= budget) { used += size; return c; }
+      cut = true;
+      const path = m.role === 'toolResult' ? paths.get(m.toolCallId) : undefined;
+      return { type: 'text', text: `[A picture${path ? ` (${path})` : ''} was left out of this request to keep it small. Read it again to see it.]` };
+    });
+    out[i] = { ...m, content };
+  }
+  return { messages: cut ? out : messages, kept: used };
+}
+
+/**
  * A model's context length as kept: a whole number of tokens from 32K to 10M, as the person gave it in Settings (the
  * service documents it; OpenFilm cannot know it). Null for none or anything else: the model gets 128K.
  */
@@ -165,6 +218,7 @@ export function failureText(said) {
   if (TIMED_OUT.test(text)) return `The model service didn't answer for ${WAIT_MINUTES} minutes, even after trying again. Check that the service is running and reachable, then try again.`;
   if (PI_OVERFLOW.test(text)) return `${text} ${CONTEXT_HINT}`;
   if (OVERFLOW.test(text)) return `The conversation is too long for the model. ${CONTEXT_HINT}`;
+  if (TOO_LARGE.test(text)) return 'The request is too large for the model service, even with older pictures left out. Send your message again to go on with fewer, or start a new conversation.';
   return text;
 }
 
@@ -175,6 +229,7 @@ export function failureText(said) {
 export function retryNotice(event) {
   const said = String(event?.errorMessage ?? '').trim();
   const again = `trying again (${event?.attempt ?? 1} of ${event?.maxAttempts ?? 1}).`;
+  if (TOO_LARGE.test(said)) return { sessionUpdate: 'notice', severity: 'warning', title: `The request was too large for the model service; ${again.replace(/\.$/, '')} with half of the older pictures left out.` };
   if (TIMED_OUT.test(said)) return { sessionUpdate: 'notice', severity: 'warning', title: `The model service didn't answer for ${WAIT_MINUTES} minutes; ${again}` };
   return { sessionUpdate: 'notice', severity: 'warning', title: `The model service failed; ${again}`, ...(said ? { description: said } : {}) };
 }

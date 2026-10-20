@@ -1698,6 +1698,7 @@ export const ko: Words = {
       keyPlaceholder: 'API 키 붙여넣기',
       keyKept: '{last4}(으)로 끝나는 키(유지하려면 비워 두세요)',
       byokNote: '모든 모델이 이미지를 읽을 수 있어야 합니다. 에이전트가 직접 만든 프레임을 확인하기 때문입니다. 키는 이 컴퓨터에만 저장되며 각자의 서비스로만 전송됩니다.',
+      byokRules: '따르는 규칙은 프로젝트 폴더에 있는 AGENTS.md(또는 CLAUDE.md)뿐입니다. 상위 폴더나 에이전트 설정 폴더 등 다른 곳에 둔 파일은 읽지 않습니다.',
       save: '확인 후 저장',
       checkingKey: '확인 중…',
       cancel: '취소',

@@ -2,12 +2,14 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createServer } from 'node:http';
 import { mkdtempSync } from 'node:fs';
+import { randomBytes } from 'node:crypto';
+import { crc32, deflateSync } from 'node:zlib';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { AgentSession } from './agents.mjs';
 
 /** A service on the Chat Completions API that answers "ok" and notes the model each request named (and each request, and its key). */
-async function service({ broke = false, fails = null, busyOnce = false } = {}) {
+async function service({ broke = false, fails = null, busyOnce = false, largest = Infinity } = {}) {
   const asked = [];
   const bodies = [];
   const keys = [];
@@ -19,6 +21,8 @@ async function service({ broke = false, fails = null, busyOnce = false } = {}) {
       asked.push(model);
       bodies.push(JSON.parse(body || '{}'));
       keys.push(String(req.headers.authorization ?? ''));
+      /* a proxy in front of the service refusing a body past its size, with its own HTML page */
+      if (body.length > largest) { res.writeHead(413, { 'content-type': 'text/html' }); res.end('<html><head><title>413 Request Entity Too Large</title></head><body><center><h1>413 Request Entity Too Large</h1></center><hr><center>openresty</center></body></html>'); return; }
       if (broke) { res.writeHead(402, { 'content-type': 'application/json' }); res.end(JSON.stringify({ error: { message: 'Insufficient Balance' } })); return; }
       if (busyOnce && asked.length === 1) { res.writeHead(503, { 'content-type': 'application/json' }); res.end(JSON.stringify({ error: { message: 'The service is busy.' } })); return; }
       if (fails) { res.writeHead(400, { 'content-type': 'application/json' }); res.end(JSON.stringify({ error: { message: fails } })); return; }
@@ -192,6 +196,82 @@ test('a service that fails and is tried again says so in the chat as a notice, a
     assert.equal(notices[0].severity, 'warning');
     assert.equal(notices[0].title, 'The model service failed; trying again (1 of 1).');
     assert.match(notices[0].description, /The service is busy/);
+  } finally {
+    session.close();
+    svc.close();
+  }
+});
+
+/** A picture of noise, which no encoding makes smaller: `w` × `h`, RGB, as a PNG. */
+function noisePng(w, h) {
+  const chunk = (type, data) => {
+    const head = Buffer.alloc(8);
+    head.writeUInt32BE(data.length, 0);
+    head.write(type, 4, 'ascii');
+    const crc = Buffer.alloc(4);
+    crc.writeUInt32BE(crc32(Buffer.concat([Buffer.from(type, 'ascii'), data])) >>> 0, 0);
+    return Buffer.concat([head, data, crc]);
+  };
+  const ihdr = Buffer.alloc(13);
+  ihdr.writeUInt32BE(w, 0); ihdr.writeUInt32BE(h, 4); ihdr[8] = 8; ihdr[9] = 2;
+  const rows = Buffer.concat(Array.from({ length: h }, () => Buffer.concat([Buffer.from([0]), randomBytes(w * 3)])));
+  return Buffer.concat([Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]), chunk('IHDR', ihdr), chunk('IDAT', deflateSync(rows, { level: 0 })), chunk('IEND', Buffer.alloc(0))]);
+}
+
+test('a request refused as too large is tried again at once with half of its pictures, and the turn goes on', { timeout: 60_000 }, async () => {
+  const svc = await service({ largest: 8 * 1024 * 1024 });
+  const session = new AgentSession({
+    agent: 'byok',
+    cwd: mkdtempSync(join(tmpdir(), 'of-pi-')),
+    harness: { home: mkdtempSync(join(tmpdir(), 'of-pi-home-')), models: [own('a', svc.url)], model: 'a', env: { OPENFILM_BYOK_KEY_a: 'sk' } },
+  });
+  /* fourteen pictures of about 0.95 MB each (Pi sends them as they are): 13 MB, past this service's 8 MB */
+  const pictures = Array.from({ length: 14 }, () => ({ type: 'image', mimeType: 'image/png', data: noisePng(560, 420).toString('base64') }));
+  try {
+    await session.start();
+    await session.prompt([{ type: 'text', text: 'look' }, ...pictures]);
+    assert.equal(svc.bodies.length, 2, 'refused once, then tried again');
+    const last = JSON.stringify(svc.bodies.at(-1));
+    assert.ok(last.length < 8 * 1024 * 1024, 'the request tried again is within the service\'s size');
+    assert.equal((last.match(/left out of this request to keep it small/g) ?? []).length, 7, 'half of the pictures left out, the oldest');
+  } finally {
+    session.close();
+    svc.close();
+  }
+});
+
+test('a request still too large when tried again with half of its pictures says so, and the next message goes on with fewer', { timeout: 60_000 }, async () => {
+  const svc = await service({ largest: 4 * 1024 * 1024 });
+  const session = new AgentSession({
+    agent: 'byok',
+    cwd: mkdtempSync(join(tmpdir(), 'of-pi-')),
+    harness: { home: mkdtempSync(join(tmpdir(), 'of-pi-home-')), models: [own('a', svc.url)], model: 'a', env: { OPENFILM_BYOK_KEY_a: 'sk' } },
+  });
+  const pictures = Array.from({ length: 14 }, () => ({ type: 'image', mimeType: 'image/png', data: noisePng(560, 420).toString('base64') }));
+  try {
+    await session.start();
+    const error = await session.prompt([{ type: 'text', text: 'look' }, ...pictures]).then(() => null, (e) => e);
+    assert.match(error?.message ?? '', /too large for the model service, even with older pictures left out/);
+    await session.prompt([{ type: 'text', text: 'go on' }]);
+    assert.ok(JSON.stringify(svc.bodies.at(-1)).length < 4 * 1024 * 1024, 'the next message goes with fewer pictures still');
+  } finally {
+    session.close();
+    svc.close();
+  }
+});
+
+test('a request too large with no pictures in it is not tried again, and says so', { timeout: 60_000 }, async () => {
+  const svc = await service({ largest: 10 });
+  const session = new AgentSession({
+    agent: 'byok',
+    cwd: mkdtempSync(join(tmpdir(), 'of-pi-')),
+    harness: { home: mkdtempSync(join(tmpdir(), 'of-pi-home-')), models: [own('a', svc.url)], model: 'a', env: { OPENFILM_BYOK_KEY_a: 'sk' } },
+  });
+  try {
+    await session.start();
+    const error = await session.prompt([{ type: 'text', text: 'hi' }]).then(() => null, (e) => e);
+    assert.match(error?.message ?? '', /too large for the model service/);
+    assert.equal(svc.bodies.length, 1, 'not tried again');
   } finally {
     session.close();
     svc.close();

@@ -1700,6 +1700,7 @@ export const zhCN: Words = {
       keyPlaceholder: '粘贴你的 API 密钥',
       keyKept: '尾号为 {last4} 的密钥（留空则保留）',
       byokNote: '每个模型都需要能看图：智能体会查看自己生成的画面。密钥只保存在这台电脑上，且只会发送给各自的服务。',
+      byokRules: '它遵循的规则只来自项目文件夹里的 AGENTS.md（或 CLAUDE.md）。放在别处的，比如上层文件夹或智能体自己的设置目录里，都不会被读取。',
       save: '检查并保存',
       checkingKey: '正在检查…',
       cancel: '取消',

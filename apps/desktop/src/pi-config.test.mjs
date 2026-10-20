@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { THINKING, contextLength, contextUsed, effortOption, failureText, modelEffort, modelOption, modelsJson, outOfBalance, providerOf, retryNotice, stopReason, toolCall, toolContent } from './pi-config.mjs';
+import { IMAGE_BUDGET, KEEP_PICTURE_RESULTS, THINKING, TOO_LARGE, contextLength, contextUsed, effortOption, failureText, fitImages, modelEffort, modelOption, modelsJson, outOfBalance, providerOf, retryNotice, stopReason, toolCall, toolContent } from './pi-config.mjs';
 
 /** One of the person's own models, as the roster's harness gives it. */
 const own = (id, over = {}) => ({ id, name: id.toUpperCase(), api: 'openai-completions', baseUrl: `https://${id}.test/v1`, keyEnv: `K_${id}`, model: `${id}-model`, levels: ['auto'], effort: 'auto', ...over });
@@ -118,4 +118,57 @@ test('a model service tried again, as a notice: one that sent nothing in time in
   assert.deepEqual(retryNotice({ type: 'auto_retry_start', attempt: 1, maxAttempts: 2, delayMs: 2000, errorMessage: '503 Service Unavailable' }), {
     sessionUpdate: 'notice', severity: 'warning', title: 'The model service failed; trying again (1 of 2).', description: '503 Service Unavailable',
   });
+});
+
+test("each of the person's models reads pictures as Pi does (2000 px, 4.5 MB at most), and a request carries 32 MB of them", () => {
+  const [model] = modelsJson([own('a')]).providers[providerOf('a')].models;
+  assert.equal(model.inputLimits, undefined, 'Pi\'s own picture limits');
+  assert.equal(IMAGE_BUDGET, 32 * 1024 * 1024);
+});
+
+test("a request's pictures within its budget: the newest kept, the older ones a line naming their file", () => {
+  const pic = (n) => ({ type: 'image', mimeType: 'image/png', data: 'x'.repeat(n) });
+  const messages = [
+    { role: 'user', content: [{ type: 'text', text: 'look' }, pic(40)] },
+    { role: 'assistant', content: [{ type: 'toolCall', id: 't1', name: 'read', arguments: { path: '.film/look/00.03.png' } }] },
+    { role: 'toolResult', toolCallId: 't1', toolName: 'read', content: [{ type: 'text', text: 'Read image file [image/png]' }, pic(50)] },
+    { role: 'assistant', content: [{ type: 'toolCall', id: 't2', name: 'read', arguments: { path: '.film/look/00.07.png' } }] },
+    { role: 'toolResult', toolCallId: 't2', toolName: 'read', content: [pic(60)] },
+  ];
+  assert.deepEqual(fitImages(messages, 150), { messages, kept: 150 }, 'within it: the same messages');
+  assert.equal(fitImages(messages, 150).messages, messages);
+  const { messages: fitted, kept } = fitImages(messages, 120);
+  assert.equal(kept, 110);
+  assert.deepEqual(fitted[4].content, [pic(60)], 'the newest kept');
+  assert.deepEqual(fitted[2].content[1], pic(50));
+  assert.match(fitted[0].content[1].text, /^\[A picture was left out of this request/, 'the oldest left out');
+  const tighter = fitImages(messages, 100).messages;
+  assert.equal(tighter[2].content[1].text, '[A picture (.film/look/00.03.png) was left out of this request to keep it small. Read it again to see it.]');
+  assert.equal(messages[2].content[1].type, 'image', 'the conversation itself is left as it was');
+});
+
+test('a request refused as too large is told apart from other failures, and said in plain words', () => {
+  assert.ok(TOO_LARGE.test('413 <html><head><title>413 Request Entity Too Large</title></head></html>'));
+  assert.ok(TOO_LARGE.test('413 status code (no body)'));
+  assert.ok(TOO_LARGE.test('Payload Too Large'));
+  assert.ok(!TOO_LARGE.test('400 The prompt has 413 tokens too many'));
+  assert.match(failureText('413 <html>openresty</html>'), /too large for the model service, even with older pictures left out/);
+  assert.equal(retryNotice({ attempt: 1, maxAttempts: 1, errorMessage: '413 <html>openresty</html>' }).title,
+    'The request was too large for the model service; trying again (1 of 1) with half of the older pictures left out.');
+});
+
+test("pictures only in the latest five tool results that hold one; an older one's a line naming its file", () => {
+  assert.equal(KEEP_PICTURE_RESULTS, 5);
+  const pic = { type: 'image', mimeType: 'image/png', data: 'x' };
+  const messages = [{ role: 'user', content: [{ type: 'text', text: 'look' }, pic] }];
+  for (let n = 1; n <= 7; n++) {
+    messages.push({ role: 'assistant', content: [{ type: 'toolCall', id: `t${n}`, name: 'read', arguments: { path: `f${n}.png` } }] });
+    messages.push({ role: 'toolResult', toolCallId: `t${n}`, toolName: 'read', content: [{ type: 'text', text: 'Read image file [image/png]' }, pic] });
+  }
+  const { messages: fitted, kept } = fitImages(messages, Infinity);
+  const shown = fitted.filter((m) => m.role === 'toolResult').map((m) => m.content[1].type);
+  assert.deepEqual(shown, ['text', 'text', 'image', 'image', 'image', 'image', 'image'], 'the latest five keep theirs');
+  assert.equal(fitted[2].content[1].text, '[A picture (f1.png) was left out of this request to keep it small. Read it again to see it.]');
+  assert.equal(fitted[0].content[1].type, 'image', 'a picture the person attached is not a tool result');
+  assert.equal(kept, 6);
 });

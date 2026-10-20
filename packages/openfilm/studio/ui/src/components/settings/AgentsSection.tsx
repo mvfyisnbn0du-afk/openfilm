@@ -476,6 +476,7 @@ function OwnModels({ agent, onDone }: { agent: HostAgent; onDone: () => void }) 
         </div>
       ) : null}
       <p className="text-[13px] leading-relaxed text-[var(--text-faint)]">{t('settings.agents.byokNote')}</p>
+      <p className="text-[13px] leading-relaxed text-[var(--text-faint)]">{t('settings.agents.byokRules')}</p>
     </SettingsInset>
   );
 }

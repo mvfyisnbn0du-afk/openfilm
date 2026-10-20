@@ -1700,6 +1700,7 @@ export const en = {
       keyPlaceholder: 'Paste your API key',
       keyKept: 'Key ending in {last4} (leave empty to keep it)',
       byokNote: 'Each model has to read pictures: the agent looks at its own frames. Your keys stay on this computer, and each goes only to its service.',
+      byokRules: 'Its rules are the project\'s own AGENTS.md (or CLAUDE.md), in the project\'s folder. One kept anywhere else, in a folder above or with the agent\'s settings, is not read.',
       save: 'Check and save',
       checkingKey: 'Checking…',
       cancel: 'Cancel',

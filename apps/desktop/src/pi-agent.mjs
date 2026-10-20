@@ -16,6 +16,12 @@
  * context, as Pi sends it, and the answer) is written there (chat-store.mjs's `<turn>.model.jsonl`), only what is new
  * since the request before.
  *
+ * Pictures are kept within the model services' size limits (pi-config.mjs): a request carries those of the latest
+ * KEEP_PICTURE_RESULTS tool results that hold one, and at most IMAGE_BUDGET of them, the oldest left out of the request
+ * first (never out of the session). A service refusing a request as too large (HTTP 413, a proxy's page included) is
+ * tried again once with half of those pictures, as Pi tries a busy one; that half stays the conversation's limit. A
+ * request with no pictures in it is not tried again: its own words are too large, and the turn says so.
+ *
  * What Pi does goes to the chat as ACP session updates: its words and thinking as they stream, each tool call (its
  * kind, title and input) and its result, after each answer how full the context is, and a model service tried again.
  */
@@ -26,7 +32,7 @@ import * as acp from '@agentclientprotocol/sdk';
 import { DefaultResourceLoader, ModelRuntime, SessionManager, SettingsManager, createAgentSession } from '@earendil-works/pi-coding-agent';
 import { Agent, install, setGlobalDispatcher } from 'undici';
 import { agentSessionsDir, openLog } from './chat-store.mjs';
-import { THINKING, WAIT_MINUTES, contextUsed, effortOption, modelOption, modelsJson, providerOf, retryNotice, stopReason, toolCall, toolContent } from './pi-config.mjs';
+import { IMAGE_BUDGET, THINKING, TOO_LARGE, WAIT_MINUTES, contextUsed, effortOption, fitImages, modelOption, modelsJson, providerOf, retryNotice, stopReason, toolCall, toolContent } from './pi-config.mjs';
 
 /* stdout is the protocol's: anything else Pi or a library prints goes to stderr */
 console.log = console.info = console.warn = console.debug = (...args) => process.stderr.write(`${args.map(String).join(' ')}\n`);
@@ -119,6 +125,9 @@ async function open(client, cwd, resumeId) {
   let pending = null;
   /* the session's id, once it has one: the questions `ask` puts are the session's */
   let sessionId = null;
+  /* the pictures a request carries at most (pi-config.mjs IMAGE_BUDGET), and those the last one carried (bytes) */
+  let imageBudget = IMAGE_BUDGET;
+  let imagesSent = 0;
   const resourceLoader = new DefaultResourceLoader({
     cwd, agentDir: config.agentDir, settingsManager, noExtensions: true, noPromptTemplates: true, noThemes: true,
     /* OpenFilm's skills, and no other Pi would find (in the project, or its own folders) */
@@ -128,6 +137,14 @@ async function open(client, cwd, resumeId) {
     appendSystemPromptOverride: () => [],
     agentsFilesOverride: ({ agentsFiles }) => ({ agentsFiles: agentsFiles.filter((f) => dirname(resolve(f.path)) === resolve(cwd)) }),
     extensionFactories: [
+      /* each request's pictures within the budget, the oldest left out first: the request only, never the session */
+      { name: 'openfilm-images', hidden: true, factory: (pi) => {
+        pi.on('context', (event) => {
+          const fitted = fitImages(event.messages, imageBudget);
+          imagesSent = fitted.kept;
+          return fitted.messages === event.messages ? undefined : { messages: fitted.messages };
+        });
+      } },
       { name: 'openfilm-log', hidden: true, factory: (pi) => {
         pi.on('context_with_system', (event) => { pending = { startedAt: Date.now(), messages: event.messages }; });
       } },
@@ -141,6 +158,10 @@ async function open(client, cwd, resumeId) {
     ...(startEffort !== 'auto' ? { thinkingLevel: startEffort } : {}),
     resourceLoader, sessionManager, settingsManager, tools: ['read', 'bash', 'edit', 'write', 'ask'],
   });
+  /* a request refused as too large is one Pi tries again (its retry: once, the failed attempt left out of what is sent)
+     when it held pictures to leave out; Pi neither retries a 413 nor, but for Anthropic's own words, compacts for it */
+  const retryable = session._isRetryableError.bind(session);
+  session._isRetryableError = (message) => (TOO_LARGE.test(String(message?.errorMessage ?? '')) ? imagesSent > 0 : retryable(message));
   /* what it runs on now, as the chat names it (a conversation taken up again may be on another model and effort) */
   const now = ownOf(session.model);
   const onModel = now.id ?? startModel;
@@ -165,6 +186,8 @@ async function open(client, cwd, resumeId) {
         if (message?.role !== 'assistant') break;
         /* the turn's last answer: Pi drops one too long for the model from the conversation as it tries to recover */
         entry.answer = message;
+        /* refused as too large: the request tried again (see below) carries half of its pictures */
+        if (message.stopReason === 'error' && TOO_LARGE.test(String(message.errorMessage ?? '')) && imagesSent > 0) imageBudget = Math.floor(imagesSent / 2);
         if (pending && entry.log) {
           const toolsNow = (session.agent?.state?.tools ?? []).map((t) => ({ name: t.name, description: t.description, parameters: t.parameters }));
           entry.log.write({ startedAt: pending.startedAt, messages: pending.messages, toolsNow, answer: { message, systemPrompt: session.systemPrompt } });

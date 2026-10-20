@@ -1699,6 +1699,7 @@ export const es: Words = {
       keyPlaceholder: 'Pega tu clave de API',
       keyKept: 'Clave terminada en {last4} (déjalo vacío para conservarla)',
       byokNote: 'Cada modelo tiene que poder leer imágenes: el agente mira sus propios fotogramas. Tus claves se quedan en este equipo y cada una solo se envía a su servicio.',
+      byokRules: 'Sus reglas son el AGENTS.md (o CLAUDE.md) de la carpeta del proyecto. Uno guardado en otro sitio, en una carpeta superior o con los ajustes del agente, no se lee.',
       save: 'Comprobar y guardar',
       checkingKey: 'Comprobando…',
       cancel: 'Cancelar',
