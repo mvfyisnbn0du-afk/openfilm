@@ -92,7 +92,7 @@ export function StorageGroup() {
           {place.chosen ? (
             <SettingsButton variant="quiet" disabled={busy === which} onClick={() => keep(which, null)} title={place.default}>{t('settings.storage.reset')}</SettingsButton>
           ) : null}
-          <SettingsButton variant="quiet" onClick={() => void api.openLocation(which).catch(() => {})}>{t('settings.storage.show')}</SettingsButton>
+          <SettingsButton onClick={() => void api.openLocation(which).catch(() => {})}>{t('settings.storage.show')}</SettingsButton>
           <SettingsButton disabled={busy === which} onClick={() => void change(which)}>{t('settings.storage.change')}</SettingsButton>
         </>
       )}

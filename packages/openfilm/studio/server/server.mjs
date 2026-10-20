@@ -1125,7 +1125,8 @@ async function clipPoster(root, base, clip, durationMs) {
 /** A file in the app the system opens it with. */
 function openFile(/** @type {string} */ file) {
   const [cmd, ...args] = opener(file);
-  try { spawn(cmd, args, { stdio: 'ignore', detached: true, windowsHide: true }).on('error', () => {}).unref(); } catch { /* nothing opens it */ }
+  /* never `windowsHide`: Explorer opens the folder's window, or the file's app, hidden as it was asked to start */
+  try { spawn(cmd, args, { stdio: 'ignore', detached: true }).on('error', () => {}).unref(); } catch { /* nothing opens it */ }
 }
 
 /** The person's browser, at `url`. */
