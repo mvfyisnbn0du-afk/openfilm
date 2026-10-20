@@ -17,6 +17,32 @@ export interface ReleaseNotes { version: string; date: string; notes: Record<Lan
 
 export const RELEASES: readonly ReleaseNotes[] = [
   {
+    version: '0.2.4',
+    date: '2026-10-20',
+    notes: {
+      en: [
+        { kind: 'fixed', text: 'A new playback speed is heard the moment you pick it, and voices sound natural at any speed, even on long videos. The playback button shows a speed gauge, so it no longer looks like the inspector’s.' },
+        { kind: 'fixed', text: 'The app’s own agent (your own key) keeps a long conversation going when it looks at many frames: older pictures are left out of each request, and a request a service finds too large is tried again with fewer.' },
+      ],
+      'zh-CN': [
+        { kind: 'fixed', text: '换播放速度后立刻就有声音，任何速度下人声都自然，长视频也一样。播放按钮换成了速度表图标，不再和检查器的图标一样。' },
+        { kind: 'fixed', text: '内置智能体（用你自己的 key）看了很多画面后，长对话也能继续：每次请求会省略较早的图片，服务嫌请求太大时会带更少的图自动重试。' },
+      ],
+      ja: [
+        { kind: 'fixed', text: '再生速度を変えるとすぐに音が出て、どの速度でも声が自然に聞こえます。長い動画でも同じです。再生ボタンは速度計のアイコンになり、インスペクタのアイコンと区別できます。' },
+        { kind: 'fixed', text: 'アプリ内蔵のエージェント（自分のキー）がたくさんのフレームを見ても、長い会話を続けられます。古い画像は各リクエストから省かれ、大きすぎると断られたリクエストは画像を減らして再試行します。' },
+      ],
+      ko: [
+        { kind: 'fixed', text: '재생 속도를 바꾸면 바로 소리가 나고, 어떤 속도에서도 목소리가 자연스럽습니다. 긴 동영상도 마찬가지입니다. 재생 버튼은 속도계 아이콘이 되어 인스펙터 아이콘과 구별됩니다.' },
+        { kind: 'fixed', text: '앱 자체 에이전트(내 키)가 많은 프레임을 봐도 긴 대화를 이어 갈 수 있습니다. 오래된 그림은 요청에서 빠지고, 너무 크다고 거절된 요청은 그림을 줄여 다시 시도합니다.' },
+      ],
+      es: [
+        { kind: 'fixed', text: 'Una nueva velocidad de reproducción se oye en cuanto la eliges, y las voces suenan naturales a cualquier velocidad, también en vídeos largos. El botón de reproducción muestra un velocímetro y ya no se parece al del inspector.' },
+        { kind: 'fixed', text: 'El agente propio de la app (tu propia clave) sigue una conversación larga aunque mire muchos fotogramas: las imágenes antiguas se omiten de cada solicitud, y una solicitud que el servicio rechaza por grande se reintenta con menos.' },
+      ],
+    },
+  },
+  {
     version: '0.2.3',
     date: '2026-10-20',
     notes: {
