@@ -273,10 +273,10 @@ export const ko: Words = {
   /* the composer's button that opens the Community over the film: skills and examples (Studio's ExamplesGallery) */
   community: { button: '커뮤니티', tooltip: '커뮤니티: 스킬과 예시' },
   skills: {
-    chooseCover: "표지 선택",
-    removeCover: "표지 선택 취소",
-    coverHint: "선택 사항 · PNG, JPEG 또는 WebP, 최대 5 MB. 변경하지 않으면 원래 표지를 유지합니다.",
-    coverInvalid: "5 MB 이하의 올바른 PNG, JPEG 또는 WebP 이미지를 선택하세요.",
+    chooseCover: '표지 선택',
+    removeCover: '표지 선택 취소',
+    coverHint: '선택 사항 · PNG, JPEG 또는 WebP, 최대 5 MB. 변경하지 않으면 원래 표지를 유지합니다.',
+    coverInvalid: '5 MB 이하의 올바른 PNG, JPEG 또는 WebP 이미지를 선택하세요.',
     button: 'Skills',
     addTitle: '스킬 추가',
     addHint: 'GitHub 또는 GitLab에 있는 스킬(또는 스킬 폴더)의 주소를 붙여넣으세요.',

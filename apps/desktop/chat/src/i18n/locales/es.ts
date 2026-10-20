@@ -273,10 +273,10 @@ export const es: Words = {
   /* the composer's button that opens the Community over the film: skills and examples (Studio's ExamplesGallery) */
   community: { button: 'Comunidad', tooltip: 'Comunidad: skills y ejemplos' },
   skills: {
-    chooseCover: "Elegir portada",
-    removeCover: "Deshacer selección",
-    coverHint: "Opcional · PNG, JPEG o WebP, hasta 5 MB. Sin cambios, se conserva la portada original.",
-    coverInvalid: "Elige una imagen PNG, JPEG o WebP válida de hasta 5 MB.",
+    chooseCover: 'Elegir portada',
+    removeCover: 'Deshacer selección',
+    coverHint: 'Opcional · PNG, JPEG o WebP, hasta 5 MB. Sin cambios, se conserva la portada original.',
+    coverInvalid: 'Elige una imagen PNG, JPEG o WebP válida de hasta 5 MB.',
     button: 'Skills',
     addTitle: 'Añadir una skill',
     addHint: 'Pega la dirección de una skill, o de una carpeta de skills, en GitHub o GitLab.',

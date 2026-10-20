@@ -295,19 +295,26 @@ export async function addSkills(from, { mine = mySkillsDir(), move = false, orig
   return added;
 }
 
-/** A chosen raster picture, bounded before decoding; never an SVG or an arbitrary file. @param {string} data */
+/**
+ * A chosen raster picture, bounded before decoding; never an SVG or an arbitrary file. Its format is what its bytes
+ * are, whatever type the browser gave it from the file's name (a JPEG named .png is still a JPEG). @param {string} data
+ */
 function coverPicture(data) {
   if (typeof data !== 'string' || data.length > 7 * 1024 * 1024) throw new Error('Skill cover exceeds 5 MB.');
-  const match = /^data:image\/(png|jpeg|webp);base64,([A-Za-z0-9+/]+={0,2})$/.exec(data);
+  const match = /^data:image\/[a-z0-9.+-]+;base64,([A-Za-z0-9+/]+={0,2})$/.exec(data);
   if (!match) throw new Error('Skill cover must be a PNG, JPEG or WebP image.');
-  const bytes = Buffer.from(match[2], 'base64');
+  const bytes = Buffer.from(match[1], 'base64');
   if (bytes.length > 5 * 1024 * 1024) throw new Error('Skill cover exceeds 5 MB.');
-  const extension = match[1] === 'jpeg' ? 'jpg' : match[1];
-  if (pictureType(bytes) !== extension) throw new Error('Skill cover does not match its image format.');
+  const extension = pictureType(bytes);
+  if (extension !== 'png' && extension !== 'jpg' && extension !== 'webp') throw new Error('Skill cover must be a PNG, JPEG or WebP image.');
   return { bytes, extension };
 }
 
-/** Replace the metadata atomically; keep previous pictures, which may also be used by the skill's content.
+/* the name a cover chosen in OpenFilm is saved under: only such a file is removed when the cover changes */
+const CHOSEN_COVER = /^openfilm-cover-[0-9a-f-]{36}\.(?:png|jpg|webp)$/;
+
+/** Replace the metadata atomically. The previous cover's file goes only when OpenFilm saved it (CHOSEN_COVER); a
+ * picture of the skill's own stays, as its content may use it.
  * @param {string} folder @param {{ bytes: Buffer, extension: string } | null} picture */
 function writeSkillCover(folder, picture) {
   const metadataFile = join(folder, 'openfilm.json');
@@ -317,6 +324,7 @@ function writeSkillCover(folder, picture) {
     if (/** @type {any} */ (e).code !== 'ENOENT') throw new Error('Cannot update the skill\'s openfilm.json.', { cause: e });
   }
   if (!metadata || typeof metadata !== 'object' || Array.isArray(metadata)) throw new Error('Cannot update the skill\'s openfilm.json.');
+  const previous = metadata.cover;
   const file = picture ? `openfilm-cover-${randomUUID()}.${picture.extension}` : null;
   const temporary = join(folder, `.openfilm-${randomUUID()}.json`);
   let wrotePicture = false;
@@ -330,9 +338,10 @@ function writeSkillCover(folder, picture) {
     if (wrotePicture && file) rmSync(join(folder, file), { force: true });
     throw e;
   } finally { rmSync(temporary, { force: true }); }
+  if (typeof previous === 'string' && previous !== file && CHOSEN_COVER.test(previous)) rmSync(join(folder, previous), { force: true });
 }
 
-/** Change only a person's own installed skill. Null removes its cover declaration, never its picture files.
+/** Change only a person's own installed skill. Null removes its cover: a picture of the skill's own stays.
  * @param {string} name @param {string | null} cover @param {{ mine?: string }} [where] */
 export function setSkillCover(name, cover, { mine = mySkillsDir() } = {}) {
   const skill = skillsIn(mine, 'mine').find((s) => s.name === name);

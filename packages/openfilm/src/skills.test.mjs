@@ -296,3 +296,21 @@ test('where the person\'s skills came from: a folder, or the address commitSkill
   assert.equal(skillOrigins(mine).cards, undefined);
   assert.ok(skillOrigins(mine).lyrics);
 });
+
+test("a cover's format is what its bytes are, and a cover chosen before goes when it is replaced; the skill's own picture stays", () => {
+  const root = mkdtempSync(join(tmpdir(), 'of-skill-cover-swap-'));
+  const mine = join(root, 'mine');
+  skill(join(mine, 'own'), 'own', 'Own', 'Steps', { 'openfilm.json': '{"cover":"original.png"}', 'original.png': Buffer.from(coverPng.split(',')[1], 'base64') });
+  /* a JPEG the browser called a PNG, from its file's name */
+  const jpeg = `data:image/png;base64,${Buffer.from([0xff, 0xd8, 0xff, 0xe0, 0x00, 0x10, 0x4a, 0x46]).toString('base64')}`;
+  const first = setSkillCover('own', jpeg, { mine }).cover;
+  assert.match(first, /^openfilm-cover-.+\.jpg$/);
+  const second = setSkillCover('own', coverPng, { mine }).cover;
+  assert.match(second, /\.png$/);
+  assert.equal(existsSync(join(mine, 'own', first)), false, 'the cover chosen before is gone');
+  assert.equal(existsSync(join(mine, 'own', 'original.png')), true);
+  assert.equal(setSkillCover('own', null, { mine }).cover, undefined);
+  assert.equal(existsSync(join(mine, 'own', second)), false);
+  assert.equal(existsSync(join(mine, 'own', 'original.png')), true, 'a picture of the skill\'s own stays');
+  assert.throws(() => setSkillCover('own', `data:image/png;base64,${Buffer.from('GIF89a......').toString('base64')}`, { mine }), /PNG, JPEG or WebP/);
+});
