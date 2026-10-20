@@ -429,6 +429,7 @@ function SkillDetail({ skill, projectId, mode, onUse, onCoverChanged }: {
   const source = skill.repository ?? (skill.origin?.from === 'link' ? skill.origin.address : undefined);
   const [busy, setBusy] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
+  const coverInput = React.useRef<HTMLInputElement>(null);
   const changeCover = async (file: File | null) => {
     setBusy(true);
     setError(null);
@@ -458,12 +459,10 @@ function SkillDetail({ skill, projectId, mode, onUse, onCoverChanged }: {
             : <SkillCover key={skill.cover ?? ''} skill={skill} title={words.title} big />}
         </div>
         {skill.source === 'mine' ? <div className="flex flex-wrap items-center justify-center gap-3 text-[12px] text-[var(--text-muted)]">
-          <label className={`cursor-pointer rounded-[8px] border border-[var(--border)] px-3 py-2 focus-within:ring-2 focus-within:ring-[var(--text-muted)] ${busy ? 'pointer-events-none opacity-40' : 'hover:bg-[var(--bg-hover)]'}`}>
-            {t(skill.cover ? 'gallery.changeCover' : 'gallery.chooseCover')}
-            <input type="file" accept="image/png,image/jpeg,image/webp" aria-label={t(skill.cover ? 'gallery.changeCover' : 'gallery.chooseCover')} disabled={busy} className="sr-only"
-              onChange={(e) => { const file = e.target.files?.[0]; e.target.value = ''; if (file) void changeCover(file); }} />
-          </label>
-          {skill.cover ? <button type="button" disabled={busy} onClick={() => void changeCover(null)} className="rounded-[8px] px-3 py-2 hover:bg-[var(--bg-hover)] disabled:opacity-40">{t('gallery.removeCover')}</button> : null}
+          <button type="button" disabled={busy} onClick={() => coverInput.current?.click()} className="h-9 rounded-[9px] px-3 text-[13px] text-[var(--text-muted)] transition hover:bg-[var(--bg-hover)] hover:text-[var(--text)] disabled:opacity-40">{t(skill.cover ? 'gallery.changeCover' : 'gallery.chooseCover')}</button>
+          <input ref={coverInput} type="file" accept="image/png,image/jpeg,image/webp" aria-label={t(skill.cover ? 'gallery.changeCover' : 'gallery.chooseCover')} disabled={busy} hidden
+            onChange={(e) => { const file = e.target.files?.[0]; e.target.value = ''; if (file) void changeCover(file); }} />
+          {skill.cover ? <button type="button" disabled={busy} onClick={() => void changeCover(null)} className="h-9 rounded-[9px] px-3 text-[13px] text-[var(--text-muted)] transition hover:bg-[var(--bg-hover)] hover:text-[var(--text)] disabled:opacity-40">{t('gallery.removeCover')}</button> : null}
           {busy ? <span role="status">{t('gallery.coverSaving')}</span> : null}
         </div> : null}
         {error ? <p role="alert" className="text-[12px] text-[var(--warn)]">{error}</p> : null}

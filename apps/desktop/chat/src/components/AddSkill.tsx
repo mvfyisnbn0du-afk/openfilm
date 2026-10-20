@@ -45,6 +45,7 @@ export function AddSkillDialog({ onClose, onAdded, onPick, onMake }: {
   const [dragging, setDragging] = React.useState(false);
   const [covers, setCovers] = React.useState<Record<string, string>>({});
   const [readingCover, setReadingCover] = React.useState(false);
+  const coverInputs = React.useRef<Record<string, HTMLInputElement | null>>({});
   const waiting = React.useRef<string | null>(null);
 
   const letGo = () => {
@@ -109,12 +110,10 @@ export function AddSkillDialog({ onClose, onAdded, onPick, onMake }: {
         {s.description ? <span className="mt-0.5 line-clamp-2 block text-[12px] leading-[17px] text-[var(--text-muted)]">{s.description}</span> : null}
         {facts ? <span className="mt-1 block text-[11.5px] text-[var(--text-faint)]">{facts}</span> : null}
         {editable ? <span className="mt-2 flex items-center gap-2">
-          <label className={`cursor-pointer text-[12px] text-[var(--text-dim)] focus-within:underline ${step === 'adding' || readingCover ? 'pointer-events-none opacity-40' : 'hover:text-[var(--text)]'}`}>
-            {t('skills.chooseCover')}
-            <input type="file" accept="image/png,image/jpeg,image/webp" aria-label={`${t('skills.chooseCover')}: ${s.name}`} className="sr-only" disabled={step === 'adding' || readingCover}
-              onChange={(e) => { const file = e.target.files?.[0]; e.target.value = ''; if (file) void chooseCover(s.name, file); }} />
-          </label>
-          {covers[s.name] ? <button type="button" disabled={step === 'adding' || readingCover} onClick={() => setCovers((previous) => { const next = { ...previous }; delete next[s.name]; return next; })} className="text-[12px] text-[var(--text-faint)] hover:text-[var(--text)] disabled:opacity-40">{t('skills.removeCover')}</button> : null}
+          <button type="button" onMouseDown={keepFocus} disabled={step === 'adding' || readingCover} onClick={() => coverInputs.current[s.name]?.click()} className={QUIET_BUTTON}>{t('skills.chooseCover')}</button>
+          <input ref={(input) => { coverInputs.current[s.name] = input; }} type="file" accept="image/png,image/jpeg,image/webp" aria-label={`${t('skills.chooseCover')}: ${s.name}`} hidden disabled={step === 'adding' || readingCover}
+            onChange={(e) => { const file = e.target.files?.[0]; e.target.value = ''; if (file) void chooseCover(s.name, file); }} />
+          {covers[s.name] ? <button type="button" onMouseDown={keepFocus} disabled={step === 'adding' || readingCover} onClick={() => setCovers((previous) => { const next = { ...previous }; delete next[s.name]; return next; })} className={QUIET_BUTTON}>{t('skills.removeCover')}</button> : null}
         </span> : null}
       </span>
     </div>
