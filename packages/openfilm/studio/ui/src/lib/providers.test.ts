@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { couldMake, offered, providerGroups, type OwnProvider, type ProviderVerb, type ProvidersState } from './providers.ts';
+import { azureKey, couldMake, offered, providerGroups, type OwnProvider, type ProviderVerb, type ProvidersState } from './providers.ts';
 
 const own = (id: string, name: string, verbs: ProviderVerb[], source: OwnProvider['source'] = null): OwnProvider =>
   ({ id, name, verbs, models: {}, keysUrl: '', env: '', source, last4: null });
@@ -30,4 +30,11 @@ test('Providers lists the recommended ones first, in their order, and the rest u
   assert.equal(groups.open, false);
   assert.equal(providerGroups([...all, p('groq', 'Groq', 'file')]).open, true);
   assert.equal(providerGroups([p('openai', 'OpenAI', 'env')]).open, false, 'a connected recommended one opens nothing');
+});
+
+test("an Azure service's region and key go to the server as <region>:<key>, once the region is one", () => {
+  assert.equal(azureKey(' EastUS ', ' a1b2c3d4e5 '), 'eastus:a1b2c3d4e5');
+  assert.equal(azureKey('', 'a1b2c3d4e5'), null);
+  assert.equal(azureKey('east us', 'a1b2c3d4e5'), null);
+  assert.equal(azureKey('eastus', '  '), null);
 });

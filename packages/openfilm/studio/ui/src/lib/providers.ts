@@ -70,6 +70,18 @@ export function providerGroups<P extends Pick<OwnProvider, 'id' | 'name' | 'sour
   return { recommended, more, open: more.some((p) => p.source) };
 }
 
+/**
+ * Microsoft Azure's services, each set up with its own key and its resource's region (they are not one key, as
+ * Google's are): Azure AI Speech makes the voice-over. More go here as OpenFilm uses them.
+ */
+export const AZURE_SERVICES = [{ id: 'speech', name: 'Azure AI Speech', verbs: ['tts'] as ProviderVerb[] }];
+
+/** An Azure service's key as the server takes it: `<region>:<key>`; null while the region is not one (eastus, …). */
+export function azureKey(region: string, key: string): string | null {
+  const place = region.trim().toLowerCase();
+  return /^[a-z0-9]+$/.test(place) && key.trim() ? `${place}:${key.trim()}` : null;
+}
+
 /** Whether any provider here, connected or not, can make `verb`. */
 export const offered = (state: ProvidersState, verb: ProviderVerb) => state.providers.some((p) => p.verbs.includes(verb));
 

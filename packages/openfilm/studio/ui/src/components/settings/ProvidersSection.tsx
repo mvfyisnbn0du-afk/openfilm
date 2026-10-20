@@ -11,7 +11,7 @@
 import React from 'react';
 import { ChevronRight, ExternalLink, Plus } from 'lucide-react';
 import { useT } from '@/i18n';
-import { providerGroups, useProviders, type OwnProvider, type ProviderVerb, type ProvidersHook } from '@/lib/providers';
+import { AZURE_SERVICES, azureKey, providerGroups, useProviders, type OwnProvider, type ProviderVerb, type ProvidersHook } from '@/lib/providers';
 import { customProblem } from './CustomServices';
 import { ProviderMark } from './ProviderMark';
 import { SettingsButton, SettingsField, SettingsGroup, SettingsInset, SettingsItem, SettingsPage, SettingsStatus, settingsError, settingsLink } from './ui';
@@ -86,14 +86,18 @@ function KeyRow({ provider, hook }: { provider: OwnProvider; hook: ProvidersHook
   const t = useT();
   const [adding, setAdding] = React.useState(false);
   const [draft, setDraft] = React.useState('');
+  /* Microsoft Azure: each service its own region and key (AZURE_SERVICES), kept as `<region>:<key>` */
+  const azure = provider.id === 'azure';
+  const [region, setRegion] = React.useState('');
   const saving = hook.busy === provider.id;
+  const key = azure ? azureKey(region, draft) : draft.trim() ? draft : null;
 
-  const close = () => { setAdding(false); setDraft(''); };
+  const close = () => { setAdding(false); setDraft(''); setRegion(''); };
   const save = async () => {
-    if (!draft.trim() || saving) return;
-    if (await hook.saveKey(provider.id, draft)) close();
+    if (!key || saving) return;
+    if (await hook.saveKey(provider.id, key)) close();
   };
-  const pasteLabel = t('settings.providers.pasteKey').replaceAll('{name}', provider.name);
+  const pasteLabel = azure ? t('settings.providers.key') : t('settings.providers.pasteKey').replaceAll('{name}', provider.name);
 
   return (
     <Row
@@ -116,10 +120,31 @@ function KeyRow({ provider, hook }: { provider: OwnProvider; hook: ProvidersHook
       below={adding && !provider.source ? (
         <form className="pl-[34px]" onSubmit={(e) => { e.preventDefault(); void save(); }}>
           <SettingsInset>
+            {azure ? (
+              <div className="flex flex-col gap-0.5">
+                <span className="text-[14px] font-medium text-[var(--text)]">{AZURE_SERVICES[0]!.name}</span>
+                <span className="text-[13px] text-[var(--text-faint)]">{t('settings.providers.azureNote')}</span>
+              </div>
+            ) : null}
             <div className="flex items-center gap-2">
+              {azure ? (
+                <div className="w-[160px] shrink-0">
+                  <SettingsField
+                    autoFocus
+                    autoComplete="off"
+                    spellCheck={false}
+                    value={region}
+                    onChange={(e) => setRegion(e.target.value)}
+                    onKeyDown={(e) => { if (e.key === 'Escape') { e.preventDefault(); close(); } }}
+                    placeholder={t('settings.providers.region')}
+                    aria-label={t('settings.providers.region')}
+                    className="font-mono placeholder:font-sans"
+                  />
+                </div>
+              ) : null}
               <SettingsField
                 type="password"
-                autoFocus
+                autoFocus={!azure}
                 autoComplete="off"
                 spellCheck={false}
                 value={draft}
@@ -130,7 +155,7 @@ function KeyRow({ provider, hook }: { provider: OwnProvider; hook: ProvidersHook
                 className="flex-1 font-mono placeholder:font-sans"
               />
               <SettingsButton variant="quiet" onClick={close}>{t('settings.providers.cancel')}</SettingsButton>
-              <SettingsButton type="submit" variant="primary" disabled={!draft.trim() || saving}>{t('settings.providers.save')}</SettingsButton>
+              <SettingsButton type="submit" variant="primary" disabled={!key || saving}>{t('settings.providers.save')}</SettingsButton>
             </div>
             {hook.problem && hook.problemFor === provider.id ? <p className={settingsError} role="alert">{hook.problem}</p> : null}
             {/* the environment has a key for it: connect with that one, nothing to paste */}
