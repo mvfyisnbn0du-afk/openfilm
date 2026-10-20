@@ -2,12 +2,12 @@
  * Settings, opened from the logo at the top left: a search and the sections in groups on the left, the section on the
  * right as a page of titled groups. General (the theme and the language), Agents (in an app with a chat: the agents
  * it can use), Providers (the person's own keys for media services), Models (which provider and model makes each kind
- * of media), the keyboard shortcuts and Developer; the search finds a section by any phrase on it. At the foot of the
- * nav, quietly, where OpenFilm lives: its code, the examples and the website.
+ * of media), the keyboard shortcuts, Advanced and Developer; the search finds a section by any phrase on it. At the
+ * foot of the nav, quietly, where OpenFilm lives: its code, the examples and the website.
  */
 import React from 'react';
 import { createPortal } from 'react-dom';
-import { X, Settings2, Keyboard, Sun, Moon, Monitor, Plug, Boxes, Bot, Search, SquareTerminal, Loader2 } from 'lucide-react';
+import { X, Settings2, Keyboard, Sun, Moon, Monitor, Plug, Boxes, Bot, Search, SquareTerminal, Loader2, SlidersHorizontal } from 'lucide-react';
 import { LANGUAGES, phrasesUnder, useLanguage, useLanguageChoice, useT, type LanguageChoice } from '@/i18n';
 import { shortcutHint } from '@/lib/shortcut-hint';
 import { SHORTCUTS, type ShortcutKey } from '@/lib/timeline-keys';
@@ -26,13 +26,13 @@ import { SettingsButton, SettingsGroup, SettingsItem, SettingsPage, SettingsSegm
 import { useThemeMode, type ThemeMode } from './theme';
 import { StorageGroup } from './StorageGroup';
 
-export type SettingsSection = 'general' | 'agents' | 'providers' | 'models' | 'developer' | 'shortcuts';
+export type SettingsSection = 'general' | 'agents' | 'providers' | 'models' | 'developer' | 'shortcuts' | 'advanced';
 
 /* the nav, in groups: what OpenFilm does, then help (Agents only inside an app with a chat: lib/host.ts `agents`;
-   Developer always, for its diagnostics) */
+   Advanced for what is already set for the best experience; Developer always, for its diagnostics) */
 const NAV: Array<{ group: 'settings' | 'help'; sections: SettingsSection[] }> = [
   { group: 'settings', sections: ['general', ...(studioHost?.agents ? ['agents' as const] : []), 'providers', 'models'] },
-  { group: 'help', sections: ['shortcuts', 'developer'] },
+  { group: 'help', sections: ['shortcuts', 'advanced', 'developer'] },
 ];
 
 /** where OpenFilm lives, linked at the foot of the nav */
@@ -49,6 +49,7 @@ const SECTION_ICON: Record<SettingsSection, React.ReactNode> = {
   models: <Boxes size={18} strokeWidth={1.75} />,
   developer: <SquareTerminal size={18} strokeWidth={1.75} />,
   shortcuts: <Keyboard size={18} strokeWidth={1.75} />,
+  advanced: <SlidersHorizontal size={18} strokeWidth={1.75} />,
 };
 
 /** what a search through each section reads: its name and every phrase it shows */
@@ -59,6 +60,7 @@ const SECTION_WORDS: Record<SettingsSection, string | string[]> = {
   models: 'settings.models',
   developer: ['settings.developer', 'settings.report'],
   shortcuts: 'settings.shortcuts',
+  advanced: 'settings.advanced',
 };
 
 export interface SettingsModalProps {
@@ -192,6 +194,7 @@ export function SettingsModal({ open, onClose, section: opening }: SettingsModal
             {showing === 'models' && <ModelsSection onConnect={() => { setQuery(''); setSection('providers'); }} />}
             {showing === 'developer' && <DeveloperSection />}
             {showing === 'shortcuts' && <ShortcutsSection />}
+            {showing === 'advanced' && <AdvancedSection />}
           </div>
         </div>
       </div>
@@ -250,12 +253,11 @@ function GeneralSection() {
 
 /**
  * How the preview plays heavy footage (studio/server/proxies.mjs): from a lighter copy made in the background (a
- * proxy), and how tall that copy is; whether pages draw at the viewer's size, and whether stretches that play
- * late are rendered to play smoothly (lib/preview-prefs). Exports always read the originals and draw at full size.
+ * proxy), and how tall that copy is (Advanced has how pages draw and what plays late). Exports always read the
+ * originals and draw at full size.
  */
 function PlaybackGroup() {
   const t = useT();
-  const { fitPages, renders } = usePreviewPrefs();
   const [prefs, setPrefs] = React.useState<StudioPrefs | null>(null);
   React.useEffect(() => { void api.prefs().then(setPrefs).catch(() => {}); }, []);
   if (!prefs) return null;
@@ -284,17 +286,32 @@ function PlaybackGroup() {
           )}
         />
       ) : null}
-      <SettingsItem
-        title={t('settings.playback.fitPages')}
-        description={t('settings.playback.fitPagesHint')}
-        control={<SettingsSwitch checked={fitPages} onChange={(on) => writePreviewPref('fitPages', on)} label={t('settings.playback.fitPages')} />}
-      />
-      <SettingsItem
-        title={t('settings.playback.renders')}
-        description={t('settings.playback.rendersHint')}
-        control={<SettingsSwitch checked={renders} onChange={(on) => writePreviewPref('renders', on)} label={t('settings.playback.renders')} />}
-      />
     </SettingsGroup>
+  );
+}
+
+/**
+ * What is already set for the best experience, for whoever wants it otherwise: whether pages draw at the viewer's
+ * size, and whether stretches that play late are rendered to play smoothly (lib/preview-prefs). Both on by default.
+ */
+function AdvancedSection() {
+  const t = useT();
+  const { fitPages, renders } = usePreviewPrefs();
+  return (
+    <SettingsPage note={t('settings.advanced.intro')}>
+      <SettingsGroup title={t('settings.playback.group')}>
+        <SettingsItem
+          title={t('settings.advanced.fitPages')}
+          description={t('settings.advanced.fitPagesHint')}
+          control={<SettingsSwitch checked={fitPages} onChange={(on) => writePreviewPref('fitPages', on)} label={t('settings.advanced.fitPages')} />}
+        />
+        <SettingsItem
+          title={t('settings.advanced.renders')}
+          description={t('settings.advanced.rendersHint')}
+          control={<SettingsSwitch checked={renders} onChange={(on) => writePreviewPref('renders', on)} label={t('settings.advanced.renders')} />}
+        />
+      </SettingsGroup>
+    </SettingsPage>
   );
 }
 

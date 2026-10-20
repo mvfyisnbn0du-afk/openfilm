@@ -1454,6 +1454,7 @@ export const ja: Words = {
       developer: '開発者',
       general: '一般',
       shortcuts: 'キーボードショートカット',
+      advanced: '詳細設定',
     },
     appearance: {
       group: '外観',
@@ -1490,6 +1491,9 @@ export const ja: Words = {
       proxiesHint: "1080p を超える素材や、デコードが重い素材（ProRes、HEVC、10 ビット）は、バックグラウンドで作る軽いコピーで再生します。書き出しには常に元の素材を使います。",
       proxySize: "プロキシのサイズ",
       proxySizeHint: "小さいほど滑らかに再生でき、大きいほどビューアで鮮明に見えます。",
+    },
+    advanced: {
+      intro: "最適な設定になっています。通常は変更する必要はありません。",
       fitPages: "Web ページをビューアのサイズで描画",
       fitPagesHint: "Web ページの Canvas と 3D を、ビューアに表示されるサイズで描画します。見た目は同じで、より滑らかに再生できます。オフにすると作品のフルサイズで描画します。書き出しは常にフルサイズです。",
       renders: "遅れる区間をレンダリング",

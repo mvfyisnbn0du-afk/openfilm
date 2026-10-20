@@ -1453,6 +1453,7 @@ export const ko: Words = {
       developer: '개발자',
       general: '일반',
       shortcuts: '키보드 단축키',
+      advanced: '고급',
     },
     appearance: {
       group: '모양',
@@ -1489,6 +1490,9 @@ export const ko: Words = {
       proxiesHint: "1080p를 넘거나 디코딩이 무거운(ProRes, HEVC, 10비트) 영상은 백그라운드에서 만든 가벼운 사본으로 재생합니다. 내보내기에는 항상 원본을 씁니다.",
       proxySize: "프록시 크기",
       proxySizeHint: "작을수록 더 부드럽게 재생되고, 클수록 뷰어에서 더 선명합니다.",
+    },
+    advanced: {
+      intro: "최적의 환경으로 설정되어 있어 보통은 바꿀 필요가 없습니다.",
       fitPages: "웹 페이지를 뷰어 크기로 그리기",
       fitPagesHint: "웹 페이지의 Canvas와 3D를 뷰어에 보이는 크기로 그립니다. 보기에는 같고 더 부드럽게 재생됩니다. 끄면 영상의 전체 크기로 그립니다. 내보내기는 항상 전체 크기입니다.",
       renders: "느리게 재생되는 구간 렌더링",

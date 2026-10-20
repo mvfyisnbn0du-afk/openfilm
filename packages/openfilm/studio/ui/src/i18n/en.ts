@@ -1455,6 +1455,7 @@ export const en = {
       developer: 'Developer',
       general: 'General',
       shortcuts: 'Keyboard shortcuts',
+      advanced: 'Advanced',
     },
     appearance: {
       group: 'Appearance',
@@ -1491,6 +1492,9 @@ export const en = {
       proxiesHint: "Footage past 1080p, or slow to decode (ProRes, HEVC, 10-bit), plays from a lighter copy made in the background. Exports always use the originals.",
       proxySize: "Proxy size",
       proxySizeHint: "Smaller plays more smoothly; larger looks sharper in the viewer.",
+    },
+    advanced: {
+      intro: "These are set for the best experience. You don’t need to change them.",
       fitPages: "Draw pages at the viewer’s size",
       fitPagesHint: "Canvas and 3D in web pages are drawn at the size the viewer shows them, which plays more smoothly and looks the same. Off: at the film’s full size. Exports always draw at full size.",
       renders: "Render what plays late",
