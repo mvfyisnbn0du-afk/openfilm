@@ -304,12 +304,13 @@ function setField(/** @type {Clip} */ clip, /** @type {string} */ prop, /** @typ
     else delete raw.overrides;
     return;
   }
-  if (prop === 'link') {
-    /* linked clips (a video and the sound taken off it) share a `data-link`: an attribute the film keeps and gives no
-       meaning, Studio's own (SPEC §1) */
+  if (prop === 'link' || prop === 'props') {
+    /* Studio's own attributes, which the film keeps and gives no meaning (SPEC §1): linked clips (a video and the sound
+       taken off it) share a `data-link`; a page clip's component properties are its `data-props` (a JSON list) */
+    const name = prop === 'link' ? 'data-link' : 'data-props';
     const attrs = /** @type {Record<string, string>} */ ({ ...(/** @type {Record<string, string> | undefined} */ (raw.attrs) ?? {}) });
-    if (typeof v === 'string' && v) attrs['data-link'] = v;
-    else delete attrs['data-link'];
+    if (typeof v === 'string' && v) attrs[name] = v;
+    else delete attrs[name];
     if (Object.keys(attrs).length) raw.attrs = attrs;
     else delete raw.attrs;
     return;

@@ -83,6 +83,8 @@ const broadcast = (channel, value) => { for (const v of views.values()) if (!v.w
 const tabOf = (contents) => { for (const [id, v] of views) if (v.webContents === contents) return id; return null; };
 /** a tab behind for this long lets its page go (it comes back when shown), unless an agent works in it or it exports */
 const IDLE_PAGE_MS = 5 * 60_000;
+/** How long the tabs of projects gone are gathered before they close together (several pages told at once). */
+const GONE_TOGETHER_MS = 150;
 /** @type {Awaited<ReturnType<typeof startWindowStudio>> | null} */
 let studio = null;
 let state = readWindowState(DATA);
@@ -200,7 +202,12 @@ function presentation() {
         });
       return { view: v, ready };
     },
-    present(_id, v) { if (win) revealPage(win.contentView, v, views.values()); },
+    present(_id, v) {
+      if (!win) return;
+      revealPage(win.contentView, v, views.values());
+      /* the pages now behind it are told: one waiting to be covered (its projects window opening another tab) is done */
+      for (const page of views.values()) if (page !== v && !page.webContents.isDestroyed()) page.webContents.send('desktop:tabs:covered');
+    },
     discard: destroyView,
     onError: (error) => { if (!quitting) log(`page: could not prepare replacement (${String(error.message).replace(/key=[^&\s)]+/g, 'key=…')})\n`); },
   });
@@ -261,6 +268,29 @@ async function closeTab(id) {
 }
 
 /**
+ * Projects gone (deleted, here or elsewhere; their folders gone): their tabs close without asking, all those told within
+ * a moment together, so the front never lands on a tab about to close, and none can be opened again (tabs.mjs
+ * `closeProjects`). Each page of such a project says so, and the page that deleted them says which.
+ */
+const goneProjects = new Set();
+let goneTimer = /** @type {NodeJS.Timeout | null} */ (null);
+function projectsGone(/** @type {string[]} */ projectIds) {
+  for (const id of projectIds) if (typeof id === 'string' && id) goneProjects.add(id);
+  if (!goneTimer) goneTimer = setTimeout(closeGoneTabs, GONE_TOGETHER_MS);
+}
+function closeGoneTabs() {
+  goneTimer = null;
+  const ids = [...goneProjects];
+  goneProjects.clear();
+  if (!tabs || !win || !ids.length) return;
+  const { closed, front } = tabs.closeProjects(ids);
+  if (!closed.length) return;
+  for (const id of closed) presentation().retire(id);
+  if (front) showTab(front.id);
+  else { showPage(HOME); tellTabs(); }
+}
+
+/**
  * Studio's "open this project" (`openfilm open`, File › Open Project…), heard by every page at once: once only. Its
  * tab comes to the front, opened if it is not.
  */
@@ -273,14 +303,17 @@ function openInTabs(to) {
   if (projectId) newTab(projectId);
 }
 
-/** The tabs open when the window opens: those left last time, else the last project's; none: the projects. */
+/**
+ * The tabs open when the window opens: those left last time (none, when the last were closed: the projects), else, the
+ * first time, the last project's; none: the projects.
+ */
 async function openTabs() {
   const projects = (await studioApi('/api/projects').catch(() => ({ projects: [] }))).projects.filter((p) => !p.missing);
-  tabs = createTabs({ saved: state.tabs?.tabs?.length ? state.tabs : null });
-  /* a tab of a project no longer there is left out */
+  tabs = createTabs({ saved: state.tabs ?? null });
+  /* a tab of a project no longer there is left out, and not kept to open again */
   const known = new Set(projects.map((p) => p.id));
-  for (const t of tabs.list()) if (!known.has(t.projectId)) tabs.close(t.id);
-  if (!tabs.list().length && !state.tabs?.tabs?.length && projects[0]) tabs.open({ projectId: projects[0].id, title: projects[0].name });
+  tabs.closeProjects(tabs.list().map((t) => t.projectId).filter((id) => !known.has(id)));
+  if (!tabs.list().length && !state.tabs && projects[0]) tabs.open({ projectId: projects[0].id, title: projects[0].name });
   const front = tabs.activeId();
   if (front) showTab(front);
   else { showPage(HOME); tellTabs(); }
@@ -516,10 +549,15 @@ async function start() {
   /* what a page shows now: its project's title, an export's progress; or its project gone */
   tabHandle('desktop:tabs:report', (self, { title, exporting, gone }) => {
     if (!tabs) return { ok: false };
-    /* its project deleted (in this page or another): its tab closes */
-    if (gone === true) { void closeTab(self); return { ok: true }; }
+    /* its project gone (deleted, in this page or another; its folder gone): its tab closes, without asking */
+    if (gone === true) { const tab = tabs.get(self); if (tab) projectsGone([tab.projectId]); return { ok: true }; }
     tabs.report(self, { ...(typeof title === 'string' ? { title: title.slice(0, 200) } : {}), ...(exporting !== undefined ? { exporting: typeof exporting === 'number' ? exporting : null } : {}) });
     tellTabs();
+    return { ok: true };
+  });
+  /* projects this page deleted: their tabs close together (projectsGone) */
+  tabHandle('desktop:tabs:gone', (_self, { projectIds }) => {
+    if (Array.isArray(projectIds)) projectsGone(projectIds.filter((id) => typeof id === 'string'));
     return { ok: true };
   });
   /* another tab's project renamed from this page's tabs: its title, also while that tab has no page to say it */
@@ -534,6 +572,8 @@ async function start() {
 
   /* the agents: Studio's home and library go with them, so the `openfilm` they run finds this window's Studio */
   /* the person's own skills: Skills/ beside this app's projects (~/Movies/OpenFilm/Skills), as its `openfilm` finds them */
+  /* which official skills are installed and which skills are off: the prefs.json every OpenFilm here shares (openfilm/skills usableSkills) */
+  const prefsHome = env.OPENFILM_SHARED_HOME || env.OPENFILM_HOME;
   const mySkills = process.env.OPENFILM_SKILLS || (env.OPENFILM_LIBRARY ? join(dirname(env.OPENFILM_LIBRARY), 'Skills') : (await import('openfilm/skills')).mySkillsDir());
   localAgents = registerLocalAgentIpc(ipcMain, {
     trusted: fromPage,
@@ -555,7 +595,7 @@ async function start() {
     /* Developer mode: an agent whose own record lacks what its model got logs it here (agent-logs.mjs) */
     logDir: () => (readPreferences(DATA).developer ? join(DATA, 'agent-logs') : null),
     /* each session's skills: its maker's, OpenFilm's, and of the person's own those let in (agent-skills.mjs) */
-    skills: { dataDir: DATA, mine: mySkills },
+    skills: { dataDir: DATA, mine: mySkills, prefsHome },
   });
   /* the composer's Skills button */
   registerSkillsIpc(ipcMain, {
@@ -563,6 +603,7 @@ async function start() {
     projects: async () => (await studioApi('/api/projects')).projects.filter((p) => !p.missing).map((p) => p.path),
     dataDir: DATA,
     mine: mySkills,
+    prefsHome,
     oldMine: join(env.OPENFILM_HOME, 'skills'),
     reveal: (path) => { void shell.openPath(path); },
     pickFolder: (words) => pickFolder(words),

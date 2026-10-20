@@ -3,6 +3,8 @@ export interface MixFade { in: number; out: number; length: number; skip: number
 export interface MixClip { file: string; at: number; from: number; to?: number; volume: number; speed?: number; fade?: MixFade }
 export declare function audioClips(root: string, entry: string, clips: Array<{ src: string; at?: number; from?: number; to?: number; volume?: number; speed?: number; fade?: readonly [number, number] }> | undefined, from?: number): MixClip[];
 export declare function fadeFilter(fade: MixFade | undefined): string;
+/** The atempo filter chain for a playback speed, the pitch kept (each stage takes 0.5–2); empty at 1. */
+export declare function tempo(speed: number): string;
 export declare function mix(clips: MixClip[], duration: number, file: string, codec?: string[]): Promise<void>;
 /** A mix's inputs and filter graph: a file used by several clips is one input, split. */
 export declare function mixGraph(clips: MixClip[], duration: number): { inputs: string[]; filter: string };

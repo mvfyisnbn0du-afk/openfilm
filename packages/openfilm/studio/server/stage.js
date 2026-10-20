@@ -621,6 +621,32 @@
     return hit;
   };
 
+  /**
+   * The picture a layer draws, when it is one a file can be put in place of: an <img> (what it shows now, the file an
+   * override's `content` puts there before its own), or a box painted with one image (`bg`). A box that holds one
+   * <img> filling most of it (a frame around a photo, what a click on it takes first) has that picture: `at` / `n`
+   * name the <img>, where the file goes. `changed`: the clip has put another file there.
+   */
+  const pictureOf = (c, el) => {
+    const url = (v) => /^url\("?([^"]*)"?\)$/.exec(v ?? '')?.[1] ?? null;
+    const changed = (target, key) => overrideOf(c, target)?.style?.[key] != null;
+    const imgOf = (img) => {
+      const src = url(css(img).content) ?? (img.currentSrc || img.src);
+      return src ? { kind: 'img', src, changed: changed(img, 'content') } : null;
+    };
+    if (el.localName.toLowerCase() === 'img') return imgOf(el);
+    const painted = url(css(el).backgroundImage);
+    if (painted) return { kind: 'bg', src: painted, changed: changed(el, 'backgroundImage') };
+    const imgs = [...el.querySelectorAll('img')].filter((img) => !img.closest('svg'));
+    if (imgs.length !== 1) return null;
+    const box = el.getBoundingClientRect();
+    const pic = imgs[0].getBoundingClientRect();
+    const w = Math.max(0, Math.min(box.right, pic.right) - Math.max(box.left, pic.left));
+    const h = Math.max(0, Math.min(box.bottom, pic.bottom) - Math.max(box.top, pic.top));
+    if (!(box.width * box.height > 0) || w * h < 0.6 * box.width * box.height) return null;
+    const inner = imgOf(imgs[0]);
+    return inner ? { ...inner, ...targetOf(imgs[0]) } : null;
+  };
   /** What the editor gets of a layer: who it is, and where it is on the stage now. */
   const describe = (c, el, kind = kindOf(el) ?? (isGroup(el) ? 'box' : null)) => {
     if (!kind) return null;
@@ -632,6 +658,7 @@
       ? { cx: rect.left + rect.width / 2, cy: rect.top + rect.height / 2, w: rect.width, h: rect.height, r: 0 }
       : measureFrame(el, g.s, totalTurn(el));
     const words = kind === 'text' ? textOf(el) : '';
+    const picture = kind === 'image' || kind === 'box' ? pictureOf(c, el) : null;
     const where = locOf(el);
     const turn = clipTurn(M);
     return {
@@ -643,6 +670,7 @@
       ...(similarOf(el) ? { similar: similarOf(el) } : {}),
       label: labelOf(el, kind),
       ...(words ? { text: { value: words, shape: 'value' } } : {}),
+      ...(picture ? { picture } : {}),
       style: styleOf(el, kind),
       parents: parentsOf(el),
       override: overrideOf(c, el),
@@ -1540,7 +1568,7 @@
     textStart: startText,
     textFinish({ commit }) { finishText(Boolean(commit)); return true; },
     /**
-     * A page clip's template controls, what the inspector offers to change in it without opening the page: the CSS
+     * What a page clip shows that it can change without opening the page (its properties are made of these): the CSS
      * custom properties its stylesheets set on `:root` (or `html`), each with its value now; its words, each layer of
      * text with its selector and its words now; and its pictures, each <img> and each box painted with one image, with
      * the address drawn now. Null when the clip is not a page on the picture now.

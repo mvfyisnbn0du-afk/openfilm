@@ -70,10 +70,10 @@ export interface StudioHost {
     onChange: (listener: (state: { open: boolean; width: number; assets?: { open: boolean; bottom: number } }) => void) => void;
   };
   /**
-   * The app's chat names a skill in the message being written: the examples (opened from the chat, `show-examples`)
-   * call this for a skill picked in them.
+   * The app's chat names a skill in the message being written: the skills (opened from the chat, `show-examples`)
+   * call this for one tried there, `newConversation` true (Try now: a new conversation with it named).
    */
-  useSkill?: (skill: { name: string; description: string }) => void;
+  useSkill?: (skill: { name: string; description: string; newConversation?: boolean }) => void;
   /** The person's own skills, where the app keeps them: one added, the app's own way (from a link, a folder, or made
       with the agent). The Community's skills offer it. */
   skills?: { add: () => void };
@@ -167,10 +167,14 @@ export interface StudioHost {
     open: (projectId: string) => void;
     move: (id: string, index: number) => void;
     report: (state: { title?: string; exporting?: number | null; gone?: boolean }) => void;
+    /** projects this page deleted: their tabs close together, none of them to be opened again */
+    gone?: (projectIds: string[]) => Promise<unknown>;
     /** another tab's title, its project renamed from this page's tabs (its page may be gone, and cannot say it) */
     retitle?: (id: string, title: string) => Promise<unknown>;
     openRequest: (to: string) => void;
     onPick: (listener: () => void) => () => void;
+    /** another page shown in front of this one (a tab it opened, ready): what it showed meanwhile can go */
+    onCovered?: (listener: () => void) => () => void;
   };
 
   /**

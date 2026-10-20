@@ -1,13 +1,14 @@
 /**
- * The transport bar under the picture: the timecode on the left, play in the center, the frame picker and full screen
- * on the right. As tall (32px) as the pane bar above the picture, so the picture sits evenly between two equal edges.
+ * The transport bar under the picture: the timecode on the left, play in the center, the playback settings and full
+ * screen on the right. As tall (32px) as the pane bar above the picture, so the picture sits evenly between two equal edges.
  */
-import React from 'react';
-import { Expand, Pause, Play, Repeat } from 'lucide-react';
+import type React from 'react';
+import { Expand, Pause, Play } from 'lucide-react';
 import { useT } from '@/i18n';
 import { formatTimecode, useTimecodeFps } from '@/lib/timecode';
 import { PANE_BTN, PANE_ICON } from './dock-pane-bar';
 import { LiveText, type PlaybackClock } from './LiveTime';
+import { PlaybackMenu, type PlaybackSettings } from './PlaybackMenu';
 import { Tooltip } from './Tooltip';
 import { useKeyHint } from '@/lib/keymap-store';
 
@@ -20,9 +21,9 @@ export function ViewerBar({
   totalMs,
   playing,
   onPlayPause,
-  frame,
   onFullscreen,
-  loop,
+  playback,
+  extra,
 }: {
   timeMs: number;
   /** The time on the clock (playing, scrubbing): only the timecode follows it, the rest of the bar stays still. */
@@ -30,12 +31,12 @@ export function ViewerBar({
   totalMs: number;
   playing: boolean;
   onPlayPause: () => void;
-  /** The FramePicker, when the film can be framed (not read-only). */
-  frame?: React.ReactNode;
   /** Full screen; the button is disabled while the film has no length. */
   onFullscreen?: () => void;
-  /** Loop playback (⇧L): of the range marked, else of the whole film. Without it there is no loop button. */
-  loop?: { on: boolean; ranged: boolean; onToggle: () => void } | null;
+  /** Loop, subtitles and speed (see PlaybackMenu). Without it there is no settings button. */
+  playback?: PlaybackSettings | null;
+  /** Shown before the buttons on the right (the source viewer: the part marked). */
+  extra?: React.ReactNode;
 }) {
   const t = useT();
   const keyHint = useKeyHint();
@@ -70,23 +71,14 @@ export function ViewerBar({
         </button>
       </Tooltip>
       <span className="flex items-center justify-end gap-1">
-        {loop ? (
-          <Tooltip label={t(loop.ranged ? 'viewer.loopRange' : 'viewer.loopFilm')} shortcut={keyHint('loop')}>
-            <button
-              type="button"
-              onClick={loop.onToggle}
-              onMouseDown={(e) => e.preventDefault()}
-              disabled={!playable}
-              aria-pressed={loop.on}
-              aria-label={t(loop.ranged ? 'viewer.loopRange' : 'viewer.loopFilm')}
-              data-viewer-loop={loop.on ? '1' : '0'}
-              className={`${VIEW_BTN} disabled:pointer-events-none disabled:opacity-30 ${loop.on ? '!text-[var(--accent)]' : ''}`}
-            >
-              <Repeat size={PANE_ICON} />
-            </button>
-          </Tooltip>
+        {extra}
+        {playback ? (
+          <PlaybackMenu
+            settings={playback}
+            disabled={!playable}
+            className={`${VIEW_BTN} !w-auto min-w-[22px] gap-1 px-1 disabled:pointer-events-none disabled:opacity-30`}
+          />
         ) : null}
-        {frame}
         {onFullscreen ? (
           <Tooltip label={t('viewer.fullscreen')}>
             <button

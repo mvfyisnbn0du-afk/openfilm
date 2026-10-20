@@ -81,7 +81,7 @@ export function registerChatIpc(ipcMain, { trusted, projects, dataDir, reveal, t
   });
 
   handle('desktop:chat:load', async ({ project: path }) => loadChat(await project(path)));
-  handle('desktop:chat:sessions', async ({ project: path, sessions, last, skills }) => { saveSessions(await project(path), { sessions, last, skills }); return { ok: true }; });
+  handle('desktop:chat:sessions', async ({ project: path, sessions, last }) => { saveSessions(await project(path), { sessions, last }); return { ok: true }; });
   handle('desktop:chat:turn', async ({ project: path, turn, items }) => { saveTurn(await project(path), { turn, items }); return { ok: true }; });
   handle('desktop:chat:ref-image', async ({ project: path, turnId, n, bytes }) => saveRefImage(await project(path), turnId, n, bytes));
   handle('desktop:chat:attachment', async ({ project: path, name, bytes }) => saveAttachment(await project(path), name, bytes));

@@ -10,6 +10,7 @@
  *            { type: 'update', film, head, seq }  film.html changed: change the film in place if it can be
  *            { type: 'renders', list }    stretches rendered for the preview to play in their place: [{ a, b, src }]
  *            { type: 'preview', clip, overrides }   show a tweak on a page, not kept (null: stop showing)
+ *            { type: 'overrides', list }  a page on its own: its clip's changes (SPEC §1), applied after each frame
  *            { type: 'pick', x, y, seq }          what is under this stage point
  *   film   → { source: 'openfilm-film', type: 'ready', duration, width, height, sounds, spans, origin }
  *            { type: 'seeked', t, seq }           the frame at t is on screen
@@ -43,6 +44,17 @@
   });
   const facts = (f) => ({ duration: f.duration, width: f.width, height: f.height, sounds: window.__filmSounds?.() ?? [], spans: window.__filmSpans?.() ?? [] });
   const editor = () => window.__filmEditor;
+  /* a page on its own played as a clip had it (a clip of Saved): its changes, after each frame, as the film's
+     timeline applies them (src/overrides.mjs); what they changed is remembered, so the page's own look comes back */
+  let tweaks = null;
+  let tweaker = null;
+  const tweakState = { win: window, touched: new Map(), found: [] };
+  const drawn = async (f, t) => {
+    await f.frame(t);
+    if (!tweaks) return;
+    tweaker ??= import(new URL('__film/overrides.mjs', location.href).href).then((m) => m.override);
+    (await tweaker)(tweakState, tweaks);
+  };
 
   /* the film once loaded, or null: one that fails to load (a clip with no length, a missing file) says why once, here,
      and draws and answers nothing after — a page error for each later message would only repeat it */
@@ -73,7 +85,7 @@
          video must not stop the picture. */
       const watch = editor()?.watch;
       let timer;
-      await Promise.race([watch ? watch(t) : f.frame(t), new Promise((done) => { timer = setTimeout(done, behind ? BEHIND_WAIT_MS : FRAME_WAIT_MS); })]);
+      await Promise.race([watch ? watch(t) : drawn(f, t), new Promise((done) => { timer = setTimeout(done, behind ? BEHIND_WAIT_MS : FRAME_WAIT_MS); })]);
       clearTimeout(timer);
       post({ type: 'seeked', t, seq });
     } catch (e) { fail(e); }
@@ -121,7 +133,7 @@
       const watch = editor()?.watch;
       const play = { rate: line.rate, now: Math.min(lineAt(now), end) };
       let timer;
-      await Promise.race([watch ? watch(t, play) : up.frame(t), new Promise((done) => { timer = setTimeout(done, FRAME_WAIT_MS); })]);
+      await Promise.race([watch ? watch(t, play) : drawn(up, t), new Promise((done) => { timer = setTimeout(done, FRAME_WAIT_MS); })]);
       clearTimeout(timer);
     } catch (e) { fail(e); }
     drawing = false;
@@ -160,6 +172,8 @@
     if (e.origin !== EDITOR || e.data?.source !== 'openfilm-studio') return;
     const m = e.data;
     if (m.type === 'clock') { post({ type: 'clock', ping: m.ping, now: clock() }); return; }
+    /* before the next frame is drawn: the one asked for after them shows them */
+    if (m.type === 'overrides') { if (!editor()) tweaks = Array.isArray(m.list) && m.list.length ? m.list : null; return; }
     if (m.type === 'seek') { stop(); next = m; asked = m.t; draw(); return; }
     if (m.type === 'play') {
       const fps = Number(m.fps);

@@ -18,7 +18,7 @@ import * as React from 'react';
 import {
   AlignCenterHorizontal, AlignCenterVertical, AlignEndHorizontal, AlignEndVertical, AlignHorizontalDistributeCenter,
   AlignStartHorizontal, AlignStartVertical, AlignVerticalDistributeCenter, ArrowRightToLine, AudioLines, Captions,
-  Check, ChevronRight, CircleAlert, Clapperboard, Copy, Film, Gauge, Image as ImageIcon, Link2, Maximize2, MousePointerClick,
+  Check, ChevronRight, CircleAlert, Clapperboard, Copy, Diamond, Film, Gauge, Image as ImageIcon, Link2, Maximize2, MousePointerClick,
   Lock, MoveHorizontal, Music, Replace, RotateCcw, Scissors, Shapes, Sparkles, Square, Type, Unlink2, Video, Volume2, X,
 } from 'lucide-react';
 
@@ -40,9 +40,9 @@ import { editsForMoves } from '@/lib/timeline-drag';
 import { useTimelinePrefs } from '@/lib/timeline-prefs';
 import { formatTimecode, FRAME_RATES, timecodeFps, useTimecodeFps } from '@/lib/timecode';
 import { MenuSelect } from './MenuSelect';
-import { CANVAS_SIDE, canvasSide } from '@/lib/canvas-fit';
+import { CANVAS_SIDE, canvasSide, originalShape, shaped } from '@/lib/canvas-fit';
 import { filmFrameOf, filmFrameRatio, type FilmFrameId } from '@/lib/film-frame';
-import { CANVAS_RATIOS, canvasRatioLabel, shaped } from './FramePicker';
+import { CANVAS_RATIOS, canvasRatioLabel } from './FramePicker';
 import { declared, withDeclarations, type ClipLook } from '@/lib/clip-look';
 import { PANE_BAR, PANE_BTN, PANE_ICON, PANE_TITLE } from './dock-pane-bar';
 import { Tooltip } from './Tooltip';
@@ -60,7 +60,10 @@ import type { MaskSession } from '@/lib/stage-mask';
 import type { MaskShape } from '@/lib/clip-mask';
 import type { FadeMs } from '@/lib/clip-fade';
 import type { FoundKind } from '@/lib/transitions';
-import { TemplateSection, type TemplateHost } from './TemplateSection';
+import { PictureInput, PropertiesSection, type PropsHost } from './PropertiesSection';
+import { propOf, withProp, withoutProp, type ComponentProp } from '@/lib/component-props';
+import { layerTarget } from '@/lib/stage-layers';
+import type { StagePictureActions } from './stage-menu';
 
 /** A change of a layer's words (kept as its `text` override). `expect` is what it said before: painted back on refusal. */
 export type StageTextEdit = {
@@ -87,7 +90,7 @@ export type FilmSummary = {
   durationMs: number;
   tracks: number;
   clips: number;
-  /** Nothing made yet: the stage itself may change shape (see FramePicker). */
+  /** Nothing made yet: the stage itself may change shape. */
   empty: boolean;
   /** Each track's name (P1, V2, A1; see filmTrackBadges), by its place in film.html. */
   badges?: readonly string[];
@@ -168,6 +171,7 @@ export const FilmInspector = React.memo(function FilmInspector({
   onCanvas,
   onCanvasPreview,
   canvasDraft,
+  canvasOriginal,
   layers,
   onEditLayers,
   onPlaceLayers,
@@ -175,7 +179,9 @@ export const FilmInspector = React.memo(function FilmInspector({
   rate,
   fades,
   transition,
-  templateOf,
+  propsHostOf,
+  pictures,
+  layerProps,
 }: {
   element: StageElement | null;
   /** The clips selected on the timeline. A layer picked on the picture wins: one selection at a time. */
@@ -240,6 +246,8 @@ export const FilmInspector = React.memo(function FilmInspector({
   onCanvasPreview?: (size: { w: number; h: number } | null) => void;
   /** That size, while it is shown. */
   canvasDraft?: { w: number; h: number } | null;
+  /** The first picture's own size: the canvas's "Original" shape. None: nothing to fit to yet. */
+  canvasOriginal?: { w: number; h: number } | null;
   /** Several layers selected on the picture, and how to write them at once. */
   layers?: readonly StageElement[];
   onEditLayers?: (list: LayerEdit[]) => Promise<string | null>;
@@ -253,8 +261,12 @@ export const FilmInspector = React.memo(function FilmInspector({
   fades?: ReadonlyMap<string, FadeMs>;
   /** The transition picked on the timeline (no clip selected): its kind and length, made longer or taken away here. */
   transition?: TransitionPick | null;
-  /** A page clip's template controls (TemplateSection): read from its page, written as its overrides. */
-  templateOf?: (block: TimelineBlock) => TemplateHost | null;
+  /** A page clip's properties (PropertiesSection): read from its page, written as its overrides and its data-props. */
+  propsHostOf?: (block: TimelineBlock) => PropsHost | null;
+  /** Another file in the place of a picture inside a page (a layer's Picture section). */
+  pictures?: StagePictureActions;
+  /** A layer made a property of its clip (◇ beside its words, its picture, its showing). */
+  layerProps?: LayerPropsActions;
 }) {
   const t = useT();
   useCommitBeforeLeaving();
@@ -306,6 +318,8 @@ export const FilmInspector = React.memo(function FilmInspector({
             onSelectParent={onSelectParent}
             onSelectClip={onSelectClip}
             {...(onEditMask ? { onEditMask } : {})}
+            {...(pictures ? { pictures } : {})}
+            {...(layerProps ? { layerProps } : {})}
           />
         ) : clip ? (
           <ClipPanel
@@ -326,7 +340,7 @@ export const FilmInspector = React.memo(function FilmInspector({
             badges={film?.badges}
             stage={stageSize}
             {...(fades ? { fades } : {})}
-            {...(templateOf ? { templateOf } : {})}
+            {...(propsHostOf ? { propsHostOf } : {})}
           />
         ) : many ? (
           <MultiClipPanel
@@ -342,7 +356,7 @@ export const FilmInspector = React.memo(function FilmInspector({
         ) : geometry?.kind === 'group' && geometry.group ? (
           <GroupPanel geometry={geometry} group={geometry.group} layers={layers} onEditLayers={onEditLayers} {...(onPlaceLayers ? { onPlace: onPlaceLayers } : {})} t={t} />
         ) : (
-          <FilmPanel t={t} stage={stageSize} draft={canvasDraft} film={film ?? null} onCanvas={onCanvas} onCanvasPreview={onCanvasPreview} rate={rate ?? null} />
+          <FilmPanel t={t} stage={stageSize} draft={canvasDraft} film={film ?? null} onCanvas={onCanvas} onCanvasPreview={onCanvasPreview} original={canvasOriginal ?? null} rate={rate ?? null} />
         )}
       </div>
       </fieldset>
@@ -389,12 +403,12 @@ function RedesignHint({ t, stage }: { t: T; stage: { w: number; h: number } }) {
 }
 
 /**
- * The film itself: its name, its stage and shape, how long it is, what is in it. The shape changes as the
- * player's ratio button changes it (FramePicker): the canvas itself, at any time, as an image editor's canvas size
- * (what is on it stays as it is, centered); laying the film out again for it is the agent's (RedesignHint).
+ * The film itself: its name, its stage and shape, how long it is, what is in it. Picking a shape changes the canvas
+ * itself, at any time, as an image editor's canvas size: the film is scaled whole into it, centered; laying the film
+ * out again for it is the agent's (RedesignHint). "Original" takes the shape of the first picture.
  */
 function FilmPanel({
-  t, stage: kept, draft, film, onCanvas, onCanvasPreview, rate,
+  t, stage: kept, draft, film, onCanvas, onCanvasPreview, original, rate,
 }: {
   t: T;
   stage: { w: number; h: number };
@@ -403,6 +417,7 @@ function FilmPanel({
   film: FilmSummary | null;
   onCanvas?: (next: FilmFrameId, size?: { w: number; h: number }) => void;
   onCanvasPreview?: (size: { w: number; h: number } | null) => void;
+  original: { w: number; h: number } | null;
   rate: { fps: number; fromFootage: boolean; onChange: (fps: number) => void } | null;
 }) {
   const canvas = Boolean(onCanvas);
@@ -410,6 +425,7 @@ function FilmPanel({
   const stage = draft ?? kept;
   const placed = Boolean(film && !film.empty);
   const preset = CANVAS_RATIOS.find((r) => shaped(stage, filmFrameRatio(r.id, stage)));
+  const { frame: fit, current: isFit } = originalShape(stage, original);
   const setSize = (w: number, h: number) => {
     const size = { w, h };
     if (size.w === kept.w && size.h === kept.h) { onCanvasPreview?.(null); return; }
@@ -432,13 +448,20 @@ function FilmPanel({
         {canvas ? (
           <MenuSelect
             label={t('inspector.stageShape')}
-            value={preset?.id ?? 'custom'}
+            value={isFit ? 'original' : preset?.id ?? 'custom'}
             groups={[
-              { choices: preset ? [] : [{ value: 'custom', label: t('viewer.frameCustom') }] },
+              {
+                choices: [
+                  ...(fit ? [{ value: 'original', label: t('viewer.ratioOriginal') }] : []),
+                  ...(preset || isFit ? [] : [{ value: 'custom', label: t('viewer.frameCustom') }]),
+                ],
+              },
               { choices: CANVAS_RATIOS.filter((r) => r.group === 'wide').map((r) => ({ value: r.id, label: canvasRatioLabel(t, r) })) },
               { choices: CANVAS_RATIOS.filter((r) => r.group === 'tall').map((r) => ({ value: r.id, label: canvasRatioLabel(t, r) })) },
             ].filter((g) => g.choices.length)}
-            onPick={(id) => { if (id !== 'custom') onCanvas?.(id as FilmFrameId); }}
+            onPick={(id) => {
+              if (id === 'original') { if (fit) onCanvas?.(fit); } else if (id !== 'custom') onCanvas?.(id as FilmFrameId);
+            }}
           />
         ) : null}
         <Row>
@@ -749,7 +772,7 @@ type Scope = 'one' | 'all' | 'similar';
 
 function LayerPanel({
   element, geometry, inlineTextFailure, onEditStyle, onEditSimilar, countSimilar, onPreviewStyle, onEditText, onPreviewText,
-  onEditOverride, onPreviewOverride, onSelectParent, onSelectClip, onEditMask,
+  onEditOverride, onPreviewOverride, onSelectParent, onSelectClip, onEditMask, pictures, layerProps,
 }: {
   element: StageElement;
   geometry?: StageGeometry | null;
@@ -772,6 +795,8 @@ function LayerPanel({
   onSelectParent?: (loc: string, clipLoc?: string) => void;
   onSelectClip?: (clipLoc: string) => void;
   onEditMask?: (session: MaskSession | null) => void;
+  pictures?: StagePictureActions;
+  layerProps?: LayerPropsActions;
 }) {
   const t = useT();
   const [refusal, setRefusalState] = React.useState<string | null>(null);
@@ -970,11 +995,38 @@ function LayerPanel({
       {element.text ? (
         <TextSection
           text={element.text}
+          {...(layerProps ? { aside: <PropButton element={element} type="text" actions={layerProps} t={t} /> } : {})}
           shared={copies}
           onEditText={onEditText}
           onPreviewText={onPreviewText}
           onRefused={setRefusal}
         />
+      ) : null}
+
+      {/* a picture: another file in its place, from the project or this computer, or dropped from the media pane */}
+      {element.picture && pictures ? (
+        <Section
+          id="picture"
+          title={t('inspector.picture')}
+          aside={(
+            <span className="flex items-center">
+              {element.picture.changed ? (
+                <SectionAction label={t('stageMenu.pictureOwn')} onClick={() => pictures.put(element, null)}>
+                  <RotateCcw size={11} />
+                </SectionAction>
+              ) : null}
+              {layerProps ? <PropButton element={element} type="image" actions={layerProps} t={t} /> : null}
+            </span>
+          )}
+        >
+          <PictureInput
+            src={element.picture.src}
+            host={{ pictures: pictures.pictures, ...(pictures.pickFromComputer ? { pickPicture: pictures.pickFromComputer } : {}) }}
+            label={t('inspector.picture')}
+            onPick={(path) => pictures.put(element, path)}
+            t={t}
+          />
+        </Section>
       ) : null}
 
       {canMove ? (
@@ -1094,7 +1146,12 @@ function LayerPanel({
       />
 
       {/* in this order: appearance, fill, stroke, effects; then the picture's color adjustments */}
-      <AppearanceSection look={look} t={t} radius={kind === 'box' || kind === 'image' || textFilled} />
+      <AppearanceSection
+        look={look}
+        t={t}
+        radius={kind === 'box' || kind === 'image' || textFilled}
+        {...(layerProps ? { aside: <PropButton element={element} type="boolean" actions={layerProps} t={t} /> } : {})}
+      />
       <FillSection
         look={look}
         t={t}
@@ -1136,10 +1193,54 @@ function LayerPanel({
 /**
  * The words themselves, saved on blur — painted as they are typed, written once.
  */
+/** Making a layer a property of its clip, and no longer: the inspector's ◇ (lib/component-props). */
+export interface LayerPropsActions {
+  /** The properties of the layer's clip now. */
+  list: (element: StageElement) => ComponentProp[];
+  /** Write them. */
+  save: (element: StageElement, next: readonly ComponentProp[]) => void;
+}
+
+/**
+ * ◇ beside the layer's words, its picture or its showing: makes it a property of the clip (named from what it is, renamed
+ * in the clip's Properties), or, filled when it is one, takes the property away.
+ */
+function PropButton({ element, type, actions, t }: {
+  element: StageElement; type: 'text' | 'image' | 'boolean'; actions: LayerPropsActions; t: T;
+}) {
+  const list = actions.list(element);
+  const picture = element.picture;
+  /* a frame holding one picture: the property is its <img>'s */
+  const own = layerTarget(element);
+  const target = type === 'image' && picture?.at ? { at: picture.at, ...(picture.n ? { n: picture.n } : {}) } : own;
+  if (!target || (type === 'image' && !picture)) return null;
+  const bound = propOf(list, type, target);
+  const words = element.text?.value.replace(/\s+/g, ' ').trim() ?? '';
+  const file = picture ? decodeURIComponent(picture.src.split(/[?#]/)[0]!.split('/').pop() ?? '').replace(/\.[^.]+$/, '') : '';
+  const name = type === 'text' ? (words.length > 24 ? `${words.slice(0, 24)}…` : words) || t('inspector.propText')
+    : type === 'image' ? file || t('inspector.picture')
+      /* a layer named by its tag alone (div) is named by its picture, else its kind */
+      : t('inspector.propShowName').replace('{name}', element.label && element.label !== element.tag ? element.label
+        : file || (element.kind === 'clip' ? element.label : layerKindLabel(t, element.kind)));
+  const label = bound
+    ? t('inspector.propBound').replace('{name}', bound.name)
+    : t(type === 'text' ? 'inspector.propMakeText' : type === 'image' ? 'inspector.propMakePicture' : 'inspector.propMakeShow');
+  const make = (): ComponentProp => (type === 'image'
+    ? { name, type, kind: picture!.kind, ...target }
+    : { name, type, ...target });
+  return (
+    <SectionAction label={label} onClick={() => actions.save(element, bound ? withoutProp(list, bound.name) : withProp(list, make()))}>
+      <Diamond size={11} className={bound ? 'fill-[var(--accent)] text-[var(--accent)]' : ''} />
+    </SectionAction>
+  );
+}
+
 function TextSection({
-  text, shared, onEditText, onPreviewText, onRefused,
+  text, shared, onEditText, onPreviewText, onRefused, aside,
 }: {
   text: NonNullable<StageElement['text']>;
+  /** Beside the title: making the words a property of the clip. */
+  aside?: React.ReactNode;
   /** How many copies share these words: changing them changes all, and the panel says so. */
   shared: number;
   onEditText: (edit: StageTextEdit) => Promise<StageEditFailure | null>;
@@ -1189,9 +1290,14 @@ function TextSection({
     <Section
       id="text"
       title={t('inspector.content')}
-      aside={shared ? (
-        <span className="text-[10.5px] text-[var(--text-faint)]">
-          {t('inspector.mapTextShared').replace('{n}', String(shared))}
+      aside={shared || aside ? (
+        <span className="flex items-center gap-1.5">
+          {shared ? (
+            <span className="text-[10.5px] text-[var(--text-faint)]">
+              {t('inspector.mapTextShared').replace('{n}', String(shared))}
+            </span>
+          ) : null}
+          {aside}
         </span>
       ) : null}
     >
@@ -1376,10 +1482,10 @@ function clipsLook(
  */
 function ClipPanel({
   block, onMain, geometry, stage, badges, onEdit, onPreviewClip, pageChangesOf, replaceEntries, clipLookOf, onPreviewLook, onStartCrop, onEditMask, maskAsk, onMaskAsked, fades,
-  templateOf,
+  propsHostOf,
 }: {
   fades?: ReadonlyMap<string, FadeMs>;
-  templateOf?: (block: TimelineBlock) => TemplateHost | null;
+  propsHostOf?: (block: TimelineBlock) => PropsHost | null;
   replaceEntries?: (block: TimelineBlock) => ContextMenuEntry[];
   block: TimelineBlock;
   /** On the main track, where the magnet acts. */
@@ -1425,10 +1531,10 @@ function ClipPanel({
   const at = parseFilmDocLoc(loc ?? '');
   const badge = at ? badges?.[at.track] : undefined;
   /* the same host while the same clip is in hand: the section reads the page again when its overrides change */
-  const template = React.useMemo(
-    () => (block.kind === 'mg' && docLoc && templateOf ? templateOf(block) : null),
+  const propsHost = React.useMemo(
+    () => (block.kind === 'mg' && docLoc && propsHostOf ? propsHostOf(block) : null),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [templateOf, block.clipId, block.kind, docLoc],
+    [propsHostOf, block.clipId, block.kind, docLoc],
   );
 
   return (
@@ -1450,9 +1556,9 @@ function ClipPanel({
         </p>
       ) : (
         <>
-          {/* a page's own controls first: what a template is used for */}
-          {template ? (
-            <TemplateSection host={template} commit={(next) => commit([{ loc: loc!, prop: 'overrides', value: next as unknown as Record<string, unknown> | null }])} />
+          {/* a page's properties first: what it offers to change */}
+          {propsHost ? (
+            <PropertiesSection host={propsHost} commit={(next) => commit([{ loc: loc!, prop: 'overrides', value: next as unknown as Record<string, unknown> | null }])} />
           ) : null}
           {picture && own && geo ? (
             <ClipPositionSection

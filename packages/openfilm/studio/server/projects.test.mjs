@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, renameSync, symlinkSync, writeFileSync } from 'node:fs';
 import { homedir, tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { createProject, forgetProject, listProjects, locateProject, moveLibrary, openProject, projectById, renameProject, ProjectError } from './projects.mjs';
+import { createFolder, createProject, forgetProject, listFolders, listProjects, locateProject, moveFolder, moveLibrary, openProject, projectById, renameProject, ProjectError } from './projects.mjs';
 import { chooseFolder } from '../../src/locations.mjs';
 import { readFilmFile } from '../../src/film-doc.mjs';
 
@@ -238,4 +238,27 @@ test('a listed project moved into the library outside Studio is the same project
   assert.equal(listed.length, 1);
   assert.equal(listed[0].path, join(realpathSync(scratch), 'library', 'Trip'));
   assert.equal(listed[0].missing, false);
+});
+
+test('changes to the list made at the same moment all hold: projects made while others are taken off stay on it', async () => {
+  const old = await Promise.all(['One', 'Two', 'Three'].map((name) => createProject(name)));
+  const [made] = await Promise.all([
+    Promise.all(['Four', 'Five', 'Six'].map((name) => createProject(name))),
+    ...old.map((p) => forgetProject(p.id)),
+  ]);
+  const ids = (await listProjects()).map((p) => p.id);
+  for (const p of made) assert.ok(ids.includes(p.id), `${p.name} stays on the list`);
+});
+
+test('a folder moves into another with what it holds, back to the top level, and never inside itself', async () => {
+  const a = await createFolder('A');
+  const b = await createFolder('B', a.id);
+  const c = await createFolder('C');
+  assert.equal((await moveFolder(c.id, b.id)).parentId, b.id);
+  /* into itself, or a folder inside it: refused */
+  await assert.rejects(moveFolder(a.id, c.id), (e) => e instanceof ProjectError && e.code === 'inside-itself');
+  await assert.rejects(moveFolder(a.id, a.id), (e) => e instanceof ProjectError && e.code === 'inside-itself');
+  assert.equal((await moveFolder(c.id, null)).parentId, undefined);
+  assert.deepEqual((await listFolders()).map((f) => [f.name, f.parentId ?? null]), [['A', null], ['B', a.id], ['C', null]]);
+  await assert.rejects(moveFolder('nope', null), (e) => e instanceof ProjectError && e.status === 404);
 });

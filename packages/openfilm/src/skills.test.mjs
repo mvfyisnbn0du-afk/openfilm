@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { cpSync, mkdirSync, mkdtempSync, writeFileSync, existsSync, readFileSync, symlinkSync, lstatSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { addSkills, findSkill, listSkills, migrateMySkills, mySkillsDir, parseSkillFile, readSkill, removeSkill, setSkillCover, skillOrigins, skillText } from './skills.mjs';
+import { addSkills, findSkill, listSkills, migrateMySkills, mySkillsDir, parseSkillFile, readSkill, removeSkill, setSkillCover, setSkillInstalled, setSkillOn, skillOrigins, skillText } from './skills.mjs';
 import { commitSkills, discardSkills, previewFolder, previewSkills, skillCommand, skillsCommand } from './skills-cli.mjs';
 
 const skill = (dir, name, description, body = 'How to make it.', extra = {}) => {
@@ -223,6 +223,8 @@ test('openfilm skills and skill: the list, one printed whole, one added from an 
   skill(join(film, 'skills', 'brand'), 'brand', 'This film\'s brand');
   const before = process.env.OPENFILM_SKILLS;
   const beforeHome = process.env.OPENFILM_HOME;
+  const beforeShared = process.env.OPENFILM_SHARED_HOME;
+  delete process.env.OPENFILM_SHARED_HOME;
   process.env.OPENFILM_SKILLS = join(home, 'skills');
   /* the skills kept in Studio's home before, moved as the commands run: a scratch home, never the person's */
   process.env.OPENFILM_HOME = join(root, 'studio-home');
@@ -230,10 +232,15 @@ test('openfilm skills and skill: the list, one printed whole, one added from an 
     const listed = skillsCommand('openfilm', { cwd: film });
     assert.ok(listed.lines.some((l) => /brand\s+this project/.test(l)));
     assert.ok(listed.lines.some((l) => l.includes('This film\'s brand')));
-    /* outside a project: none of this film's, only what comes with OpenFilm */
+    /* outside a project: none of this film's; OpenFilm's own once installed, and not while off */
+    assert.match(skillsCommand('openfilm', { cwd: root }).lines[0], /^No skills installed\./);
+    setSkillInstalled('replicate', true);
     const outside = skillsCommand('openfilm', { cwd: root }).lines;
     assert.match(outside[0], /^Skills\. /);
     assert.ok(!outside.some((l) => /this project/.test(l)) && outside.some((l) => /replicate\s+official/.test(l)));
+    setSkillOn('replicate', false);
+    assert.ok(!skillsCommand('openfilm', { cwd: root }).lines.some((l) => /replicate/.test(l)), 'off: offered to no agent');
+    setSkillOn('replicate', true);
 
     const printed = await skillCommand(['brand'], 'openfilm', { cwd: film });
     assert.ok(printed.ok);
@@ -253,6 +260,7 @@ test('openfilm skills and skill: the list, one printed whole, one added from an 
   } finally {
     if (before === undefined) delete process.env.OPENFILM_SKILLS; else process.env.OPENFILM_SKILLS = before;
     if (beforeHome === undefined) delete process.env.OPENFILM_HOME; else process.env.OPENFILM_HOME = beforeHome;
+    if (beforeShared !== undefined) process.env.OPENFILM_SHARED_HOME = beforeShared;
   }
 });
 

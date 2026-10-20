@@ -913,3 +913,16 @@ test('Settings moves the library: how many projects it holds, then the folder an
   assert.equal(back.locations.projects.chosen, false);
   assert.ok(existsSync(join(back.locations.projects.path, 'To move', 'film.html')), 'and back to the default');
 });
+
+test('a project deleted: every page showing it is told it is gone; several deleted at once all leave the list', async () => {
+  const made = [];
+  for (const name of ['Gone one', 'Gone two', 'Gone three']) made.push((await (await api('/api/projects', { method: 'POST', body: { name } })).json()).project);
+  const told = collect(`/api/projects/${made[0].id}/events`, (events) => events.some((e) => e.type === 'gone'));
+  await new Promise((r) => setTimeout(r, 300));
+  /* deleted together, as the Projects window does: none comes back */
+  const answers = await Promise.all(made.map((p) => api(`/api/projects/${p.id}`, { method: 'DELETE' })));
+  assert.deepEqual(answers.map((r) => r.status), [200, 200, 200]);
+  assert.ok((await told).some((e) => e.type === 'gone'));
+  const { projects } = await (await api('/api/projects')).json();
+  assert.deepEqual(projects.filter((p) => made.some((m) => m.id === p.id)), []);
+});

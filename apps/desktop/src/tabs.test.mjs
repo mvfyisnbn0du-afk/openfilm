@@ -52,3 +52,26 @@ test('saved and restored, moved; agents and exports keep a page from being let g
   assert.equal(tabs.setAgents([], ['A']), true);
   assert.equal(tabs.list().find((x) => x.projectId === 'A').asking, true);
 });
+
+test('projects gone take their tabs together: the front to the nearest that stays, none kept to open again', () => {
+  let n = 0;
+  const tabs = createTabs({ newId: () => `t${++n}` });
+  for (const projectId of ['a', 'b', 'c', 'd']) tabs.open({ projectId });
+  tabs.activate(tabs.byProject('b').id);
+  /* b in front, and c (where the front would go) gone too: d comes forward, never c */
+  const { closed, front } = tabs.closeProjects(['b', 'c']);
+  assert.deepEqual(closed.sort(), ['t2', 't3']);
+  assert.equal(front.projectId, 'd');
+  assert.deepEqual(tabs.list().map((t) => t.projectId), ['a', 'd']);
+  /* the last ones gone: none in front; nothing of theirs to open again, nor a tab of them closed before */
+  tabs.close(tabs.byProject('a').id);
+  assert.equal(tabs.closeProjects(['a', 'd']).front, null);
+  assert.equal(tabs.list().length, 0);
+  assert.equal(tabs.reopen(), null);
+  /* the front at the right end, gone: the one to its left */
+  for (const projectId of ['x', 'y', 'z']) tabs.open({ projectId });
+  assert.equal(tabs.closeProjects(['z']).front.projectId, 'y');
+  /* a project with no tab changes nothing */
+  assert.deepEqual(tabs.closeProjects(['nope']).closed, []);
+  assert.equal(tabs.get(tabs.activeId()).projectId, 'y');
+});

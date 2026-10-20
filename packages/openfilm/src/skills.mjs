@@ -26,7 +26,7 @@ import { fileURLToPath } from 'node:url';
 import { randomUUID } from 'node:crypto';
 import { moveToTrash } from '../studio/server/trash.mjs';
 import { pictureType } from '../studio/server/cover.mjs';
-import { libraryDefault } from './locations.mjs';
+import { libraryDefault, setSharedPref, sharedPref } from './locations.mjs';
 
 const mkdirSyncSafe = (/** @type {string} */ dir) => mkdirSync(dir, { recursive: true });
 /** a folder moved to another place: renamed, else (another disk) copied and then removed */
@@ -241,6 +241,53 @@ export function listSkills({ project = null, mine = mySkillsDir(), official = of
     }
   }
   return [...byName.values()].sort((a, b) => a.name.localeCompare(b.name));
+}
+
+/**
+ * Which skills agents get. The official ones are a catalog: one is installed to be used (`skillsInstalled`); the
+ * person's own and a project's are theirs already. Any of them can be turned off (`skillsOff`) and stays where it is,
+ * offered to no agent until it is turned on again. Both are kept in the shared prefs.json, so every OpenFilm on this
+ * computer agrees; `home`: the Studio home that holds it.
+ */
+const namesIn = (/** @type {unknown} */ value) => (Array.isArray(value) ? [...new Set(value.filter((n) => typeof n === 'string' && SKILL_NAME.test(n)))].sort() : []);
+
+/** The official skills the person installed, by name. @param {string} [home] @returns {string[]} */
+export function skillsInstalled(home) {
+  return namesIn(sharedPref('skillsInstalled', home));
+}
+
+/** The skills the person turned off, by name. @param {string} [home] @returns {string[]} */
+export function skillsOff(home) {
+  return namesIn(sharedPref('skillsOff', home));
+}
+
+/** @param {'skillsInstalled' | 'skillsOff'} key @param {string} name @param {boolean} present @param {string} [home] */
+function keepName(key, name, present, home) {
+  if (!SKILL_NAME.test(name)) throw new Error(`"${name}" is not a skill's name.`);
+  const names = new Set(namesIn(sharedPref(key, home)));
+  if (present) names.add(name); else names.delete(name);
+  setSharedPref(key, [...names].sort(), home);
+}
+
+/** Turn a skill on or off, by name. @param {string} name @param {boolean} on @param {string} [home] */
+export function setSkillOn(name, on, home) {
+  keepName('skillsOff', name, !on, home);
+}
+
+/** Install an official skill (it starts on), or uninstall it. @param {string} name @param {boolean} installed @param {string} [home] */
+export function setSkillInstalled(name, installed, home) {
+  keepName('skillsInstalled', name, installed, home);
+  if (installed) keepName('skillsOff', name, false, home);
+}
+
+/**
+ * The skills agents get for a project: listSkills's, but the official ones not installed and any turned off.
+ * @param {Parameters<typeof listSkills>[0] & { home?: string }} [where]
+ */
+export function usableSkills({ home, ...where } = {}) {
+  const installed = new Set(skillsInstalled(home));
+  const off = new Set(skillsOff(home));
+  return listSkills(where).filter((s) => (s.source !== 'official' || installed.has(s.name)) && !off.has(s.name));
 }
 
 /** One skill by name, as listSkills finds it, or null. @param {string} name @param {Parameters<typeof listSkills>[0]} [where] */

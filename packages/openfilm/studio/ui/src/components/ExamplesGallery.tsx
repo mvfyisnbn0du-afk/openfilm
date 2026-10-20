@@ -3,27 +3,23 @@
  *
  *   · start      the projects window's "Examples": the examples only; one is started from (copied into a new project)
  *   · reference  the Community, over a film, from the app's chat (lib/host.ts `onCommand` `show-examples`): two views
- *                switched in its title row, Skills first (one is named in the message being written; one of the
- *                person's own added), then Examples (one, or a part of it, a segment or a stretch dragged on its strip,
- *                is pointed at in the message; starting from one is still there)
+ *                switched in its title row, Skills first (SkillsLibrary: those installed, and OpenFilm's to install),
+ *                then Examples (one, or a part of it, a segment or a stretch dragged on its strip, is pointed at in the
+ *                message; starting from one is still there)
  *
- * Examples: the first wide, the others in a grid. Skills: the person's own first, then this project's, then OpenFilm's
- * by kind (ways of working, then looks, each in its openfilm.json `order`), narrowed by a row of filters that stays at
- * the top, beside adding one. Example cards are posters that play their preview under the pointer; skills show their
- * own title and summary (openfilm.json, in the language shown) rather than the words written for the agent. One opened
- * is a page of two columns: its picture or preview on the left, what it is and what to do with it on the right. The
- * title row is the projects window's own, so switching views moves nothing. Esc goes back from a page, else closes.
+ * Examples: the first wide, the others in a grid; cards are posters that play their preview under the pointer. One
+ * opened, an example or a skill, is a page of two columns in place of the list: its preview on the left, what it is
+ * and what to do with it on the right; Back (or Esc) returns to the list as it was. The title row is the projects
+ * window's own, so switching views moves nothing.
  */
 import React from 'react';
 import { createPortal } from 'react-dom';
-import {
-  ArrowLeft, Check, Clapperboard, Copy, ExternalLink, Film, Folder, GitBranch, Info, Layers, MonitorPlay, Music, PenLine,
-  PictureInPicture2, Play, Plus, Presentation, Scissors, Search, Shapes, Sparkles, Wand2, X, Github, type LucideIcon,
-} from 'lucide-react';
-import { useLanguage, useT } from '@/i18n';
+import { ArrowLeft, Clapperboard, ExternalLink, Play, X } from 'lucide-react';
+import { useT } from '@/i18n';
 import { studioHost, type CommunityItem } from '@/lib/host';
 import { seenExamples, seenSkills, sourcesApi, watchSkills, type Example, type SkillEntry } from '@/lib/project-sources';
 import { GitHubDialog } from './ProjectSources';
+import { SkillsLibrary } from './SkillsLibrary';
 
 export type ExamplesMode = 'start' | 'reference';
 /** A part of an example picked to point at: none for the whole film. */
@@ -31,25 +27,7 @@ export type ExamplePart = { from: number; to: number; segment?: string } | null;
 
 type Opened = { kind: 'example'; example: Example } | { kind: 'skill'; skill: SkillEntry };
 
-/** The skills' filters: all of them, or one group. */
-type SkillGroup = 'mine' | 'project' | 'workflow' | 'style';
-type SkillFilter = 'all' | SkillGroup;
-
-const byOrder = (a: SkillEntry, b: SkillEntry) => (a.order ?? 999) - (b.order ?? 999) || a.name.localeCompare(b.name);
-
 const clock = (s: number) => `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, '0')}`;
-/** words in the language shown, else its family's, else English, else any */
-const inLanguage = (words: Record<string, string> | undefined, lang: string) =>
-  (words ? words[lang] ?? words[lang.split('-')[0]!] ?? words.en ?? Object.values(words)[0] : undefined);
-
-/** A skill as people see it: its title and summary in the language shown, else its name and the agent's description. */
-function useSkillWords() {
-  const lang = useLanguage();
-  return (skill: SkillEntry) => ({
-    title: inLanguage(skill.shown?.title, lang) ?? skill.name,
-    summary: inLanguage(skill.shown?.summary, lang) ?? skill.description,
-  });
-}
 
 /** Two titles in the title row, the one shown bright (the projects window's switch is the same). */
 export function TitleSwitch<T extends string>({ items, value, onChange }: { items: Array<{ id: T; label: string }>; value: T; onChange: (id: T) => void }) {
@@ -65,7 +43,7 @@ export function TitleSwitch<T extends string>({ items, value, onChange }: { item
   );
 }
 
-export function ExamplesGallery({ mode, projectId = null, heading, initial, onClose, onStart, onReference, onUseSkill }: {
+export function ExamplesGallery({ mode, projectId = null, heading, initial, onClose, onStart, onReference, onTrySkill }: {
   mode: ExamplesMode;
   /** open on this skill's or example's page (a pill of one clicked in the chat) */
   initial?: CommunityItem;
@@ -76,7 +54,8 @@ export function ExamplesGallery({ mode, projectId = null, heading, initial, onCl
   onClose?: () => void;
   onStart: (example: Example) => void;
   onReference?: (example: Example, part: ExamplePart) => void;
-  onUseSkill?: (skill: SkillEntry) => void;
+  /** Try now on a skill: a new conversation in the app's chat with it named */
+  onTrySkill?: (skill: SkillEntry) => void;
 }) {
   const t = useT();
   /* the Community (over a film) opens on its skills; the projects window shows the examples only */
@@ -101,7 +80,6 @@ export function ExamplesGallery({ mode, projectId = null, heading, initial, onCl
       if (example) setOpened({ kind: 'example', example });
     }
   }, [skills, examples]);
-  const [filter, setFilter] = React.useState<SkillFilter>('all');
 
   React.useEffect(() => {
     let alive = true;
@@ -119,28 +97,25 @@ export function ExamplesGallery({ mode, projectId = null, heading, initial, onCl
     return () => window.removeEventListener('keydown', onKey, true);
   }, [opened, onClose]);
 
+  /* a page opened starts at its top; Back returns to the list where it was left */
+  const scroller = React.useRef<HTMLDivElement>(null);
+  const listTop = React.useRef(0);
+  const wasOpen = React.useRef(false);
+  React.useLayoutEffect(() => {
+    const el = scroller.current;
+    const open = opened != null;
+    if (!el || open === wasOpen.current) return;
+    if (open) { listTop.current = el.scrollTop; el.scrollTop = 0; } else el.scrollTop = listTop.current;
+    wasOpen.current = open;
+  }, [opened]);
+
   const kindLabel = (c: string) => { const key = `gallery.cat.${c}`; const label = t(key); return label === key ? c : label; };
   const show = (next: 'skills' | 'examples') => { setView(next); setOpened(null); };
 
   let body: React.ReactNode;
-  if (opened?.kind === 'example') {
-    body = <ExampleDetail example={opened.example} mode={mode} onStart={onStart} onReference={onReference} categoryLabel={kindLabel} />;
-  } else if (opened?.kind === 'skill') {
-    const selected = opened.skill;
-    body = <SkillDetail key={`${selected.source}:${selected.name}`} skill={selected} projectId={projectId} mode={mode} onUse={onUseSkill} onCoverChanged={(cover) => {
-      const update = (skill: SkillEntry) => skill.source === 'mine' && skill.name === selected.name ? { ...skill, cover: cover ?? undefined } : skill;
-      setSkills((list) => list.map(update));
-      setOpened((current) => current?.kind === 'skill' ? { ...current, skill: update(current.skill) } : current);
-    }} />;
-  } else if (view === 'skills') {
-    const official = skills.filter((k) => k.source === 'official').sort(byOrder);
-    const groups: Array<{ id: SkillGroup; items: SkillEntry[] }> = [
-      { id: 'workflow', items: official.filter((k) => k.kind !== 'style') },
-      { id: 'style', items: official.filter((k) => k.kind === 'style') },
-      { id: 'project', items: skills.filter((k) => k.source === 'project').sort(byOrder) },
-      { id: 'mine', items: skills.filter((k) => k.source === 'mine').sort(byOrder) },
-    ].filter((g) => g.id !== 'project' || g.items.length) as Array<{ id: SkillGroup; items: SkillEntry[] }>;
-    body = <SkillsView groups={groups} filter={filter === 'all' || groups.some((g) => g.id === filter) ? filter : 'all'} onFilter={setFilter} onOpen={(k) => setOpened({ kind: 'skill', skill: k })} />;
+  if (view === 'skills') {
+    body = <SkillsLibrary skills={skills} setSkills={setSkills} projectId={projectId} opened={opened?.kind === 'skill' ? opened.skill : null}
+      onOpen={(skill) => setOpened({ kind: 'skill', skill })} onBack={() => setOpened(null)} {...(onTrySkill ? { onTry: onTrySkill } : {})} />;
   } else if (examples == null) {
     body = <Empty text={t('gallery.loading')} />;
   } else if (!examples.length) {
@@ -159,13 +134,22 @@ export function ExamplesGallery({ mode, projectId = null, heading, initial, onCl
       </Body>
     );
   }
+  /* an example opened: its page in place of the list, the list kept (hidden) so Back finds it where it was */
+  if (opened?.kind === 'example') {
+    body = (
+      <>
+        <ExampleDetail example={opened.example} mode={mode} onStart={onStart} onReference={onReference} categoryLabel={kindLabel} />
+        <div hidden>{body}</div>
+      </>
+    );
+  }
 
   return (
     <div className="flex min-h-0 min-w-0 flex-1 flex-col">
       {/* the same row as the projects' (ProjectsView): switching between them moves nothing */}
       <header className="flex shrink-0 flex-col px-6 pb-4 pt-5">
         <div className="flex min-h-8 items-center gap-1">
-          {/* an opened one has its way back here, where the switch was */}
+          {/* an example or a skill opened has its way back here, where the switch was */}
           {opened ? (
             <button type="button" onClick={() => setOpened(null)} className="mr-auto flex h-8 items-center gap-1.5 rounded-lg pl-1 pr-2.5 text-[13.5px] font-medium text-[var(--text-muted)] transition hover:bg-[var(--bg-hover)] hover:text-[var(--text)]">
               <ArrowLeft size={16} strokeWidth={1.75} />{t('gallery.back')}
@@ -179,7 +163,7 @@ export function ExamplesGallery({ mode, projectId = null, heading, initial, onCl
           ) : null}
         </div>
       </header>
-      <div className="min-h-0 min-w-0 flex-1 overflow-y-auto [scrollbar-gutter:stable]">{body}</div>
+      <div ref={scroller} className="min-h-0 min-w-0 flex-1 overflow-y-auto [scrollbar-gutter:stable]">{body}</div>
     </div>
   );
 }
@@ -192,115 +176,6 @@ function Body({ note, children }: { note?: string; children: React.ReactNode }) 
       {children}
     </div>
   );
-}
-
-const GROUP_LABEL: Record<SkillGroup, string> = { mine: 'gallery.mine', project: 'gallery.project', workflow: 'gallery.workflow', style: 'gallery.style' };
-
-/**
- * The skills: filters on the left (all of OpenFilm's, its workflows, its looks; this project's; the person's own),
- * adding one and a search on the right, all in a row that stays at the top; then the cards. "All" shows OpenFilm's
- * under their kinds; the person's own are their own filter. What skills are for is a note behind the (i).
- */
-function SkillsView({ groups, filter, onFilter, onOpen }: {
-  groups: Array<{ id: SkillGroup; items: SkillEntry[] }>; filter: SkillFilter; onFilter: (f: SkillFilter) => void; onOpen: (k: SkillEntry) => void;
-}) {
-  const t = useT();
-  const words = useSkillWords();
-  const [query, setQuery] = React.useState('');
-  const q = query.trim().toLowerCase();
-  const matches = (k: SkillEntry) => !q || [words(k).title, words(k).summary, k.name].some((w) => w?.toLowerCase().includes(q));
-  const shown = (filter === 'all' ? groups.filter((g) => g.id === 'workflow' || g.id === 'style') : groups.filter((g) => g.id === filter))
-    .map((g) => ({ ...g, items: g.items.filter(matches) }));
-  const chip = (id: SkillFilter, label: string, count?: number) => (
-    <button key={id} type="button" role="tab" aria-selected={filter === id} onClick={() => onFilter(id)}
-      className={`flex h-8 shrink-0 items-center gap-1.5 rounded-[8px] px-3 text-[13px] transition ${filter === id ? 'bg-[var(--bg-hover)] font-medium text-[var(--text)]' : 'text-[var(--text-muted)] hover:text-[var(--text)]'}`}>
-      {label}{count ? <span className="text-[var(--text-faint)]">{count}</span> : null}
-    </button>
-  );
-  const own = groups.filter((g) => g.id === 'project' || g.id === 'mine');
-  return (
-    <div className="pb-10">
-      <div className="sticky top-0 z-[1] flex items-center gap-1 bg-[var(--app-content-bg)] px-6 pb-4">
-        <div role="tablist" className="flex min-w-0 flex-1 items-center gap-0.5 overflow-x-auto">
-          {chip('all', t('gallery.all'))}
-          {chip('workflow', t('gallery.workflow'))}
-          {chip('style', t('gallery.style'))}
-          <span className="mx-2 h-4 w-px shrink-0 bg-[var(--border-strong)]" />
-          {own.map((g) => chip(g.id, t(GROUP_LABEL[g.id]), g.items.length))}
-          <AboutSkills />
-        </div>
-        {studioHost?.skills ? (
-          <button type="button" onClick={() => studioHost?.skills?.add()}
-            className="flex h-9 shrink-0 items-center gap-1.5 rounded-[9px] border border-[var(--border)] px-3 text-[13px] text-[var(--text)] transition hover:bg-[var(--bg-hover)]"><Plus size={14} />{t('gallery.addSkill')}</button>
-        ) : null}
-        <label className="ml-2 flex h-9 w-[260px] shrink-0 items-center gap-2 rounded-[9px] bg-[var(--surface-2)] px-3 text-[var(--text-faint)] ring-1 ring-[var(--border)] focus-within:ring-[var(--border-strong)]">
-          <Search size={14} strokeWidth={1.75} />
-          <input value={query} onChange={(e) => setQuery(e.target.value)} placeholder={t('gallery.search')}
-            className="min-w-0 flex-1 bg-transparent text-[13px] text-[var(--text)] outline-none placeholder:text-[var(--text-faint)]" />
-          {query ? <button type="button" aria-label={t('project.close')} onClick={() => setQuery('')} className="hover:text-[var(--text)]"><X size={13} /></button> : null}
-        </label>
-      </div>
-      <div className="px-6">
-        {shown.map((g, i) => (
-          <section key={g.id} className={i ? 'mt-10' : ''}>
-            {filter === 'all' && g.items.length ? <h3 className="mb-4 text-[15px] font-semibold text-[var(--text)]">{t(GROUP_LABEL[g.id])}</h3> : null}
-            {g.items.length ? <Grid>{g.items.map((k) => <SkillCard key={`${k.source}:${k.name}`} skill={k} onOpen={() => onOpen(k)} />)}</Grid>
-              : q ? <Empty text={t('gallery.noMatch')} /> : g.id === 'mine' ? <NoSkills /> : null}
-          </section>
-        ))}
-      </div>
-    </div>
-  );
-}
-
-/** What skills are for, behind an (i) at the end of the filters: shown while the pointer or focus is on it. */
-function AboutSkills() {
-  const t = useT();
-  const [open, setOpen] = React.useState(false);
-  return (
-    <span className="relative ml-1 flex shrink-0" onMouseEnter={() => setOpen(true)} onMouseLeave={() => setOpen(false)}>
-      <button type="button" aria-label={t('gallery.aboutSkills')} aria-expanded={open} onFocus={() => setOpen(true)} onBlur={() => setOpen(false)}
-        className="flex h-8 w-8 items-center justify-center rounded-[8px] text-[var(--text-faint)] transition hover:text-[var(--text)]">
-        <Info size={15} strokeWidth={1.75} />
-      </button>
-      {open ? (
-        <span role="tooltip" className="fixed z-[10060] mt-9 w-[400px] whitespace-pre-line rounded-[10px] border border-[var(--border-strong)] bg-[var(--dock-pane)] px-4 py-3.5 text-[12.5px] leading-[20px] text-[var(--text-muted)] shadow-[0_12px_32px_rgba(0,0,0,0.35)]">
-          {t('gallery.skillKinds')}
-        </span>
-      ) : null}
-    </span>
-  );
-}
-
-/** None of the person's skills yet: what theirs are for, and how to get one. */
-function NoSkills() {
-  const t = useT();
-  return (
-    <div className="flex flex-col items-center rounded-[12px] border border-dashed border-[var(--border-strong)] px-6 py-12 text-center">
-      <Sparkles size={22} strokeWidth={1.5} className="text-[var(--text-faint)]" />
-      <p className="mt-3 max-w-[520px] text-[13px] leading-[20px] text-[var(--text-muted)]">{t('gallery.noSkills')}</p>
-      {studioHost?.skills ? (
-        <button type="button" onClick={() => studioHost?.skills?.add()}
-          className="mt-4 flex h-9 items-center gap-1.5 rounded-[9px] border border-[var(--border)] px-3.5 text-[13px] text-[var(--text)] transition hover:bg-[var(--bg-hover)]"><Plus size={14} />{t('gallery.addSkill')}</button>
-      ) : null}
-    </div>
-  );
-}
-
-/** Where one of the person's skills came from, as a short line: GitHub · owner/repo, a folder's name, or made here. */
-function Origin({ skill }: { skill: SkillEntry }) {
-  const t = useT();
-  const o = skill.origin;
-  if (!o) return null;
-  let icon = <Wand2 size={12} />, text = t('gallery.made');
-  if (o.from === 'link') {
-    icon = <GitBranch size={12} />;
-    try { const u = new URL(o.address); text = `${u.hostname.replace(/^www\./, '').replace(/\.com$/, '').replace(/^github$/, 'GitHub').replace(/^gitlab$/, 'GitLab')} · ${u.pathname.split('/').filter(Boolean).slice(0, 2).join('/')}`; } catch { text = o.address; }
-  } else if (o.from === 'folder') {
-    icon = <Folder size={12} />;
-    text = `${t('gallery.fromFolder')} · ${o.address.split(/[\\/]/).filter(Boolean).pop() ?? o.address}`;
-  }
-  return <div title={o.from === 'made' ? undefined : o.address} className="mt-2 flex min-w-0 items-center gap-1.5 text-[11.5px] text-[var(--text-faint)]">{icon}<span className="truncate">{text}</span></div>;
 }
 
 function Empty({ text }: { text: string }) {
@@ -363,134 +238,6 @@ function ExampleCard({ example, label, onOpen }: { example: Example; label: stri
       </div>
       {example.description ? <div className="mt-0.5 line-clamp-2 text-[12px] leading-[17px] text-[var(--text-muted)]">{example.description}</div> : null}
     </button>
-  );
-}
-
-const ICONS: Record<string, LucideIcon> = {
-  copy: Copy, scissors: Scissors, monitor: MonitorPlay, shapes: Shapes, pip: PictureInPicture2, pen: PenLine, film: Film,
-  music: Music, presentation: Presentation, layers: Layers,
-};
-/** each mark its own color, so the covers tell apart at a glance */
-const HUES: Record<string, number> = { copy: 212, scissors: 18, monitor: 188, shapes: 262, pip: 328, pen: 42, film: 28, music: 286, presentation: 228, layers: 6 };
-
-/** A skill's picture: its cover, else its preview's first frame, else a tile of its mark and title in its own color. */
-function SkillCover({ skill, title, big = false, playing = false }: { skill: SkillEntry; title: string; big?: boolean; playing?: boolean }) {
-  const [failed, setFailed] = React.useState(false);
-  if (skill.cover && !failed) {
-    return (
-      <>
-        <img src={skill.cover} alt="" loading="lazy" draggable={false} onError={() => setFailed(true)} className="absolute inset-0 h-full w-full object-cover" />
-        {playing && skill.preview ? <video src={skill.preview} autoPlay muted loop playsInline className="absolute inset-0 h-full w-full object-cover" /> : null}
-      </>
-    );
-  }
-  const Mark = ICONS[skill.icon ?? ''] ?? Sparkles;
-  const hue = HUES[skill.icon ?? ''] ?? 220;
-  return (
-    <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 px-6 text-center"
-      style={{ background: `radial-gradient(110% 90% at 25% 0%, hsl(${hue} 70% 55% / 0.22), transparent 62%), radial-gradient(90% 80% at 100% 100%, hsl(${hue} 70% 50% / 0.12), transparent 60%), var(--surface-2)` }}>
-      <span className={`flex items-center justify-center rounded-[14px] ${big ? 'h-16 w-16' : 'h-14 w-14'}`}
-        style={{ background: `hsl(${hue} 70% 55% / 0.16)`, color: `hsl(${hue} 80% 72%)`, boxShadow: `0 0 0 1px hsl(${hue} 70% 60% / 0.28)` }}>
-        <Mark size={big ? 28 : 24} strokeWidth={1.6} />
-      </span>
-      {/* a card has its title under it; the page's big picture carries it */}
-      {big ? <span className="line-clamp-2 text-[22px] font-semibold tracking-[-0.01em] text-[var(--text)]">{title}</span> : null}
-    </div>
-  );
-}
-
-function SkillCard({ skill, onOpen }: { skill: SkillEntry; onOpen: () => void }) {
-  const words = useSkillWords()(skill);
-  const [hover, setHover] = React.useState(false);
-  return (
-    <button type="button" onClick={onOpen} onMouseEnter={() => setHover(true)} onMouseLeave={() => setHover(false)} className="group flex min-w-0 flex-col text-left outline-none">
-      <div className="relative aspect-video w-full overflow-hidden rounded-[12px] ring-1 ring-[var(--border)] transition group-hover:ring-[var(--border-strong)] group-focus-visible:ring-2 group-focus-visible:ring-[var(--text-muted)]">
-        <SkillCover key={skill.cover ?? ''} skill={skill} title={words.title} playing={hover} />
-      </div>
-      <div className="mt-3 truncate text-[14.5px] font-semibold tracking-[-0.005em] text-[var(--text)]">{words.title}</div>
-      {words.summary ? <div className="mt-1 line-clamp-2 text-[12.5px] leading-[18px] text-[var(--text-muted)]">{words.summary}</div> : null}
-      <Origin skill={skill} />
-    </button>
-  );
-}
-
-/**
- * A skill on its own: its preview (or picture) large on the left; on the right its title, kind and version, who it is
- * for and what it does, what the agent reads, and using it, at the bottom.
- */
-function SkillDetail({ skill, projectId, mode, onUse, onCoverChanged }: {
-  skill: SkillEntry; projectId: string | null; mode: ExamplesMode; onUse?: (skill: SkillEntry) => void; onCoverChanged: (cover: string | null) => void;
-}) {
-  const t = useT();
-  const lang = useLanguage();
-  const words = useSkillWords()(skill);
-  const details = inLanguage(skill.shown?.details, lang);
-  const group: SkillGroup = skill.source === 'official' ? (skill.kind === 'style' ? 'style' : 'workflow') : skill.source;
-  const source = skill.repository ?? (skill.origin?.from === 'link' ? skill.origin.address : undefined);
-  const [busy, setBusy] = React.useState(false);
-  const [error, setError] = React.useState<string | null>(null);
-  const coverInput = React.useRef<HTMLInputElement>(null);
-  const changeCover = async (file: File | null) => {
-    setBusy(true);
-    setError(null);
-    try {
-      let cover: string | null = null;
-      if (file) {
-        if (file.size > 5 * 1024 * 1024 || !['image/png', 'image/jpeg', 'image/webp'].includes(file.type)) throw new Error(t('gallery.coverInvalid'));
-        cover = await new Promise<string>((resolve, reject) => {
-          const reader = new FileReader();
-          reader.onload = () => resolve(String(reader.result));
-          reader.onerror = () => reject(new Error(t('gallery.coverInvalid')));
-          reader.readAsDataURL(file);
-        });
-        const image = new Image();
-        image.src = cover;
-        await image.decode().catch(() => { throw new Error(t('gallery.coverInvalid')); });
-      }
-      onCoverChanged(await sourcesApi.setSkillCover(skill.name, cover, projectId));
-    } catch (e) { setError(e instanceof Error ? e.message : String(e)); }
-    finally { setBusy(false); }
-  };
-  return (
-    <div className="grid h-full min-h-0 grid-cols-[minmax(0,1.65fr)_minmax(320px,1fr)] border-t border-[var(--border)]">
-      <div className="flex min-h-0 flex-col items-center justify-center gap-4 bg-[color-mix(in_srgb,var(--bg)_55%,transparent)] p-8">
-        <div className="relative aspect-video w-full overflow-hidden rounded-[12px] bg-black ring-1 ring-[var(--border)]">
-          {skill.preview ? <video src={skill.preview} poster={skill.cover} autoPlay muted loop controls playsInline className="absolute inset-0 h-full w-full object-contain" />
-            : <SkillCover key={skill.cover ?? ''} skill={skill} title={words.title} big />}
-        </div>
-        {skill.source === 'mine' ? <div className="flex flex-wrap items-center justify-center gap-3 text-[12px] text-[var(--text-muted)]">
-          <button type="button" disabled={busy} onClick={() => coverInput.current?.click()} className="h-9 rounded-[9px] px-3 text-[13px] text-[var(--text-muted)] transition hover:bg-[var(--bg-hover)] hover:text-[var(--text)] disabled:opacity-40">{t(skill.cover ? 'gallery.changeCover' : 'gallery.chooseCover')}</button>
-          <input ref={coverInput} type="file" accept="image/png,image/jpeg,image/webp" aria-label={t(skill.cover ? 'gallery.changeCover' : 'gallery.chooseCover')} disabled={busy} hidden
-            onChange={(e) => { const file = e.target.files?.[0]; e.target.value = ''; if (file) void changeCover(file); }} />
-          {skill.cover ? <button type="button" disabled={busy} onClick={() => void changeCover(null)} className="h-9 rounded-[9px] px-3 text-[13px] text-[var(--text-muted)] transition hover:bg-[var(--bg-hover)] hover:text-[var(--text)] disabled:opacity-40">{t('gallery.removeCover')}</button> : null}
-          {busy ? <span role="status">{t('gallery.coverSaving')}</span> : null}
-        </div> : null}
-        {error ? <p role="alert" className="text-[12px] text-[var(--warn)]">{error}</p> : null}
-      </div>
-      <div className="flex min-h-0 flex-col border-l border-[var(--border)]">
-        <div className="min-h-0 flex-1 overflow-y-auto px-7 pt-7">
-          <h2 className="text-[22px] font-semibold leading-tight tracking-[-0.015em] text-[var(--text)]">{words.title}</h2>
-          <div className="mt-2.5 flex items-center gap-2 text-[12px] text-[var(--text-muted)]">
-            <span>{t(GROUP_LABEL[group])}</span>
-            {skill.version ? <span className="rounded-[5px] border border-[var(--border)] px-1.5 py-[1px] font-mono text-[10.5px] text-[var(--text-dim)]">v{skill.version}</span> : null}
-            {/* its source: OpenFilm's repository, or the address one of the person's came from */}
-            {source ? (
-              <a href={source} target="_blank" rel="noreferrer" title={source} aria-label={t('gallery.viewSource')}
-                className="flex h-6 w-6 items-center justify-center rounded-[6px] text-[var(--text-dim)] transition hover:bg-[var(--bg-hover)] hover:text-[var(--text)]"><Github size={14} strokeWidth={1.75} /></a>
-            ) : null}
-          </div>
-          <Origin skill={skill} />
-          {words.summary ? <p className="mt-5 text-[14px] leading-[22px] text-[var(--text)]">{words.summary}</p> : null}
-          {details ? details.split('\n').map((line) => <p key={line} className="mt-3 text-[13.5px] leading-[22px] text-[var(--text-muted)]">{line}</p>) : null}
-        </div>
-        <div className="shrink-0 px-7 pb-7 pt-4">
-          {mode === 'reference' && onUse ? (
-            <button type="button" onClick={() => onUse(skill)}
-              className="flex h-11 w-full items-center justify-center gap-1.5 rounded-[10px] bg-[var(--text)] text-[14px] font-medium text-[var(--bg)] transition hover:opacity-90"><Check size={15} />{t('gallery.useSkill')}</button>
-          ) : null}
-        </div>
-      </div>
-    </div>
   );
 }
 
@@ -611,7 +358,7 @@ export function ExamplesDialog({ projectId, open, onClose, onStarted }: { projec
           onClose={onClose}
           onStart={setStarting}
           onReference={reference}
-          onUseSkill={(skill) => { studioHost?.useSkill?.({ name: skill.name, description: skill.description }); onClose(); }}
+          onTrySkill={(skill) => { studioHost?.useSkill?.({ name: skill.name, description: skill.description, newConversation: true }); onClose(); }}
         />
       </div>
       {starting ? (

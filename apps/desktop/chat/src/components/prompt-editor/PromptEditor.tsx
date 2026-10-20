@@ -98,9 +98,6 @@ export interface PromptEditorProps {
   onReveal?: (reference: PromptReference) => void;
   revealLabel?: string;
   removeLabel: string;
-  /** A skill pill's pin: keep that skill on (for every message); without it, skill pills have none. */
-  onPin?: (reference: PromptReference) => void;
-  pinLabel?: string;
   placeholder: string;
   ariaLabel?: string;
   minHeight: number;
@@ -137,8 +134,6 @@ export const PromptEditor = React.forwardRef<PromptEditorHandle, PromptEditorPro
       onReveal,
       revealLabel,
       removeLabel,
-      onPin,
-      pinLabel,
       placeholder,
       ariaLabel,
       minHeight,
@@ -163,11 +158,9 @@ export const PromptEditor = React.forwardRef<PromptEditorHandle, PromptEditorPro
         ...(onReveal ? { onReveal } : {}),
         ...(revealLabel ? { revealLabel } : {}),
         ...(describe ? { describe } : {}),
-        ...(onPin ? { onPin } : {}),
-        ...(pinLabel ? { pinLabel } : {}),
         removeLabel,
       }),
-      [onReveal, removeLabel, revealLabel, describe, onPin, pinLabel],
+      [onReveal, removeLabel, revealLabel, describe],
     );
 
     const initialConfig = React.useMemo(

@@ -13,7 +13,7 @@ import { existsSync, readFileSync, readdirSync, statSync, writeFileSync } from '
 import { mkdir, mkdtemp, rm } from 'node:fs/promises';
 import { basename, dirname, isAbsolute, join, relative, resolve } from 'node:path';
 import { FILM_FILE } from './film-doc.mjs';
-import { addSkills, findSkill, folderSize, holdsSkills, listSkills, migrateMySkills, mySkillsDir, readSkill, removeSkill, skillText, skillsIn, PROJECT_SKILLS } from './skills.mjs';
+import { addSkills, findSkill, folderSize, holdsSkills, migrateMySkills, mySkillsDir, readSkill, removeSkill, skillText, skillsIn, usableSkills, PROJECT_SKILLS } from './skills.mjs';
 
 /** The project around a folder (the nearest film.html above), or null. @param {string} from */
 export function projectAround(from) {
@@ -25,13 +25,17 @@ const SOURCE = { project: 'this project', mine: 'yours', official: 'official' };
 /** a path as the person reads it: from the current folder when it is under it */
 const shown = (/** @type {string} */ p) => { const r = relative(process.cwd(), p); return r && !r.startsWith('..') ? r : p; };
 
-/** `openfilm skills`: every skill the project around here (if any) can be made with. @param {string} run */
+/**
+ * `openfilm skills`: the skills the project around here (if any) can be made with: its own, the person's and the
+ * official ones they installed, none they turned off (usableSkills).
+ * @param {string} run
+ */
 export function skillsCommand(run, { cwd = process.cwd() } = {}) {
   migrateMySkills();
   const project = projectAround(cwd);
-  const skills = listSkills({ project });
+  const skills = usableSkills({ project });
   if (!skills.length) {
-    return { ok: true, lines: [`No skills yet. \`${run} skill add <GitHub address or folder>\` adds one to yours (${shown(mySkillsDir())}).`] };
+    return { ok: true, lines: [`No skills installed. Install OpenFilm's in Studio's Skills, or \`${run} skill add <GitHub address or folder>\` adds one to yours (${shown(mySkillsDir())}).`] };
   }
   const width = Math.min(28, Math.max(...skills.map((s) => s.name.length)));
   return {

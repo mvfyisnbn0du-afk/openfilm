@@ -33,6 +33,14 @@ jobs:
           node-version: 22
           cache: pnpm
       - run: pnpm install --frozen-lockfile
+      # setup-node puts node and npm's global programs on the job's PATH only. A person who installs with npm has them
+      # on their shell's PATH, and the app reads the login shell's: put them there, as nvm's installer does.
+      - name: Node on the login shell's PATH
+        if: runner.os == 'macOS'
+        run: |
+          line="export PATH=\"$(dirname "$(command -v node)"):\$PATH\""
+          echo "$line" >> ~/.zprofile
+          echo "$line" >> ~/.bash_profile
       - name: The newest agents from npm
         run: npm install -g @openai/codex@latest @anthropic-ai/claude-code@latest @github/copilot@latest opencode-ai@latest @qwen-code/qwen-code@latest @tencent-ai/codebuddy-code@latest
       - name: Found, started and spoken to

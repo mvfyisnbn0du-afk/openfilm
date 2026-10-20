@@ -615,7 +615,7 @@ function usePreviewed(look: Look) {
   return { before, remember, restore, preview, commit };
 }
 
-export function AppearanceSection({ look, t, children, radius = false }: { look: Look; t: T; children?: React.ReactNode; radius?: boolean }) {
+export function AppearanceSection({ look, t, children, radius = false, aside }: { look: Look; t: T; children?: React.ReactNode; radius?: boolean; aside?: React.ReactNode }) {
   const previewed = usePreviewed(look);
   const opacity = look.common((read) => {
     const v = Number(read('opacity') ?? 1);
@@ -628,7 +628,7 @@ export function AppearanceSection({ look, t, children, radius = false }: { look:
     return { opacity: n >= 100 ? null : String(Math.round(n * 10) / 1000) };
   };
   return (
-    <Section id="appearance" title={t('inspector.appearance')}>
+    <Section id="appearance" title={t('inspector.appearance')} {...(aside ? { aside } : {})}>
       <SliderField
         label={t('inspector.opacity')}
         value={opacity}

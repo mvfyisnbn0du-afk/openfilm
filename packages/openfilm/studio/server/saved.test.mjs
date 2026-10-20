@@ -31,7 +31,7 @@ function project() {
   writeFileSync(join(root, 'assets', 'v.mp4'), 'mp4');
   writeFileSync(join(root, 'film.html'), `<meta name="viewport" content="width=1920, height=1080">
 <section>
-  <iframe id="title" src="pages/title.html" at="5" style="left: 10px; top: 20px; width: 400px; height: 200px" overrides='[{"at":"#t","text":"Hello","style":{"--accent":"#00ff00"}}]' data-link="T"></iframe>
+  <iframe id="title" src="pages/title.html" at="5" size="1080x1920" style="left: 10px; top: 20px; width: 400px; height: 200px" overrides='[{"at":"#t","text":"Hello","style":{"--accent":"#00ff00"}}]' data-link="T" data-props='[{"name":"Title","type":"text","at":"#t"}]'></iframe>
 </section>
 <section>
   <video id="v" src="assets/v.mp4#t=0,4" at="3" data-link="L"></video>
@@ -55,10 +55,9 @@ test('a saved clip is a folder of the library named as the person reads it, with
   assert.equal(kept.kind, 'clip');
   assert.equal(kept.clip.at, undefined, 'no place in time: it gets one where it is put');
   assert.equal(kept.clip.id, undefined);
-  assert.equal(kept.clip.attrs, undefined, 'a link to clips of the film it came from is not kept');
+  assert.deepEqual(kept.clip.attrs, { 'data-props': '[{"name":"Title","type":"text","at":"#t"}]' }, 'its properties kept (a component); a link to clips of the film it came from not');
   assert.deepEqual(kept.clip.overrides, [{ at: '#t', text: 'Hello', style: { '--accent': '#00ff00' } }]);
   assert.deepEqual(kept.clip.box, { x: 10, y: 20, w: 400, h: 200 });
-  assert.equal(kept.template, true, 'its CSS sets custom properties on :root');
   assert.equal(await saveClip(root, 'title', { name: 'Lower third' }), 'saved/Lower third 2', 'a name taken gets a number');
   await assert.rejects(saveClip(root, 'nope'), /not in the film/);
 });
@@ -75,7 +74,11 @@ test('the library lists files of any kind and folders as a project\'s media, a b
   assert.deepEqual(folders, ['saved/Logos']);
   assert.deepEqual(pages, []);
   assert.deepEqual(files.map((f) => [f.path, f.kind]), [['saved/Logos/acme.svg', 'image'], ['saved/Logos/Lower third', 'page'], ['saved/notes.pdf', 'other']]);
-  assert.deepEqual(files[1].saved, { kind: 'clip', template: true, durationMs: 2000, w: 400, h: 200 });
+  /* its page where the library has it, laid out and changed as its clip had it: the viewer plays it as the film did */
+  assert.deepEqual(files[1].saved, {
+    kind: 'clip', props: 1, durationMs: 2000, w: 400, h: 200, page: 'Logos/Lower third/files/pages/title.html',
+    size: { w: 1080, h: 1920 }, overrides: [{ at: '#t', text: 'Hello', style: { '--accent': '#00ff00' } }],
+  });
 });
 
 test('a bundle moves and is renamed as a folder; taken into a project, its files go under saved/ there once, its page still finding them', async () => {

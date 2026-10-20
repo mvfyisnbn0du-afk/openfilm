@@ -35,9 +35,11 @@ contextBridge.exposeInMainWorld('openfilmNative', {
     open: (projectId) => ipcRenderer.invoke('desktop:tabs:new', { projectId }),
     move: (id, index) => ipcRenderer.invoke('desktop:tabs:move', { id, index }),
     report: (state) => ipcRenderer.invoke('desktop:tabs:report', state ?? {}),
+    gone: (projectIds) => ipcRenderer.invoke('desktop:tabs:gone', { projectIds }),
     retitle: (id, title) => ipcRenderer.invoke('desktop:tabs:retitle', { id, title }),
     openRequest: (to) => ipcRenderer.invoke('desktop:tabs:open', { to }),
     onPick: on('desktop:tabs:pick'),
+    onCovered: on('desktop:tabs:covered'),
   },
 
   /* the roster (agent-roster.mjs): Settings → Agents and the chat's menu */
@@ -87,7 +89,7 @@ contextBridge.exposeInMainWorld('openfilmNative', {
   /* the chat's record of a project (chat-store.mjs): conversations, finished turns (.film/chat), each turn's log (.film/logs) */
   chat: {
     load: (project) => ipcRenderer.invoke('desktop:chat:load', { project }),
-    saveSessions: (project, sessions, last, skills) => ipcRenderer.invoke('desktop:chat:sessions', { project, sessions, last, skills }),
+    saveSessions: (project, sessions, last) => ipcRenderer.invoke('desktop:chat:sessions', { project, sessions, last }),
     saveTurn: (project, turn, items) => ipcRenderer.invoke('desktop:chat:turn', { project, turn, items }),
     log: (project, turnId, unless) => ipcRenderer.invoke('desktop:chat:log', { project, turnId, unless }),
     reveal: (project, turnId) => ipcRenderer.invoke('desktop:chat:reveal', { project, turnId }),
@@ -103,6 +105,8 @@ contextBridge.exposeInMainWorld('openfilmNative', {
     list: (project, agent) => ipcRenderer.invoke('desktop:skills:list', { project, agent }),
     texts: (project, agent, names) => ipcRenderer.invoke('desktop:skills:texts', { project, agent, names }),
     allow: (agent, name, allowed) => ipcRenderer.invoke('desktop:skills:allow', { agent, name, allowed }),
+    /* one of OpenFilm's skills turned on or off: the agents' sessions take it up */
+    changed: () => ipcRenderer.invoke('desktop:skills:changed'),
     preview: (url) => ipcRenderer.invoke('desktop:skills:preview', { url }),
     /* a folder dropped (its path), or null: one picked in the system's dialog, with the page's words { title, button } */
     previewFolder: (path, words) => ipcRenderer.invoke('desktop:skills:preview', { folder: typeof path === 'string' ? path : null, words }),

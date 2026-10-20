@@ -125,3 +125,29 @@ test('a file\'s sound for the editor is small and in step: a video\'s AAC kept a
   assert.deepEqual(readdirSync(join(root, '.film', 'cache', 'audio')).sort(), made, 'asked again: the copy made');
   await assert.rejects(soundOf(root, 'assets/none.mp4'), (e) => e instanceof MediaError && e.status === 404);
 });
+
+/** A tone's frequency (Hz) and length (s), from its zero crossings. @param {string} file */
+function toneOf(file) {
+  const pcm = execFileSync('ffmpeg', ['-v', 'error', '-i', file, '-ac', '1', '-ar', '48000', '-f', 's16le', '-'], { maxBuffer: 1 << 28 });
+  const samples = new Int16Array(pcm.buffer, pcm.byteOffset, Math.floor(pcm.length / 2));
+  let ups = 0;
+  for (let i = 1; i < samples.length; i++) if (samples[i - 1] < 0 && samples[i] >= 0) ups++;
+  const seconds = samples.length / 48000;
+  return { hz: ups / seconds, seconds };
+}
+
+test('a sound played at another speed is stretched to it with its pitch kept, once per speed', { skip: !hasFfmpeg && 'no ffmpeg' }, async () => {
+  execFileSync('ffmpeg', ['-v', 'error', '-f', 'lavfi', '-i', 'sine=frequency=440:duration=6', '-b:a', '128k', join(root, 'assets', 'tone.mp3')]);
+  const own = String(await soundOf(root, 'assets/tone.mp3'));
+  assert.equal(own, join(root, 'assets', 'tone.mp3'), 'at 1× a small sound is played as it is');
+  for (const speed of [1.5, 0.5, 4]) {
+    const copy = String(await soundOf(root, 'assets/tone.mp3', speed));
+    assert.match(copy, /-x[\d.]+\.m4a$/, `${speed}×: a copy of its own`);
+    const tone = toneOf(copy);
+    assert.ok(Math.abs(tone.hz - 440) < 440 * 0.03, `${speed}×: still 440 Hz, not ${Math.round(tone.hz)}`);
+    assert.ok(Math.abs(tone.seconds - 6 / speed) < 0.1, `${speed}×: ${6 / speed} s long, not ${tone.seconds}`);
+    assert.equal(String(await soundOf(root, 'assets/tone.mp3', speed)), copy, 'asked again: the copy made');
+  }
+  await assert.rejects(soundOf(root, 'assets/tone.mp3', 0), (e) => e instanceof MediaError && e.status === 400);
+  await assert.rejects(soundOf(root, 'assets/tone.mp3', 32), (e) => e instanceof MediaError && e.status === 400);
+});

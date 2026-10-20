@@ -273,9 +273,6 @@ export const ko: Words = {
   /* the composer's button that opens the Community over the film: skills and examples (Studio's ExamplesGallery) */
   community: { button: '커뮤니티', tooltip: '커뮤니티: 스킬과 예시' },
   skills: {
-    keepOn: '이 프로젝트의 모든 메시지에 계속 사용',
-    keptOn: '항상 사용',
-    turnOff: '{name} 끄기',
     chooseCover: '표지 선택',
     removeCover: '표지 선택 취소',
     coverHint: '선택 사항 · PNG, JPEG 또는 WebP, 최대 5 MB. 변경하지 않으면 원래 표지를 유지합니다.',

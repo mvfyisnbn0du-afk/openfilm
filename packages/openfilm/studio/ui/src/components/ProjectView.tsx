@@ -7,7 +7,7 @@
  * are written one at a time (see editor/use-film.ts); the agent's writes come in through the folder's events.
  */
 import * as React from 'react';
-import { BookmarkPlus, ClipboardCopy, ClipboardPaste, GalleryVerticalEnd, Layers, LibraryBig, MessageSquarePlus, MonitorDown, Settings2, Share, TriangleAlert } from 'lucide-react';
+import { BookmarkPlus, ClipboardCopy, ClipboardPaste, GalleryVerticalEnd, Layers, LibraryBig, MessageSquarePlus, MonitorDown, Settings2, TriangleAlert, Upload } from 'lucide-react';
 import { applyOps } from '../../../server/ops.mjs';
 import { api, ApiError, PREFS_EVENT, projectEvents, type Clip, type Film, type Listing, type Op, type ProjectFilm, type ProjectSettings } from '@/api';
 import { useT } from '@/i18n';
@@ -86,7 +86,6 @@ import { ProjectMenu } from './ProjectMenu';
 import { ProjectHistoryButton, ProjectHistoryControls } from './ProjectHistoryControls';
 import { useProjectHistory } from './use-project-history';
 import { ProjectsPopover } from './ProjectsLibrary';
-import { FramePicker } from './FramePicker';
 import { FilmFullscreenBar, useFullscreenKeys } from './FilmFullscreenBar';
 import { ViewerBar } from './ViewerBar';
 import { LiveTime, type PlaybackClock } from './LiveTime';
@@ -98,11 +97,13 @@ import { ExportTray, type ExportTrayHandle } from './export/ExportTray';
 import { FilmStageSelect, type FilmStageControl, type LayerGeometry, type StageClipEdit, type StagePick } from './FilmStageSelect';
 import { openSection } from './inspector-fields';
 import { FontScopeContext, type FontScope } from '@/lib/use-fonts';
-import { stageMenu, stageRecoveryMenu, type StageArrangeResult, type StageMenuContext } from './stage-menu';
+import { stageMenu, stageRecoveryMenu, type StageArrangeResult, type StageMenuContext, type StagePictureActions } from './stage-menu';
 import type { StageEditFailure, StageTextEdit } from './FilmInspector';
 import { layerTarget, pageClipOf, recoverLayer } from '@/lib/stage-layers';
-import type { TemplateControls } from '@/lib/template-controls';
-import type { TemplateHost } from './TemplateSection';
+import { pictureStyle, relativeTo, type TemplateControls } from '@/lib/template-controls';
+import { propsAttr, propsOf, type ComponentProp } from '@/lib/component-props';
+import type { PropsHost } from './PropertiesSection';
+import type { LayerPropsActions } from './FilmInspector';
 import { SAVED, refreshSaved, savedActions, savedSources, useSavedListing } from '@/lib/saved';
 import { batchMap } from '@/lib/batch-map';
 import { groupInsertAt, groupInsertOps } from '@/lib/saved-insert';
@@ -115,6 +116,8 @@ import { usePreviewPrefs } from '@/lib/preview-prefs';
 import { isTypingTarget } from './typing-target';
 
 const PANE = 'relative flex min-h-0 min-w-0 flex-col overflow-hidden rounded-[7px]';
+/** The files a picture inside a page can be replaced with. */
+const PICTURE_FILE = /\.(png|jpe?g|gif|webp|avif|svg|bmp)$/i;
 /* ⌘ is the modifier on a Mac, Ctrl elsewhere (the editor's keys, lib/timeline-keys) */
 const MAC = typeof navigator !== 'undefined' && /Mac|iPhone|iPad/.test(navigator.platform);
 /** Which the media pane shows, the project's media or Saved: kept while Studio is open, across projects. */
@@ -200,6 +203,9 @@ export function ProjectView({ projectId, onProject, onLeave }: {
   const t = useT();
   const toast = useToast();
   const keyHint = useKeyHint();
+  /* the latest onLeave, for the folder's events (subscribed once per project) */
+  const leaveRef = React.useRef(onLeave);
+  leaveRef.current = onLeave;
   /* how many times the project's files changed since it opened (see the folder events below) */
   const [filesTick, setFilesTick] = React.useState(0);
   const [loaded, setLoaded] = React.useState<ProjectFilm | null>(null);
@@ -215,7 +221,8 @@ export function ProjectView({ projectId, onProject, onLeave }: {
 
   /* ── the project, its film and its files ── */
   React.useEffect(() => {
-    api.film(projectId).then(setLoaded, (e: Error) => setFailure(e.message));
+    /* a project the list no longer has (deleted meanwhile, a tab of it opened again): gone, so this page leaves it */
+    api.film(projectId).then(setLoaded, (e: Error) => { if (e instanceof ApiError && e.status === 404) leaveRef.current(); else setFailure(e.message); });
     void api.opened(projectId).catch(() => {});
     const loadFiles = () => api.files(projectId).then(setRawListing, () => {});
     void loadFiles();
@@ -223,6 +230,8 @@ export function ProjectView({ projectId, onProject, onLeave }: {
       /* a picture that could not be drawn is tried again whenever the folder changes: the missing file arrived, or
          the clip that named it is gone from film.html now that the edit is written */
       if (previewErrorRef.current && (event.type === 'film' || event.type === 'files')) { preview.current?.reload?.(); }
+      /* deleted (here, in another tab, by an agent), or its folder gone: this page leaves it (with tabs, its tab closes) */
+      if (event.type === 'gone') { leaveRef.current(); return; }
       /* renamed from another tab, or the projects list */
       if (event.type === 'project') { setLoaded((l) => (l ? { ...l, project: event.project } : l)); return; }
       if (event.type !== 'files') return;
@@ -323,6 +332,9 @@ export function ProjectView({ projectId, onProject, onLeave }: {
       pageSurface: (f) => `${folder}${f.path.split('/').map(encodeURIComponent).join('/')}`,
     };
   }, [projectId, folder, filesTick]);
+  /* for the pictures' thumbnails in a menu built after the render that made it */
+  const mediaSourcesRef = React.useRef(mediaSources);
+  mediaSourcesRef.current = mediaSources;
   /*
    * proxies (studio/server/proxies.mjs): asked for the project's heavy footage whenever its files change or the
    * preferences do, followed while they are made. One ready for footage on the film, or other preferences, load the
@@ -383,6 +395,8 @@ export function ProjectView({ projectId, onProject, onLeave }: {
   const [loop, setLoop] = React.useState(false);
   const loopRef = React.useRef(loop);
   loopRef.current = loop;
+  /* the speed picked in the viewer's playback settings: what plays once a J/K/L shuttle is let go */
+  const speedRef = React.useRef(1);
   /* the range marked (set below, with the timeline's): what loops */
   const rangeNowRef = React.useRef<FilmRange | null>(null);
   const clock = React.useMemo<PlaybackClock>(() => ({
@@ -452,11 +466,14 @@ export function ProjectView({ projectId, onProject, onLeave }: {
      alone is sought along at that rate, silent, as a scrub is (the player plays forward only, at most 2×) ── */
   const shuttleRateRef = React.useRef(0);
   const shuttleFrame = React.useRef(0);
-  /** The shuttle let go: the player back at 1× if the shuttle changed its rate. */
+  /** The shuttle let go: the player back at the speed picked if the shuttle changed its rate. */
   const stopShuttle = React.useCallback(() => {
     if (shuttleFrame.current) cancelAnimationFrame(shuttleFrame.current);
     shuttleFrame.current = 0;
-    if (shuttleRateRef.current !== 0 && player.current.rate !== 1) { player.current.setRate(1); setRateState(1); }
+    if (shuttleRateRef.current !== 0 && player.current.rate !== speedRef.current) {
+      player.current.setRate(speedRef.current);
+      setRateState(player.current.rate);
+    }
     shuttleRateRef.current = 0;
   }, []);
   const pause = React.useCallback(() => {
@@ -1500,7 +1517,7 @@ export function ProjectView({ projectId, onProject, onLeave }: {
     if (!failed && (patch === null || patch.style)) {
       window.setTimeout(() => {
         void stageControl.current?.describe(element).then((fresh) => {
-          if (fresh) setStageElement((el) => (el?.loc === element.loc ? { ...el, style: fresh.style } : el));
+          if (fresh) setStageElement((el) => (el?.loc === element.loc ? { ...el, style: fresh.style, ...(fresh.picture ? { picture: fresh.picture } : {}) } : el));
         });
       }, 120);
     }
@@ -1652,16 +1669,59 @@ export function ProjectView({ projectId, onProject, onLeave }: {
   const startStageCrop = React.useCallback(() => { stageControl.current?.startCrop(); }, []);
   const editStageMask = React.useCallback((session: MaskSession | null) => { stageControl.current?.editMask(session); }, []);
   const pageChangesOf = usePageChanges(preview, filmRef);
-  /* a page clip's template controls (components/TemplateSection): read from its page on the picture, previewed there,
-     written as its overrides by the inspector */
-  /* the project's files as listed now, for the Template section's pictures (its host outlives a render) */
+  /* the project's files as listed now, for the pictures a picture is replaced with (a host outlives a render) */
   const listingRef = React.useRef(listing);
   listingRef.current = listing;
-  const templateOf = React.useCallback((block: TimelineBlock): TemplateHost | null => {
+  /* another file in the place of a picture inside a page (an <img>, a box painted with one image): the clip's override,
+     the file named from the page's folder, as a picture property writes it */
+  const putLayerPicture = React.useCallback((element: StageElement, path: string | null) => {
+    const doc = filmRef.current as unknown as FilmDoc | null;
+    const found = doc ? pageClipOf(doc, element) : null;
+    const picture = element.picture;
+    if (!found || !picture) { toast.show(t('timeline.editFail')); return; }
+    const style = pictureStyle(picture.kind, path == null ? null : relativeTo(found.clip.src, path));
+    /* a box holding one picture: the file goes on its <img> */
+    const target: StageElement = picture.at
+      ? { ...element, loc: picture.n ? `${picture.at}#${picture.n}` : picture.at, ...(picture.n ? { instance: picture.n } : { instance: undefined }), override: null }
+      : element;
+    void editStageOverrideRef.current(target, { style }).then((failed) => {
+      if (failed) { toast.show(failed); return; }
+      /* the layer in hand shows the picture now on it once the page has it */
+      window.setTimeout(() => {
+        void stageControl.current?.describe(element).then((fresh) => {
+          if (fresh) setStageElement((el) => (el?.loc === element.loc ? { ...el, ...(fresh.picture ? { picture: fresh.picture } : {}) } : el));
+        });
+      }, 150);
+    });
+  }, [t]); // eslint-disable-line react-hooks/exhaustive-deps
+  const pictureActions = React.useMemo<StagePictureActions>(() => ({
+    pictures: () => (listingRef.current?.files ?? []).filter((f) => PICTURE_FILE.test(f.path)).map((f) => ({ path: f.path, name: f.path.split('/').pop() ?? f.path, url: mediaSourcesRef.current.file(f) })),
+    pickFromComputer: () => pickReplacement('picture'),
+    put: putLayerPicture,
+  }), [pickReplacement, putLayerPicture]);
+  /* a page clip's component properties (lib/component-props): its data-props, read and written by its id */
+  const clipPropsOf = React.useCallback((clipId: string | undefined): ComponentProp[] => (
+    clipId ? propsOf(filmRef.current?.tracks.flatMap((tr) => tr.clips).find((c) => c.id === clipId)) : []
+  ), []);
+  const writeClipProps = React.useCallback((clipId: string | undefined, next: readonly ComponentProp[]) => {
+    const loc = blocksRef.current.find((b) => b.clipId === clipId)?.loc;
+    if (!loc) { toast.show(t('timeline.editFail')); return; }
+    void editBlocks([{ loc, prop: 'props', value: propsAttr(next) }]).then((failed) => { if (failed) toast.show(failed); });
+  }, [editBlocks, t]); // eslint-disable-line react-hooks/exhaustive-deps
+  /* a layer made a property of its clip (the inspector's ◇), or no longer one */
+  const layerProps = React.useMemo<LayerPropsActions>(() => ({
+    list: (element) => clipPropsOf(element.clipId),
+    save: (element, next) => writeClipProps(element.clipId, next),
+  }), [clipPropsOf, writeClipProps]);
+  /* a page clip's Properties (components/PropertiesSection): what its page shows read on the picture, previewed there,
+     filled in as its overrides by the inspector */
+  const propsHostOf = React.useCallback((block: TimelineBlock): PropsHost | null => {
     const clip = block.clipId;
     if (!clip) return null;
     return {
       read: () => askStage<TemplateControls>('controls', { clip }),
+      props: () => clipPropsOf(clip),
+      setProps: (next) => writeClipProps(clip, next),
       overrides: () => {
         const at = parseFilmDocLoc(blocksRef.current.find((b) => b.clipId === clip)?.loc ?? '');
         return (at ? filmRef.current?.tracks[at.track]?.clips[at.clip]?.overrides : undefined) as readonly FilmOverride[] | undefined;
@@ -1670,10 +1730,11 @@ export function ProjectView({ projectId, onProject, onLeave }: {
         void (patch ? askStage('tweak', { clip, at: target.at, ...(target.n ? { n: target.n } : {}), patch }) : askStage('release', { clip }));
       },
       page: block.src ?? '',
-      pictures: () => (listingRef.current?.files ?? []).filter((f) => /\.(png|jpe?g|gif|webp|avif|svg|bmp)$/i.test(f.path)).map((f) => ({ path: f.path, name: f.path.split('/').pop() ?? f.path })),
+      pictures: pictureActions.pictures,
       pickPicture: () => pickReplacement('picture'),
+      point: (target) => setPointedLayer(target ? { clipId: clip, loc: target.n ? `${target.at}#${target.n}` : target.at } : null),
     };
-  }, [askStage, pickReplacement]);
+  }, [askStage, pickReplacement, pictureActions, clipPropsOf, writeClipProps]);
   /* a clip's own CSS as film.html has it, and the look the player measured (the Inspector's Look section) */
   const clipLookOf = React.useCallback((clipLoc: string) => {
     const at = parseFilmDocLoc(clipLoc);
@@ -1698,6 +1759,7 @@ export function ProjectView({ projectId, onProject, onLeave }: {
     selectParent: selectStageParent,
     selectClip: selectStageClip,
     notify: (message) => toast.show(message),
+    picture: pictureActions,
     clip: {
       isLocked: (clipLoc) => Boolean(timelineTracks.find((tr) => tr.blocks.some((b) => b.loc === clipLoc))?.locked),
       canSplit: (clipLoc) => { const b = blockAt(clipLoc); const now = timeRef.current; return !!b && now > b.startMs + 100 && now < b.endMs - 100; },
@@ -1728,7 +1790,7 @@ export function ProjectView({ projectId, onProject, onLeave }: {
       exportClip: (clipId) => openClipExportRef.current(clipId),
       remove: (clipLoc) => { const b = blockAt(clipLoc); if (b) { void removeBlocks(withLinkedBlocks(b)); setStageElement(null); } },
     },
-  }, t), [editStageOverrides, selectStageParent, selectStageClip, splitBlocks, copyBlocks, clipboard, timelineTracks, pasteAt, editBlocks, removeBlocks, t, toast]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, t), [editStageOverrides, selectStageParent, selectStageClip, splitBlocks, copyBlocks, clipboard, timelineTracks, pasteAt, editBlocks, removeBlocks, t, toast, pictureActions]); // eslint-disable-line react-hooks/exhaustive-deps
   /*
    * "Reference in chat", first on the menus of a clip, a layer and a track, when the app around Studio has a chat.
    * The references are made when it is chosen: a layer right-clicked is measured just after its menu opens. ⌘L does
@@ -2253,6 +2315,12 @@ export function ProjectView({ projectId, onProject, onLeave }: {
   const [volume, setVolumeState] = React.useState(1);
   const [muted, setMutedState] = React.useState(false);
   const [rate, setRateState] = React.useState(1);
+  /** Play at this speed from now on (the viewer's playback settings, the full-screen player's). */
+  const setSpeed = React.useCallback((speed: number) => {
+    player.current.setRate(speed);
+    speedRef.current = player.current.rate;
+    setRateState(player.current.rate);
+  }, []);
   /* full screen only: elsewhere K, M, C and F are the editor's keys */
   useFullscreenKeys({
     enabled: fullscreen,
@@ -2671,7 +2739,7 @@ export function ProjectView({ projectId, onProject, onLeave }: {
                     else if (totalMs > 0) setExportOpen(true);
                     else toast.show(t('project.filmNotReady'));
                   }}>
-                  <Share size={16} />
+                  <Upload size={16} />
                 </button>
               </Tooltip>
               {/* in an app's tabs these are in the tab's menu */}
@@ -2770,7 +2838,8 @@ export function ProjectView({ projectId, onProject, onLeave }: {
                   }} />
                 {pickedMedia ? (
                   <div className="absolute inset-x-0 bottom-0 top-8 z-20">
-                    <SourcePreview file={pickedSaved && pickedMedia.bundle ? { ...pickedMedia, kind: 'image' } : pickedMedia} sources={pickedSaved ? savedSources : mediaSources} onClose={() => pickMedia(null)} onPlace={placeFromSource} />
+                    {/* a bundle of Saved plays its page as its clip had it; any other bundle shows its picture */}
+                    <SourcePreview file={pickedSaved && pickedMedia.bundle && !pickedMedia.bundle.page ? { ...pickedMedia, kind: 'image' } : pickedMedia} sources={pickedSaved ? savedSources : mediaSources} onClose={() => pickMedia(null)} onPlace={placeFromSource} />
                   </div>
                 ) : null}
                 {dropped?.length || undone.length ? (
@@ -2836,7 +2905,8 @@ export function ProjectView({ projectId, onProject, onLeave }: {
                                 selectionBar={barAt === 'stage'}
                                 {...(studioHost?.refer ? { onRefer: referFromStage } : {})}
                                 onStartMask={openMaskSection}
-                                pointLayer={layersShown ? pointedLayer : null}
+                                pointLayer={pointedLayer}
+                                onDropPicture={putLayerPicture}
                                 arrowsMove={viewerFocus}
                               />
                             ) : null}
@@ -2887,7 +2957,7 @@ export function ProjectView({ projectId, onProject, onLeave }: {
                           onScrubCommit={(ms) => seek(ms)}
                           onVolume={(v) => { player.current.setVolume(v); setVolumeState(player.current.volume); setMutedState(player.current.muted); }}
                           onToggleMute={() => { player.current.setMuted(!player.current.muted); setMutedState(player.current.muted); }}
-                          onRate={(r) => { player.current.setRate(r); setRateState(player.current.rate); }}
+                          onRate={setSpeed}
                           onExit={toggleFullscreen}
                           captionsOn={subs.count ? captionsOn : undefined}
                           onToggleCaptions={() => setCaptionsOn((v) => !v)}
@@ -2910,10 +2980,14 @@ export function ProjectView({ projectId, onProject, onLeave }: {
                   totalMs={totalMs}
                   playing={playing}
                   onPlayPause={toggle}
-                  loop={{ on: loop, ranged: Boolean(markedRange), onToggle: () => setLoop((on) => !on) }}
-                  frame={value ? (
-                    <FramePicker stage={stage} original={originalSize} onCanvas={changeCanvas} />
-                  ) : null}
+                  playback={{
+                    loop,
+                    ranged: Boolean(markedRange),
+                    onLoop: () => setLoop((on) => !on),
+                    speed: rate,
+                    onSpeed: setSpeed,
+                    captions: subs.count ? { on: captionsOn, onToggle: () => setCaptionsOn((v) => !v) } : null,
+                  }}
                   onFullscreen={toggleFullscreen}
                 />
               </div>
@@ -2952,7 +3026,9 @@ export function ProjectView({ projectId, onProject, onLeave }: {
                       onSelectClip={selectStageClip}
                       onPreviewClip={previewClip}
                       pageChangesOf={pageChangesOf}
-                      templateOf={templateOf}
+                      propsHostOf={propsHostOf}
+                      layerProps={layerProps}
+                      pictures={pictureActions}
                       replaceEntries={tools.replaceEntries}
                       clipLookOf={clipLookOf}
                       onPreviewLook={previewLook}
@@ -2965,6 +3041,7 @@ export function ProjectView({ projectId, onProject, onLeave }: {
                       onCanvas={changeCanvas}
                       onCanvasPreview={previewCanvas}
                       canvasDraft={canvasDraft}
+                      canvasOriginal={originalSize}
                       onEditLayers={editStageOverrides}
                       onPlaceLayers={(to) => stageControl.current?.placeLayers(to)}
                       locked={inspectorLocked}
@@ -3057,7 +3134,7 @@ export function ProjectView({ projectId, onProject, onLeave }: {
       </div>
 
       <ProjectHistoryControls projectId={projectId} history={history} open={historyOpen} anchor={historyAnchor} onClose={() => setHistoryOpen(false)} />
-      <ProjectsPopover open={projectsOpen} currentProjectId={projectId} onOpen={(id) => { setProjectsOpen(false); onProject(id); }} onCurrentRemoved={onLeave} onClose={() => setProjectsOpen(false)} />
+      <ProjectsPopover open={projectsOpen} currentProjectId={projectId} onOpen={(id) => { if (!studioHost?.tabs) setProjectsOpen(false); onProject(id); }} onCurrentRemoved={onLeave} onClose={() => setProjectsOpen(false)} />
       {examplesOpen ? (
         <ExamplesDialog projectId={projectId} open={examplesOpen === true ? undefined : examplesOpen} onClose={() => setExamplesOpen(false)}
           /* a film started from an example: in a tab of its own where there are tabs, else here */

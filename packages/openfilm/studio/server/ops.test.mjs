@@ -86,6 +86,16 @@ test('links: `link` writes data-link among the attributes a clip keeps, and take
   assert.deepEqual(split.tracks[1].clips.map((c) => [c.id, c.attrs?.['data-link']]), [['v', 'v'], ['v-b', 'v-b']]);
 });
 
+test('component properties: `props` writes data-props beside a link, takes it away, and a copy of the clip has them too', () => {
+  const list = JSON.stringify([{ name: 'Title', type: 'text', at: '#title' }]);
+  const f = applyOps(film(), [{ op: 'props', edits: [{ clip: 'a', prop: 'props', value: list }, { clip: 'a', prop: 'link', value: 'a' }] }]);
+  assert.deepEqual(f.tracks[0].clips[0].attrs, { 'data-props': list, 'data-link': 'a' });
+  const copy = applyOps(structuredClone(f), [{ op: 'insert', from: 'a', at: 20, track: 0, link: null }]);
+  assert.equal(copy.tracks[0].clips.at(-1).attrs?.['data-props'], list, 'every clip of the page offers the same properties');
+  const gone = applyOps(structuredClone(f), [{ op: 'props', edits: [{ clip: 'a', prop: 'props', value: null }] }]);
+  assert.deepEqual(gone.tracks[0].clips[0].attrs, { 'data-link': 'a' });
+});
+
 test('props: clips that moved in time are written in the order they play', () => {
   const f = applyOps(film(), [{ op: 'props', edits: [{ clip: 'a', prop: 'at', value: 8 }] }]);
   assert.deepEqual(ids(f)[0], ['b', 'a']);

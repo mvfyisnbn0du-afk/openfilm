@@ -378,3 +378,39 @@ test('more words leave the others where they are: previewed, and typed in place'
     await stage.close();
   }
 });
+
+test('a picture inside a page says what it draws: an <img>, a box painted with one, a frame holding one <img>, and a file put there', { timeout: 60_000 }, async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'of-stage-picture-'));
+  const png = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8DwHwAFBQIAX8jx0gAAAABJRU5ErkJggg==', 'base64');
+  for (const name of ['a.png', 'b.png', 'c.png']) writeFileSync(join(dir, name), png);
+  writeFileSync(join(dir, 'p.html'), `<!doctype html><body style="margin:0">
+<img id="solo" src="a.png" style="position:absolute;left:10px;top:10px;width:60px;height:40px">
+<div id="painted" style="position:absolute;left:90px;top:10px;width:60px;height:40px;background:url(b.png) center/cover"></div>
+<div id="frame" style="position:absolute;left:170px;top:10px;width:60px;height:40px;background:#222"><img src="a.png" style="width:100%;height:100%;object-fit:cover"></div>
+<div id="pair" style="position:absolute;left:10px;top:100px;width:140px;height:60px;background:#222"><img src="a.png" style="width:70px;height:60px"><img src="b.png" style="width:70px;height:60px"></div>
+<script>window.film={duration:2,frame(){}}</script></body>`);
+  writeFileSync(join(dir, 'film.html'), filmHtml({ stage: { w: 320, h: 180 }, tracks: [{ clips: [{ id: 'p', src: 'p.html', overrides: [{ at: '#frame > img', style: { content: 'url("c.png")' } }] }] }] }));
+  const stage = await stageOf(dir);
+  try {
+    const solo = await stage.ask('hit', { x: 40, y: 30, detail: true });
+    assert.equal(solo?.picture?.kind, 'img');
+    assert.match(solo.picture.src, /\/a\.png$/);
+    assert.equal(solo.picture.changed, false);
+    assert.equal(solo.picture.at, undefined, 'its own picture: the file goes on it');
+    const painted = await stage.ask('hit', { x: 120, y: 30, detail: true });
+    assert.equal(painted?.picture?.kind, 'bg');
+    assert.match(painted.picture.src, /\/b\.png$/);
+    /* a frame around a photo (what a click takes first when something else is in it): its picture is the <img> in it,
+       which the file was put on */
+    const frame = await stage.ask('layer', { clip: 'p', loc: '#frame', any: true });
+    assert.equal(frame?.kind, 'box');
+    assert.equal(frame?.picture?.kind, 'img');
+    assert.equal(frame.picture.at, '#frame > img');
+    assert.match(frame.picture.src, /\/c\.png$/, 'the file put there, not its own');
+    assert.equal(frame.picture.changed, true);
+    const pair = await stage.ask('layer', { clip: 'p', loc: '#pair', any: true });
+    assert.ok(pair && !pair.picture, 'a box of two pictures is no one picture');
+  } finally {
+    await stage.close();
+  }
+});

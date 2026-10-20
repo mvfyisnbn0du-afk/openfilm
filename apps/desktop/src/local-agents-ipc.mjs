@@ -449,12 +449,12 @@ export function registerLocalAgentIpc(ipcMain, { trusted, binDir = null, fallbac
     /** an agent disconnected in Settings: its sessions close */
     closeAgent: (agent) => { for (const [key, entry] of [...sessions]) if (entry.agent === agent) close(key); },
     /**
-     * The skills or MCP servers let in changed for an agent: its sessions close (one at work once its turn ends), and the next message
-     * takes each conversation up again with them.
+     * The skills or MCP servers let in changed for an agent (none named: for every agent): its sessions close (one at
+     * work once its turn ends), and the next message takes each conversation up again with them.
      */
     refreshSkills: (agent) => {
       for (const [key, entry] of [...sessions]) {
-        if (entry.agent !== agent) continue;
+        if (agent && entry.agent !== agent) continue;
         if (entry.running > 0) entry.stale = true; else close(key);
       }
     },

@@ -125,6 +125,26 @@ test('a page clip\'s thumbnail shows the changes made in it (its overrides): ano
   assert.ok(!(await frame(true)).equals(moved), 'changed again: drawn again');
 });
 
+/** A JPEG's width and height, from its frame header. @param {Buffer} jpeg */
+function jpegSize(jpeg) {
+  for (let i = 2; i + 9 < jpeg.length;) {
+    const marker = jpeg[i + 1];
+    if (marker >= 0xc0 && marker <= 0xc3) return { w: jpeg.readUInt16BE(i + 7), h: jpeg.readUInt16BE(i + 5) };
+    i += 2 + jpeg.readUInt16BE(i + 2);
+  }
+  return null;
+}
+
+test('a page clip with a size is drawn laid out at it, as the film lays it out: a portrait page is a portrait picture', async () => {
+  const { project } = await (await api('/api/projects', { method: 'POST', body: { path: join(scratch, 'Portrait') } })).json();
+  /* a page with no size of its own: laid out at what it is given, its box half of the width it gets */
+  writeFileSync(join(project.path, 'p.html'), '<!doctype html><body style="margin:0;background:#fff"><div style="width:50vw;height:100vh;background:#f00"></div><script>window.film = { duration: 2, frame() {} };</script></body>');
+  writeFileSync(join(project.path, 'film.html'), filmHtml({ tracks: [{ clips: [{ id: 'p', src: 'p.html', size: { w: 1080, h: 1920 } }] }] }));
+  const frame = async (clip) => Buffer.from(await (await api(`/api/projects/${project.id}/media?what=frame&path=p.html&ms=500&w=160${clip ? '&clip=p' : ''}`)).arrayBuffer());
+  assert.deepEqual(jpegSize(await frame(true)), { w: 160, h: 284 }, 'the clip: 1080 × 1920');
+  assert.deepEqual(jpegSize(await frame(false)), { w: 160, h: 90 }, 'the page on its own: 1920 × 1080');
+});
+
 test('a page that never gets ready (a loop that never ends) fails in its own time, and the pages after it are drawn', async () => {
   const { project } = await (await api('/api/projects', { method: 'POST', body: { path: join(scratch, 'Stuck') } })).json();
   writeFileSync(join(project.path, 'loop.html'), '<!doctype html><body><script>window.film = { duration: 2, ready: new Promise(() => setTimeout(() => { for (;;) {} }, 100)), frame() {} };</script></body>');

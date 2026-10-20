@@ -1,7 +1,7 @@
 import { test as it } from 'node:test';
 import assert from 'node:assert/strict';
 import type { FilmOverride } from './film.ts';
-import { changedImage, changedText, changedVar, cssUrl, fieldOf, isFontVar, labelOf, relativeTo, urlOf, valueOf, withImage, withText, withVar } from './template-controls.ts';
+import { changedImage, changedText, changedVar, cssUrl, fieldOf, isFontVar, labelOf, pictureStyle, relativeTo, urlOf, valueOf, withImage, withText, withVar } from './template-controls.ts';
 
 it('a custom property is changed as a color, a number with its unit, words, or as typed', () => {
   assert.deepEqual(fieldOf('#ff5746'), { kind: 'color', value: '#ff5746' });
@@ -96,4 +96,12 @@ it('a custom property that names a font gets the font picker', () => {
   assert.equal(isFontVar('--font-size', '48px'), false);
   assert.equal(isFontVar('--font-color', '#fff'), false);
   assert.equal(isFontVar('--accent', 'Inter'), false);
+});
+
+it('a picture on the picture is replaced by the same style the Content section writes: an <img> by content, a box by its background', () => {
+  assert.deepEqual(pictureStyle('img', '../assets/new.png'), { content: 'url("../assets/new.png")' });
+  assert.deepEqual(pictureStyle('bg', 'bg.jpg'), { backgroundImage: 'url("bg.jpg")' });
+  assert.deepEqual(pictureStyle('img', null), { content: null }, 'its own again');
+  const logo = { at: '#logo', kind: 'img' as const };
+  assert.equal(changedImage([{ at: '#logo', style: pictureStyle('img', 'x.png') as Record<string, string> }], logo), 'x.png');
 });

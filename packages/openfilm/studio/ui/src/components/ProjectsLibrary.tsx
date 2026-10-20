@@ -21,6 +21,7 @@ import { Loader2 } from 'lucide-react';
 import { api, ApiError, LIBRARY_EVENT } from '@/api';
 import { useT } from '@/i18n';
 import { folderApi, folderCounts, folderTrail, type ProjectFolder } from '@/lib/project-folders';
+import { stillThere } from '@/lib/project-delete';
 import { studioHost } from '@/lib/host';
 import { SourceError, sourcesApi } from '@/lib/project-sources';
 import { LIST_WAIT_MS, within } from '@/lib/projects-page';
@@ -71,6 +72,14 @@ function useProjectLibrary(open: boolean) {
     return () => { alive = false; };
   }, [open, tries]);
   const retryLoad = React.useCallback(() => setTries((n) => n + 1), []);
+  /* shown again (the app's projects page when the last tab closes, a window brought back): read afresh, as it may
+     have changed meanwhile */
+  React.useEffect(() => {
+    if (!open) return undefined;
+    const back = () => { if (document.visibilityState === 'visible') retryLoad(); };
+    document.addEventListener('visibilitychange', back);
+    return () => document.removeEventListener('visibilitychange', back);
+  }, [open, retryLoad]);
 
   const reloadFolders = React.useCallback(() => {
     void folderApi.list().then(setFolders, () => {});
@@ -117,8 +126,13 @@ function useProjectLibrary(open: boolean) {
     const drop = new Set(ids);
     setProjects((list) => list.filter((p) => !drop.has(p.id)));
     /* null: deleted; else why not ('agent-running': an agent started in it since the list was read) */
-    const results = await Promise.all(ids.map((id) => api.forget(id).then(() => null, (e: unknown) => ({ id, working: e instanceof ApiError && e.body.code === 'agent-running' }))));
-    const failed = results.filter((r): r is { id: string; working: boolean } => r !== null);
+    /* `lost`: no answer came (the request was cut off, as when the page showing one of them leaves it) */
+    const results = await Promise.all(ids.map((id) => api.forget(id).then(() => null, (e: unknown) => ({
+      id, working: e instanceof ApiError && e.body.code === 'agent-running', lost: !(e instanceof ApiError),
+    }))));
+    /* the ones still on the list (lib/project-delete): one gone already, or whose lost answer was a delete, was deleted */
+    const failed = await stillThere(results.filter((r): r is { id: string; working: boolean; lost: boolean } => r !== null),
+      () => api.projects().then((list) => list.map((p) => p.id)));
     if (failed.length) {
       const back = new Set(failed.map((f) => f.id));
       setProjects((list) => [...list, ...before.filter((p) => back.has(p.id)).map((p) => (failed.find((f) => f.id === p.id)?.working ? { ...p, working: true } : p))]);
@@ -137,6 +151,15 @@ function useProjectLibrary(open: boolean) {
     } catch {
       return null;
     }
+  }
+
+  /** A folder into another (null: the top level), with what it holds. */
+  function moveFolder(id: string, parentId: string | null) {
+    setFolders((list) => list.map((f) => (f.id === id ? { ...f, parentId: parentId ?? undefined } : f)));
+    folderApi.moveFolder(id, parentId).then(
+      (folder) => setFolders((list) => list.map((f) => (f.id === id ? folder : f))),
+      () => reloadFolders(),
+    );
   }
 
   function renameFolder(id: string, name: string) {
@@ -179,6 +202,9 @@ function useProjectLibrary(open: boolean) {
       const renamed = await api.rename(id, name);
       /* the server cleans the name for the file system: show what the folder is really called */
       setProjects((list) => list.map((p) => (p.id === id ? { ...p, ...renamed } : p)));
+      /* its tab says the new name, also while that tab has no page to say it */
+      const tab = (await studioHost?.tabs?.list().catch(() => null))?.tabs.find((x) => x.projectId === id);
+      if (tab) void studioHost?.tabs?.retitle?.(tab.id, renamed.name);
     } catch (e) {
       setProjects(before);
       /* a name that is taken: retrying can't help, so the message says what to do instead */
@@ -188,13 +214,16 @@ function useProjectLibrary(open: boolean) {
     }
   }
 
-  return { projects, folders, loaded, loadFailed, retryLoad, error, flash, reload: reloadFolders, agentRunning, workingIn, deleteProjects, renameProject, createFolder, renameFolder, moveProject, deleteFolder, coverChanged };
+  return { projects, folders, loaded, loadFailed, retryLoad, error, flash, reload: reloadFolders, agentRunning, workingIn, deleteProjects, renameProject, createFolder, renameFolder, moveFolder, moveProject, deleteFolder, coverChanged };
 }
 
 /** The launcher's two views: the person's projects, and the examples to start from (ExamplesGallery). */
 export type LauncherView = 'projects' | 'examples';
 
 /** The switch between them, in the title row (the Community's is the same). */
+/** How long the projects window waits for the tab it opened to cover it before it closes anyway. */
+const COVER_WAIT_MS = 4000;
+
 export function LauncherSwitch({ view, onView }: { view: LauncherView; onView: (view: LauncherView) => void }) {
   const t = useT();
   return <TitleSwitch items={[{ id: 'projects' as const, label: t('launcher.projects') }, { id: 'examples' as const, label: t('launcher.examples') }]} value={view} onChange={onView} />;
@@ -248,9 +277,23 @@ export function ProjectsPopover({
   const go = (projectId: string, kind: 'creating' | 'opening') => {
     /* the project already open: nowhere to go, and an "Opening" that would never end */
     if (projectId === currentProjectId) { close(); return; }
+    /* with tabs it opens in its own tab, not this page: this window stays until that tab covers it (closed first, the
+       page behind would show for a moment), then it is done here; a few seconds at most */
+    const tabs = studioHost?.tabs;
+    if (tabs) {
+      setBusy(kind);
+      let stop = () => {};
+      const timer = setTimeout(() => done(), COVER_WAIT_MS);
+      const done = () => { stop(); clearTimeout(timer); setBusy(null); close(); };
+      stop = tabs.onCovered?.(done) ?? (() => {});
+      onOpen(projectId);
+      return;
+    }
     setBusy(kind);
     onOpen(projectId);
   };
+  /* closed: nothing in progress shows when it opens again */
+  React.useEffect(() => { if (!open) setBusy(null); }, [open]);
   /* another project opened: done */
   const latestClose = React.useRef(close);
   latestClose.current = close;
@@ -416,6 +459,7 @@ export function ProjectsPopover({
                 });
               }}
               onMoveToFolder={lib.moveProject}
+              onMoveFolder={lib.moveFolder}
               onClose={onClose}
             />
             </ProjectCoverContext.Provider>
@@ -462,6 +506,8 @@ export function ProjectsPopover({
           setPendingDelete(null);
           if (!ids) return;
           void lib.deleteProjects(ids).then((deleted) => {
+            /* their tabs close together, this page's own among them */
+            if (deleted.size) void studioHost?.tabs?.gone?.([...deleted]);
             if (deleted.has(currentProjectId)) onCurrentRemoved();
           });
         }}
@@ -510,6 +556,7 @@ export function ProjectsPopover({
           setPendingFolder(null);
           if (!folder) return;
           void lib.deleteFolder(folder).then((deleted) => {
+            if (deleted.size) void studioHost?.tabs?.gone?.([...deleted]);
             if (deleted.has(currentProjectId)) onCurrentRemoved();
           });
         }}

@@ -5,9 +5,9 @@
  * a project, and what Studio saves from a film, each as a folder of its own holding what it needs (a bundle):
  *
  *   <bundle>/saved.json   { version, savedAt, kind: 'clip' | 'group' | 'page', clip | clips | path, durationMs?, w?,
- *                           h?, template? }   a clip as the film has it (its place, its look, the changes made in its
- *                           page; no time, no id), clips saved together (each one's track from the top one they had
- *                           and `at` seconds from the first), or a page of a project with what it loads
+ *                           h? }   a clip as the film has it (its place, its look, the changes made in its page, the
+ *                           properties it offers; no time, no id), clips saved together (each one's track from the top
+ *                           one they had and `at` seconds from the first), or a page of a project with what it loads
  *   <bundle>/files/…      the clip's file and what it loads (closure.mjs), at the places they had in its project, so a
  *                         page's own references still find what they name
  *   <bundle>/poster.jpg   its picture, when one could be drawn
@@ -16,7 +16,8 @@
  * The API names what is in the library from `saved/` (LIBRARY), as a project's media is named from `assets/`, so the
  * media pane shows both the same way. Used in a project, a thing is a copy: a file is imported into its assets/ as one
  * from the computer is (the same bytes there already are that file), a bundle's files go to `saved/<its place>/` there
- * once (taken again, what is there is used). Changing one never changes the other.
+ * once (taken again, what is there is used). Changing one never changes the other. A page clip saved with
+ * properties (its `data-props`, lib/component-props) is a component: every clip taken from it offers them.
  */
 import { existsSync, createReadStream } from 'node:fs';
 import { copyFile, mkdir, readFile, readdir, stat, writeFile } from 'node:fs/promises';
@@ -40,8 +41,6 @@ const VERSION = 2;
 export const LIBRARY = 'saved';
 /** The file that makes a folder of the library a bundle. */
 const BUNDLE = 'saved.json';
-/** A page whose own CSS sets custom properties on :root (or html): the inspector offers them as its template's controls. */
-const ROOT_VARS = /(?::root|\bhtml)\s*(?:,[^{]*)?\{[^}]*--[\w-]+\s*:/i;
 
 /** The library's folder, made when it is not there yet. */
 export async function libraryRoot() {
@@ -114,15 +113,27 @@ const mainOf = (/** @type {any} */ item) => (item.kind === 'clip' ? item.clip.sr
 /** A bundle as the listing shows it. @param {string} rel @param {any} item */
 function bundleEntry(rel, item) {
   const kind = kindOf(mainOf(item));
+  /* a page saved, or a page clip: where its page is in the library, and how its clip had it (its size, the changes
+     made in it), so the media pane's viewer plays it as the film did */
+  const clip = item.kind === 'clip' && kind === 'page' ? item.clip : null;
+  const size = clip?.size?.w > 0 && clip?.size?.h > 0 ? { w: clip.size.w, h: clip.size.h } : null;
+  /* a component: how many properties it offers (its clip's data-props) */
+  const props = (() => {
+    try { const list = JSON.parse(item.kind === 'clip' ? item.clip.attrs?.['data-props'] ?? '[]' : '[]'); return Array.isArray(list) ? list.length : 0; } catch { return 0; }
+  })();
+  const overrides = Array.isArray(clip?.overrides) && clip.overrides.some((/** @type {any} */ o) => o && typeof o === 'object' && 'at' in o) ? clip.overrides : null;
   const num = (/** @type {unknown} */ v) => (typeof v === 'number' && Number.isFinite(v) && v > 0 ? Math.round(v) : undefined);
   const savedAt = Date.parse(item.savedAt) || 0;
   const saved = {
     kind: item.kind,
     ...(item.kind === 'group' ? { count: item.clips.length } : {}),
-    ...(item.template === true ? { template: true } : {}),
+    ...(props ? { props } : {}),
     ...(num(item.durationMs) ? { durationMs: num(item.durationMs) } : {}),
     ...(num(item.w) ? { w: num(item.w) } : {}),
     ...(num(item.h) ? { h: num(item.h) } : {}),
+    ...(kind === 'page' && item.kind !== 'group' ? { page: `${rel}/files/${mainOf(item)}` } : {}),
+    ...(size ? { size } : {}),
+    ...(overrides ? { overrides } : {}),
   };
   return { path: libraryPath(rel), kind: kind === 'page' ? 'page' : kind, size: 0, mtime: savedAt, added: savedAt, saved };
 }
@@ -177,16 +188,14 @@ async function keep(root, files, about, name, into, poster) {
   const folder = freeName(parent, cleanName(name) || 'Saved');
   const dir = join(parent, folder);
   await mkdir(join(dir, 'files'), { recursive: true });
-  let template = false;
   for (const rel of files) {
     const to = join(dir, 'files', rel);
     await mkdir(dirname(to), { recursive: true });
     await copyFile(join(root, rel), to);
-    if (!template && /\.(html?|css)$/i.test(rel)) template = ROOT_VARS.test(await readFile(to, 'utf8').catch(() => ''));
   }
   const picture = poster ? await poster().catch(() => null) : null;
   if (picture) await writeFile(join(dir, 'poster.jpg'), picture);
-  await writeFile(join(dir, BUNDLE), `${JSON.stringify({ version: VERSION, ...about, savedAt: new Date().toISOString(), ...(template ? { template: true } : {}) }, null, 2)}\n`);
+  await writeFile(join(dir, BUNDLE), `${JSON.stringify({ version: VERSION, ...about, savedAt: new Date().toISOString() }, null, 2)}\n`);
   return libraryPath(into ? `${into}/${folder}` : folder);
 }
 

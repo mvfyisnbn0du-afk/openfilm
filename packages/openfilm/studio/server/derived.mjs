@@ -12,6 +12,7 @@ import { createHash } from 'node:crypto';
 import { existsSync } from 'node:fs';
 import { mkdir, readFile, rename, rm, stat } from 'node:fs/promises';
 import { join } from 'node:path';
+import { tempo } from '../../src/shared.mjs';
 import { readable } from './files.mjs';
 import { TOOL_DIR } from './projects.mjs';
 import { writeAtomic } from './atomic.mjs';
@@ -154,18 +155,24 @@ const COMPACT = /\.(mp3|m4a|aac|ogg|oga|opus)$/i;
 const COMPACT_BYTES = 16 << 20;
 /** @type {Map<string, Promise<string | null>>} copies being made, by where they go */
 const makingSound = new Map();
+/** The speeds a sound is made at: a clip's (SPEED_MIN to SPEED_MAX) by the viewer's (0.25× to 2×), and some room. */
+export const SOUND_SPEED = { min: 1 / 16, max: 16 };
 
 /**
  * The sound of a media file as the editor plays it, small: a compressed sound file of up to COMPACT_BYTES is its
  * own; any other (a video, a WAV, a long recording) gets a copy of its sound in `.film/cache/audio/`, AAC in .m4a:
- * the file's own AAC as it is, any other sound encoded at 128 kb/s, stereo at most. Made once per version of the
- * file; returns the path to play, or null when there is no sound in it. Exports mix from the files themselves.
- * @param {string} root @param {string} rel
+ * the file's own AAC as it is, any other sound encoded at 128 kb/s, stereo at most. At another `speed` it is stretched
+ * to it with its pitch kept, by the same atempo filter exports use, so the editor plays it as the export has it (a
+ * sound sped up as a tape is would be heard higher). Made once per version of the file and speed; returns the path to
+ * play, or null when there is no sound in it. Exports mix from the files themselves.
+ * @param {string} root @param {string} rel @param {number} [speed]
  */
-export async function soundOf(root, rel) {
+export async function soundOf(root, rel, speed = 1) {
+  if (!(speed >= SOUND_SPEED.min && speed <= SOUND_SPEED.max)) throw new MediaError('speed: from 1/16 to 16', 400);
+  const at = Math.round(speed * 1e4) / 1e4;
   const { abs, key } = await source(root, rel);
-  if (COMPACT.test(rel) && (await stat(abs)).size <= COMPACT_BYTES) return abs;
-  const out = join(root, TOOL_DIR, 'cache', 'audio', `${key}.m4a`);
+  if (at === 1 && COMPACT.test(rel) && (await stat(abs)).size <= COMPACT_BYTES) return abs;
+  const out = join(root, TOOL_DIR, 'cache', 'audio', at === 1 ? `${key}.m4a` : `${key}-x${at}.m4a`);
   if (existsSync(out)) return out;
   let made = makingSound.get(out);
   if (!made) {
@@ -175,7 +182,9 @@ export async function soundOf(root, rel) {
       const stream = info.streams?.[0] ?? {};
       const channels = Number(stream.channels) || 2;
       /* AAC is what a browser decodes everywhere: kept as it is when it is that already (no loss, no time) */
-      const codec = stream.codec_name === 'aac' && channels <= 2 ? ['-c:a', 'copy'] : ['-c:a', 'aac', '-b:a', '128k', '-ac', String(Math.min(2, channels))];
+      const codec = at === 1 && stream.codec_name === 'aac' && channels <= 2
+        ? ['-c:a', 'copy']
+        : [...(at === 1 ? [] : ['-af', tempo(at)]), '-c:a', 'aac', '-b:a', '128k', '-ac', String(Math.min(2, channels))];
       await mkdir(join(root, TOOL_DIR, 'cache', 'audio'), { recursive: true });
       const part = `${out}.part`;
       try {

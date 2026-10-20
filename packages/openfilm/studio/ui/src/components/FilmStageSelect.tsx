@@ -80,9 +80,10 @@ import type { StageBox } from '@/lib/host';
 import { samePictureMarks, type PictureMarks } from '@/lib/chat-marks';
 import { distributeShifts } from '@/lib/selection-toolbar';
 import { trackLockedAt } from '@/lib/track-lock';
+import { peekResourceDrag, readResourceDragData, RESOURCE_DRAG_TYPE } from '@/lib/resource-drag';
 import {
   compactScale, type NodeOverride, type StageElement, type StageElementStyle, type StageGeometry, type StageNodeKind,
-  type StageNodeParent,
+  type StageNodeParent, type StagePicture,
 } from '@/lib/stage-types';
 
 export type { LayerGeometry } from '@/lib/stage-gesture';
@@ -135,6 +136,8 @@ export interface StageLayer {
   similar?: string;
   label: string;
   text?: { value: string; shape: 'children' | 'prop' | 'value' };
+  /** the picture it draws, when a file can be put in its place (studio/server/stage.js pictureOf) */
+  picture?: StagePicture;
   style: StageElementStyle;
   parents: StageNodeParent[];
   override: NodeOverride | null;
@@ -417,6 +420,8 @@ interface FilmStageSelectProps {
   onStartMask?: (shape: MaskShape | 'none', clipLoc: string) => void;
   /** A layer pointed at from elsewhere (a row of the Layers panel), outlined as the one under the pointer is. */
   pointLayer?: { clipId: string; loc: string } | null;
+  /** A picture of the project dropped on a picture inside a page (an <img>, a box painted with one): put in its place. */
+  onDropPicture?: (element: StageElement, path: string) => void;
   /**
    * The picture has the keyboard: the arrow keys move what is in hand (1 px, ⇧ 10). Without it they are the
    * playhead's, whatever is in hand.
@@ -427,7 +432,7 @@ interface FilmStageSelectProps {
 function FilmStageSelectImpl({
   previewRef, stage, doc, spans, timeMs, playing, onPause, onSelectElement, onEditClip, linkedLocs, onSelectClips, selectRequest,
   clipPreviewRef, lookPreviewRef, controlRef, onTransformLayer, onTransformLayers, onEditTextInline, onGeometry, menuFor, recoveryMenu,
-  onRegion, regionHint, flashBox, chat, onHoverLayer, selectionBar = false, onRefer, onStartMask, pointLayer, arrowsMove = true,
+  onRegion, regionHint, flashBox, chat, onHoverLayer, selectionBar = false, onRefer, onStartMask, pointLayer, arrowsMove = true, onDropPicture,
 }: FilmStageSelectProps) {
   const arrowsMoveRef = React.useRef(arrowsMove);
   arrowsMoveRef.current = arrowsMove;
@@ -606,6 +611,7 @@ function FilmStageSelectImpl({
     ...(clipLocOf(docRef.current, layer.clip) ? { clipLoc: clipLocOf(docRef.current, layer.clip) } : {}),
     clipKind: 'mg',
     ...(layer.text ? { text: { loc: layer.loc, value: layer.text.value, shape: layer.text.shape } } : {}),
+    ...(layer.picture ? { picture: layer.picture } : {}),
     tag: layer.tag,
     ...(layer.similar ? { similar: layer.similar } : {}),
     style: layer.style,
@@ -1469,6 +1475,42 @@ function FilmStageSelectImpl({
     });
     return () => { live = false; };
   }, [pointClip, pointLoc, ask]);
+  /* ── a picture of the media pane dragged over the picture: the picture inside a page under it takes its place ── */
+  const [dropOn, setDropOn] = React.useState<StageLayer | null>(null);
+  const dropOnRef = React.useRef(dropOn);
+  dropOnRef.current = dropOn;
+  const dropQueue = React.useMemo(() => new Latest<{ x: number; y: number } | null>(async (p) => {
+    if (!p) { setDropOn(null); return; }
+    const layer = await ask<StageLayer>('hit', { ...p, detail: true });
+    const fits = layer?.picture && !layer.locked && !lockedClip(clipLocOf(docRef.current, layer.clip)) ? layer : null;
+    setDropOn((cur) => (fits && cur && cur.handle === fits.handle ? cur : fits));
+  }), [ask]); // eslint-disable-line react-hooks/exhaustive-deps
+  /** A picture of the project is being dragged (not a thing of Saved: it is brought in only where it lands as a clip). */
+  const draggingPicture = (e: React.DragEvent) => {
+    if (!onDropPicture || !e.dataTransfer.types.includes(RESOURCE_DRAG_TYPE)) return false;
+    const item = peekResourceDrag();
+    return !item || (item.kind === 'image' && !item.saved);
+  };
+  const pictureDrag = {
+    onDragOver: (e: React.DragEvent) => {
+      if (!draggingPicture(e)) return;
+      e.preventDefault();
+      e.dataTransfer.dropEffect = dropOnRef.current ? 'copy' : 'none';
+      const p = local(e);
+      const vs = viewScaleNow();
+      dropQueue.push({ x: p.x / vs, y: p.y / vs });
+    },
+    onDragLeave: (e: React.DragEvent) => { if (!e.currentTarget.contains(e.relatedTarget as Node | null)) dropQueue.push(null); },
+    onDrop: (e: React.DragEvent) => {
+      const target = dropOnRef.current;
+      dropQueue.push(null);
+      if (!draggingPicture(e)) return;
+      e.preventDefault();
+      const file = readResourceDragData(e.dataTransfer);
+      if (!target || !file || file.saved || file.kind !== 'image') return;
+      onDropPicture?.(elementOf(target), file.path);
+    },
+  };
   /* the layer under the pointer, told to the app: asked of the stage once each time it is another one */
   const hoverHandle = hover && !hover.clip ? hover.handle : null;
   React.useEffect(() => {
@@ -2404,15 +2446,21 @@ function FilmStageSelectImpl({
     const tools: SelectionToolEntry[] = [];
     const fromMenu = (id: string, icon?: React.ReactNode) => {
       const item = find(id);
-      if (!item || item.submenu) return;
+      if (!item) return;
+      /* an item with a submenu (Replace picture): its list hangs from the button */
+      const sub = item.submenu;
       tools.push({
         id, label: item.label, icon: icon ?? item.icon,
         ...(item.shortcut ? { shortcut: item.shortcut } : {}), ...(item.hint ? { hint: item.hint } : {}),
-        ...(item.disabled ? { disabled: true } : {}), ...(item.danger ? { danger: true } : {}),
-        onSelect: () => item.onSelect?.(),
+        ...(item.disabled || (sub && !sub.length) ? { disabled: true } : {}), ...(item.danger ? { danger: true } : {}),
+        onSelect: (button) => {
+          if (!sub) { item.onSelect?.(); return; }
+          const r = button.getBoundingClientRect();
+          openMenuAt({ x: r.left, y: r.bottom + 4 }, sub);
+        },
       });
     };
-    if (barKind === 'layer') for (const id of ['edit-text', 'front', 'back', 'hide', 'reset']) fromMenu(id);
+    if (barKind === 'layer') for (const id of ['edit-text', 'replace-picture', 'front', 'back', 'hide', 'reset']) fromMenu(id);
     if (barKind === 'clip') {
       if (heldEl?.clipKind === 'video' && onEditClip) tools.push({ id: 'crop', label: t('selectionBar.crop'), icon: <CropIcon size={14} />, shortcut: 'C', onSelect: () => { startCrop(); } });
       if (onStartMask && heldEl?.clipLoc) {
@@ -2772,6 +2820,7 @@ function FilmStageSelectImpl({
       style={{ touchAction: 'none', pointerEvents: editingText != null ? 'none' : undefined, ...(modAt || regionDraft ? { cursor: 'crosshair' } : {}) }}
       onDoubleClick={onStageDoubleClick}
       onContextMenu={onStageContextMenu}
+      {...pictureDrag}
       onClick={(e) => e.stopPropagation()}
       onPointerDown={pressDown}
       onPointerMove={(e) => {
@@ -2935,6 +2984,8 @@ function FilmStageSelectImpl({
           <Box key={h.clip ?? `${h.handle}:${i}`} rect={scaleBox(h.rect, vsNow)} frame={h.frame && scaleFrame(h.frame, vsNow)} tone="hover" />
         )) : null}
         {draftRect ? <Box rect={draftRect} tone="draft" /> : null}
+        {/* the picture a dragged file would take the place of */}
+        {dropOn ? <Box rect={scaleBox(dropOn.rect, vsNow)} frame={dropOn.frame && scaleFrame(dropOn.frame, vsNow)} tone="region" /> : null}
         {regionDraft ? <Box rect={boxOfDrag(regionDraft)} tone="region" /> : null}
         {flash ? <Box rect={scaleBox({ left: flash.box.x, top: flash.box.y, width: flash.box.w, height: flash.box.h }, vsNow)} tone="region" fading={flash.fading} /> : null}
         {chatClip?.box ? <MgOutline t={chatClip.t} box={chatClip.box} viewScale={vsNow} color={CHAT_TONE} /> : null}
@@ -3058,6 +3109,7 @@ export const FilmStageSelect = React.memo(FilmStageSelectImpl, (a, b) => (
   && a.onStartMask === b.onStartMask
   && a.pointLayer?.clipId === b.pointLayer?.clipId
   && a.pointLayer?.loc === b.pointLayer?.loc
+  && a.onDropPicture === b.onDropPicture
 ));
 
 function sameLocs(a: readonly string[] | undefined, b: readonly string[] | undefined): boolean {

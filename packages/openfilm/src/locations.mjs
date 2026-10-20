@@ -18,8 +18,34 @@ import { dirname, isAbsolute, join, resolve, sep } from 'node:path';
 /** Studio's own home (its settings and keys, not the person's work): OPENFILM_HOME, else ~/.openfilm. */
 export const studioHomeDir = () => process.env.OPENFILM_HOME || join(homedir(), '.openfilm');
 
-/** The Studio home whose prefs.json says where the library is: OPENFILM_SHARED_HOME, else Studio's own. */
-const choiceHome = () => process.env.OPENFILM_SHARED_HOME || studioHomeDir();
+/**
+ * The Studio home whose prefs.json holds what every OpenFilm on this computer shares (where the library is, the skills
+ * turned off): OPENFILM_SHARED_HOME, else Studio's own.
+ */
+export const sharedHome = () => process.env.OPENFILM_SHARED_HOME || studioHomeDir();
+
+/** One value of the shared prefs.json (`home`: the home that holds it), or undefined. @param {string} key */
+export function sharedPref(key, home = sharedHome()) {
+  try {
+    const raw = JSON.parse(readFileSync(join(home, 'prefs.json'), 'utf8'));
+    return raw && typeof raw === 'object' && !Array.isArray(raw) ? raw[key] : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * Keep one value in the shared prefs.json. The file is shared with every OpenFilm on this computer, older or newer:
+ * what this one does not know of it is written back as it was. @param {string} key @param {unknown} value
+ */
+export function setSharedPref(key, value, home = sharedHome()) {
+  const at = join(home, 'prefs.json');
+  let kept = {};
+  try { const raw = JSON.parse(readFileSync(at, 'utf8')); if (raw && typeof raw === 'object' && !Array.isArray(raw)) kept = raw; } catch { /* none yet */ }
+  mkdirSync(home, { recursive: true });
+  writeFileSync(`${at}.${process.pid}.tmp`, `${JSON.stringify({ ...kept, [key]: value }, null, 2)}\n`);
+  renameSync(`${at}.${process.pid}.tmp`, at);
+}
 
 /** Where new projects go unless the person chose: OPENFILM_LIBRARY, else ~/Movies/OpenFilm/Projects on macOS, ~/Videos/OpenFilm/Projects elsewhere. */
 export const libraryDefault = () => process.env.OPENFILM_LIBRARY
@@ -46,29 +72,18 @@ export const LOCATION_KEYS = /** @type {const} */ ({ projects: 'projectsFolder' 
 
 /** A folder the person chose, as kept in prefs.json: an absolute path, or null (none chosen, or not one). */
 export function chosenFolder(/** @type {'projectsFolder'} */ key) {
-  try {
-    const value = JSON.parse(readFileSync(join(choiceHome(), 'prefs.json'), 'utf8'))?.[key];
-    return typeof value === 'string' && isAbsolute(value) ? resolve(value) : null;
-  } catch {
-    return null;
-  }
+  const value = sharedPref(key);
+  return typeof value === 'string' && isAbsolute(value) ? resolve(value) : null;
 }
 
 /**
- * Keep a folder the person chose (null: back to the default) in the prefs.json that holds it. The file is shared with
- * every OpenFilm on this computer, older or newer: what this one does not know of it is written back as it was.
+ * Keep a folder the person chose (null: back to the default) in the shared prefs.json.
  * @param {'projectsFolder'} key @param {string | null} value
  */
 export function chooseFolder(key, value) {
-  const at = join(choiceHome(), 'prefs.json');
-  let kept = {};
-  try { const raw = JSON.parse(readFileSync(at, 'utf8')); if (raw && typeof raw === 'object' && !Array.isArray(raw)) kept = raw; } catch { /* none yet */ }
-  mkdirSync(choiceHome(), { recursive: true });
-  writeFileSync(`${at}.${process.pid}.tmp`, `${JSON.stringify({ ...kept, [key]: value }, null, 2)}\n`);
-  renameSync(`${at}.${process.pid}.tmp`, at);
+  setSharedPref(key, value);
 }
 
-/** Where new projects go: the folder the person chose, else the default. */
 export const libraryRoot = () => chosenFolder('projectsFolder') ?? libraryDefault();
 
 /**
@@ -120,7 +135,7 @@ export function usableFolder(value) {
   if (typeof value !== 'string' || !isAbsolute(value)) throw new Error('Choose a folder by its full path.');
   const path = resolve(value);
   if (dirname(path) === path) throw new Error('Choose a folder on that disk, not the disk itself.');
-  for (const home of new Set([resolve(studioHomeDir()), resolve(choiceHome())])) {
+  for (const home of new Set([resolve(studioHomeDir()), resolve(sharedHome())])) {
     if (path === home || path.startsWith(home + sep)) throw new Error('OpenFilm keeps its own settings there: choose another folder.');
   }
   try {

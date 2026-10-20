@@ -48,6 +48,8 @@ export type FilmClip = {
   time?: FilmTimeSpan;
   /** pictures: pages, videos, stills */
   box?: FilmBox;
+  /** pages: the CSS pixels a page without a size of its own is laid out at */
+  size?: { w: number; h: number };
   /** videos and sounds */
   volume?: number;
   /** videos and sounds */

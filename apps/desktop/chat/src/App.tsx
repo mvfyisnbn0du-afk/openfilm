@@ -71,8 +71,8 @@ import { app, type FfmpegState, type Project, type SkillListing, type StudioRef,
 import { Divider } from './components/Divider';
 import { draftRefs, pillCard, refFromPill, refPill, sameStudioThing, selectionMoment, selectionRange, selectionRefs, studioReferencesText } from './studio-refs';
 import { inChat } from './lib/chat-layer';
-import { chatSkillsOn, setChatSkillsOn, useProjectChat } from './lib/chat-store';
-import { sentAfter, skillsOnLine, skillsToSend } from './lib/skills-on';
+import { useProjectChat } from './lib/chat-store';
+import { givenAfter, pagesToSend } from './lib/skill-pages';
 import { ChatProjectContext, WaitingContext } from './lib/developer';
 
 const NO_ITEMS: TranscriptItem[] = [];
@@ -350,13 +350,6 @@ function ChatPane({ project, banners, selection, assetsOpen }: { project: Projec
     setSkillRefs((list) => (list.some((p) => p.id === pill.id) ? list : [...list, pill]));
     return pill;
   }, [skillWords]);
-  /* the skills kept on in this project (a skill pill's pin): every message's agent gets them (lib/skills-on) */
-  const [skillsOn, setSkillsOn] = React.useState<string[]>(() => chatSkillsOn(projectKey));
-  const keepSkillsOn = React.useCallback((names: string[]) => { setSkillsOn(names); setChatSkillsOn(projectKey, names); }, [projectKey]);
-  const pinSkill = React.useCallback((pill: PromptReference) => {
-    const name = skillReferencePackage(pill.id);
-    if (name && !skillsOn.includes(name)) keepSkillsOn([...skillsOn, name]);
-  }, [skillsOn, keepSkillsOn]);
   const pickSkill = React.useCallback((skill: PickedSkill) => {
     const pill = skillPill(skill);
     requestAnimationFrame(() => { composerRef.current?.insertReference(pill); composerRef.current?.focus(); });
@@ -366,12 +359,16 @@ function ChatPane({ project, banners, selection, assetsOpen }: { project: Projec
     ...(skillListing?.openfilm ?? []),
     ...(skillListing?.own.skills ?? []).filter((s) => !skillListing?.own.filtered || s.allowed),
   ], [skillListing]);
-  /* a skill picked in the examples (Studio's, over the film): named in the message; "Add a skill" there: its dialog */
-  React.useEffect(() => app.onUseSkill?.((skill) => pickSkill(skill)), [pickSkill]);
-  /* a skill added from the examples (AddSkillDialog, at the chat's root): the list read again; "make one with the
-     agent" there: its message put in the composer */
+  /* a skill picked in Studio's skills: named in the message; Try now there: in a new conversation */
+  const newConversation = React.useRef<() => void>(() => {});
+  React.useEffect(() => app.onUseSkill?.((skill) => {
+    if (skill.newConversation) newConversation.current();
+    pickSkill(skill);
+  }), [pickSkill]);
+  /* a skill added from the examples (AddSkillDialog, at the chat's root), or turned on or off in them: the list read
+     again, and the agents' sessions take it up; "make one with the agent" there: its message put in the composer */
   React.useEffect(() => {
-    const changed = () => { void reloadSkills(); };
+    const changed = () => { void reloadSkills(); void app.skills?.changed?.().catch(() => {}); };
     const make = () => { composerRef.current?.setText(t('skills.makePrompt').replace('{folder}', skillListing?.mine ?? '')); composerRef.current?.focus(); };
     window.addEventListener(SKILLS_CHANGED, changed);
     window.addEventListener(MAKE_SKILL, make);
@@ -634,7 +631,7 @@ function ChatPane({ project, banners, selection, assetsOpen }: { project: Projec
    * Send a turn to the agent: what it is sent (`prepared`: the text, and the pictures) may take a moment to make. It
    * settles the turn the agent's run ends on: this one, or the last message sent into it while it ran (steerTurn).
    */
-  function runTurn(opened: ReturnType<typeof openTurn>, prepared: Promise<{ text: string; images: PromptImage[] }>): void {
+  function runTurn(opened: ReturnType<typeof openTurn>, prepared: Promise<{ text: string; images: PromptImage[]; skills?: string[] }>): void {
     const { turn, meta, prefs, ready } = opened;
     const id = meta.turnId;
     const finish = (lastTurnId: string | undefined, patch: Partial<Turn & TurnBalance>) => {
@@ -643,7 +640,7 @@ function ChatPane({ project, banners, selection, assetsOpen }: { project: Projec
     };
     /* the agent's own session of this conversation, gone on with (after a restart too); a new one is kept for next time */
     const resume = sessions.find((s) => s.id === sessionId)?.agentSessions?.[agent] ?? null;
-    const run = Promise.all([prepared, ready]).then(([{ text, images }]) => runLocalAgentTurn({
+    const run = Promise.all([prepared, ready]).then(([{ text, images, skills }]) => runLocalAgentTurn({
       projectId: projectKey,
       conversation: sessionId,
       resume,
@@ -656,8 +653,13 @@ function ChatPane({ project, banners, selection, assetsOpen }: { project: Projec
       meta,
       onSessionInfo: (info) => {
         useLocalAgents.getState().noteOptions(agent, info.configOptions);
-        if (info.sessionId && info.sessionId !== resume) {
-          touchSession(sessionId, (s) => ({ agentSessions: { ...s.agentSessions, [agent]: info.sessionId } }));
+        /* a session it could not take up again has none of the skills' pages from before: those of this message only */
+        const fresh = !info.resumed || info.sessionId !== resume;
+        if (info.sessionId && fresh) {
+          touchSession(sessionId, (s) => ({
+            agentSessions: { ...s.agentSessions, [agent]: info.sessionId },
+            skillsGiven: givenAfter(s.skillsGiven, agent, info.sessionId, skills ?? [], { fresh }),
+          }));
         }
       },
     })).then(
@@ -680,16 +682,16 @@ function ChatPane({ project, banners, selection, assetsOpen }: { project: Projec
    * (an agent that takes steering). It shows as a turn of its own, what the agent says from then on under it, and the
    * running one is done. One that did not join (the turn ended meanwhile) is sent once that run ends.
    */
-  function steerTurn(fromId: string, opened: ReturnType<typeof openTurn>, prepared: Promise<{ text: string; images: PromptImage[] }>): void {
+  function steerTurn(fromId: string, opened: ReturnType<typeof openTurn>, prepared: Promise<{ text: string; images: PromptImage[]; skills?: string[] }>): void {
     /* the agent's run going now (one at a time in a conversation): a message that did not join waits for it */
     const run = [...runs.current.values()].at(-1) ?? Promise.resolve();
-    void Promise.all([prepared, opened.ready]).then(async ([{ text, images }]) => {
+    void Promise.all([prepared, opened.ready]).then(async ([{ text, images, skills }]) => {
       if (await steerLocalAgentTurn(fromId, opened.turn, text, images)) {
         settlers.current.get(fromId)?.({ status: 'ready' });
         return;
       }
       await run.catch(() => {});
-      runTurn(opened, Promise.resolve({ text, images }));
+      runTurn(opened, Promise.resolve({ text, images, ...(skills ? { skills } : {}) }));
     });
   }
 
@@ -707,11 +709,10 @@ function ChatPane({ project, banners, selection, assetsOpen }: { project: Projec
       used[index - 1] = ref;
       return `[${index}: ${refPill(pillId, ref).label}]`;
     }, (pillId) => { const name = skillReferencePackage(pillId); return name ? `skill “${name}”` : null; }).trim();
-    /* the skills it names: each one's SKILL.md follows the message, for the agent to read; and those kept on that this
-       conversation's agent has not had yet (lib/skills-on) */
-    const skillNames = activatedSkillIds(followUpRefs);
-    const usable = skillsOn.filter((name) => nameableSkills.some((s) => s.name === name));
-    const keptOn = skillsToSend(usable, sessions.find((s) => s.id === sessionId)?.skillsSent, agent, skillNames);
+    /* the skills it names, for this message: each one's SKILL.md follows it, unseen in the chat, the first time this
+       conversation's agent session meets that skill (lib/skill-pages) */
+    const agentSession = sessions.find((s) => s.id === sessionId)?.agentSessions?.[agent] ?? null;
+    const skillNames = pagesToSend(activatedSkillIds(followUpRefs), sessions.find((s) => s.id === sessionId)?.skillsGiven, agent, agentSession);
     if (!instruction) return;
     const blocker = attachmentBlocker(composerFiles.files, t);
     if (blocker) { setFollowUpError(blocker); return; }
@@ -726,13 +727,12 @@ function ChatPane({ project, banners, selection, assetsOpen }: { project: Projec
     setSkillRefs([]);
     const files = composerFiles.take();
     const id = makeLocalAgentTurnId();
-    const said = instruction + skillsOnLine(keptOn) + attachedText(files);
+    const said = instruction + attachedText(files);
     const refs = used.filter(Boolean);
     const stage = selection?.stage ?? null;
     /* each reference's picture is kept in the project for the agent (the block names it), and sent to one that takes pictures */
-    const pages = [...skillNames, ...keptOn];
-    const skillTexts = pages.length ? (app.skills?.texts(project.path, agent, pages).catch(() => []) ?? Promise.resolve([])) : Promise.resolve([]);
-    if (keptOn.length) touchSession(sessionId, (s) => ({ skillsSent: sentAfter(s.skillsSent, agent, keptOn) }));
+    const skillTexts = skillNames.length ? (app.skills?.texts(project.path, agent, skillNames).catch(() => []) ?? Promise.resolve([])) : Promise.resolve([]);
+    if (skillNames.length) touchSession(sessionId, (s) => ({ skillsGiven: givenAfter(s.skillsGiven, agent, agentSession, skillNames) }));
     /* an example pointed at: its folder fetched now if it is not yet (the turn waits, as it waits for its reply) */
     const withFolders = Promise.all(refs.map(async (ref) => (ref.kind === 'example' && !ref.folder
       ? { ...ref, folder: await app.exampleFolder?.(ref.id).catch(() => undefined) } : ref)));
@@ -741,6 +741,7 @@ function ChatPane({ project, banners, selection, assetsOpen }: { project: Projec
       .then(async ([{ pictures, images }, skills]) => ({
         text: said + studioReferencesText(ready, { stage, pictures }) + skills.map((s) => `\n\n${s.text}`).join(''),
         images: [...images, ...await attachedPictures(files, PROMPT_PICTURES_MAX - images.length)],
+        skills: skills.map((s) => s.name),
       })));
     const opened = openTurn(id, instruction, promptDisplay ?? null, turnAttachments(files));
     if (steer && asset) steerTurn(asset.id, opened, prepared);
@@ -755,6 +756,7 @@ function ChatPane({ project, banners, selection, assetsOpen }: { project: Projec
     setSessionId(newSession().id);
     composerRef.current?.focus();
   };
+  newConversation.current = onNewSession;
   const onSelectSession = (id: string) => { if (!active) setSessionId(id); };
   const onRenameSession = async (title: string) => { touchSession(sessionId, () => ({ title })); };
   const shownSessions = React.useMemo(
@@ -865,27 +867,6 @@ function ChatPane({ project, banners, selection, assetsOpen }: { project: Projec
           </div>
         )}
         {openedFile ? <AttachmentPreview item={openedFile} onClose={() => setOpenedFile(null)} /> : null}
-        {/* the skills kept on: every message goes with them; × turns one off */}
-        {skillsOn.length ? (
-          <div className="flex flex-wrap items-center gap-1.5 px-3.5 pt-2.5">
-            <span className="text-[11.5px] text-[var(--text-faint)]">{t('skills.keptOn')}</span>
-            {skillsOn.map((name) => {
-              const words = skillWords(name, nameableSkills.find((s) => s.name === name)?.description);
-              return (
-                <span key={name} title={words.summary || words.title}
-                  className="inline-flex h-6 max-w-[220px] items-center gap-1 rounded-[6px] border border-[var(--border)] pl-1.5 pr-0.5 text-[12px] text-[var(--text)]">
-                  <Blocks size={12} className="shrink-0 text-[var(--text-muted)]" aria-hidden />
-                  <span className="min-w-0 truncate">{words.title}</span>
-                  <button type="button" aria-label={t('skills.turnOff').replace('{name}', words.title)} title={t('skills.turnOff').replace('{name}', words.title)}
-                    onClick={() => keepSkillsOn(skillsOn.filter((n) => n !== name))}
-                    className="flex h-4 w-4 shrink-0 items-center justify-center rounded-[4px] text-[var(--text-faint)] transition hover:bg-[var(--bg-hover)] hover:text-[var(--text)]">
-                    <X size={10} />
-                  </button>
-                </span>
-              );
-            })}
-          </div>
-        ) : null}
         <div className="flex items-end gap-1 py-2.5 pl-3.5 pr-2">
           <div className="min-w-0 flex-1">
             <PromptEditor
@@ -899,8 +880,6 @@ function ChatPane({ project, banners, selection, assetsOpen }: { project: Projec
               onTransferReferences={onTransferReferences}
               revealLabel={t('library.revealReference')}
               removeLabel={t('library.removeReference')}
-              onPin={pinSkill}
-              pinLabel={t('skills.keepOn')}
               placeholder={t(blank ? 'project.composerPlaceholderBlank' : 'project.composerPlaceholder')}
               minHeight={22}
               maxHeight={158}

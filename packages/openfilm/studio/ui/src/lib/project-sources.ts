@@ -53,6 +53,10 @@ export type SkillEntry = {
   repository?: string;
   /** the person's own: where it came from (a link, a folder), or made where it is */
   origin?: { from: 'link' | 'folder'; address: string } | { from: 'made' };
+  /** an official one: installed to be used (the person's own and a project's are installed already) */
+  installed?: boolean;
+  /** turned off: offered to no agent until it is turned on again */
+  off?: true;
 };
 /** an example film's part, as its index names it (`S2-Hook`), from and to in seconds */
 export type ExampleSegment = { title: string; from: number; to: number };
@@ -120,6 +124,26 @@ export const sourcesApi = {
     const result = await call<{ cover: string | null }>(path, cover === null ? 'DELETE' : 'PUT', cover === null ? undefined : { cover });
     for (const [key, skills] of seen.skills) seen.skills.set(key, skills.map((skill) => skill.source === 'mine' && skill.name === name ? { ...skill, cover: result.cover ?? undefined } : skill));
     return result.cover;
+  },
+  /** a skill turned on or off for every project; whoever lists skills (the gallery, the desktop's chat) reads them again */
+  setSkillOn: async (name: string, on: boolean): Promise<void> => {
+    await call<{ on: boolean }>(`skills/${encodeURIComponent(name)}/on`, 'PUT', { on });
+    for (const [key, skills] of seen.skills) seen.skills.set(key, skills.map((skill) => {
+      if (skill.name !== name) return skill;
+      const { off: _was, ...rest } = skill;
+      return on ? rest : { ...rest, off: true as const };
+    }));
+    window.dispatchEvent(new Event(SKILLS_CHANGED));
+  },
+  /** an official skill installed (it starts on) or uninstalled; whoever lists skills reads them again */
+  setSkillInstalled: async (name: string, installed: boolean): Promise<void> => {
+    await call<{ installed: boolean }>(`skills/${encodeURIComponent(name)}/installed`, 'PUT', { installed });
+    window.dispatchEvent(new Event(SKILLS_CHANGED));
+  },
+  /** one of the person's own skills, or a project's, moved to the trash */
+  removeSkill: async (name: string, projectId?: string | null): Promise<void> => {
+    await call<object>(`skills/${encodeURIComponent(name)}${projectId ? `?project=${encodeURIComponent(projectId)}` : ''}`, 'DELETE');
+    window.dispatchEvent(new Event(SKILLS_CHANGED));
   },
   /** asked as Studio opens, so a gallery opened later shows its examples and skills at once */
   preload: () => { void sourcesApi.examples(); void sourcesApi.skills(null); },

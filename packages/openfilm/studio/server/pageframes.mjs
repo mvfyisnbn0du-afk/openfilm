@@ -56,11 +56,13 @@ export const FILM_PAGE = FILM_FILE;
 /**
  * The page `rel` of the folder served at `base` (its film-origin URL), drawn at `ms`, `width` px wide, as JPEG.
  * `ms` past the page's end draws its last frame; `ms` < 0 draws the middle (its poster). `overrides`: a page clip's
- * (SPEC §1), drawn with it, so its pictures on the timeline show what was changed in it.
+ * (SPEC §1), drawn with it, so its pictures on the timeline show what was changed in it. `size`: a page clip's, the
+ * CSS pixels a page without a size of its own is laid out at (SPEC §1), as the film lays it out; without one it is
+ * 1920 × 1080, as a page opened on its own.
  * @param {string} root @param {string} base @param {string} rel @param {number} ms @param {number} width
- * @param {object[] | null} [overrides]
+ * @param {object[] | null} [overrides] @param {{ w: number, h: number } | null} [size]
  */
-export async function pageFrame(root, base, rel, ms, width, overrides = null) {
+export async function pageFrame(root, base, rel, ms, width, overrides = null, size = null) {
   const w = Math.max(32, Math.min(960, Math.round(width / 2) * 2 || 160));
   /* `rel` is the request's: a page of the project only, never one reached by `../` or a link out of the folder */
   const page = inProject(root, rel);
@@ -68,7 +70,8 @@ export async function pageFrame(root, base, rel, ms, width, overrides = null) {
   if (!info?.isFile()) throw new PageFrameError(`${rel} is not there`);
   /* `black`: how frames are drawn (frames drawn on white before are not reused) */
   const tweaks = overrides?.some((o) => o && typeof o === 'object' && 'at' in o) ? JSON.stringify(overrides) : '';
-  const key = createHash('sha256').update(`black\0${rel}\0${Math.round(ms)}\0${w}${tweaks ? `\0${tweaks}` : ''}`).digest('hex').slice(0, 24);
+  const laid = size ? `${Math.round(size.w)}x${Math.round(size.h)}` : '';
+  const key = createHash('sha256').update(`black\0${rel}\0${Math.round(ms)}\0${w}${tweaks ? `\0${tweaks}` : ''}${laid ? `\0${laid}` : ''}`).digest('hex').slice(0, 24);
   const dir = join(root, TOOL_DIR, 'cache', 'pageframes');
   const file = join(dir, `${key}.jpg`);
   /* a frame is good while every file the page loaded to draw it is as it was then: the page, and its styles, code,
@@ -94,7 +97,7 @@ export async function pageFrame(root, base, rel, ms, width, overrides = null) {
     if (rel === FILM_PAGE) await filmCopies(root, base, info);
     /* a page drawn with tweaks is one of its own: the page kept open for another clip of the same file has none */
     const drawn = tweaks ? `${version}:${createHash('sha256').update(tweaks).digest('hex').slice(0, 12)}` : version;
-    const { jpeg, duration, loaded } = await draw(pageUrl(base, rel), ms, w, drawn, base, tweaks ? overrides : null).catch((e) => {
+    const { jpeg, duration, loaded } = await draw(pageUrl(base, rel), ms, w, drawn, base, tweaks ? overrides : null, laid ? size : null).catch((e) => {
       failures.set(id, { error: e, at: Date.now() });
       if (failures.size > 500) failures.delete(failures.keys().next().value ?? '');
       throw e;
@@ -230,8 +233,8 @@ async function closeBrowser() {
  * Draw `url` at `ms`, `w` px wide. `loaded`: the project's files the page (and every page inside it) loaded, project
  * relative (`base`: where the project is served), so the frame is known stale when one of them changes.
  */
-function draw(/** @type {string} */ url, /** @type {number} */ ms, /** @type {number} */ w, /** @type {string} */ version, /** @type {string} */ base, /** @type {object[] | null} */ overrides = null) {
-  return withPage(url, w, version, async (page) => {
+function draw(/** @type {string} */ url, /** @type {number} */ ms, /** @type {number} */ w, /** @type {string} */ version, /** @type {string} */ base, /** @type {object[] | null} */ overrides = null, /** @type {{ w: number, h: number } | null} */ size = null) {
+  return withPage(url, w, version, size, async (page) => {
     const duration = lengthOf(page);
     const end = duration != null ? Math.max(0, duration - 1e-3) : Infinity;
     /* a poster: the fullest of a few moments around the middle (a page's middle is often a scene's first, faded-in
@@ -285,7 +288,7 @@ export async function pageFacts(root, base, rel) {
   const file = inProject(root, rel);
   const info = file ? await stat(file).catch(() => null) : null;
   if (!info?.isFile()) throw new PageFrameError(`${rel} is not there`);
-  return withPage(pageUrl(base, rel), POSTER_W, `${info.mtimeMs}:${info.size}`, async (page) => {
+  return withPage(pageUrl(base, rel), POSTER_W, `${info.mtimeMs}:${info.size}`, null, async (page) => {
     const duration = lengthOf(page);
     return { ...(duration != null ? { duration } : {}), width: page.meta.width, height: page.meta.height, ...(page.meta.sized ? {} : { reflows: true }) };
   });
@@ -298,12 +301,13 @@ const lengthOf = (/** @type {FilmPage} */ page) => {
 };
 
 /**
- * `use` the page kept for `url` at `w` px and `version`, one at a time. A page that failed, or never finished a frame,
- * is not kept: the next request opens it fresh.
- * @template T @param {string} url @param {number} w @param {string} version @param {(page: FilmPage) => Promise<T>} use
+ * `use` the page kept for `url` at `w` px and `version` (laid out at `size`, see pageFrame), one at a time. A page that
+ * failed, or never finished a frame, is not kept: the next request opens it fresh.
+ * @template T @param {string} url @param {number} w @param {string} version @param {{ w: number, h: number } | null} size
+ * @param {(page: FilmPage) => Promise<T>} use
  * @returns {Promise<T>}
  */
-function withPage(url, w, version, use) {
+function withPage(url, w, version, size, use) {
   const job = queue.then(async () => {
     if (idle) clearTimeout(idle);
     /** @type {NodeJS.Timeout | undefined} */
@@ -311,13 +315,13 @@ function withPage(url, w, version, use) {
     const late = new Promise((_, fail) => {
       timer = setTimeout(() => { void closeBrowser(); fail(new Error(`drawing ${url.split('/').pop()} took over ${JOB_MS / 1000} s`)); }, JOB_MS);
     });
-    const work = pageFor(url, w, version).then(use);
+    const work = pageFor(url, w, version, size).then(use);
     /* given up on, it fails later (its browser closed): heard, so it cannot end the process */
     work.catch(() => {});
     try {
       return await Promise.race([work, late]);
     } catch (e) {
-      forget(url, w, version);
+      forget(url, w, version, size);
       throw e;
     } finally {
       clearTimeout(timer);
@@ -329,20 +333,23 @@ function withPage(url, w, version, use) {
   return job;
 }
 
+/** The key a page is kept by. @param {string} url @param {number} w @param {string} version @param {{ w: number, h: number } | null} size */
+const keyOf = (url, w, version, size) => `${url}@${w}${size ? `:${size.w}x${size.h}` : ''}#${version}`;
+
 /** Close the page kept for `url` at `w` px and `version`, if one is. */
-function forget(/** @type {string} */ url, /** @type {number} */ w, /** @type {string} */ version) {
-  const key = `${url}@${w}#${version}`;
+function forget(/** @type {string} */ url, /** @type {number} */ w, /** @type {string} */ version, /** @type {{ w: number, h: number } | null} */ size) {
+  const key = keyOf(url, w, version, size);
   const page = open.get(key);
   open.delete(key);
   void page?.then((p) => p.close(), () => {});
 }
 
 /**
- * An open page for `url` at about `w` px wide: kept open while its file is the same `version`, the least recently
- * used one closed past KEEP_PAGES.
+ * An open page for `url` at about `w` px wide (laid out at `size` when it has no size of its own): kept open while its
+ * file is the same `version`, the least recently used one closed past KEEP_PAGES.
  */
-async function pageFor(/** @type {string} */ url, /** @type {number} */ w, /** @type {string} */ version) {
-  const key = `${url}@${w}#${version}`;
+async function pageFor(/** @type {string} */ url, /** @type {number} */ w, /** @type {string} */ version, /** @type {{ w: number, h: number } | null} */ size) {
+  const key = keyOf(url, w, version, size);
   const known = open.get(key);
   if (known) {
     open.delete(key);
@@ -354,9 +361,10 @@ async function pageFor(/** @type {string} */ url, /** @type {number} */ w, /** @
   /* a browser that could not start (not downloaded yet on a first run) is tried again next time, not kept */
   browser ??= launch().catch((e) => { browser = null; throw e; });
   const origin = new URL(url).origin;
-  /* a page is 1920 wide unless it says otherwise; the device scale makes the capture `w` px without a resize */
+  /* a page is 1920 wide (or its clip's size) unless it says otherwise; the device scale makes the capture `w` px
+     without a resize */
   /* on black, as the film shows a page with nothing below it (white, the browser's default, hid a white title) */
-  const opening = (async () => FilmPage.open(await /** @type {Promise<import('playwright-core').Browser>} */ (browser), origin, url, { scale: w / 1920, black: true, waitMs: 15_000, readyMs: FRAME_MS }))();
+  const opening = (async () => FilmPage.open(await /** @type {Promise<import('playwright-core').Browser>} */ (browser), origin, url, { scale: w / (size?.w ?? 1920), ...(size ? { size } : {}), black: true, waitMs: 15_000, readyMs: FRAME_MS }))();
   open.set(key, opening);
   opening.catch((e) => {
     open.delete(key);

@@ -7,25 +7,7 @@
 import React from 'react';
 import { createPortal } from 'react-dom';
 import {
-  ArrowLeft,
-  Check,
-  ChevronDown,
-  Clock3,
-  Folder,
-  FolderOpen,
-  FolderPlus,
-  FolderSearch,
-  Github,
-  LayoutGrid,
-  List,
-  MoreHorizontal,
-  Pencil,
-  Plus,
-  Search,
-  SlidersHorizontal,
-  Trash2,
-  Video,
-  X,
+  ArrowLeft, Check, ChevronDown, ChevronRight, Clock3, Folder, FolderInput, FolderOpen, FolderPlus, FolderSearch, Github, LayoutGrid, List, MoreHorizontal, Pencil, Plus, Search, SlidersHorizontal, Trash2, Video, X,
 } from 'lucide-react';
 import type { Example } from '@/lib/project-sources';
 import { ExamplesSection } from './ProjectSources';
@@ -66,6 +48,7 @@ export function ProjectsView({
   onRenameFolder,
   onDeleteFolder,
   onMoveToFolder,
+  onMoveFolder,
   onClose,
   heading,
 }: {
@@ -101,6 +84,8 @@ export function ProjectsView({
   onDeleteFolder: (folder: ProjectFolder) => void;
   /** Put a project in a folder, or (null) in none. */
   onMoveToFolder: (projectId: string, folderId: string | null) => void;
+  /** a folder into another (null: the top level) */
+  onMoveFolder: (folderId: string, parentId: string | null) => void;
   /** Missing: no close button (Studio has no project to go back to). */
   onClose?: () => void;
   /** The title row's left, in place of "Projects" (the launcher's switch between the projects and the examples). */
@@ -117,7 +102,8 @@ export function ProjectsView({
   const [renamingId, setRenamingId] = React.useState<string | null>(null);
   /* folders: the one being looked at (null = all), the project a folder is being picked for, the folder being named */
   const [folderId, setFolderId] = React.useState<string | null>(null);
-  const [moving, setMoving] = React.useState<LibraryProject | null>(null);
+  /* what the folder picker moves: a project, or a folder of the list */
+  const [moving, setMoving] = React.useState<{ project: LibraryProject } | { folder: ProjectFolder } | null>(null);
   const [renamingFolderId, setRenamingFolderId] = React.useState<string | null>(null);
   /* the folder looked at was deleted (here or elsewhere): back to all */
   React.useEffect(() => {
@@ -156,6 +142,7 @@ export function ProjectsView({
       },
       onCancelRename: () => setRenamingFolderId(null),
       onDelete: () => onDeleteFolder(folder),
+      onMove: () => setMoving({ folder }),
     };
   }
 
@@ -240,7 +227,7 @@ export function ProjectsView({
       },
       onCancelRename: () => setRenamingId((current) => (current === project.id ? null : current)),
       onStartSelect: () => startSelecting(project),
-      onMoveToFolder: () => setMoving(project),
+      onMoveToFolder: () => setMoving({ project }),
       onLocate: () => onLocate(project),
       onDelete: () => onDelete([project.id]),
     };
@@ -263,6 +250,7 @@ export function ProjectsView({
               onGo={setFolderId}
               onRename={(name) => onRenameFolder(currentFolder.id, name)}
               onDelete={() => onDeleteFolder(currentFolder)}
+              onMove={() => setMoving({ folder: currentFolder })}
             />
           ) : (
             heading ?? <h2 className="mr-auto text-[17px] font-semibold tracking-[-0.01em] text-[var(--text)]">{t('nav.projects')}</h2>
@@ -379,19 +367,19 @@ export function ProjectsView({
 
       {moving ? (
         <FolderPicker
-          title={titleOf(moving, t)}
+          title={'project' in moving ? titleOf(moving.project, t) : moving.folder.name}
           folders={folders}
-          counts={counts}
-          current={moving.folderId && folders.some((f) => f.id === moving.folderId) ? moving.folderId : null}
-          onPick={(fid) => {
-            onMoveToFolder(moving.id, fid);
+          current={'project' in moving
+            ? (moving.project.folderId && folders.some((f) => f.id === moving.project.folderId) ? moving.project.folderId : null)
+            : parentOf(moving.folder, folders)}
+          /* a folder never goes into itself or a folder inside it */
+          exclude={'folder' in moving ? new Set([moving.folder.id, ...folders.filter((f) => folderTrail(folders, f.id).some((up) => up.id === moving.folder.id)).map((f) => f.id)]) : new Set()}
+          onMove={(fid) => {
+            if ('project' in moving) onMoveToFolder(moving.project.id, fid);
+            else onMoveFolder(moving.folder.id, fid);
             setMoving(null);
           }}
-          onCreate={async (name) => {
-            const created = await onCreateFolder(name);
-            if (created) onMoveToFolder(moving.id, created.id);
-            setMoving(null);
-          }}
+          onCreate={(name, parentId) => onCreateFolder(name, parentId)}
           onClose={() => setMoving(null)}
         />
       ) : null}
@@ -681,13 +669,13 @@ function ProjectCard({
         <button
           type="button"
           onClick={open}
-          className={`relative block aspect-video w-full overflow-hidden rounded-lg bg-[var(--surface-2)] text-left ring-1 transition duration-200 hover:brightness-[1.04] ${
-            selected ? 'ring-2 ring-[var(--accent)]' : 'ring-[var(--border)]'
-          }`}
+          className="relative block aspect-video w-full overflow-hidden rounded-lg bg-[var(--surface-2)] text-left ring-1 ring-[var(--border)] transition duration-200 hover:brightness-[1.04]"
           aria-label={title}
           aria-pressed={selecting ? selected : undefined}
         >
           <PosterMedia project={project} shade />
+          {/* chosen: an outline drawn inside the card, over its picture, so the list's edge never cuts it */}
+          {selected ? <span aria-hidden className="pointer-events-none absolute inset-0 z-[1] rounded-lg ring-2 ring-inset ring-[var(--accent)]" /> : null}
           {project.missing ? <span aria-hidden className="absolute inset-0 bg-black/45" /> : null}
           {project.duration && !project.missing ? (
             <div className="absolute bottom-2 right-2 text-[10.5px] font-medium text-white/80">
@@ -814,12 +802,11 @@ function ProjectListRow({
         <button
           type="button"
           onClick={open}
-          className={`relative block aspect-video w-28 overflow-hidden rounded-md bg-[var(--surface-2)] ring-1 sm:w-36 ${
-            selected ? 'ring-2 ring-[var(--accent)]' : 'ring-[var(--border)]'
-          }`}
+          className="relative block aspect-video w-28 overflow-hidden rounded-md bg-[var(--surface-2)] ring-1 ring-[var(--border)] sm:w-36"
           aria-label={title}
         >
           <PosterMedia project={project} />
+          {selected ? <span aria-hidden className="pointer-events-none absolute inset-0 z-[1] rounded-md ring-2 ring-inset ring-[var(--accent)]" /> : null}
         </button>
         <SelectToggle selecting={selecting} selected={selected} onToggle={onToggleSelect} label={t('library.toggleSelect')} />
       </div>
@@ -888,6 +875,7 @@ interface FolderItemProps {
   onCommitRename: (name: string) => void;
   onCancelRename: () => void;
   onDelete: () => void;
+  onMove: () => void;
 }
 
 /**
@@ -928,6 +916,7 @@ function FolderCard({
   onCommitRename,
   onCancelRename,
   onDelete,
+  onMove,
 }: FolderItemProps) {
   const t = useT();
   const language = useLanguage();
@@ -982,7 +971,7 @@ function FolderCard({
             {formatDate(folder.createdAt, language)}
           </button>
         </div>
-        <FolderMenu onRename={onStartRename} onDelete={onDelete} />
+        <FolderMenu onRename={onStartRename} onMove={onMove} onDelete={onDelete} />
       </div>
       <span className="sr-only">{t('projects.folderAll')}</span>
     </article>
@@ -1020,6 +1009,7 @@ function FolderListRow({
   onCommitRename,
   onCancelRename,
   onDelete,
+  onMove,
 }: FolderItemProps) {
   const t = useT();
   const language = useLanguage();
@@ -1057,13 +1047,13 @@ function FolderListRow({
           {formatDate(folder.createdAt, language)}
         </p>
       </div>
-      <FolderMenu onRename={onStartRename} onDelete={onDelete} />
+      <FolderMenu onRename={onStartRename} onMove={onMove} onDelete={onDelete} />
     </div>
   );
 }
 
 /** A folder's "…": rename, delete. The project card's menu, in looks and placement (see ProjectMenu). */
-function FolderMenu({ onRename, onDelete }: { onRename: () => void; onDelete: () => void }) {
+function FolderMenu({ onRename, onMove, onDelete }: { onRename: () => void; onMove: () => void; onDelete: () => void }) {
   const t = useT();
   const [anchor, setAnchor] = React.useState<{ x: number; y: number; top: number } | null>(null);
   const button = React.useRef<HTMLButtonElement>(null);
@@ -1094,6 +1084,7 @@ function FolderMenu({ onRename, onDelete }: { onRename: () => void; onDelete: ()
           onClose={() => setAnchor(null)}
           items={[
             { id: 'rename', icon: <Pencil size={14} />, label: t('projects.renameFolder'), onSelect: onRename },
+            { id: 'move', icon: <FolderInput size={14} />, label: t('projects.moveTo'), onSelect: onMove },
             { id: 'sep', separator: true },
             { id: 'delete', icon: <Trash2 size={14} />, label: t('projects.deleteFolder'), danger: true, onSelect: onDelete },
           ]}
@@ -1114,6 +1105,7 @@ function FolderCrumb({
   onGo,
   onRename,
   onDelete,
+  onMove,
 }: {
   folder: ProjectFolder;
   /** the folders it is in, the outermost first */
@@ -1123,6 +1115,7 @@ function FolderCrumb({
   onGo: (folderId: string | null) => void;
   onRename: (name: string) => void;
   onDelete: () => void;
+  onMove: () => void;
 }) {
   const t = useT();
   const [renaming, setRenaming] = React.useState(false);
@@ -1163,7 +1156,7 @@ function FolderCrumb({
         </button>
       )}
       <span className="shrink-0 text-[12.5px] font-normal tabular-nums text-[var(--text-faint)]">{count}</span>
-      <FolderMenu onRename={() => setRenaming(true)} onDelete={onDelete} />
+      <FolderMenu onRename={() => setRenaming(true)} onMove={onMove} onDelete={onDelete} />
     </h2>
   );
 }
@@ -1216,41 +1209,38 @@ function InlineNameInput({
 }
 
 /**
- * Pick a folder for a project: a small centered card, "Move to folder" and the project's name on top, then the places
- * it can go (each a tinted folder tile, the name and how many it holds; the current one ticked), "No folder" first and
- * a new folder last (named, then the project goes straight in). A pick moves it and closes.
+ * Where a project, or a folder of the list, goes: the folders as a tree, as a file browser shows them. "Projects" (no
+ * folder) at the top and each folder under the one it is in, opened and closed by its arrow. A click picks a place and
+ * a double click (or Move, or Enter) moves it there; the place it is in now is marked and cannot be picked. New folder
+ * makes one inside the place picked, named in the tree, and picks it. A folder never offers itself or what is in it
+ * (`exclude`).
  */
 function FolderPicker({
   title,
   folders,
-  counts,
   current,
-  onPick,
+  exclude,
+  onMove,
   onCreate,
   onClose,
 }: {
   title: string;
   folders: ProjectFolder[];
-  counts: Record<string, number>;
   current: string | null;
-  onPick: (folderId: string | null) => void;
-  onCreate: (name: string) => void | Promise<void>;
+  exclude: ReadonlySet<string>;
+  onMove: (folderId: string | null) => void;
+  onCreate: (name: string, parentId: string | null) => Promise<ProjectFolder | null>;
   onClose: () => void;
 }) {
   const t = useT();
-  const [creating, setCreating] = React.useState(false);
-  const tree = React.useMemo(() => {
-    const out: { folder: ProjectFolder; depth: number }[] = [];
-    const walk = (parent: string | null, depth: number) => {
-      for (const f of folders) {
-        if (parentOf(f, folders) !== parent || out.some((o) => o.folder.id === f.id)) continue;
-        out.push({ folder: f, depth });
-        walk(f.id, depth + 1);
-      }
-    };
-    walk(null, 0);
-    return out;
-  }, [folders]);
+  /* null is the project list itself (no folder) */
+  const [picked, setPicked] = React.useState<string | null>(current);
+  const [shut, setShut] = React.useState<ReadonlySet<string>>(new Set());
+  /* a new folder being named, inside this place (undefined: none) */
+  const [naming, setNaming] = React.useState<string | null | undefined>(undefined);
+  const children = React.useCallback((parent: string | null) => folders
+    .filter((f) => parentOf(f, folders) === parent && !exclude.has(f.id))
+    .sort((a, b) => a.name.localeCompare(b.name)), [folders, exclude]);
   React.useEffect(() => {
     /* this Escape closes the picker, not the popover under it */
     const onKey = (event: KeyboardEvent) => {
@@ -1262,94 +1252,118 @@ function FolderPicker({
     return () => window.removeEventListener('keydown', onKey, true);
   }, [onClose]);
 
-  const row = (selected: boolean) =>
-    `group flex w-full items-center gap-3 rounded-xl px-2.5 py-2 text-left transition ${
-      selected ? 'bg-[var(--bg-active)]' : 'hover:bg-[var(--bg-hover)]'
-    }`;
-  const tile = 'flex h-9 w-9 shrink-0 items-center justify-center rounded-lg';
+  const canMove = picked !== current;
+  const move = (to: string | null) => { if (to !== current) onMove(to); };
+  const toggle = (id: string) => setShut((was) => { const next = new Set(was); if (next.has(id)) next.delete(id); else next.add(id); return next; });
+  const startNew = () => {
+    setNaming(picked);
+    if (picked) setShut((was) => { const next = new Set(was); next.delete(picked); return next; });
+  };
+  const named = async (name: string) => {
+    const parent = naming ?? null;
+    setNaming(undefined);
+    if (!name) return;
+    const made = await onCreate(name, parent);
+    if (made) setPicked(made.id);
+  };
+
+  /* a place: its arrow (when it holds folders), its icon, its name, and "Here now" on the place it is in */
+  const place = (id: string | null, depth: number, icon: React.ReactNode, label: string): React.ReactNode => {
+    const kids = children(id);
+    const open = id === null || !shut.has(id);
+    const isPicked = picked === id;
+    const here = current === id;
+    return (
+      <React.Fragment key={id ?? 'top'}>
+        <div
+          role="treeitem"
+          aria-selected={isPicked}
+          aria-expanded={kids.length ? open : undefined}
+          onClick={() => setPicked(id)}
+          onDoubleClick={() => move(id)}
+          style={{ paddingLeft: 6 + depth * 18 }}
+          className={`flex h-8 cursor-default select-none items-center gap-1.5 rounded-md pr-2.5 text-[13px] ${
+            isPicked ? 'bg-[var(--accent)] text-[var(--on-accent)]' : 'text-[var(--text)] hover:bg-[var(--bg-hover)]'
+          }`}
+        >
+          {kids.length && id !== null ? (
+            <button type="button" aria-label={label} onClick={(event) => { event.stopPropagation(); toggle(id); }}
+              className="flex h-4 w-4 shrink-0 items-center justify-center rounded opacity-70 hover:opacity-100">
+              <ChevronRight size={13} className={`transition-transform ${open ? 'rotate-90' : ''}`} />
+            </button>
+          ) : <span className="w-4 shrink-0" />}
+          <span className={`shrink-0 ${isPicked ? '' : 'text-[var(--text-dim)]'}`}>{icon}</span>
+          <span className="min-w-0 flex-1 truncate">{label}</span>
+          {here ? <span className={`shrink-0 text-[11.5px] ${isPicked ? 'opacity-80' : 'text-[var(--text-faint)]'}`}>{t('projects.hereNow')}</span> : null}
+        </div>
+        {open ? (
+          <>
+            {naming === id ? (
+              <div className="flex h-8 items-center gap-1.5 pr-2.5" style={{ paddingLeft: 6 + (depth + 1) * 18 }}>
+                <span className="w-4 shrink-0" />
+                <Folder size={15} strokeWidth={1.7} className="shrink-0 text-[var(--text-dim)]" />
+                <InlineNameInput
+                  initial=""
+                  placeholder={t('projects.newFolderName')}
+                  onCommit={(name) => void named(name)}
+                  onCancel={() => setNaming(undefined)}
+                  className="h-6 min-w-0 flex-1 rounded border border-[var(--text)] bg-[var(--surface)] px-1.5 text-[13px] text-[var(--text)] outline-none placeholder:text-[var(--text-faint)]"
+                />
+              </div>
+            ) : null}
+            {kids.map((f) => place(f.id, depth + 1, <Folder size={15} strokeWidth={1.7} />, f.name))}
+          </>
+        ) : null}
+      </React.Fragment>
+    );
+  };
 
   return createPortal(
     <div
       role="dialog"
       aria-modal
-      className="fixed inset-0 z-[10100] flex items-center justify-center bg-black/35 p-4 backdrop-blur-[2px]"
+      aria-label={t('projects.moveToTitle').replace('{name}', title)}
+      className="fixed inset-0 z-[10100] flex items-center justify-center bg-black/35 p-4"
       onMouseDown={(event) => {
         if (event.target === event.currentTarget) onClose();
       }}
     >
       <div
-        className="w-full max-w-[360px] overflow-hidden rounded-2xl border border-[var(--border)] bg-[var(--surface)] shadow-[var(--shadow-lg)]"
+        className="flex w-full max-w-[460px] flex-col overflow-hidden rounded-2xl border border-[var(--border)] bg-[var(--surface)] shadow-[var(--shadow-lg)]"
         style={{ animation: 'openfilm-pop 0.16s ease-out both' }}
+        onKeyDown={(event) => {
+          if (event.key === 'Enter' && naming === undefined && canMove && !(event.target instanceof HTMLInputElement)) { event.preventDefault(); move(picked); }
+        }}
       >
-        <div className="flex items-start gap-3 px-5 pb-3 pt-5">
+        <div className="flex items-start gap-3 px-5 pb-3 pt-4">
           <div className="min-w-0 flex-1">
-            <p className="text-[15px] font-semibold text-[var(--text)]">{t('projects.moveToFolder')}</p>
-            <p className="mt-0.5 truncate text-[12.5px] text-[var(--text-muted)]">{title}</p>
+            <p className="truncate text-[15px] font-semibold text-[var(--text)]">{t('projects.moveToTitle').replace('{name}', title)}</p>
+            <p className="mt-0.5 text-[12.5px] text-[var(--text-muted)]">{t('projects.moveHint')}</p>
           </div>
           <button
             type="button"
             onClick={onClose}
             aria-label={t('confirm.cancel')}
-            className="-mr-1.5 -mt-1 flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-[var(--text-muted)] transition hover:bg-[var(--bg-hover)] hover:text-[var(--text)]"
+            className="-mr-1.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-[var(--text-muted)] transition hover:bg-[var(--bg-hover)] hover:text-[var(--text)]"
           >
             <X size={15} />
           </button>
         </div>
 
-        <div className="max-h-[52vh] overflow-y-auto px-2.5 pb-1">
-          <button type="button" onClick={() => onPick(null)} className={row(current === null)}>
-            <span className={`${tile} border border-dashed border-[var(--border-strong)] text-[var(--text-faint)]`}>
-              <FolderOpen size={16} strokeWidth={1.7} />
-            </span>
-            <span className="min-w-0 flex-1 truncate text-[13.5px] text-[var(--text)]">{t('projects.noFolder')}</span>
-            {current === null ? <Check size={15} className="shrink-0 text-[var(--text)]" /> : null}
-          </button>
-          {/* as a tree: each folder under the one it is in, a step in */}
-          {tree.map(({ folder, depth }) => (
-            <button key={folder.id} type="button" onClick={() => onPick(folder.id)} className={row(current === folder.id)} style={{ paddingLeft: 10 + depth * 18 }}>
-              <span className={`${tile} bg-[var(--surface-3)] text-[var(--text-dim)]`}>
-                <Folder size={16} strokeWidth={1.7} />
-              </span>
-              <span className="min-w-0 flex-1">
-                <span className="block truncate text-[13.5px] text-[var(--text)]">{folder.name}</span>
-                <span className="block text-[11.5px] tabular-nums text-[var(--text-faint)]">
-                  {counts[folder.id] ?? 0}
-                </span>
-              </span>
-              {current === folder.id ? <Check size={15} className="shrink-0 text-[var(--text)]" /> : null}
-            </button>
-          ))}
+        <div role="tree" tabIndex={0} className="mx-5 h-[260px] overflow-y-auto rounded-lg border border-[var(--border)] bg-[var(--bg)] p-1 outline-none">
+          {place(null, 0, <LayoutGrid size={15} strokeWidth={1.7} />, t('nav.projects'))}
         </div>
 
-        <div className="border-t border-[var(--border-soft)] p-2.5">
-          {creating ? (
-            <div className="flex items-center gap-3 px-2.5 py-1.5">
-              <span className={`${tile} bg-[var(--brand-wind-from)]/15 text-[var(--brand-wind-from)]`}>
-                <FolderPlus size={16} strokeWidth={1.7} />
-              </span>
-              <InlineNameInput
-                initial=""
-                placeholder={t('projects.folderNamePlaceholder')}
-                onCommit={(name) => {
-                  setCreating(false);
-                  if (name) void onCreate(name);
-                }}
-                onCancel={() => setCreating(false)}
-                className="h-8 min-w-0 flex-1 rounded-lg border border-[var(--text)] bg-[var(--surface)] px-2.5 text-[13px] text-[var(--text)] outline-none placeholder:text-[var(--text-faint)]"
-              />
-            </div>
-          ) : (
-            <button
-              type="button"
-              onClick={() => setCreating(true)}
-              className="flex w-full items-center gap-3 rounded-xl px-2.5 py-2 text-left transition hover:bg-[var(--bg-hover)]"
-            >
-              <span className={`${tile} bg-[var(--brand-wind-from)]/15 text-[var(--brand-wind-from)]`}>
-                <FolderPlus size={16} strokeWidth={1.7} />
-              </span>
-              <span className="text-[13.5px] text-[var(--text)]">{t('projects.newFolder')}</span>
-            </button>
-          )}
+        <div className="flex items-center gap-2 px-5 py-4">
+          <button type="button" onClick={startNew}
+            className="flex h-8 items-center gap-1.5 rounded-lg border border-[var(--border)] px-3 text-[12.5px] text-[var(--text)] transition hover:bg-[var(--bg-hover)]">
+            <FolderPlus size={14} strokeWidth={1.8} />{t('projects.newFolder')}
+          </button>
+          <span className="flex-1" />
+          <button type="button" onClick={onClose}
+            className="h-8 rounded-lg border border-[var(--border)] px-3 text-[12.5px] text-[var(--text)] transition hover:bg-[var(--bg-hover)]">{t('confirm.cancel')}</button>
+          <button type="button" disabled={!canMove} onClick={() => move(picked)}
+            className="h-8 rounded-lg bg-[var(--text)] px-4 text-[12.5px] font-medium text-[var(--bg)] transition hover:opacity-90 disabled:opacity-40">{t('projects.move')}</button>
         </div>
       </div>
     </div>,

@@ -69,6 +69,16 @@ export { libraryRoot };
  * @typedef {{ recent: Recent[], folders: ProjectFolder[] }} StudioState
  */
 
+/* One change of the list at a time in this Studio: each reads the list and writes it back, so two at once (several
+   projects deleted together, a project made while another is deleted) would each write over the other's change. */
+let stateTurn = Promise.resolve();
+/** @template T @param {() => Promise<T>} change @returns {Promise<T>} */
+function exclusive(change) {
+  const run = stateTurn.then(change, change);
+  stateTurn = run.then(() => {}, () => {});
+  return run;
+}
+
 /** The list of projects and the person's preferences, read fresh each time (another Studio command may have written). */
 export async function readState() {
   try {
@@ -144,14 +154,16 @@ export async function openProject(path, { create = true } = {}) {
   refuse(folder);
   await writeFile(join(folder, TOOL_DIR, '.gitignore'), '*\n');
   if (!existsSync(join(folder, FILM_FILE))) await writeFile(join(folder, FILM_FILE), filmHtml(EMPTY_FILM), { flag: 'wx' }).catch(() => {});
-  const state = await readState();
-  const id = await folderId(folder, state);
-  /* reopened: it stays in its folder of the list */
-  const listed = state.recent.find((r) => r.id === id)?.folderId;
-  const entry = { id, path: folder, openedAt: Date.now(), ...(listed ? { folderId: listed } : {}) };
-  state.recent = [entry, ...state.recent.filter((r) => r.id !== id && r.path !== folder)];
-  await writeState(state);
-  return describe(entry);
+  return exclusive(async () => {
+    const state = await readState();
+    const id = await folderId(folder, state);
+    /* reopened: it stays in its folder of the list */
+    const listed = state.recent.find((r) => r.id === id)?.folderId;
+    const entry = { id, path: folder, openedAt: Date.now(), ...(listed ? { folderId: listed } : {}) };
+    state.recent = [entry, ...state.recent.filter((r) => r.id !== id && r.path !== folder)];
+    await writeState(state);
+    return describe(entry);
+  });
 }
 
 /** A new project in the library: "Untitled", "Untitled 2", … never an existing folder. */
@@ -235,11 +247,13 @@ async function followLibrary(state) {
 
 /** Every project of the library and the ones opened from elsewhere, most recent first; one whose folder is gone says so (`missing`). */
 export async function listProjects() {
-  const state = await readState();
-  if (await followLibrary(state)) await writeState(state);
-  const folders = new Set(state.folders.map((f) => f.id));
-  /* a project in a folder that was deleted is back at the top level */
-  return state.recent.map((r) => describe(r.folderId && !folders.has(r.folderId) ? { ...r, folderId: undefined } : r));
+  return exclusive(async () => {
+    const state = await readState();
+    if (await followLibrary(state)) await writeState(state);
+    const folders = new Set(state.folders.map((f) => f.id));
+    /* a project in a folder that was deleted is back at the top level */
+    return state.recent.map((r) => describe(r.folderId && !folders.has(r.folderId) ? { ...r, folderId: undefined } : r));
+  });
 }
 
 /* ── folders of the Projects list: only a way to group the list, kept in studio.json; nothing moves on disk ── */
@@ -258,23 +272,46 @@ export async function listFolders() {
 
 /** A new folder in the list: at the top level, or in the folder `parentId`. */
 export async function createFolder(/** @type {unknown} */ name, /** @type {unknown} */ parentId = null) {
-  const state = await readState();
-  const parent = typeof parentId === 'string' && parentId ? parentId : null;
-  if (parent && !state.folders.some((f) => f.id === parent)) throw new ProjectError('no such folder', 404);
-  const folder = { id: newId(), name: listFolderName(name), createdAt: Date.now(), ...(parent ? { parentId: parent } : {}) };
-  state.folders.push(folder);
-  await writeState(state);
-  return folder;
+  return exclusive(async () => {
+    const state = await readState();
+    const parent = typeof parentId === 'string' && parentId ? parentId : null;
+    if (parent && !state.folders.some((f) => f.id === parent)) throw new ProjectError('no such folder', 404);
+    const folder = { id: newId(), name: listFolderName(name), createdAt: Date.now(), ...(parent ? { parentId: parent } : {}) };
+    state.folders.push(folder);
+    await writeState(state);
+    return folder;
+  });
 }
 
 /** Rename a folder of the list. */
 export async function renameFolder(/** @type {string} */ id, /** @type {unknown} */ name) {
-  const state = await readState();
-  const folder = state.folders.find((f) => f.id === id);
-  if (!folder) throw new ProjectError('no such folder', 404);
-  folder.name = listFolderName(name);
-  await writeState(state);
-  return folder;
+  return exclusive(async () => {
+    const state = await readState();
+    const folder = state.folders.find((f) => f.id === id);
+    if (!folder) throw new ProjectError('no such folder', 404);
+    folder.name = listFolderName(name);
+    await writeState(state);
+    return folder;
+  });
+}
+
+/**
+ * Move a folder of the list into another (null: the top level), with what is in it. Never into itself or a folder
+ * inside it.
+ * @param {string} id @param {string | null} parentId
+ */
+export async function moveFolder(id, parentId) {
+  return exclusive(async () => {
+    const state = await readState();
+    const folder = state.folders.find((f) => f.id === id);
+    if (!folder) throw new ProjectError('no such folder', 404);
+    if (parentId != null && !state.folders.some((f) => f.id === parentId)) throw new ProjectError('no such folder', 404);
+    if (parentId != null && folderTree(state.folders, id).has(parentId)) throw new ProjectError('a folder cannot go inside itself', 400, 'inside-itself');
+    if (parentId) folder.parentId = parentId;
+    else delete folder.parentId;
+    await writeState(state);
+    return folder;
+  });
 }
 
 /** A folder and every folder inside it, at any depth: their ids. @param {ProjectFolder[]} folders @param {string} id */
@@ -292,26 +329,30 @@ export function folderTree(folders, id) {
  * the projects that were in them (deleting a folder deletes them too: the caller deletes each, see deleteProject).
  */
 export async function deleteFolder(/** @type {string} */ id) {
-  const state = await readState();
-  if (!state.folders.some((f) => f.id === id)) throw new ProjectError('no such folder', 404);
-  const gone = folderTree(state.folders, id);
-  state.folders = state.folders.filter((f) => !gone.has(f.id));
-  const inside = state.recent.filter((r) => r.folderId && gone.has(r.folderId));
-  for (const r of inside) delete r.folderId;
-  await writeState(state);
-  return inside.map((r) => r.id);
+  return exclusive(async () => {
+    const state = await readState();
+    if (!state.folders.some((f) => f.id === id)) throw new ProjectError('no such folder', 404);
+    const gone = folderTree(state.folders, id);
+    state.folders = state.folders.filter((f) => !gone.has(f.id));
+    const inside = state.recent.filter((r) => r.folderId && gone.has(r.folderId));
+    for (const r of inside) delete r.folderId;
+    await writeState(state);
+    return inside.map((r) => r.id);
+  });
 }
 
 /** Put a project in a folder of the list, or (null) back at the top level. */
 export async function moveProjectToFolder(/** @type {string} */ id, /** @type {string | null} */ folderId) {
-  const state = await readState();
-  const entry = state.recent.find((r) => r.id === id);
-  if (!entry) throw new ProjectError('no such project', 404);
-  if (folderId != null && !state.folders.some((f) => f.id === folderId)) throw new ProjectError('no such folder', 404);
-  if (folderId) entry.folderId = folderId;
-  else delete entry.folderId;
-  await writeState(state);
-  return describe(entry);
+  return exclusive(async () => {
+    const state = await readState();
+    const entry = state.recent.find((r) => r.id === id);
+    if (!entry) throw new ProjectError('no such project', 404);
+    if (folderId != null && !state.folders.some((f) => f.id === folderId)) throw new ProjectError('no such folder', 404);
+    if (folderId) entry.folderId = folderId;
+    else delete entry.folderId;
+    await writeState(state);
+    return describe(entry);
+  });
 }
 
 /** The project with this id, or a 404. */
@@ -326,13 +367,15 @@ export async function projectById(/** @type {string} */ id) {
  * `openProject` makes a project the CLI opens, so `openfilm open` alone comes back to it.
  */
 export async function markOpened(/** @type {string} */ id) {
-  const state = await readState();
-  const entry = state.recent.find((r) => r.id === id);
-  if (!entry) throw new ProjectError('no such project', 404);
-  entry.openedAt = Date.now();
-  state.recent = [entry, ...state.recent.filter((r) => r !== entry)];
-  await writeState(state);
-  return describe(entry);
+  return exclusive(async () => {
+    const state = await readState();
+    const entry = state.recent.find((r) => r.id === id);
+    if (!entry) throw new ProjectError('no such project', 404);
+    entry.openedAt = Date.now();
+    state.recent = [entry, ...state.recent.filter((r) => r !== entry)];
+    await writeState(state);
+    return describe(entry);
+  });
 }
 
 /**
@@ -342,41 +385,45 @@ export async function markOpened(/** @type {string} */ id) {
  * @param {string} id @param {string} path
  */
 export async function locateProject(id, path) {
-  const state = await readState();
-  const entry = state.recent.find((r) => r.id === id);
-  if (!entry) throw new ProjectError('no such project', 404);
-  const asked = resolve(path);
-  refuse(asked);
-  if (!existsSync(asked) || !statSync(asked).isDirectory()) throw new ProjectError('That folder does not exist.', 404, 'not-found');
-  const folder = realpathSync(asked);
-  refuse(folder);
-  if (!existsSync(join(folder, FILM_FILE))) throw new ProjectError('There is no film.html in that folder.', 409, 'no-film');
-  const other = state.recent.find((r) => r.id !== id && (r.path === folder || sameFolder(r.path, folder)));
-  if (other) throw new ProjectError(`That folder is already in the list, as “${basename(other.path)}”.`, 409, 'listed');
-  await mkdir(join(folder, TOOL_DIR), { recursive: true });
-  await writeFile(join(folder, TOOL_DIR, '.gitignore'), '*\n');
-  /* the folder carries the project's id: a copy made of it later is told apart from it (folderId) */
-  let had = '';
-  try { had = (await readFile(join(folder, TOOL_DIR, 'id'), 'utf8')).trim(); } catch { /* none yet */ }
-  if (had !== id) await writeFile(join(folder, TOOL_DIR, 'id'), `${id}\n`);
-  entry.path = folder;
-  await writeState(state);
-  return describe(entry);
+  return exclusive(async () => {
+    const state = await readState();
+    const entry = state.recent.find((r) => r.id === id);
+    if (!entry) throw new ProjectError('no such project', 404);
+    const asked = resolve(path);
+    refuse(asked);
+    if (!existsSync(asked) || !statSync(asked).isDirectory()) throw new ProjectError('That folder does not exist.', 404, 'not-found');
+    const folder = realpathSync(asked);
+    refuse(folder);
+    if (!existsSync(join(folder, FILM_FILE))) throw new ProjectError('There is no film.html in that folder.', 409, 'no-film');
+    const other = state.recent.find((r) => r.id !== id && (r.path === folder || sameFolder(r.path, folder)));
+    if (other) throw new ProjectError(`That folder is already in the list, as “${basename(other.path)}”.`, 409, 'listed');
+    await mkdir(join(folder, TOOL_DIR), { recursive: true });
+    await writeFile(join(folder, TOOL_DIR, '.gitignore'), '*\n');
+    /* the folder carries the project's id: a copy made of it later is told apart from it (folderId) */
+    let had = '';
+    try { had = (await readFile(join(folder, TOOL_DIR, 'id'), 'utf8')).trim(); } catch { /* none yet */ }
+    if (had !== id) await writeFile(join(folder, TOOL_DIR, 'id'), `${id}\n`);
+    entry.path = folder;
+    await writeState(state);
+    return describe(entry);
+  });
 }
 
 /** Rename a project: its folder is renamed beside itself (the project's name is its folder's name). */
 export async function renameProject(/** @type {string} */ id, /** @type {string} */ name) {
-  const state = await readState();
-  const entry = state.recent.find((r) => r.id === id);
-  if (!entry) throw new ProjectError('no such project', 404);
-  const to = join(dirname(entry.path), folderName(name));
-  if (to === entry.path) return describe(entry);
-  /* taken: retrying can't help, so it says so; the same folder in another case (on a disk that ignores it) is not */
-  if (existsSync(to) && !sameFolder(to, entry.path)) throw new ProjectError(`the name "${basename(to)}" is taken: there is already a folder by that name beside this project`, 409);
-  await rename(entry.path, to);
-  entry.path = to;
-  await writeState(state);
-  return describe(entry);
+  return exclusive(async () => {
+    const state = await readState();
+    const entry = state.recent.find((r) => r.id === id);
+    if (!entry) throw new ProjectError('no such project', 404);
+    const to = join(dirname(entry.path), folderName(name));
+    if (to === entry.path) return describe(entry);
+    /* taken: retrying can't help, so it says so; the same folder in another case (on a disk that ignores it) is not */
+    if (existsSync(to) && !sameFolder(to, entry.path)) throw new ProjectError(`the name "${basename(to)}" is taken: there is already a folder by that name beside this project`, 409);
+    await rename(entry.path, to);
+    entry.path = to;
+    await writeState(state);
+    return describe(entry);
+  });
 }
 
 /**
@@ -392,9 +439,11 @@ export async function deleteProject(/** @type {string} */ id) {
 
 /** Take a project off the list. Its folder stays as it is. */
 export async function forgetProject(/** @type {string} */ id) {
-  const state = await readState();
-  state.recent = state.recent.filter((r) => r.id !== id);
-  await writeState(state);
+  return exclusive(async () => {
+    const state = await readState();
+    state.recent = state.recent.filter((r) => r.id !== id);
+    await writeState(state);
+  });
 }
 
 /**
@@ -413,34 +462,36 @@ export async function moveLibrary(to, { move = false, choose }) {
   let moved = 0;
   if (!move || resolve(from) === resolve(into) || !existsSync(from)) return { moved, failed };
   await mkdir(into, { recursive: true });
-  const state = await readState();
-  const realFrom = realpathSync(from);
-  for (const folder of libraryProjects(from)) {
-    let target = join(into, basename(folder));
-    for (let n = 2; existsSync(target); n++) target = join(into, `${basename(folder)} ${n}`);
-    try {
+  return exclusive(async () => {
+    const state = await readState();
+    const realFrom = realpathSync(from);
+    for (const folder of libraryProjects(from)) {
+      let target = join(into, basename(folder));
+      for (let n = 2; existsSync(target); n++) target = join(into, `${basename(folder)} ${n}`);
       try {
-        await rename(folder, target);
-      } catch (e) {
-        if (/** @type {NodeJS.ErrnoException} */ (e).code !== 'EXDEV') throw e;
         try {
-          await cp(folder, target, { recursive: true, errorOnExist: true, force: false, preserveTimestamps: true });
-        } catch (copying) {
-          /* half a copy is no project: it goes, the original stays */
-          if (existsSync(target)) await moveToTrash(target).catch(() => {});
-          throw copying;
+          await rename(folder, target);
+        } catch (e) {
+          if (/** @type {NodeJS.ErrnoException} */ (e).code !== 'EXDEV') throw e;
+          try {
+            await cp(folder, target, { recursive: true, errorOnExist: true, force: false, preserveTimestamps: true });
+          } catch (copying) {
+            /* half a copy is no project: it goes, the original stays */
+            if (existsSync(target)) await moveToTrash(target).catch(() => {});
+            throw copying;
+          }
+          await moveToTrash(folder);
         }
-        await moveToTrash(folder);
+      } catch (e) {
+        failed.push({ name: basename(folder), error: /** @type {Error} */ (e).message });
+        continue;
       }
-    } catch (e) {
-      failed.push({ name: basename(folder), error: /** @type {Error} */ (e).message });
-      continue;
+      moved++;
+      const real = realpathSync(target);
+      const was = join(realFrom, basename(folder));
+      for (const r of state.recent) if (r.path === folder || r.path === was) r.path = real;
     }
-    moved++;
-    const real = realpathSync(target);
-    const was = join(realFrom, basename(folder));
-    for (const r of state.recent) if (r.path === folder || r.path === was) r.path = real;
-  }
-  await writeState(state);
-  return { moved, failed };
+    await writeState(state);
+    return { moved, failed };
+  });
 }

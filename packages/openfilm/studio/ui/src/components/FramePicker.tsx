@@ -1,14 +1,11 @@
 /**
- * The aspect ratio button beside the picture: the film's canvas (its stage in film.html). Picking a shape changes the
- * canvas itself (`onCanvas`): the film is scaled whole into it, centered, until the agent lays it
- * out again. A delivery frame (bars or a crop around the film) is the export's. Any other size is typed in the
- * inspector.
+ * The canvas's shapes (the inspector's Stage menu) and a ratio typed by hand (the export's delivery frame). Picking a
+ * shape changes the canvas itself: the film is scaled whole into it, centered, until the agent lays it out again.
  */
 import * as React from 'react';
-import { Check, Proportions } from 'lucide-react';
+import { Check } from 'lucide-react';
 import { useT } from '@/i18n';
-import { customFilmFrame, filmFrameRatio, type FilmFrameId } from '@/lib/film-frame';
-import { Tooltip } from './Tooltip';
+import { customFilmFrame, type FilmFrameId } from '@/lib/film-frame';
 
 /** The shapes a canvas is offered in: landscape, then portrait. */
 export const CANVAS_RATIOS: { group: 'wide' | 'tall'; id: FilmFrameId; phone?: true }[] = [
@@ -28,81 +25,6 @@ export const CANVAS_RATIOS: { group: 'wide' | 'tall'; id: FilmFrameId; phone?: t
 /** A ratio's name in the menu: "9:16", or "5.8″ phone" for a phone's screen. */
 export function canvasRatioLabel(t: (key: string) => string, item: { id: FilmFrameId; phone?: true }): string {
   return item.phone ? t('viewer.ratioPhone') : item.id;
-}
-
-/** Whether the stage has this ratio: its width within 2 px of it (a size made from a ratio is rounded to even px). */
-export const shaped = (stage: { w: number; h: number }, ratio: number) => Math.abs(stage.w - stage.h * ratio) <= 2;
-
-export function FramePicker({
-  stage, original, busy, onCanvas,
-}: {
-  stage: { w: number; h: number };
-  /** The first picture's own size: "Original" takes its shape. None: nothing to fit to yet. */
-  original?: { w: number; h: number } | null;
-  /** The canvas change is being written: no second one meanwhile (two requests would race for one file). */
-  busy?: boolean;
-  /** Change the film's canvas to this shape (the editor works out its size and fits the film into it). */
-  onCanvas: (next: FilmFrameId) => void;
-}): React.ReactElement {
-  const t = useT();
-  const [open, setOpen] = React.useState(false);
-  const box = React.useRef<HTMLDivElement | null>(null);
-  const fit = original ? customFilmFrame(original.w, original.h) : null;
-  const preset = CANVAS_RATIOS.find((r) => shaped(stage, filmFrameRatio(r.id, stage)));
-  const isFit = Boolean(original && shaped(stage, original.w / original.h));
-
-  React.useEffect(() => {
-    if (!open) return undefined;
-    const away = (e: MouseEvent): void => {
-      if (!box.current?.contains(e.target as Node)) setOpen(false);
-    };
-    window.addEventListener('mousedown', away);
-    return () => window.removeEventListener('mousedown', away);
-  }, [open]);
-
-  const pick = (id: FilmFrameId) => { setOpen(false); onCanvas(id); };
-  const row = 'flex w-full items-center gap-2.5 rounded-[5px] px-2 py-1.5 text-left text-[12px] text-[var(--text)] transition hover:bg-[var(--bg-hover)] disabled:pointer-events-none disabled:opacity-40';
-  const tick = (on: boolean) => <span className="flex w-3.5 shrink-0 justify-center">{on ? <Check size={13} className="text-[var(--accent)]" /> : null}</span>;
-  const item = (r: (typeof CANVAS_RATIOS)[number]) => (
-    <button key={r.id} type="button" disabled={busy} onClick={() => pick(r.id)} onMouseDown={(e) => e.preventDefault()} className={row}>
-      {tick(!isFit && preset?.id === r.id)}
-      <span className="flex-1">{canvasRatioLabel(t, r)}</span>
-    </button>
-  );
-
-  return (
-    <div ref={box} className="relative flex items-center">
-      <Tooltip label={t('viewer.canvas')}>
-        <button
-          type="button"
-          onClick={() => setOpen((v) => !v)}
-          /* no focus on click: the next Space would land on this button instead of playing */
-          onMouseDown={(e) => e.preventDefault()}
-          className={`flex h-[22px] items-center gap-1 rounded-md px-1.5 text-[var(--text-dim)] transition hover:bg-[var(--bg-hover)] hover:text-[var(--text)] ${
-            busy ? 'opacity-50' : ''
-          }`}
-          aria-label={t('viewer.canvas')}
-          aria-expanded={open}
-        >
-          <Proportions size={14} />
-          {/* the ratio is printed on the button: "this film is vertical" must be visible without opening it */}
-          <span className="text-[12px] leading-none tabular-nums">{preset ? preset.id : `${stage.w}×${stage.h}`}</span>
-        </button>
-      </Tooltip>
-      {open ? (
-        <div className="absolute bottom-[28px] right-0 z-50 max-h-[min(520px,75vh)] w-[180px] overflow-y-auto rounded-[8px] border border-[var(--border)] bg-[var(--surface)] p-1 shadow-[var(--shadow-lg)]">
-          <button type="button" disabled={busy || !fit} onClick={() => fit && pick(fit)} onMouseDown={(e) => e.preventDefault()} className={row}>
-            {tick(isFit)}
-            <span className="flex-1">{t('viewer.ratioOriginal')}</span>
-          </button>
-          <div className="mx-1 my-1 h-px bg-[var(--border)]" />
-          {CANVAS_RATIOS.filter((r) => r.group === 'wide').map(item)}
-          <div className="mx-1 my-1 h-px bg-[var(--border)]" />
-          {CANVAS_RATIOS.filter((r) => r.group === 'tall').map(item)}
-        </div>
-      ) : null}
-    </div>
-  );
 }
 
 /**

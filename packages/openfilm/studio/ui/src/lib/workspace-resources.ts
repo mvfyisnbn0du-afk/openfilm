@@ -7,6 +7,7 @@
  * `mediaListingOf`, and turns the pane's callbacks into `PUT/PATCH/DELETE files` and `POST folders`.
  */
 import { clipKind } from '../../../../src/film-doc.mjs';
+import type { FilmOverride } from './film.ts';
 import { mediaFetch } from './media-queue.ts';
 
 export type WorkspaceResourceKind = 'video' | 'image' | 'audio' | 'mg' | 'other';
@@ -45,8 +46,19 @@ export interface WorkspaceResource {
   bundle?: SavedBundle;
 }
 
-/** What a bundle of Saved is: a clip, a group of `count` clips, or a page; `template`: its page has custom properties. */
-export interface SavedBundle { kind: 'clip' | 'group' | 'page'; count?: number; template?: boolean }
+/**
+ * What a bundle of Saved is: a clip, a group of `count` clips, or a page; `props`: a component, the properties it offers.
+ * A page, or a clip of one: `page`, where its page is in the library (from its top); a clip's `size` (what its page is
+ * laid out at) and `overrides` (the changes made in it), so it plays as the film had it.
+ */
+export interface SavedBundle {
+  kind: 'clip' | 'group' | 'page';
+  count?: number;
+  props?: number;
+  page?: string;
+  size?: { w: number; h: number };
+  overrides?: readonly FilmOverride[];
+}
 
 export interface MediaProxy { state: 'waiting' | 'making' | 'ready' | 'failed'; ratio?: number }
 
@@ -160,7 +172,14 @@ export function mediaListingOf(
       addedMs: f.added ?? f.mtime,
       /* a bundle of Saved says its own length and size (it is no file to probe) */
       ...(f.saved ? {
-        bundle: { kind: f.saved.kind, ...(f.saved.count ? { count: f.saved.count } : {}), ...(f.saved.template ? { template: true } : {}) },
+        bundle: {
+          kind: f.saved.kind,
+          ...(f.saved.count ? { count: f.saved.count } : {}),
+          ...(f.saved.props ? { props: f.saved.props } : {}),
+          ...(f.saved.page ? { page: f.saved.page } : {}),
+          ...(f.saved.size ? { size: f.saved.size } : {}),
+          ...(f.saved.overrides ? { overrides: f.saved.overrides } : {}),
+        },
         ...(f.saved.durationMs ? { durationMs: f.saved.durationMs } : {}),
         ...(f.saved.w ? { w: f.saved.w } : {}),
         ...(f.saved.h ? { h: f.saved.h } : {}),

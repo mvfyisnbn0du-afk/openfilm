@@ -73,20 +73,13 @@ export function loadChat(project) {
     if (entry?.turn?.id && Array.isArray(entry.items)) turns.push(entry);
   }
   turns.sort((a, b) => String(a.turn.createdAt).localeCompare(String(b.turn.createdAt)));
-  return { sessions, last: typeof kept.last === 'string' ? kept.last : null, skills: skillNames(kept.skills), turns };
+  return { sessions, last: typeof kept.last === 'string' ? kept.last : null, turns };
 }
 
-/** The skills kept on in a project's chat: names only, each once. */
-const skillNames = (names) => [...new Set(Array.isArray(names) ? names.filter((n) => typeof n === 'string' && SKILL_NAME.test(n)) : [])];
-const SKILL_NAME = /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/;
-
-/** The conversations, the one shown last, and `skills`: the skills kept on for every message in this project. */
-export function saveSessions(project, { sessions, last, skills }) {
+export function saveSessions(project, { sessions, last }) {
   const dir = chatDir(project);
   mkdirSync(dir, { recursive: true });
-  writeAtomic(join(dir, 'sessions.json'), `${JSON.stringify({
-    version: 1, last: typeof last === 'string' ? last : null, skills: skillNames(skills), sessions: Array.isArray(sessions) ? sessions : [],
-  }, null, 1)}\n`);
+  writeAtomic(join(dir, 'sessions.json'), `${JSON.stringify({ version: 1, last: typeof last === 'string' ? last : null, sessions: Array.isArray(sessions) ? sessions : [] }, null, 1)}\n`);
 }
 
 export function saveTurn(project, entry) {

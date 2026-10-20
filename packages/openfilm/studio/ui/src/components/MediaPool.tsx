@@ -20,7 +20,7 @@ import {
   Bookmark,
   BookmarkPlus,
   Layers,
-  LayoutTemplate,
+  Component as ComponentIcon,
   ChevronRight,
   Clapperboard,
   Copy,
@@ -1013,7 +1013,7 @@ export function MediaPool({
                 onPress={(e) => press(item, e)}
                 typeText={item.file.bundle ? t(`saved.kind_${item.file.bundle.kind}`) : item.file.kind === 'mg' ? t('assets.kindPage') : extOf(item.file.name).toUpperCase()}
                 library={inSaved}
-                {...(item.file.bundle?.template ? { templateMark: t('saved.template') } : {})}
+                {...(item.file.bundle?.props ? { componentMark: t('saved.component') } : {})}
                 onMenu={(e) => menuFor(item, e)}
                 onRename={(name) => void rename(item.file.path, name, false)}
                 onCancelRename={() => setRenaming(null)}
@@ -1252,8 +1252,8 @@ function FileTile(p: {
   row?: boolean;
   /** In Saved: a drag of it says its place there (its files are brought into the project as it lands). */
   library?: boolean;
-  /** A bundle of Saved whose page has custom properties: the word that marks it a template. */
-  templateMark?: string;
+  /** A bundle of Saved that offers properties: the word that marks it a component. */
+  componentMark?: string;
 }) {
   const bundle = p.file.bundle;
   return (
@@ -1321,9 +1321,9 @@ function FileTile(p: {
           ) : p.file.proxy && p.file.proxy.state !== 'failed' ? (
             <span className="absolute inset-x-0 bottom-0 z-10 h-1" title={p.proxyLabel}><UploadBar ratio={p.file.proxy.state === 'making' ? p.file.proxy.ratio ?? 0 : -1} /></span>
           ) : null}
-          {/* a bundle of Saved: a template, and how many clips a group holds */}
-          {p.templateMark ? (
-            <span className="absolute left-1 top-1 z-10 flex items-center gap-0.5 rounded bg-black/65 px-1 text-[9.5px] font-semibold leading-[15px] text-white/90"><LayoutTemplate size={9} />{p.templateMark}</span>
+          {/* a bundle of Saved: a component, and how many clips a group holds */}
+          {p.componentMark ? (
+            <span className="absolute left-1 top-1 z-10 flex items-center gap-0.5 rounded bg-black/65 px-1 text-[9.5px] font-semibold leading-[15px] text-white/90"><ComponentIcon size={9} />{p.componentMark}</span>
           ) : null}
           {bundle?.kind === 'group' && bundle.count ? (
             <span className="absolute bottom-1 left-1 z-10 flex items-center gap-0.5 rounded bg-black/65 px-1 text-[10.5px] tabular-nums leading-[16px] text-white"><Layers size={10} />{bundle.count}</span>

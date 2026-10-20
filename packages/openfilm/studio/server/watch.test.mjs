@@ -152,3 +152,26 @@ test('moving into an already watched path preserves both subscriptions', () => {
     rmSync(scratch, { recursive: true, force: true });
   }
 });
+
+test("a watched project's folder that goes is said gone; one renamed in Studio (moved) is not", async () => {
+  const root = mkdtempSync(join(tmpdir(), 'of-watch-gone-'));
+  writeFileSync(join(root, 'film.html'), '{"stage":{"w":1,"h":1},"tracks":[]}');
+  const watchers = createWatchers();
+  const seen = [];
+  const stop = watchers.subscribe(root, (e) => seen.push(e));
+  try {
+    await settle(600);
+    /* renamed by Studio: the watch follows it, and nothing is gone */
+    const renamed = `${root}-renamed`;
+    renameSync(root, renamed);
+    watchers.move(root, renamed);
+    await settle(900);
+    assert.ok(!seen.some((e) => e.type === 'gone'), JSON.stringify(seen));
+    /* deleted (or moved away outside Studio) */
+    rmSync(renamed, { recursive: true, force: true });
+    await settle(1200);
+    assert.ok(seen.some((e) => e.type === 'gone'), JSON.stringify(seen));
+  } finally {
+    stop();
+  }
+});

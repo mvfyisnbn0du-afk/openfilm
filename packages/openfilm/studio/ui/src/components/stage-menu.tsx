@@ -6,9 +6,10 @@
  *
  * Layer changes are overrides (the editor writes film.html); the clip's actions are the editor's, passed in.
  */
+import type * as React from 'react';
 import {
-  BringToFront, ClipboardPaste, Copy as CopyIcon, CopyPlus, CornerLeftUp, Download, Eye, EyeOff, Layers, Lock,
-  RotateCcw, Scissors, SendToBack, Trash2, Type as TypeIcon, Unlock,
+  BringToFront, ClipboardPaste, Copy as CopyIcon, CopyPlus, CornerLeftUp, Download, Eye, EyeOff, HardDriveUpload, ImageIcon,
+  ImageUp, Layers, Lock, RotateCcw, Scissors, SendToBack, Trash2, Type as TypeIcon, Unlock,
 } from 'lucide-react';
 
 import type { ContextMenuEntry } from '@/components/ContextMenu';
@@ -83,6 +84,46 @@ export interface StageMenuActions {
   notify?(message: string): void;
   /** The whole clip's actions; without them a clip's menu is empty. */
   clip?: StageClipActions;
+  /** Another file in a picture's place; without it a picture has no Replace. */
+  picture?: StagePictureActions;
+}
+
+/** Replacing the picture a layer draws (an <img>, a box painted with one image): written as the clip's override. */
+export interface StagePictureActions {
+  /** The project's pictures, by their place in the project, each with where its thumbnail is read from. */
+  pictures(): Array<{ path: string; name: string; url?: string }>;
+  /** One from this computer, brought into the project: its place there (null: none picked). */
+  pickFromComputer?(): Promise<string | null>;
+  /** `path` (in the project) drawn in the layer's place; null: its own again. */
+  put(element: StageElement, path: string | null): void;
+}
+
+/** A picture's thumbnail in a menu, where its icon goes: wider than an icon, so the pictures read apart. */
+export function pictureThumb(url: string | undefined): React.ReactNode {
+  return url
+    ? <img src={url} alt="" draggable={false} loading="lazy" className="h-[14px] w-[22px] shrink-0 rounded-[2px] object-cover" />
+    : <ImageIcon size={14} />;
+}
+
+/** The pictures a layer's Replace offers: the project's, one from this computer, and its own again once replaced. */
+export function replacePictureEntries(el: StageElement, actions: StagePictureActions, t: (path: string) => string): ContextMenuEntry[] {
+  const picture = el.picture;
+  if (!picture) return [];
+  const list = actions.pictures().slice(0, 40);
+  const pick = actions.pickFromComputer;
+  const out: ContextMenuEntry[] = list.map((f) => ({ id: `picture:${f.path}`, label: f.name, icon: pictureThumb(f.url), onSelect: () => actions.put(el, f.path) }));
+  if (pick) {
+    if (out.length) out.push({ id: 'picture-sep', separator: true });
+    out.push({
+      id: 'picture-computer', label: t('inspector.templatePictureComputer'), icon: <HardDriveUpload size={14} />,
+      onSelect: () => { void pick().then((path) => { if (path) actions.put(el, path); }); },
+    });
+  }
+  if (picture.changed) {
+    out.push({ id: 'picture-own-sep', separator: true });
+    out.push({ id: 'picture-own', label: t('stageMenu.pictureOwn'), icon: <RotateCcw size={14} />, onSelect: () => actions.put(el, null) });
+  }
+  return out;
 }
 
 type T = (path: string) => string;
@@ -171,6 +212,9 @@ export function stageMenu(el: StageElement, ctx: StageMenuContext, actions: Stag
   const adjusted = Boolean(o && (o.t || o.s != null || o.r || o.text != null || (o.style && Object.keys(o.style).length)));
   if (ctx.editText) {
     m.push({ id: 'edit-text', label: t('stageMenu.editText'), icon: <TypeIcon size={14} />, shortcut: '↵', disabled: locked, hint: t('stageMenu.lockedHint'), onSelect: ctx.editText });
+  }
+  if (el.picture && actions.picture) {
+    m.push({ id: 'replace-picture', label: t('stageMenu.replacePicture'), icon: <ImageUp size={14} />, disabled: locked, hint: t('stageMenu.lockedHint'), submenu: replacePictureEntries(el, actions.picture, t) });
   }
   m.sep();
   /* restacking writes z-index overrides where the layer meets what it overlaps (stage.js arrange), in one write; the

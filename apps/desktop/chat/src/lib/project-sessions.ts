@@ -1,3 +1,5 @@
+import type { SkillsGiven } from './skill-pages';
+
 /**
  * A project's sessions: their shape on the client, and how the session bar groups them by when they were last used.
  */
@@ -11,8 +13,8 @@ export interface ProjectSessionItem {
   turns: number;
   /** Each agent's own id of this conversation (by agent): its next turn goes on with it, after a restart too. */
   agentSessions?: Record<string, string>;
-  /** The skills kept on in the project that each agent has had in this conversation (lib/skills-on), by agent. */
-  skillsSent?: Record<string, string[]>;
+  /** The skills whose SKILL.md each agent's session has had in this conversation (lib/skill-pages), by agent. */
+  skillsGiven?: SkillsGiven;
 }
 
 export type SessionRecencyKey = 'today' | 'yesterday' | 'week' | 'earlier';

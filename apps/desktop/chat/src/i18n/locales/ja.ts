@@ -273,9 +273,6 @@ export const ja: Words = {
   /* the composer's button that opens the Community over the film: skills and examples (Studio's ExamplesGallery) */
   community: { button: 'コミュニティ', tooltip: 'コミュニティ：スキルとサンプル' },
   skills: {
-    keepOn: 'このプロジェクトのすべてのメッセージで使う',
-    keptOn: '常に使用',
-    turnOff: '{name} をオフにする',
     chooseCover: 'カバーを選択',
     removeCover: '選択を元に戻す',
     coverHint: '任意 · PNG、JPEG、WebP、最大 5 MB。変更しなければ元のカバーを保持します。',

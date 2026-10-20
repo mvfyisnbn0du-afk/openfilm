@@ -167,7 +167,7 @@ projectReady = follow();
 const selection = signal<StudioSelection | null>(null);
 const refer = events<StudioRef>();
 /* a skill picked in the examples (Studio's ExamplesDialog), to be named in the message; and "Add a skill" there */
-const skillPicked = events<{ name: string; description: string }>();
+const skillPicked = events<{ name: string; description: string; newConversation?: boolean }>();
 const skillAdd = events<void>();
 /** what the pointer is over in Studio (null: nothing), for the chat to light its pills that point at it */
 const hover = signal<StudioRef | null>(null);
@@ -378,7 +378,7 @@ function commandFor(ref: StudioRef): StudioCommand {
   showExamples: (open?: CommunityItem) => command?.({ type: 'show-examples', ...(open ? { open } : {}) }),
   onUseSkill: skillPicked.on,
   onAddSkill: skillAdd.on,
-  useSkill: (skill: { name: string; description: string }) => skillPicked.set(skill),
+  useSkill: (skill: { name: string; description: string; newConversation?: boolean }) => skillPicked.set(skill),
   /* a reference made in the chat (⌘L there, the @ menu) gets its picture as Studio's own do */
   withPicture: (ref: StudioRef) => { const done = pictured.then(() => withPicture(ref)); pictured = done.then(() => {}); return done; },
   /* what a pill hovered in the chat points at, lit in Studio while it is (null: none); and the references of the

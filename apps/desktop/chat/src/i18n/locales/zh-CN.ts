@@ -273,9 +273,6 @@ export const zhCN: Words = {
   /* the composer's button that opens the Community over the film: skills and examples (Studio's ExamplesGallery) */
   community: { button: '社区', tooltip: '社区：Skill 和示例' },
   skills: {
-    keepOn: '在这个项目里常驻：每条消息都带上它',
-    keptOn: '常驻',
-    turnOff: '关闭 {name}',
     chooseCover: '选择封面',
     removeCover: '撤销封面选择',
     coverHint: '可选 · PNG、JPEG 或 WebP，最大 5 MB。不选择则保留原封面。',

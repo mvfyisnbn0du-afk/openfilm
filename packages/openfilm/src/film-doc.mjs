@@ -916,7 +916,11 @@ export function clipTag(clip) {
   ];
   if (style.length) parts.push(`style="${escapeAttr(style.join('; '))}"`);
   if (clip.overrides?.length) parts.push(`overrides='${JSON.stringify(clip.overrides).replace(/&/g, '&amp;').replace(/'/g, '&#39;')}'`);
-  for (const [k, v] of Object.entries(clip.attrs ?? {})) parts.push(`${k}="${escapeAttr(v)}"`);
+  /* a value with double quotes in it (JSON, as Studio's data-props): in single quotes, as overrides are, so it reads as
+     written */
+  for (const [k, v] of Object.entries(clip.attrs ?? {})) {
+    parts.push(v.includes('"') ? `${k}='${v.replace(/&/g, '&amp;').replace(/'/g, '&#39;')}'` : `${k}="${escapeAttr(v)}"`);
+  }
   return `<${tag} ${parts.join(' ')}>${tag === 'img' ? '' : `</${tag}>`}`;
 }
 

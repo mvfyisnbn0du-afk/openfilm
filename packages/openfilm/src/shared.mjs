@@ -227,7 +227,7 @@ export function hasAudio(file) {
 }
 
 /** atempo chain for a playback rate (pitch kept); each stage takes 0.5–2. */
-function tempo(speed) {
+export function tempo(speed) {
   const out = [];
   let s = speed;
   while (s > 2) { out.push('atempo=2'); s /= 2; }

@@ -48,6 +48,13 @@ export interface NodeOverride {
  */
 export type OverridePivot = { hx: -1 | 0 | 1; hy: -1 | 0 | 1 };
 
+/**
+ * The picture a layer draws, when another file can be put in its place: an <img> (`img`), or a box painted with one
+ * image (`bg`). `src` is the address it draws now (on the film's origin): a file put in its place, else its own;
+ * `changed`: a file was put there. A box holding one <img> that fills it has that one's: `at` / `n` name the <img>.
+ */
+export type StagePicture = { kind: 'img' | 'bg'; src: string; changed?: boolean; at?: string; n?: number };
+
 /** What is selected on the stage: a whole clip, or a layer inside one. */
 export type StageElement = {
   kind: 'clip' | StageNodeKind;
@@ -68,6 +75,8 @@ export type StageElement = {
    * they are held (`value`: worked out, not written as one piece).
    */
   text?: { loc: string; value: string; shape: 'children' | 'prop' | 'value' };
+  /** The picture it draws, when another file can be put in its place. */
+  picture?: StagePicture;
   /** Attributes written as literals (`fill`, `strokeWidth`, `src`): the only ones the panel can change. */
   attrs?: Record<string, string>;
   /** Outer layers, nearest first. */

@@ -242,13 +242,14 @@ function defaultsFile(dir, name, settings) {
  * additionalDirectories?, env?, args?, piSkills?, log }` (agents.mjs puts each where it goes). `log`: what the turn log
  * says of it (agents.mjs `opened.skills`). `allowed`, `mcpAllowed`: the person's own let in, by name.
  * @param {string} agent
- * `mine`: the person's own skills folder (openfilm/skills mySkillsDir).
- * @param {{ cwd: string, env?: Record<string, string>, dataDir: string, mine?: string, allowed?: string[],
+ * `mine`: the person's own skills folder (openfilm/skills mySkillsDir); `prefsHome`: the Studio home whose prefs.json
+ * says which official skills are installed and which skills are off (openfilm/skills usableSkills).
+ * @param {{ cwd: string, env?: Record<string, string>, dataDir: string, mine?: string, prefsHome?: string, allowed?: string[],
  *   mcpAllowed?: string[], home?: string }} o
  */
-export async function sessionSkills(agent, { cwd, env = {}, dataDir, mine, allowed = [], mcpAllowed = [], home = homedir() }) {
-  const { listSkills, mySkillsDir } = await skillsLib();
-  const openfilm = listSkills({ project: cwd, mine: mine ?? mySkillsDir() });
+export async function sessionSkills(agent, { cwd, env = {}, dataDir, mine, prefsHome, allowed = [], mcpAllowed = [], home = homedir() }) {
+  const { mySkillsDir, usableSkills } = await skillsLib();
+  const openfilm = usableSkills({ project: cwd, mine: mine ?? mySkillsDir(), ...(prefsHome ? { home: prefsHome } : {}) });
   const names = openfilm.map((s) => s.name);
   const filtered = FILTERED_AGENTS.includes(agent);
   const base = { openfilm: names, allowed: [...allowed], mcpAllowed: [...mcpAllowed], filtered, mcpFiltered: MCP_AGENTS.includes(agent) };

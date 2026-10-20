@@ -139,7 +139,7 @@ function SourceBar({ time, duration, playing, onToggle, onSeek, disabled, marks,
         onPlayPause={onToggle}
         onFullscreen={onFullscreen}
         /* the part marked with I and O, while there is one (`,` and `.` put it on the film) */
-        frame={marked ? <span data-source-range="" className="shrink-0 text-[11px] tabular-nums text-[var(--accent)]">{marked}</span> : undefined}
+        extra={marked ? <span data-source-range="" className="shrink-0 text-[11px] tabular-nums text-[var(--accent)]">{marked}</span> : undefined}
       />
     </div>
   );
@@ -287,6 +287,7 @@ const CLOCK_PINGS = 5;
  * the editor's origin it could reach the editor), with Studio's bridge in it, driven by messages. Still, it is told the
  * moment to draw (seek t → frame(t)); playing, the line it plays on, and it draws its own frames from it, on the
  * project's frame grid (studio/server/bridge.js `play`): no message a frame, so a busy editor does not hold the picture.
+ * A page clip of Saved plays as the film had it: laid out at its clip's size, with the changes made in it.
  */
 function PagePreview({ file, sources, onClose, onPlace }: SourcePreviewProps) {
   const t = useT();
@@ -295,6 +296,9 @@ function PagePreview({ file, sources, onClose, onPlace }: SourcePreviewProps) {
   const boxRef = React.useRef<HTMLDivElement>(null);
   const seq = React.useRef(0);
   const surface = sources.pageSurface?.(file) ?? null;
+  /* what a page without a size of its own is laid out at: its clip's size, else 1920 × 1080 as a page on its own */
+  const laid = file.bundle?.size ?? { w: 1920, h: 1080 };
+  const overrides = file.bundle?.overrides ?? null;
   const origin = React.useMemo(() => {
     try { return surface ? new URL(surface, window.location.href).origin : null; } catch { return null; }
   }, [surface]);
@@ -348,7 +352,8 @@ function PagePreview({ file, sources, onClose, onPlace }: SourcePreviewProps) {
       }
       if (data.type !== 'ready') return;
       const num = (v: unknown, fallback: number) => (typeof v === 'number' && Number.isFinite(v) && v > 0 ? v : fallback);
-      setSize({ w: num(data.width, 1920), h: num(data.height, 1080), duration: num(data.duration, 0) });
+      setSize({ w: num(data.width, laid.w), h: num(data.height, laid.h), duration: num(data.duration, 0) });
+      if (overrides) post({ type: 'overrides', list: overrides });
       /* where its clock is: first by where each clock started, then by pings */
       clock.current = Number(data.origin) > 0 ? { offset: performance.timeOrigin - Number(data.origin), rtt: Infinity } : null;
       for (let i = 0; i < CLOCK_PINGS; i++) setTimeout(() => post({ type: 'clock', ping: performance.now() }), 40 * i);
@@ -356,7 +361,7 @@ function PagePreview({ file, sources, onClose, onPlace }: SourcePreviewProps) {
     };
     window.addEventListener('message', onMessage);
     return () => window.removeEventListener('message', onMessage);
-  }, [draw, origin, post, tellPlay]);
+  }, [draw, origin, post, tellPlay, laid.w, laid.h, overrides]);
 
   React.useEffect(() => {
     const box = boxRef.current;
@@ -439,7 +444,7 @@ function PagePreview({ file, sources, onClose, onPlace }: SourcePreviewProps) {
               src={surface}
               title={file.name}
               className="pointer-events-none absolute left-0 top-0 origin-top-left border-0"
-              style={{ width: size?.w ?? 1920, height: size?.h ?? 1080, transform: `scale(${scale})` }}
+              style={{ width: size?.w ?? laid.w, height: size?.h ?? laid.h, transform: `scale(${scale})` }}
             />
           </div>
         )}

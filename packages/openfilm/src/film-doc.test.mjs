@@ -344,3 +344,12 @@ test('an override\'s style takes CSS properties in camelCase and custom properti
     assert.match(problems(page(bad)), /style has to be at most 24 properties, camelCase or custom/, JSON.stringify(bad));
   }
 });
+
+test('an attribute holding JSON (Studio\'s data-props) is written in single quotes, as overrides are, and read back as it was', () => {
+  const list = JSON.stringify([{ name: 'It\'s "new" & <bold>', type: 'text', at: 'h1' }]);
+  const html = filmHtml(film({ src: 'a.html', id: 'a', attrs: { 'data-props': list, 'data-link': 'a' } }));
+  assert.match(html, /data-props='\[\{"name":"It&#39;s \\"new\\" &amp; <bold>","type":"text","at":"h1"\}\]' data-link="a"/);
+  const back = readFilmFile(html);
+  assert.deepEqual(back.problems, []);
+  assert.equal(back.value.tracks[0].clips[0].attrs['data-props'], list);
+});

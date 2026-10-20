@@ -273,9 +273,6 @@ export const enUS = {
   /* the composer's button that opens the Community over the film: skills and examples (Studio's ExamplesGallery) */
   community: { button: 'Community', tooltip: 'Community: skills and examples' },
   skills: {
-    keepOn: 'Keep on for every message in this project',
-    keptOn: 'Always on',
-    turnOff: 'Turn off {name}',
     chooseCover: 'Choose cover',
     removeCover: 'Undo cover choice',
     coverHint: 'Optional · PNG, JPEG or WebP, up to 5 MB. Keeps the original cover when left unchanged.',

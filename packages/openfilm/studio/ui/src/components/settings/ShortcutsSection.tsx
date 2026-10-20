@@ -261,7 +261,7 @@ export function ShortcutsSection() {
         <SettingsSelect<SchemeId> label={t('settings.shortcuts.scheme')} value={draft.scheme} options={schemeOptions} onChange={chooseScheme} width={200} />
       </div>
       {notice ? <p role="status" className="mb-3 text-[13.5px] leading-relaxed text-[var(--text-muted)]">{notice}</p> : null}
-      <div className="@container rounded-[12px] bg-[var(--fill-tsp)] px-5 py-3">
+      <div className="@container">
         <div className="grid grid-cols-1 gap-x-8 @xl:grid-cols-2">
           {columns(actionRows).map((rows, i) => (
             <div key={i} className={`flex flex-col ${i === 1 ? '@xl:border-l @xl:border-[var(--border)] @xl:pl-8' : ''}`}>{rows.map(renderRow)}</div>

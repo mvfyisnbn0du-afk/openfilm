@@ -343,14 +343,16 @@ const stuck = async (/** @type {import('playwright-core').Page} */ page) =>
 
 /** One web page in one browser tab. */
 export class FilmPage {
-  static async open(browser, origin, entry, { scale = 1, transparent = false, black = false, offline = false, network = {}, waitMs = 10_000, readyMs = READY_MS } = {}) {
+  static async open(browser, origin, entry, { scale = 1, size = null, transparent = false, black = false, offline = false, network = {}, waitMs = 10_000, readyMs = READY_MS } = {}) {
     const film = new FilmPage();
     film.problems = [];
     film.browser = browser;
     film.origin = origin;
     film.entry = entry;
     film.scale = scale;
-    film.context = await browser.newContext({ viewport: { width: 1920, height: 1080 }, deviceScaleFactor: scale });
+    /* `size`: a page clip's (SPEC §1), what a page without a size of its own is laid out at, from its first layout */
+    const laid = size?.w > 0 && size?.h > 0 ? { width: Math.round(size.w), height: Math.round(size.h) } : { width: 1920, height: 1080 };
+    film.context = await browser.newContext({ viewport: laid, deviceScaleFactor: scale });
     film.page = await film.context.newPage();
     const problems = film.problems;
     film.page.on('pageerror', (e) => problems.push({ kind: 'error', message: e.message }));
@@ -403,17 +405,17 @@ export class FilmPage {
       throw new FrameError(`window.film with a frame() function did not appear within ${waitMs / 1000} s${failed()}`);
     }
     /* a ready that never comes (a file that never loads, a loop that never ends) is said, rather than waited on for ever */
-    film.meta = await whileMoving(film.page, film.page.evaluate(async () => {
+    film.meta = await whileMoving(film.page, film.page.evaluate(async (laid) => {
       const a = window.film;
       await (typeof a.ready === 'function' ? a.ready() : a.ready);
       await document.fonts?.ready;
-      /* a page without a size of its own, opened on its own, is 1920 × 1080 (inside a film it is the stage's); one
-         without a duration has no end (null) */
+      /* a page without a size of its own, opened on its own, is 1920 × 1080, or its clip's `size` (inside a film it
+         is the stage's); one without a duration has no end (null) */
       const sized = a.width != null || a.height != null;
-      return { duration: a.duration ?? null, width: sized ? a.width : 1920, height: sized ? a.height : 1080, sized,
+      return { duration: a.duration ?? null, width: sized ? a.width : laid.width, height: sized ? a.height : laid.height, sized,
         /* an edit's sound, from the built-in timeline (a single page has none) */
         sounds: window.__filmSounds?.() ?? [] };
-    }), readyMs, `film.ready did not finish within ${readyMs / 1000} s`).catch(async (e) => {
+    }, laid), readyMs, `film.ready did not finish within ${readyMs / 1000} s`).catch(async (e) => {
       const late = e instanceof FrameError ? await stuck(film.page) : '';
       await film.context.close();
       if (e instanceof FrameError) throw new FrameError(`${entry.startsWith('__film/') ? '' : `${entry}: `}${e.message}${late}${failed(e.message)}`);

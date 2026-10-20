@@ -4,7 +4,7 @@
  * file (`files`: a page, a picture, a sound). One watcher per open project, shared by every page showing it, closed when
  * the last one leaves. Studio's own folders and the usual build and dependency folders are not watched.
  */
-import { readdirSync, watch } from 'node:fs';
+import { existsSync, readdirSync, watch } from 'node:fs';
 import { join } from 'node:path';
 import { readProjectFilm } from './film.mjs';
 import { FILM_FILE } from '../../src/film-doc.mjs';
@@ -13,6 +13,8 @@ import { FILM_FILE } from '../../src/film-doc.mjs';
 const IGNORED = /^(\.[^/\\]+|node_modules|dist|build)([/\\]|$)/;
 /** How long changes are gathered before one event: an agent writes a file in several chunks, and often several files. */
 const SETTLE_MS = 120;
+/** How long a folder that went is looked at again before its pages are told it is gone. */
+const GONE_RECHECK_MS = 400;
 
 /* Studio's own half-written files (a file written whole through a random-named sibling, atomic.mjs; an import
    streaming in, files.mjs): only the result is a change */
@@ -26,7 +28,8 @@ const WRITING = /(^|[/\\])([^/\\]+\.[0-9a-f-]{8,}\.tmp|\.\d+\.\d+\.importing)$/;
  * `project`: the project renamed, as it is now.
  * @typedef {{ type: 'film', rev: string } | { type: 'files', paths?: string[] } | { type: 'history' } | { type: 'export', job: object }
  *   | { type: 'history-progress', op: string, phase: string, done: number, total: number } | { type: 'project', project: object }
- *   | { type: 'ask', ask: object } | { type: 'asked', id: string } | { type: 'notice', notice: object }} FolderEvent
+ *   | { type: 'ask', ask: object } | { type: 'asked', id: string } | { type: 'notice', notice: object }
+ *   | { type: 'gone' }} FolderEvent   `gone`: the project was deleted, or its folder is not there any more
  */
 
 /**
@@ -45,6 +48,14 @@ export function watchFolder(root, send) {
 
   const flush = async () => {
     timer = null;
+    if (closed) return;
+    /* the folder itself went (deleted, or moved away outside Studio): its pages leave the project. Looked at again a
+       moment later: a rename in Studio moves its pages to the new folder (createWatchers `move`), closing this */
+    if (!existsSync(root)) {
+      await new Promise((done) => setTimeout(done, GONE_RECHECK_MS));
+      if (!closed && !existsSync(root)) send({ type: 'gone' });
+      return;
+    }
     const kinds = [...pending];
     const changed = paths;
     pending.clear();

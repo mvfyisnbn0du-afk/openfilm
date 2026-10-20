@@ -41,6 +41,8 @@ export const folderApi = {
   /** takes the folder off the list; resolves to the ids of the projects that were in it */
   remove: (id: string) => call<{ projects: string[] }>(`folders/${encodeURIComponent(id)}`, 'DELETE').then((r) => r.projects),
   move: (projectId: string, folderId: string | null) => call<object>(`${encodeURIComponent(projectId)}/folder`, 'PUT', { folderId }),
+  /** a folder into another (null: the top level), with what it holds */
+  moveFolder: (id: string, parentId: string | null) => call<{ folder: ProjectFolder }>(`folders/${encodeURIComponent(id)}`, 'PATCH', { parentId }).then((r) => r.folder),
 };
 
 /**

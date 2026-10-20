@@ -1,13 +1,12 @@
 /**
- * A page clip's template controls: what the inspector offers to change in a page without opening it, as a motion
- * graphics template has. Read from the page as it is on the picture (studio/server/stage.js `controls`): the CSS custom
- * properties its stylesheets set on `:root`, its words, and its pictures. Each change is an override of the clip, as any
- * change made on the picture is: a custom property in the style of the `:root` entry (the host sets it with priority,
- * so it wins over the page's own), words as a `text` entry, a picture as the CSS that draws another file in its place
- * (`content: url()` for an <img>, `background-image` for a box painted with one). Nothing for an agent to learn: a page
- * that keeps its colors and sizes in custom properties is a template already.
+ * What a page shows that a clip can change without opening it, read from the page as it is on the picture
+ * (studio/server/stage.js `controls`): the CSS custom properties its stylesheets set on `:root`, its words, and its
+ * pictures. The clip's properties (lib/component-props) are made of them. Each change is an override of the clip, as
+ * any change made on the picture is: a custom property in the style of the `:root` entry (the host sets it with
+ * priority, so it wins over the page's own), words as a `text` entry, a picture as the CSS that draws another file in
+ * its place (`content: url()` for an <img>, `background-image` for a box painted with one).
  *
- * Pure: no React, no DOM, so `node --test` runs it (src/template-controls.test.mjs).
+ * Pure: no React, no DOM, so `node --test` runs it.
  */
 
 import type { FilmOverride } from './film.ts';
@@ -119,6 +118,11 @@ export function urlOf(css: string | null | undefined): string | null {
 export function changedImage(overrides: readonly FilmOverride[] | undefined, image: Pick<TemplateImage, 'at' | 'n' | 'kind'>): string | null {
   const v = overrideOf(overrides, { at: image.at, ...(image.n != null ? { n: image.n } : {}) })?.style?.[imageKey(image.kind)];
   return v == null ? null : urlOf(String(v));
+}
+
+/** The style that draws another file in a picture's place (`path` from the page's folder), or its own again (null). */
+export function pictureStyle(kind: TemplateImage['kind'], path: string | null): Record<string, string | null> {
+  return { [imageKey(kind)]: path == null ? null : cssUrl(path) };
 }
 
 /** The next overrides with another file drawn in a picture's place (`path` from the page's folder; null: the page's own). */

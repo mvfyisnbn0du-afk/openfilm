@@ -198,7 +198,9 @@ export type StudioNotice = { id: string; kind: 'balance'; provider: string; prov
 
 export type FolderEvent = { type: 'film'; rev: string } | { type: 'files'; paths?: string[] } | { type: 'history' } | { type: 'export'; job: ExportJob } | { type: 'open'; to: string }
   | { type: 'history-progress'; op: string; phase: string; done: number; total: number }
-  | { type: 'ask'; ask: SpendAsk } | { type: 'asked'; id: string } | { type: 'notice'; notice: StudioNotice } | { type: 'project'; project: Project };
+  | { type: 'ask'; ask: SpendAsk } | { type: 'asked'; id: string } | { type: 'notice'; notice: StudioNotice } | { type: 'project'; project: Project }
+  /* the project was deleted, or its folder is not there any more: its pages leave it */
+  | { type: 'gone' };
 
 /**
  * Listen to a stream of events (a WebSocket: a browser's six HTTP connections to Studio stay free for the page's
@@ -208,7 +210,7 @@ export type FolderEvent = { type: 'film'; rev: string } | { type: 'files'; paths
  * version (lib/studio-version); the page's own one does. It also tells Studio whether the page is in sight, so
  * `openfilm open` opens a browser when no page is (a tab behind others, a minimized window).
  */
-export function listen(path: string, on: (event: FolderEvent) => void, { onBack, watch = false }: { onBack?: () => void; watch?: boolean } = {}): () => void {
+export function listen(path: string, on: (event: FolderEvent) => void, { onBack, watch = false, gone }: { onBack?: () => void; watch?: boolean; gone?: () => Promise<boolean> } = {}): () => void {
   const inSight = () => document.visibilityState === 'visible';
   const url = () => `${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.host}/api/${path}${watch ? `?visible=${inSight() ? 1 : 0}` : ''}`;
   const tell = () => { if (socket?.readyState === WebSocket.OPEN) socket.send(JSON.stringify({ visible: inSight() })); };
@@ -246,6 +248,16 @@ export function listen(path: string, on: (event: FolderEvent) => void, { onBack,
       /* soon at first, then every second: Studio restarting (`openfilm open` starts it afresh) is back within one
          or two, and waits a few for the pages before it */
       again = setTimeout(connect, Math.min(1000, 250 * 2 ** tries++));
+      /* refused again and again while Studio answers: what it streams may be gone (a project deleted, its folder
+         moved away), which reconnecting can't change; asked, and if so said once and left */
+      if (gone && (tries === 3 || tries % 20 === 0)) {
+        void gone().then((yes) => {
+          if (!yes || stopped) return;
+          stopped = true;
+          if (again) clearTimeout(again);
+          on({ type: 'gone' });
+        }, () => {});
+      }
     };
   };
   connect();
@@ -299,7 +311,11 @@ export function projectEvents(id: string, on: (event: FolderEvent) => void): () 
       for (const fn of [...listeners]) fn(event);
     };
     /* back after Studio was away: the film, the files and the history may all have changed meanwhile */
-    const stop = listen(`${p(id)}/events`, tell, { onBack: () => { tell({ type: 'film', rev: '' }); tell({ type: 'files' }); tell({ type: 'history' }); } });
+    const stop = listen(`${p(id)}/events`, tell, {
+      onBack: () => { tell({ type: 'film', rev: '' }); tell({ type: 'files' }); tell({ type: 'history' }); },
+      /* the project off the list, or its folder missing: gone (a list that can't be read says nothing) */
+      gone: () => call<{ projects: Project[] }>('projects').then((r) => { const found = r.projects.find((x) => x.id === id); return !found || Boolean(found.missing); }),
+    });
     stream = { stop, listeners };
     streams.set(id, stream);
   }

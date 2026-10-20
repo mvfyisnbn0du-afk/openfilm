@@ -6,7 +6,8 @@
  *
  * Rules: a project is in one tab at most; a tab is always a project's (a project is picked first, in the projects
  * window, and its tab opens); with none open, the window shows the projects; a tab closed can be opened again, last
- * closed first.
+ * closed first. A project gone (deleted, its folder gone) takes its tabs with it at once, all of them together, and
+ * none of them can be opened again (`closeProjects`).
  */
 import { randomUUID } from 'node:crypto';
 
@@ -86,6 +87,28 @@ export function createTabs({ saved = null, now = Date.now, newId = randomUUID } 
       if (!tabs.length) active = null;
       else if (active === id) api.activate(tabs[Math.min(i, tabs.length - 1)].id);
       return api.get(active ?? '');
+    },
+    /**
+     * Projects gone: their tabs close together, without being kept to open again (nor any closed before), and the
+     * front goes to the nearest tab that stays (right, else left). → { closed: the tabs closed, front: the tab in front
+     * now (null: none left) }
+     * @param {Iterable<string>} projectIds
+     */
+    closeProjects(projectIds) {
+      const gone = new Set(projectIds);
+      for (let i = closed.length - 1; i >= 0; i--) if (gone.has(closed[i].projectId)) closed.splice(i, 1);
+      const order = tabs.map((t) => t.id);
+      const leaving = new Set(tabs.filter((t) => gone.has(t.projectId)).map((t) => t.id));
+      if (!leaving.size) return { closed: [], front: api.get(active ?? '') };
+      tabs = tabs.filter((t) => !leaving.has(t.id));
+      if (!tabs.length) active = null;
+      else if (active && leaving.has(active)) {
+        const at = order.indexOf(active);
+        const next = order.slice(at + 1).find((id) => !leaving.has(id)) ?? order.slice(0, at).reverse().find((id) => !leaving.has(id));
+        active = null;
+        if (next) api.activate(next);
+      }
+      return { closed: [...leaving], front: api.get(active ?? '') };
     },
     /** The tab closed last, open again where it was (its project in front if it is open already). → the tab, or null */
     reopen() {

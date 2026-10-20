@@ -11,7 +11,7 @@
  * given the old canvas as its `size`, so it is scaled as a video is rather than laid out again in the new shape.
  */
 import { pictureRect } from '../../../../src/film-doc.mjs';
-import { frameRatioOf, type FilmFrameId } from './film-frame.ts';
+import { customFilmFrame, frameRatioOf, type FilmFrameId } from './film-frame.ts';
 import type { FilmBox, FilmSrcKind } from './film.ts';
 
 type Size = { w: number; h: number };
@@ -85,4 +85,16 @@ export function fitToCanvas(clips: readonly CanvasClip[], from: Size, to: Size):
     out.push(clip.kind === 'page' && clip.reflows && !clip.size ? { id: clip.id, box, size: { w: from.w, h: from.h } } : { id: clip.id, box });
   }
   return out;
+}
+
+/** Whether the stage has this ratio: its width within 2 px of it (a size made from a ratio is rounded to even px). */
+export const shaped = (stage: Size, ratio: number) => Math.abs(stage.w - stage.h * ratio) <= 2;
+
+/**
+ * The canvas's "Original" shape: the first picture's own (`original`), when there is one and it is between 1:4 and
+ * 4:1; and whether the stage has it now.
+ */
+export function originalShape(stage: Size, original: Size | null): { frame: FilmFrameId | null; current: boolean } {
+  const frame = original ? customFilmFrame(original.w, original.h) : null;
+  return { frame, current: Boolean(frame && original && shaped(stage, original.w / original.h)) };
 }

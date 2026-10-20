@@ -35,7 +35,8 @@ interface AppBridge {
   /** the Community over the film; `open`: on that skill's or example's page */
   showExamples?(open?: CommunityItem): void;
   /** a skill picked in the examples, to be named in the message */
-  onUseSkill?(listener: (skill: { name: string; description: string }) => void): () => void;
+  /** a skill picked or tried in Studio's skills: named in the message being written (`newConversation`: in a new one) */
+  onUseSkill?(listener: (skill: { name: string; description: string; newConversation?: boolean }) => void): () => void;
   /** "Add a skill" in the examples */
   onAddSkill?(listener: () => void): () => void;
   /** name a skill in the message being written (as one picked in the examples) */
@@ -62,8 +63,8 @@ interface AppBridge {
   setMenuOpen(open: boolean): void;
   /** the project's chat record, in its folder: conversations and finished turns (.film/chat), each turn's log (.film/logs) */
   chat: {
-    load(project: string): Promise<{ sessions: unknown[]; last: string | null; skills?: unknown[]; turns: unknown[] }>;
-    saveSessions(project: string, sessions: unknown[], last: string | null, skills?: string[]): Promise<unknown>;
+    load(project: string): Promise<{ sessions: unknown[]; last: string | null; turns: unknown[] }>;
+    saveSessions(project: string, sessions: unknown[], last: string | null): Promise<unknown>;
     saveTurn(project: string, turn: unknown, items: unknown[]): Promise<unknown>;
     /** `unless`: the sizes of the log already read; when it has not grown, `{ same: true }` */
     log(project: string, turnId: string, unless?: { size: number; callsSize: number }): Promise<TurnLog | { same: true } | null>;
@@ -90,6 +91,8 @@ interface AppBridge {
     texts(project: string, agent: string, names: string[]): Promise<Array<{ name: string; text: string }>>;
     /** one of the agent's own skills let into OpenFilm, or not */
     allow(agent: string, name: string, allowed: boolean): Promise<{ ok: boolean }>;
+    /** OpenFilm's skills changed (one added, or turned on or off): the agents' sessions take them up */
+    changed?(): Promise<unknown>;
     /** a GitHub or GitLab address fetched to be looked at; then kept (`commit`) or let go (`discard`) */
     preview(url: string): Promise<{ ok: true; id: string; skills: SkillPreview[] } | { ok: false; error: string }>;
     /** a folder on this computer looked at where it is: one dropped (its path), or null: picked in the system's dialog

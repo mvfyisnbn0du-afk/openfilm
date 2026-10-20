@@ -21,7 +21,7 @@ import { pipeline } from 'node:stream';
 import { mkdir, readFile } from 'node:fs/promises';
 import { createHash } from 'node:crypto';
 import { spawn } from 'node:child_process';
-import { EditError, clipOverrides, editProjectFilm, readProjectFilm } from './film.mjs';
+import { EditError, editProjectFilm, pageClipLook, readProjectFilm } from './film.mjs';
 import { FileError, bringIn, collect, extractAudio, freezeFrame, importFile, inside, listFiles, makeFolder, moveCheck, moveFile, readable, relink, trashFile } from './files.mjs';
 import { ExportError, createExports, draftApps, exportCapabilities, exportsRoot, projectSizes } from './exports.mjs';
 import { MediaError, frame, loudness, poster, probe, waveform } from './derived.mjs';
@@ -30,7 +30,7 @@ import { ownHost, startPages } from './pages.mjs';
 import { HttpError, cookie, json, readJson } from './http.mjs';
 import { acceptWebSocket } from './websocket.mjs';
 import {
-  ProjectError, createFolder, createProject, deleteFolder, deleteProject, libraryRoot, listFolders, listProjects, locateProject, markOpened, moveLibrary,
+  ProjectError, createFolder, createProject, deleteFolder, deleteProject, libraryRoot, listFolders, listProjects, locateProject, markOpened, moveFolder, moveLibrary,
   moveProjectToFolder, openProject, projectById, renameFolder, renameProject, studioHome, studioKey, TOOL_DIR,
 } from './projects.mjs';
 import { FetchError, createFetches, fetchFilm, parseRepoUrl } from './fetch-repo.mjs';
@@ -49,7 +49,8 @@ import { FILM_PAGE, PageFrameError, closePageFrames, filmPoster, pageFacts, page
 import { COVER_FRAME_W, CoverError, clearCover, readCover, readCoverBody, setCover, setCoverFromFile } from './cover.mjs';
 import { SavedError, bundlePoster, libraryPath, libraryRel, libraryRoot as savedLibrary, listLibrary, saveClip, saveFile, saveGroup, takeSaved } from './saved.mjs';
 import { FILM_FILE, clipKind, isPage } from '../../src/film-doc.mjs';
-import { listSkills, setSkillCover, skillOrigins } from '../../src/skills.mjs';
+import { moveToTrash } from './trash.mjs';
+import { listSkills, removeSkill, setSkillCover, setSkillInstalled, setSkillOn, skillOrigins, skillsInstalled, skillsOff } from '../../src/skills.mjs';
 import { providersRoute } from './providers/index.mjs';
 import { captionRoutes } from './captions.mjs';
 import { projectSettingsRoute } from './project-settings.mjs';
@@ -319,7 +320,9 @@ export async function startStudio({ port = 4747, key, openBrowser = systemBrowse
       const rel = (/** @type {unknown} */ path) => { try { return libraryRel(path); } catch (e) { throw new HttpError(400, /** @type {Error} */ (e).message); } };
       const at = url.searchParams.get('path') ?? '';
       if (sub === 'files') {
-        if (req.method === 'GET') return json(res, 200, await listLibrary());
+        /* `folder`: the library as the film's origin serves it, so a saved page plays in the media pane's viewer as a
+           project's does */
+        if (req.method === 'GET') return json(res, 200, { ...await listLibrary(), folder: pages.folderUrl({ id: SAVED_ORIGIN_ID, path: lib }) });
         if (req.method === 'PUT') return json(res, 200, { path: libraryPath((await importFile(lib, rel(at), req)).path) });
         if (req.method === 'PATCH') {
           const { from, to } = /** @type {{ from?: unknown, to?: unknown }} */ (await readJson(req) ?? {});
@@ -432,6 +435,8 @@ export async function startStudio({ port = 4747, key, openBrowser = systemBrowse
       const project = id ? (await listProjects()).find((p) => p.id === id && !p.missing) : null;
       const skills = listSkills({ project: project?.path ?? null });
       const origins = skillOrigins();
+      const off = new Set(skillsOff());
+      const installed = new Set(skillsInstalled());
       const media = (/** @type {string} */ name, /** @type {'cover' | 'preview'} */ which) => `/api/skills/${encodeURIComponent(name)}/${which}${id ? `?project=${encodeURIComponent(id)}` : ''}`;
       return json(res, 200, {
         skills: skills.map((k) => ({
@@ -441,8 +446,39 @@ export async function startStudio({ port = 4747, key, openBrowser = systemBrowse
           ...(k.cover ? { cover: `${media(k.name, 'cover')}${id ? '&' : '?'}v=${encodeURIComponent(k.cover)}` } : {}), ...(k.preview ? { preview: media(k.name, 'preview') } : {}),
           /* the person's own: where it came from (none kept: made where it is) */
           ...(k.source === 'mine' ? { origin: origins[basename(k.folder)] ?? { from: 'made' } } : {}),
+          /* an official one is installed to be used; the person's own and a project's are theirs already */
+          installed: k.source !== 'official' || installed.has(k.name),
+          /* turned off: offered to no agent until it is turned on again */
+          ...(off.has(k.name) ? { off: true } : {}),
         })),
       });
+    }
+    /* an official skill installed or uninstalled (PUT { installed }) */
+    if (parts[0] === 'skills' && parts.length === 3 && parts[2] === 'installed' && req.method === 'PUT') {
+      const installed = (await readJson(req))?.installed;
+      if (typeof installed !== 'boolean') throw new HttpError(400, 'installed: true or false');
+      const skill = listSkills().find((k) => k.name === decodeURIComponent(parts[1]));
+      if (!skill || skill.source !== 'official') throw new HttpError(404, 'no such official skill');
+      setSkillInstalled(skill.name, installed);
+      return json(res, 200, { installed });
+    }
+    /* one of the person's own skills, or a project's, moved to the trash (an official one is uninstalled instead) */
+    if (parts[0] === 'skills' && parts.length === 2 && req.method === 'DELETE') {
+      const id = url.searchParams.get('project');
+      const project = id ? (await listProjects()).find((p) => p.id === id && !p.missing) : null;
+      const skill = listSkills({ project: project?.path ?? null }).find((k) => k.name === decodeURIComponent(parts[1]));
+      if (!skill) throw new HttpError(404, 'no such skill');
+      if (skill.source === 'official') throw new HttpError(400, 'An official skill is uninstalled, not removed.');
+      if (skill.source === 'mine') await removeSkill(skill.name);
+      else await moveToTrash(skill.folder);
+      return json(res, 200, {});
+    }
+    /* a skill turned on or off, by name, for every project (PUT { on }) */
+    if (parts[0] === 'skills' && parts.length === 3 && parts[2] === 'on' && req.method === 'PUT') {
+      const on = (await readJson(req))?.on;
+      if (typeof on !== 'boolean') throw new HttpError(400, 'on: true or false');
+      try { setSkillOn(decodeURIComponent(parts[1]), on); } catch (e) { throw new HttpError(400, e instanceof Error ? e.message : String(e)); }
+      return json(res, 200, { on });
     }
     /* Only the person's own skill can be changed; a project override must not edit a hidden personal skill. */
     if (parts[0] === 'skills' && parts.length === 3 && parts[2] === 'cover' && (req.method === 'PUT' || req.method === 'DELETE')) {
@@ -492,7 +528,12 @@ export async function startStudio({ port = 4747, key, openBrowser = systemBrowse
         const { name, parentId } = /** @type {{ name?: string, parentId?: string | null }} */ (await readJson(req));
         return json(res, 200, { folder: await createFolder(name, parentId) });
       }
-      if (parts.length === 3 && req.method === 'PATCH') return json(res, 200, { folder: await renameFolder(parts[2], /** @type {{ name?: string }} */ (await readJson(req)).name) });
+      if (parts.length === 3 && req.method === 'PATCH') {
+        const body = /** @type {{ name?: string, parentId?: string | null }} */ (await readJson(req));
+        /* { parentId }: moved into another folder (null: the top level); else { name }: renamed */
+        if (Object.hasOwn(body ?? {}, 'parentId')) return json(res, 200, { folder: await moveFolder(parts[2], body.parentId || null) });
+        return json(res, 200, { folder: await renameFolder(parts[2], body.name) });
+      }
       if (parts.length === 3 && req.method === 'DELETE') return json(res, 200, { projects: await deleteFolder(parts[2]) });
     }
     if (parts.length === 3 && parts[2] === 'folder' && req.method === 'PUT') {
@@ -555,6 +596,8 @@ export async function startStudio({ port = 4747, key, openBrowser = systemBrowse
         /* its files are being written, and its chat is mid-turn: stopped first, by the person */
         if (agentIn(project.path)) throw new HttpError(409, 'An agent is running in this project: stop it first, then delete the project.', { code: 'agent-running' });
         await deleteProject(project.id);
+        /* every page showing it leaves it (with tabs, its tab closes) */
+        watchers.emit(project.path, { type: 'gone' });
         return json(res, 200, {});
       }
     }
@@ -796,9 +839,9 @@ export async function startStudio({ port = 4747, key, openBrowser = systemBrowse
       /* a web page has no file to cut a frame from: it is drawn, as an export draws it (pageframes.mjs); a page clip's
          frame (`clip`, its id) with the person's changes in it, as the film shows them */
       const clipId = what === 'frame' ? url.searchParams.get('clip') : null;
-      const tweaks = clipId && isPage(at) ? await clipOverrides(project.path, clipId) : null;
+      const look = clipId && isPage(at) ? await pageClipLook(project.path, clipId) : null;
       const page = isPage(at) && (what === 'poster' || what === 'frame')
-        ? () => pageFrame(project.path, pages.folderUrl(project), at, what === 'poster' ? -1 : Number(url.searchParams.get('ms')), what === 'poster' ? 480 : Number(url.searchParams.get('w')), tweaks).catch((e) => {
+        ? () => pageFrame(project.path, pages.folderUrl(project), at, what === 'poster' ? -1 : Number(url.searchParams.get('ms')), what === 'poster' ? 480 : Number(url.searchParams.get('w')), look?.overrides ?? null, look?.size ?? null).catch((e) => {
           throw new HttpError(e instanceof PageFrameError ? 404 : 422, String(e?.message ?? e));
         })
         : null;
@@ -1099,6 +1142,9 @@ export function opener(target, platform = process.platform) {
   return platform === 'darwin' ? ['open', target] : ['xdg-open', target];
 }
 
+/** What Saved is served by on the film's origin (pages.mjs): no project's id has a NUL in it. */
+const SAVED_ORIGIN_ID = '\0saved';
+
 /**
  * What saved.mjs answers, its refusals as the HTTP errors they are.
  * @template T @param {() => Promise<T>} fn @returns {Promise<T>}
@@ -1114,14 +1160,16 @@ async function savedCall(fn) {
  * A saved clip's picture, from the middle of what it shows: a page drawn with the changes made in it, a video's frame,
  * a still's own; a sound has none.
  * @param {string} root @param {string} base the project's folder as the pages are served (pageframes.mjs)
- * @param {{ src: string, time?: unknown, overrides?: unknown }} clip @param {number} durationMs
+ * @param {{ src: string, time?: unknown, overrides?: unknown, size?: unknown }} clip @param {number} durationMs
  * @returns {Promise<Buffer | null>}
  */
 async function clipPoster(root, base, clip, durationMs) {
   const kind = clipKind(clip.src);
   const from = Array.isArray(clip.time) && typeof clip.time[0] === 'number' ? clip.time[0] * 1000 : 0;
   const ms = durationMs > 0 ? from + durationMs / 2 : -1;
-  if (kind === 'page') return pageFrame(root, base, clip.src, ms, 480, Array.isArray(clip.overrides) ? clip.overrides : null);
+  /* laid out at the clip's size, as the film lays it out (a page without one of its own is the clip's `size`) */
+  const size = /** @type {{ w?: number, h?: number } | undefined} */ (clip.size);
+  if (kind === 'page') return pageFrame(root, base, clip.src, ms, 480, Array.isArray(clip.overrides) ? clip.overrides : null, size?.w && size?.h ? { w: size.w, h: size.h } : null);
   if (kind === 'video') return frame(root, clip.src, Math.max(0, ms), 480);
   if (kind === 'still') return poster(root, clip.src);
   return null;

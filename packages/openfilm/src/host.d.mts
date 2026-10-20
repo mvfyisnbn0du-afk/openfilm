@@ -21,7 +21,7 @@ export interface FilmMeta { duration: number | null; width: number; height: numb
 /** One sound of the film as the built-in timeline plays it: `src` a path on the film's origin, placed at film second `at`, its source seconds [from, to). */
 export interface FilmSound { clip: string; src: string; at: number; from: number; to?: number; volume: number; speed: number }
 export declare class FilmPage {
-  static open(browser: Browser, origin: string, entry: string, opts?: { scale?: number; transparent?: boolean; black?: boolean; readyMs?: number; offline?: boolean; network?: PageNetwork; waitMs?: number }): Promise<FilmPage>;
+  static open(browser: Browser, origin: string, entry: string, opts?: { scale?: number; size?: { w: number; h: number } | null; transparent?: boolean; black?: boolean; readyMs?: number; offline?: boolean; network?: PageNetwork; waitMs?: number }): Promise<FilmPage>;
   page: Page;
   meta: FilmMeta;
   problems: Array<{ kind: string; message: string }>;
