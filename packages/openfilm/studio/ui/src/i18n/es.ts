@@ -1753,6 +1753,8 @@ export const es: Words = {
     },
     providers: {
       desc: 'De dónde vienen las voces, la música, los efectos de sonido, las transcripciones, las imágenes y el video. OpenFilm crea y edita películas sin ninguno de ellos: conecta uno cuando tu agente necesite medios. Cuál crea cada tipo de medio se elige en Servicios.',
+      groupRecommended: 'Recomendados',
+      groupMore: 'Más proveedores',
       connect: 'Conectar',
       disconnect: 'Desconectar',
       connected: 'Conectado',

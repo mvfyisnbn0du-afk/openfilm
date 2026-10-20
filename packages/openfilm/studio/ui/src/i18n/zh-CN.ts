@@ -1754,6 +1754,8 @@ export const zhCN: Words = {
     },
     providers: {
       desc: '配音、音乐、音效、文字稿、图片和视频从哪里来。即使不连接任何服务，OpenFilm 也能制作和编辑影片：等智能体需要素材时再连接即可。每种媒体具体用哪一个，在「服务」里选择。',
+      groupRecommended: '推荐',
+      groupMore: '更多服务商',
       connect: '连接',
       disconnect: '断开连接',
       connected: '已连接',

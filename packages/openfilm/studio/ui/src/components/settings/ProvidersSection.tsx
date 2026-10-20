@@ -1,6 +1,7 @@
 /**
  * Settings → Providers: the services `openfilm get` gets voices, music, sound effects, transcripts, images, video and
- * web searches from, one list in the order of their names, none put first.
+ * web searches from. The recommended ones first (lib/providers RECOMMENDED_PROVIDERS), the rest under More, folded
+ * until opened (open from the start when one of them is connected).
  *
  * ElevenLabs, OpenAI, Google Gemini, fal.ai, Groq, Pexels, Pixabay, Brave Search and Tavily connect with the person's
  * own key, which pays that service directly when it charges (a key in the environment shows as such and stays there).
@@ -8,9 +9,9 @@
  * services (CustomServices).
  */
 import React from 'react';
-import { ExternalLink, Plus } from 'lucide-react';
+import { ChevronRight, ExternalLink, Plus } from 'lucide-react';
 import { useT } from '@/i18n';
-import { useProviders, type OwnProvider, type ProviderVerb, type ProvidersHook } from '@/lib/providers';
+import { providerGroups, useProviders, type OwnProvider, type ProviderVerb, type ProvidersHook } from '@/lib/providers';
 import { customProblem } from './CustomServices';
 import { ProviderMark } from './ProviderMark';
 import { SettingsButton, SettingsField, SettingsGroup, SettingsInset, SettingsItem, SettingsPage, SettingsStatus, settingsError, settingsLink } from './ui';
@@ -22,13 +23,29 @@ const ABILITY_ORDER: ProviderVerb[] = ['tts', 'music', 'sfx', 'asr', 'image', 'i
 export function ProvidersSection() {
   const t = useT();
   const providers = useProviders();
-  const rows = [...(providers.state?.providers ?? [])].sort((a, b) => a.name.localeCompare(b.name));
+  const rows = providers.state?.providers ?? [];
+  const groups = providerGroups(rows);
+  /* folded until opened; a refused key under More opens it, so its reason shows */
+  const [moreOpen, setMoreOpen] = React.useState<boolean | null>(null);
+  const showMore = moreOpen ?? (groups.open || groups.more.some((p) => p.id === providers.problemFor));
 
   return (
     <SettingsPage note={t('settings.providers.desc')}>
-      <SettingsGroup footnote={t('settings.providers.keyNote')}>
-        {rows.map((provider) => <KeyRow key={provider.id} provider={provider} hook={providers} />)}
+      <SettingsGroup title={t('settings.providers.groupRecommended')} footnote={t('settings.providers.keyNote')}>
+        {groups.recommended.map((provider) => <KeyRow key={provider.id} provider={provider} hook={providers} />)}
       </SettingsGroup>
+      {groups.more.length ? (
+        <SettingsGroup title={(
+          <button type="button" aria-expanded={showMore} onClick={() => setMoreOpen(!showMore)}
+            className="-ml-1 inline-flex items-center gap-1 rounded-md px-1 transition hover:text-[var(--text)]">
+            <ChevronRight size={14} className={`transition-transform ${showMore ? 'rotate-90' : ''}`} aria-hidden />
+            {t('settings.providers.groupMore')}
+            <span className="text-[var(--text-faint)]">{groups.more.length}</span>
+          </button>
+        )}>
+          {showMore ? groups.more.map((provider) => <KeyRow key={provider.id} provider={provider} hook={providers} />) : null}
+        </SettingsGroup>
+      ) : null}
       {/* a key that was refused says why under its own field (KeyRow), not down here past the list; a custom service's
           under its form (Settings → Services) */}
       {providers.problem && !rows.some((p) => p.id === providers.problemFor) && !customProblem(providers) ? <p className={settingsError}>{providers.problem}</p> : null}

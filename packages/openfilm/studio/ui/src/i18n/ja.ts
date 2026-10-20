@@ -1753,6 +1753,8 @@ export const ja: Words = {
     },
     providers: {
       desc: '音声、音楽、効果音、書き起こし、画像、ビデオの提供元です。OpenFilm はこれらがなくても映像の作成・編集ができます。エージェントがメディアを必要とするときに接続してください。各種メディアにどれを使うかは「サービス」で選びます。',
+      groupRecommended: 'おすすめ',
+      groupMore: 'その他のプロバイダー',
       connect: '接続',
       disconnect: '接続を解除',
       connected: '接続済み',

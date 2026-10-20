@@ -1754,6 +1754,8 @@ export const en = {
     },
     providers: {
       desc: 'Where voices, music, sound effects, transcripts, images and video come from. OpenFilm makes and edits films without any of them: connect one when your agent needs media. Which one makes each kind of media is chosen under Services.',
+      groupRecommended: 'Recommended',
+      groupMore: 'More providers',
       connect: 'Connect',
       disconnect: 'Disconnect',
       connected: 'Connected',

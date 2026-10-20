@@ -1752,6 +1752,8 @@ export const ko: Words = {
     },
     providers: {
       desc: '음성, 음악, 효과음, 대본, 이미지, 비디오를 가져오는 곳입니다. OpenFilm은 이 서비스 없이도 영상을 만들고 편집합니다. 에이전트에게 미디어가 필요할 때 연결하세요. 각 미디어에 무엇을 쓸지는 「서비스」에서 고릅니다.',
+      groupRecommended: '추천',
+      groupMore: '더 많은 제공업체',
       connect: '연결',
       disconnect: '연결 해제',
       connected: '연결됨',
