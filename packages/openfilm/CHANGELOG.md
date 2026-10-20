@@ -1,5 +1,15 @@
 # openfilm
 
+## 0.2.4
+
+### Patch Changes
+
+- [#148](https://github.com/openfilm/openfilm/pull/148) [`0a90640`](https://github.com/openfilm/openfilm/commit/0a90640fa5412ab5501daeeb8f01e83691b9de76) Thanks [@PazChen](https://github.com/PazChen)! - The app's own agent (your own key) keeps a long conversation going when it looks at many frames. Pictures keep their full quality. A request carries the pictures of the agent's latest five reads, and at most 32 MB of them; an older one is left out of the request with a line naming its file, so the agent can read it again (the conversation keeps them). A model service that refuses a request as too large (HTTP 413, a proxy's page included) is tried again at once with half of the older pictures left out, and says so in the chat; before, every message after it failed the same way. Settings › Agents says that the agent's rules are the project's own AGENTS.md.
+
+- [#146](https://github.com/openfilm/openfilm/pull/146) [`29346ca`](https://github.com/openfilm/openfilm/commit/29346ca43b426a014faebafcebe3e8ce3a738faa) Thanks [@PazChen](https://github.com/PazChen)! - Sound played faster or slower is heard the moment the speed changes, and sounds natural. The browser plays it at that speed with its pitch kept, in the same mix, kept in step with the picture; nothing is made on the server first. 0.2.3 re-encoded the whole sound for each speed, which left long videos silent for seconds after a change and made voices sound hollow.
+
+  The viewer's playback button shows a speed gauge instead of the inspector's icon.
+
 ## 0.2.3
 
 ### Patch Changes
