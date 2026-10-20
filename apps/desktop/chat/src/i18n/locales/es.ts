@@ -273,6 +273,9 @@ export const es: Words = {
   /* the composer's button that opens the Community over the film: skills and examples (Studio's ExamplesGallery) */
   community: { button: 'Comunidad', tooltip: 'Comunidad: skills y ejemplos' },
   skills: {
+    keepOn: 'Usar en todos los mensajes de este proyecto',
+    keptOn: 'Siempre activas',
+    turnOff: 'Desactivar {name}',
     chooseCover: 'Elegir portada',
     removeCover: 'Deshacer selección',
     coverHint: 'Opcional · PNG, JPEG o WebP, hasta 5 MB. Sin cambios, se conserva la portada original.',

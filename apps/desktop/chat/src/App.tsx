@@ -71,7 +71,8 @@ import { app, type FfmpegState, type Project, type SkillListing, type StudioRef,
 import { Divider } from './components/Divider';
 import { draftRefs, pillCard, refFromPill, refPill, sameStudioThing, selectionMoment, selectionRange, selectionRefs, studioReferencesText } from './studio-refs';
 import { inChat } from './lib/chat-layer';
-import { useProjectChat } from './lib/chat-store';
+import { chatSkillsOn, setChatSkillsOn, useProjectChat } from './lib/chat-store';
+import { sentAfter, skillsOnLine, skillsToSend } from './lib/skills-on';
 import { ChatProjectContext, WaitingContext } from './lib/developer';
 
 const NO_ITEMS: TranscriptItem[] = [];
@@ -349,6 +350,13 @@ function ChatPane({ project, banners, selection, assetsOpen }: { project: Projec
     setSkillRefs((list) => (list.some((p) => p.id === pill.id) ? list : [...list, pill]));
     return pill;
   }, [skillWords]);
+  /* the skills kept on in this project (a skill pill's pin): every message's agent gets them (lib/skills-on) */
+  const [skillsOn, setSkillsOn] = React.useState<string[]>(() => chatSkillsOn(projectKey));
+  const keepSkillsOn = React.useCallback((names: string[]) => { setSkillsOn(names); setChatSkillsOn(projectKey, names); }, [projectKey]);
+  const pinSkill = React.useCallback((pill: PromptReference) => {
+    const name = skillReferencePackage(pill.id);
+    if (name && !skillsOn.includes(name)) keepSkillsOn([...skillsOn, name]);
+  }, [skillsOn, keepSkillsOn]);
   const pickSkill = React.useCallback((skill: PickedSkill) => {
     const pill = skillPill(skill);
     requestAnimationFrame(() => { composerRef.current?.insertReference(pill); composerRef.current?.focus(); });
@@ -699,8 +707,11 @@ function ChatPane({ project, banners, selection, assetsOpen }: { project: Projec
       used[index - 1] = ref;
       return `[${index}: ${refPill(pillId, ref).label}]`;
     }, (pillId) => { const name = skillReferencePackage(pillId); return name ? `skill “${name}”` : null; }).trim();
-    /* the skills it names: each one's SKILL.md follows the message, for the agent to read */
+    /* the skills it names: each one's SKILL.md follows the message, for the agent to read; and those kept on that this
+       conversation's agent has not had yet (lib/skills-on) */
     const skillNames = activatedSkillIds(followUpRefs);
+    const usable = skillsOn.filter((name) => nameableSkills.some((s) => s.name === name));
+    const keptOn = skillsToSend(usable, sessions.find((s) => s.id === sessionId)?.skillsSent, agent, skillNames);
     if (!instruction) return;
     const blocker = attachmentBlocker(composerFiles.files, t);
     if (blocker) { setFollowUpError(blocker); return; }
@@ -715,11 +726,13 @@ function ChatPane({ project, banners, selection, assetsOpen }: { project: Projec
     setSkillRefs([]);
     const files = composerFiles.take();
     const id = makeLocalAgentTurnId();
-    const said = instruction + attachedText(files);
+    const said = instruction + skillsOnLine(keptOn) + attachedText(files);
     const refs = used.filter(Boolean);
     const stage = selection?.stage ?? null;
     /* each reference's picture is kept in the project for the agent (the block names it), and sent to one that takes pictures */
-    const skillTexts = skillNames.length ? (app.skills?.texts(project.path, agent, skillNames).catch(() => []) ?? Promise.resolve([])) : Promise.resolve([]);
+    const pages = [...skillNames, ...keptOn];
+    const skillTexts = pages.length ? (app.skills?.texts(project.path, agent, pages).catch(() => []) ?? Promise.resolve([])) : Promise.resolve([]);
+    if (keptOn.length) touchSession(sessionId, (s) => ({ skillsSent: sentAfter(s.skillsSent, agent, keptOn) }));
     /* an example pointed at: its folder fetched now if it is not yet (the turn waits, as it waits for its reply) */
     const withFolders = Promise.all(refs.map(async (ref) => (ref.kind === 'example' && !ref.folder
       ? { ...ref, folder: await app.exampleFolder?.(ref.id).catch(() => undefined) } : ref)));
@@ -852,6 +865,27 @@ function ChatPane({ project, banners, selection, assetsOpen }: { project: Projec
           </div>
         )}
         {openedFile ? <AttachmentPreview item={openedFile} onClose={() => setOpenedFile(null)} /> : null}
+        {/* the skills kept on: every message goes with them; × turns one off */}
+        {skillsOn.length ? (
+          <div className="flex flex-wrap items-center gap-1.5 px-3.5 pt-2.5">
+            <span className="text-[11.5px] text-[var(--text-faint)]">{t('skills.keptOn')}</span>
+            {skillsOn.map((name) => {
+              const words = skillWords(name, nameableSkills.find((s) => s.name === name)?.description);
+              return (
+                <span key={name} title={words.summary || words.title}
+                  className="inline-flex h-6 max-w-[220px] items-center gap-1 rounded-[6px] border border-[var(--border)] pl-1.5 pr-0.5 text-[12px] text-[var(--text)]">
+                  <Blocks size={12} className="shrink-0 text-[var(--text-muted)]" aria-hidden />
+                  <span className="min-w-0 truncate">{words.title}</span>
+                  <button type="button" aria-label={t('skills.turnOff').replace('{name}', words.title)} title={t('skills.turnOff').replace('{name}', words.title)}
+                    onClick={() => keepSkillsOn(skillsOn.filter((n) => n !== name))}
+                    className="flex h-4 w-4 shrink-0 items-center justify-center rounded-[4px] text-[var(--text-faint)] transition hover:bg-[var(--bg-hover)] hover:text-[var(--text)]">
+                    <X size={10} />
+                  </button>
+                </span>
+              );
+            })}
+          </div>
+        ) : null}
         <div className="flex items-end gap-1 py-2.5 pl-3.5 pr-2">
           <div className="min-w-0 flex-1">
             <PromptEditor
@@ -865,6 +899,8 @@ function ChatPane({ project, banners, selection, assetsOpen }: { project: Projec
               onTransferReferences={onTransferReferences}
               revealLabel={t('library.revealReference')}
               removeLabel={t('library.removeReference')}
+              onPin={pinSkill}
+              pinLabel={t('skills.keepOn')}
               placeholder={t(blank ? 'project.composerPlaceholderBlank' : 'project.composerPlaceholder')}
               minHeight={22}
               maxHeight={158}

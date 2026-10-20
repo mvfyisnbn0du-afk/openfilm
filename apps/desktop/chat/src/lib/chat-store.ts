@@ -10,14 +10,14 @@ import type { ProjectSessionItem } from '@/lib/project-sessions';
 import { app } from '../app-bridge';
 
 export interface SavedTurn { turn: Turn; items: TranscriptItem[] }
-interface ProjectChat { sessions: ProjectSessionItem[]; last: string | null; turns: SavedTurn[] }
+interface ProjectChat { sessions: ProjectSessionItem[]; last: string | null; skills: string[]; turns: SavedTurn[] }
 
 const projects = new Map<string, ProjectChat>();
 const loading = new Map<string, Promise<void>>();
 /** which project each folder's record was read for: a project deleted and another made in its folder (a new
  * "Untitled" where the last one was) is not the same project, and does not get its chat */
 const readFor = new Map<string, string>();
-const EMPTY: ProjectChat = { sessions: [], last: null, turns: [] };
+const EMPTY: ProjectChat = { sessions: [], last: null, skills: [], turns: [] };
 
 /**
  * Read the project's record from its folder (once a launch, and again when another project takes the folder); the
@@ -39,11 +39,12 @@ export function openProjectChat(project: string, id: string): Promise<void> {
       projects.set(project, {
         sessions: Array.isArray(chat?.sessions) ? chat.sessions as ProjectSessionItem[] : [],
         last: typeof chat?.last === 'string' ? chat.last : null,
+        skills: Array.isArray(chat?.skills) ? (chat.skills as unknown[]).filter((n): n is string => typeof n === 'string') : [],
         turns: Array.isArray(chat?.turns) ? chat.turns as SavedTurn[] : [],
       });
     })
     /* not readable (not one of Studio's projects yet, a folder gone): an empty record, written once it changes */
-    .catch(() => { if (mine()) projects.set(project, { ...EMPTY, sessions: [], turns: [] }); })
+    .catch(() => { if (mine()) projects.set(project, { ...EMPTY, sessions: [], skills: [], turns: [] }); })
     .finally(() => { loading.delete(key); });
   loading.set(key, pending);
   return pending;
@@ -51,7 +52,7 @@ export function openProjectChat(project: string, id: string): Promise<void> {
 
 const record = (project: string): ProjectChat => {
   let chat = projects.get(project);
-  if (!chat) { chat = { ...EMPTY, sessions: [], turns: [] }; projects.set(project, chat); }
+  if (!chat) { chat = { ...EMPTY, sessions: [], skills: [], turns: [] }; projects.set(project, chat); }
   return chat;
 };
 
@@ -62,7 +63,7 @@ function writeSessions(project: string) {
   sessionWrites.set(project, setTimeout(() => {
     sessionWrites.delete(project);
     const chat = record(project);
-    void app.chat.saveSessions(project, chat.sessions, chat.last).catch(() => { /* written next time */ });
+    void app.chat.saveSessions(project, chat.sessions, chat.last, chat.skills).catch(() => { /* written next time */ });
   }, 150));
 }
 
@@ -77,6 +78,13 @@ export function setLastSession(project: string, id: string) {
   const chat = record(project);
   if (chat.last === id) return;
   chat.last = id;
+  writeSessions(project);
+}
+
+/** The skills kept on in this project: each message's agent gets them without their pill (lib/skills-on). */
+export const chatSkillsOn = (project: string): string[] => record(project).skills;
+export function setChatSkillsOn(project: string, names: string[]) {
+  record(project).skills = [...new Set(names)];
   writeSessions(project);
 }
 

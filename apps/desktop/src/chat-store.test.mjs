@@ -20,7 +20,7 @@ const logOnDisk = (dir, id, lines = 1) => until(() => readLog(dir, id), (read) =
 
 test('a project with no chat yet has none; what is saved comes back, the turns in the order they were asked', () => {
   const dir = project();
-  assert.deepEqual(loadChat(dir), { sessions: [], last: null, turns: [] });
+  assert.deepEqual(loadChat(dir), { sessions: [], last: null, skills: [], turns: [] });
   saveSessions(dir, { sessions: [{ id: 's1', title: 'One', createdAt: '2026-10-07T00:00:00Z' }], last: 's1' });
   saveTurn(dir, turn('t2', '2026-10-07T00:00:02Z'));
   saveTurn(dir, turn('t1', '2026-10-07T00:00:01Z'));
@@ -30,6 +30,14 @@ test('a project with no chat yet has none; what is saved comes back, the turns i
   assert.deepEqual(chat.turns.map((t) => t.turn.id), ['t1', 't2']);
   saveTurn(dir, { ...turn('t1', '2026-10-07T00:00:01Z'), items: [] });
   assert.deepEqual(loadChat(dir).turns.find((t) => t.turn.id === 't1').items, [], 'a turn saved again replaces itself');
+});
+
+test("the skills kept on in a project's chat are kept with its conversations: names only, each once", () => {
+  const dir = project();
+  saveSessions(dir, { sessions: [], last: null, skills: ['brand-voice', 'pace', 'brand-voice', '../x', 7, ''] });
+  assert.deepEqual(loadChat(dir).skills, ['brand-voice', 'pace']);
+  saveSessions(dir, { sessions: [], last: null });
+  assert.deepEqual(loadChat(dir).skills, [], 'none given: none kept');
 });
 
 test('a turn is written to its log as it happens and read back, a broken last line left out', async () => {

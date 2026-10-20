@@ -62,8 +62,8 @@ interface AppBridge {
   setMenuOpen(open: boolean): void;
   /** the project's chat record, in its folder: conversations and finished turns (.film/chat), each turn's log (.film/logs) */
   chat: {
-    load(project: string): Promise<{ sessions: unknown[]; last: string | null; turns: unknown[] }>;
-    saveSessions(project: string, sessions: unknown[], last: string | null): Promise<unknown>;
+    load(project: string): Promise<{ sessions: unknown[]; last: string | null; skills?: unknown[]; turns: unknown[] }>;
+    saveSessions(project: string, sessions: unknown[], last: string | null, skills?: string[]): Promise<unknown>;
     saveTurn(project: string, turn: unknown, items: unknown[]): Promise<unknown>;
     /** `unless`: the sizes of the log already read; when it has not grown, `{ same: true }` */
     log(project: string, turnId: string, unless?: { size: number; callsSize: number }): Promise<TurnLog | { same: true } | null>;

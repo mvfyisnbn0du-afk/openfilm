@@ -1,7 +1,7 @@
 'use client';
 
 import React from 'react';
-import { X } from 'lucide-react';
+import { Pin, X } from 'lucide-react';
 import {
   $getNodeByKey,
   DecoratorNode,
@@ -102,6 +102,9 @@ interface PromptReferencePillHandlers {
   onReveal?: (reference: PromptReference) => void;
   revealLabel?: string;
   removeLabel: string;
+  /** A skill pill's pin: keep that skill on for every message. */
+  onPin?: (reference: PromptReference) => void;
+  pinLabel?: string;
   /** What the hover card says. */
   describe?: (reference: PromptReference) => PromptPillCard | null;
 }
@@ -142,22 +145,40 @@ function PromptReferencePill({
       } : {})}
       {...(reveal && handlers?.revealLabel ? { title: `${reference.label} · ${handlers.revealLabel}` } : {})}
       trailing={(
-        <button
-          type="button"
-          aria-label={handlers?.removeLabel}
-          /* Keep focus in the editor on mouse down, so typing continues after removing. */
-          onMouseDown={(event) => event.preventDefault()}
-          onClick={(event) => {
-            event.preventDefault();
-            event.stopPropagation();
-            editor.update(() => {
-              $getNodeByKey(nodeKey)?.remove();
-            });
-          }}
-          className="flex h-[1.05em] w-[1.05em] shrink-0 items-center justify-center rounded-[4px] text-[var(--text-faint)] transition hover:bg-[var(--bg-hover)] hover:text-[var(--text)]"
-        >
-          <X size={10} />
-        </button>
+        <>
+          {reference.kind === 'skill' && handlers?.onPin ? (
+            <button
+              type="button"
+              aria-label={handlers.pinLabel}
+              title={handlers.pinLabel}
+              onMouseDown={(event) => event.preventDefault()}
+              onClick={(event) => {
+                event.preventDefault();
+                event.stopPropagation();
+                handlers.onPin?.(reference);
+              }}
+              className="flex h-[1.05em] w-[1.05em] shrink-0 items-center justify-center rounded-[4px] text-[var(--text-faint)] transition hover:bg-[var(--bg-hover)] hover:text-[var(--text)]"
+            >
+              <Pin size={10} />
+            </button>
+          ) : null}
+          <button
+            type="button"
+            aria-label={handlers?.removeLabel}
+            /* Keep focus in the editor on mouse down, so typing continues after removing. */
+            onMouseDown={(event) => event.preventDefault()}
+            onClick={(event) => {
+              event.preventDefault();
+              event.stopPropagation();
+              editor.update(() => {
+                $getNodeByKey(nodeKey)?.remove();
+              });
+            }}
+            className="flex h-[1.05em] w-[1.05em] shrink-0 items-center justify-center rounded-[4px] text-[var(--text-faint)] transition hover:bg-[var(--bg-hover)] hover:text-[var(--text)]"
+          >
+            <X size={10} />
+          </button>
+        </>
       )}
     />
   );

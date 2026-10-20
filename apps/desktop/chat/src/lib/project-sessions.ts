@@ -11,6 +11,8 @@ export interface ProjectSessionItem {
   turns: number;
   /** Each agent's own id of this conversation (by agent): its next turn goes on with it, after a restart too. */
   agentSessions?: Record<string, string>;
+  /** The skills kept on in the project that each agent has had in this conversation (lib/skills-on), by agent. */
+  skillsSent?: Record<string, string[]>;
 }
 
 export type SessionRecencyKey = 'today' | 'yesterday' | 'week' | 'earlier';
