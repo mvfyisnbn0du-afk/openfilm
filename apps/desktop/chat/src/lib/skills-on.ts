@@ -15,7 +15,10 @@ export function skillsToSend(on: readonly string[], sent: Readonly<Record<string
 
 /** What the conversation has given `agent` once this message goes: the skills kept on that are with it now too. */
 export function sentAfter(sent: Readonly<Record<string, readonly string[]>> | undefined, agent: string, given: readonly string[]): Record<string, string[]> {
-  return { ...(sent ?? {}), [agent]: [...new Set([...(sent?.[agent] ?? []), ...given])] };
+  const out: Record<string, string[]> = {};
+  for (const [by, names] of Object.entries(sent ?? {})) out[by] = [...names];
+  out[agent] = [...new Set([...(out[agent] ?? []), ...given])];
+  return out;
 }
 
 /** The line the agent reads for them, before their pages: the skills, as a pill names one. */

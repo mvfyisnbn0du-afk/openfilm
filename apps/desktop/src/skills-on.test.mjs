@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { sentAfter, skillsOnLine, skillsToSend } from './skills-on.ts';
+import { sentAfter, skillsOnLine, skillsToSend } from '../chat/src/lib/skills-on.ts';
 
 test('a skill kept on goes to each agent once a conversation, and not again beside its own pill', () => {
   assert.deepEqual(skillsToSend(['brand', 'pace'], undefined, 'codex', []), ['brand', 'pace']);
