@@ -3,7 +3,51 @@ import assert from 'node:assert/strict';
 import {
   SourceError, createSpeedMeter, examplesCollapsed, fetchErrorKey, followFetch, formatBytes, formatSeconds, looksLikeRepoUrl,
   pathCrumbs, secondsLeft, setExamplesCollapsed, type FetchJob,
+  SKILLS_CHANGED, watchSkills, type SkillEntry,
 } from './project-sources.ts';
+
+test('an open skills gallery reloads the current project after an addition and stops when closed', async (t) => {
+  const events = new EventTarget();
+  const lists: SkillEntry[][] = [];
+  const paths: string[] = [];
+  let skills: SkillEntry[] = [];
+  t.mock.method(globalThis, 'fetch', async (path: string) => {
+    paths.push(path);
+    return new Response(JSON.stringify({ skills }));
+  });
+  const stop = watchSkills('film 1', (list) => lists.push(list), events);
+  await new Promise(setImmediate);
+  assert.deepEqual(lists, [[]]);
+  skills = [{ name: 'new-skill', description: 'Added', source: 'mine', scripts: 0 }];
+  events.dispatchEvent(new Event(SKILLS_CHANGED));
+  await new Promise(setImmediate);
+  assert.deepEqual(lists.at(-1), skills);
+  assert.deepEqual(paths, ['/api/skills?project=film%201', '/api/skills?project=film%201']);
+  stop();
+  events.dispatchEvent(new Event(SKILLS_CHANGED));
+  await new Promise(setImmediate);
+  assert.equal(paths.length, 2);
+});
+
+test('a pre-addition request or closed gallery cannot publish a stale list', async (t) => {
+  const events = new EventTarget();
+  const pending: Array<(response: Response) => void> = [];
+  t.mock.method(globalThis, 'fetch', () => new Promise<Response>((resolve) => pending.push(resolve)));
+  const lists: SkillEntry[][] = [];
+  const stop = watchSkills(null, (list) => lists.push(list), events);
+  events.dispatchEvent(new Event(SKILLS_CHANGED));
+  const added: SkillEntry[] = [{ name: 'added', description: '', source: 'mine', scripts: 0 }];
+  pending[1]!(new Response(JSON.stringify({ skills: added })));
+  await new Promise(setImmediate);
+  pending[0]!(new Response(JSON.stringify({ skills: [] })));
+  await new Promise(setImmediate);
+  assert.deepEqual(lists, [added]);
+  events.dispatchEvent(new Event(SKILLS_CHANGED));
+  stop();
+  pending[2]!(new Response(JSON.stringify({ skills: [] })));
+  await new Promise(setImmediate);
+  assert.deepEqual(lists, [added]);
+});
 
 test('what looks like a repository address enables "Get"', () => {
   assert.ok(looksLikeRepoUrl('https://github.com/openfilm/examples/tree/main/one-prompt'));

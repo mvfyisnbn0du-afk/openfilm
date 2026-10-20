@@ -22,7 +22,7 @@ import {
 } from 'lucide-react';
 import { useLanguage, useT } from '@/i18n';
 import { studioHost, type CommunityItem } from '@/lib/host';
-import { seenExamples, seenSkills, sourcesApi, type Example, type SkillEntry } from '@/lib/project-sources';
+import { seenExamples, seenSkills, sourcesApi, watchSkills, type Example, type SkillEntry } from '@/lib/project-sources';
 import { GitHubDialog } from './ProjectSources';
 
 export type ExamplesMode = 'start' | 'reference';
@@ -106,8 +106,8 @@ export function ExamplesGallery({ mode, projectId = null, heading, initial, onCl
   React.useEffect(() => {
     let alive = true;
     void sourcesApi.examples().then((list) => { if (alive) setExamples(list); });
-    if (community) void sourcesApi.skills(projectId).then((list) => { if (alive) setSkills(list); });
-    return () => { alive = false; };
+    const stop = community ? watchSkills(projectId, setSkills) : undefined;
+    return () => { alive = false; stop?.(); };
   }, [projectId, community]);
 
   React.useEffect(() => {
