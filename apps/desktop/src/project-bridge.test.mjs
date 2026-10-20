@@ -22,7 +22,7 @@ function harness() {
     platform: 'linux',
     hello: async () => ({ chatOpen: true, chatWidth: 420, chatMin: 340, studioMin: 640, fullScreen: false }),
     agents: {}, localAgents: {}, chat: {}, skills: {},
-    setTheme() {}, onFullScreen() {}, onToggleChat() {},
+    setTheme() {}, setLanguage() {}, onFullScreen() {}, onToggleChat() {},
   };
   const context = vm.createContext({
     window: { openfilmNative: native },
