@@ -9,7 +9,7 @@ import { RATIO_SIZE, billedBy, call, clamp, download, extOf, imageSize, landing,
 
 /** @typedef {import('./contract.mjs').Provider} Provider @typedef {import('./contract.mjs').RunContext} RunContext */
 
-const NAME = 'Google Gemini';
+const NAME = 'Google';
 /** the models it makes each kind of media with, the default first (https://ai.google.dev/gemini-api/docs/models) */
 const MODELS = {
   tts: [{ id: 'gemini-3.8-flash-tts', name: 'Gemini 3.8 Flash TTS' }, { id: 'gemini-3.8-flash-lite-tts', name: 'Gemini 3.8 Flash-Lite TTS' }],

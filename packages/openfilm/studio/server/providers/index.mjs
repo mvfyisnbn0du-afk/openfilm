@@ -2,7 +2,7 @@
 /**
  * Which provider serves each verb of `openfilm get`, and the API of Studio's Settings → Providers and Models.
  *
- * A person's own key for ElevenLabs, OpenAI, Google (the Gemini API), fal.ai, Groq, Azure Speech, Pexels, Pixabay,
+ * A person's own key for ElevenLabs, OpenAI, Google (the Gemini API), fal.ai, Groq, Microsoft Azure (Azure AI Speech), Pexels, Pixabay,
  * Brave Search or Tavily pays that service directly for what it can do. Each makes a kind of media with the model the person chose for
  * it (the provider's first unless they did).
  * Who serves a verb: `--via <provider>` on the command, else the person's choice for that kind of media in Settings (`use`),

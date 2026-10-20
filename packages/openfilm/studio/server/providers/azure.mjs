@@ -1,6 +1,6 @@
 // @ts-check
 /**
- * Azure Speech with the person's own key: voice-over from the neural voices of Azure AI Speech
+ * Microsoft Azure with the person's own key: voice-over from the neural voices of Azure AI Speech
  * (https://learn.microsoft.com/azure/ai-services/speech-service/rest-text-to-speech), as WAV, with no word timings: a
  * voice-over's words are left to Studio to spread over the line.
  *
@@ -12,7 +12,7 @@ import { billedBy, call, clamp, landing, needed, notes, number, serviceUrl, text
 
 /** @typedef {import('./contract.mjs').Provider} Provider */
 
-const NAME = 'Azure Speech';
+const NAME = 'Microsoft Azure';
 /** WAV straight from the service: its length is read from the file itself. */
 const FORMAT = 'riff-24khz-16bit-mono-pcm';
 

@@ -48,7 +48,7 @@ test('voice-over: SSML in the voice\'s locale, as WAV, its length from the file;
   assert.equal(result.index[0].dur, 1);
   assert.equal(result.index[0].words, undefined);
   assert.match(result.receipt.notes[0], /no word timings/);
-  assert.equal(result.cost.note, 'billed by Azure Speech to your key');
+  assert.equal(result.cost.note, 'billed by Microsoft Azure to your key');
 });
 
 test('a key without a region is refused before anything is sent, unless AZURE_SPEECH_REGION says it', async () => {

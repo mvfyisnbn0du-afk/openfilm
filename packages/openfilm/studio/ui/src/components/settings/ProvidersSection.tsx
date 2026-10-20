@@ -3,7 +3,7 @@
  * web searches from. The recommended ones first (lib/providers RECOMMENDED_PROVIDERS), the rest under More, folded
  * until opened (open from the start when one of them is connected).
  *
- * ElevenLabs, OpenAI, Google Gemini, fal.ai, Groq, Pexels, Pixabay, Brave Search and Tavily connect with the person's
+ * ElevenLabs, OpenAI, Google, Microsoft Azure, fal.ai, Groq, Pexels, Pixabay, Brave Search and Tavily connect with the person's
  * own key, which pays that service directly when it charges (a key in the environment shows as such and stays there).
  * Which of them makes each kind of media, and with which model, is Settings → Services, with the person's own custom
  * services (CustomServices).
