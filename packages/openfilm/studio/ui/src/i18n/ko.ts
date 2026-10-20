@@ -503,6 +503,7 @@ export const ko: Words = {
     cancelled: '취소됨',
     cancelling: '취소하는 중…',
     failed: '내보내기 실패',
+    draftsRefused: "초안 폴더에 쓰기가 거부되어(보안 소프트웨어 때문인 경우가 많습니다) 초안은 내보내기 폴더에 있습니다. {folder}(으)로 옮기세요.",
     notTransparent: '투명한 픽셀이 없습니다. 이 요소가 자체 배경을 칠하고 있습니다.',
   },
   player: {

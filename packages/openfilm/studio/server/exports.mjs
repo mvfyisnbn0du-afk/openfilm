@@ -103,7 +103,7 @@ export { exportsRoot };
  *   status: 'waiting' | 'running' | 'done' | 'failed' | 'cancelled', progress: number, phase: ExportPhase | null,
  *   framesDone: number, framesTotal: number, rate: number, etaMs: number | null, encoder: string | null,
  *   out?: string, outputs: string[], bytes: number | null, alpha: { any: boolean } | null, error?: string, cancelling?: boolean,
- *   at: number, startedAt: number | null, finishedAt: number | null }} ExportJob
+ *   at: number, startedAt: number | null, finishedAt: number | null, draftsRefused?: string }} ExportJob
  */
 
 export class ExportError extends Error {
@@ -688,6 +688,20 @@ async function rasterize(browser, file, w, h, out) {
 }
 
 /**
+ * Whether a folder takes a new folder: one is made in it and removed. False when it refuses (EPERM, EACCES on
+ * Windows when security software or the folder's permissions say no) or is not there.
+ * @param {string} dir
+ */
+export async function writableFolder(dir) {
+  try {
+    await rmdir(await mkdtemp(join(dir, '.openfilm-')));
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
  * The export queue. `onChange(job)` is told every change of a job (its progress included), for the pages watching.
  * `captions(root)`: a film's subtitle cues and the person's style for them (captions.mjs by default).
  * `drafts(app)`: 剪映's or CapCut's drafts folder, where its draft goes (null: the exports folder); this computer's by default.
@@ -1033,8 +1047,11 @@ export function createExports({ onChange = () => {}, captions = subtitlesForExpo
     const ask = /** @type {NleAsk} */ (job.ask);
     const fcp = ask.format === 'fcpxml';
     const app = ask.format === 'jianying' || ask.format === 'capcut' ? ask.format : null;
-    /* a draft goes where its app lists its drafts, when the app is on this computer */
-    const dir = (app && drafts(app)) || out;
+    /* a draft goes where its app lists its drafts, when the app is on this computer; a drafts folder that refuses the
+       write (security software, or the app's own permissions on it) leaves the draft in the exports folder, said so */
+    const draftsDir = app ? drafts(app) : null;
+    const dir = draftsDir && await writableFolder(draftsDir) ? draftsDir : out;
+    if (draftsDir && dir !== draftsDir) update(job, { draftsRefused: draftsDir });
     const fps = nleFps(ask.fps ?? 30);
     const mode = ask.audio ?? 'clips';
     const title = safeName(job.name);

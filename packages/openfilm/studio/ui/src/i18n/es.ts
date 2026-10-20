@@ -503,6 +503,7 @@ export const es: Words = {
     cancelled: 'Cancelada',
     cancelling: 'Cancelando…',
     failed: 'La exportación falló',
+    draftsRefused: "La carpeta de borradores rechazó la escritura (suele hacerlo el software de seguridad), así que el borrador está en la carpeta de exportación: muévelo a {folder}.",
     notTransparent: 'No hay píxeles transparentes: este elemento pinta su propio fondo.',
   },
   player: {

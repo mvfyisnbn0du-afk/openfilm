@@ -57,6 +57,8 @@ export interface ExportJob {
   bytes: number | null;
   /** Whether a transparent export lets anything through (sampled frames); null when not measured. */
   alpha: { any: boolean } | null;
+  /** A draft's app's drafts folder that refused the write: the draft is in the exports folder instead. */
+  draftsRefused?: string;
   error?: string;
   /** Cancel was asked and the export is stopping (still `running` until it has). */
   cancelling?: boolean;

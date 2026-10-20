@@ -1,11 +1,11 @@
 import { test, before } from 'node:test';
 import assert from 'node:assert/strict';
 import { execFileSync, spawnSync } from 'node:child_process';
-import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { homedir, tmpdir } from 'node:os';
 import { basename, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { createExports, exportCapabilities, exportsRoot, ExportError, frameBox, dimsForShortEdge, projectFiles, projectSizes } from './exports.mjs';
+import { createExports, exportCapabilities, exportsRoot, ExportError, frameBox, dimsForShortEdge, projectFiles, projectSizes, writableFolder } from './exports.mjs';
 import { encoders, hardwareEncoder } from '../../src/encoders.mjs';
 import { allocateLanes, containMotion, fadeKeyframes, frameSpan, nleRate, planNleTimeline, xmemlDocument } from './nle.mjs';
 import { fcpxmlDocument } from './fcpxml.mjs';
@@ -822,6 +822,17 @@ test('剪映: the same timeline as a draft in 剪映\'s drafts folder, its media
   const text = info.tracks.find((t) => t.type === 'text');
   assert.deepEqual(info.materials.texts.map((m) => JSON.parse(m.content).text), CUES.map((c) => c.text));
   assert.deepEqual(text.segments.map((s) => s.target_timerange.start), [0, 800_000]);
+  /* a drafts folder that refuses the write: the draft in the exports folder, said so, rather than no draft */
+  if (process.platform === 'win32' || process.getuid?.() === 0) return;
+  chmodSync(drafts, 0o555);
+  try {
+    const refused = await ended(exports, exports.start(project('Cut', cut), { kind: 'nle', format: 'jianying', fps: 25 }));
+    assert.equal(refused.status, 'done', refused.error);
+    assert.equal(refused.draftsRefused, drafts);
+    assert.ok(refused.out.startsWith(exportsRoot()), refused.out);
+  } finally {
+    chmodSync(drafts, 0o755);
+  }
 });
 
 test('burned-in subtitles: drawn over the frame, bars included; a subtitle file beside the video', ffmpeg, async () => {
@@ -1021,4 +1032,19 @@ test('platforms that take the same picture are drawn once, the others get its fi
   const drawn = new Set(seen.filter((j) => j.phase === 'rendering').map((j) => j.id));
   assert.deepEqual(done.map((j) => drawn.has(j.id)), [true, false, false, true], 'only the first of the same, and the one at another rate');
   assert.ok(readFileSync(done[1].out).equals(readFileSync(done[0].out)) && readFileSync(done[2].out).equals(readFileSync(done[0].out)), 'the same file');
+});
+
+test("a drafts folder that refuses a new folder is told apart, and the probe leaves nothing behind", async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'of-drafts-'));
+  assert.equal(await writableFolder(dir), true);
+  assert.deepEqual(readdirSync(dir), [], 'the probe is removed');
+  assert.equal(await writableFolder(join(dir, 'missing')), false);
+  /* a folder Windows (or its security software) refuses is a folder without write permission here */
+  if (process.platform === 'win32' || process.getuid?.() === 0) return;
+  chmodSync(dir, 0o555);
+  try {
+    assert.equal(await writableFolder(dir), false);
+  } finally {
+    chmodSync(dir, 0o755);
+  }
 });

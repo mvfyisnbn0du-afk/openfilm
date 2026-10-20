@@ -503,6 +503,7 @@ export const ja: Words = {
     cancelled: 'キャンセル済み',
     cancelling: 'キャンセル中…',
     failed: '書き出しに失敗しました',
+    draftsRefused: "下書きフォルダへの書き込みが拒否されたため（セキュリティソフトによることが多いです）、下書きは書き出しフォルダにあります。{folder} に移してください。",
     notTransparent: '透明なピクセルがありません。この要素は自身の背景を描画しています。',
   },
   player: {

@@ -504,6 +504,7 @@ export const en = {
     cancelled: 'Cancelled',
     cancelling: 'Cancelling…',
     failed: 'Export failed',
+    draftsRefused: "The drafts folder refused the write (security software often does), so the draft is in the export folder: move it into {folder}.",
     notTransparent: 'No transparent pixels: this element paints its own background.',
   },
   player: {

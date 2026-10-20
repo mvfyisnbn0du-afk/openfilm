@@ -504,6 +504,7 @@ export const zhCN: Words = {
     cancelled: '已取消',
     cancelling: '正在取消…',
     failed: '导出失败',
+    draftsRefused: "草稿文件夹拒绝写入（常见于安全软件拦截），草稿已放到导出文件夹：把它移到 {folder} 即可。",
     notTransparent: '没有透明像素：此元素绘制了自己的背景。',
   },
   player: {

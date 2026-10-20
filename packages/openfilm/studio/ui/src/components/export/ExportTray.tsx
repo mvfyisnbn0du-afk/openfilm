@@ -261,6 +261,7 @@ function JobLine({ job, cancelling, t }: { job: ExportJob; cancelling: boolean; 
     return (
       <>
         {opaque && <p className="mt-0.5 text-[11.5px] leading-snug text-[var(--warn)]">{t('exportTray.notTransparent')}</p>}
+        {job.draftsRefused ? <p className="mt-0.5 break-words text-[11.5px] leading-snug text-[var(--warn)]">{t('exportTray.draftsRefused').replace('{folder}', job.draftsRefused)}</p> : null}
         <p className="mt-0.5 truncate text-[11.5px] text-[var(--text-faint)]" title={job.outputs.join('\n')}>
           {[job.outputs.length === 1 ? basenameOf(job.outputs[0]!) : t('exportTray.files').replace('{n}', String(job.outputs.length)),
             job.bytes ? formatBytes(job.bytes) : '', took ? t('exportTray.took').replace('{time}', took) : ''].filter(Boolean).join(' · ')}
