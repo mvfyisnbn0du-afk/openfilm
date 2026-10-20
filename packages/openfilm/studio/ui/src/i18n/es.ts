@@ -13,6 +13,11 @@ export const es: Words = {
   tabs: { label: 'Pestañas', new: 'Abrir un proyecto', close: 'Cerrar pestaña', closeOthers: 'Cerrar las demás pestañas', closeRight: 'Cerrar las pestañas a la derecha' },
   launcher: { projects: 'Proyectos', examples: 'Ejemplos' },
   gallery: {
+    chooseCover: "Elegir portada",
+    changeCover: "Cambiar portada",
+    removeCover: "Quitar portada",
+    coverSaving: "Guardando…",
+    coverInvalid: "Elige una imagen PNG, JPEG o WebP válida de hasta 5 MB.",
     title: 'Ejemplos',
     community: 'Comunidad',
     discoverNote: 'Películas hechas con OpenFilm, para empezar con ellas o aprender de cómo están hechas.',

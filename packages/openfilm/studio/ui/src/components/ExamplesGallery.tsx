@@ -126,7 +126,12 @@ export function ExamplesGallery({ mode, projectId = null, heading, initial, onCl
   if (opened?.kind === 'example') {
     body = <ExampleDetail example={opened.example} mode={mode} onStart={onStart} onReference={onReference} categoryLabel={kindLabel} />;
   } else if (opened?.kind === 'skill') {
-    body = <SkillDetail skill={opened.skill} mode={mode} onUse={onUseSkill} />;
+    const selected = opened.skill;
+    body = <SkillDetail key={`${selected.source}:${selected.name}`} skill={selected} projectId={projectId} mode={mode} onUse={onUseSkill} onCoverChanged={(cover) => {
+      const update = (skill: SkillEntry) => skill.source === 'mine' && skill.name === selected.name ? { ...skill, cover: cover ?? undefined } : skill;
+      setSkills((list) => list.map(update));
+      setOpened((current) => current?.kind === 'skill' ? { ...current, skill: update(current.skill) } : current);
+    }} />;
   } else if (view === 'skills') {
     const official = skills.filter((k) => k.source === 'official').sort(byOrder);
     const groups: Array<{ id: SkillGroup; items: SkillEntry[] }> = [
@@ -400,7 +405,7 @@ function SkillCard({ skill, onOpen }: { skill: SkillEntry; onOpen: () => void })
   return (
     <button type="button" onClick={onOpen} onMouseEnter={() => setHover(true)} onMouseLeave={() => setHover(false)} className="group flex min-w-0 flex-col text-left outline-none">
       <div className="relative aspect-video w-full overflow-hidden rounded-[12px] ring-1 ring-[var(--border)] transition group-hover:ring-[var(--border-strong)] group-focus-visible:ring-2 group-focus-visible:ring-[var(--text-muted)]">
-        <SkillCover skill={skill} title={words.title} playing={hover} />
+        <SkillCover key={skill.cover ?? ''} skill={skill} title={words.title} playing={hover} />
       </div>
       <div className="mt-3 truncate text-[14.5px] font-semibold tracking-[-0.005em] text-[var(--text)]">{words.title}</div>
       {words.summary ? <div className="mt-1 line-clamp-2 text-[12.5px] leading-[18px] text-[var(--text-muted)]">{words.summary}</div> : null}
@@ -413,20 +418,55 @@ function SkillCard({ skill, onOpen }: { skill: SkillEntry; onOpen: () => void })
  * A skill on its own: its preview (or picture) large on the left; on the right its title, kind and version, who it is
  * for and what it does, what the agent reads, and using it, at the bottom.
  */
-function SkillDetail({ skill, mode, onUse }: { skill: SkillEntry; mode: ExamplesMode; onUse?: (skill: SkillEntry) => void }) {
+function SkillDetail({ skill, projectId, mode, onUse, onCoverChanged }: {
+  skill: SkillEntry; projectId: string | null; mode: ExamplesMode; onUse?: (skill: SkillEntry) => void; onCoverChanged: (cover: string | null) => void;
+}) {
   const t = useT();
   const lang = useLanguage();
   const words = useSkillWords()(skill);
   const details = inLanguage(skill.shown?.details, lang);
   const group: SkillGroup = skill.source === 'official' ? (skill.kind === 'style' ? 'style' : 'workflow') : skill.source;
   const source = skill.repository ?? (skill.origin?.from === 'link' ? skill.origin.address : undefined);
+  const [busy, setBusy] = React.useState(false);
+  const [error, setError] = React.useState<string | null>(null);
+  const changeCover = async (file: File | null) => {
+    setBusy(true);
+    setError(null);
+    try {
+      let cover: string | null = null;
+      if (file) {
+        if (file.size > 5 * 1024 * 1024 || !['image/png', 'image/jpeg', 'image/webp'].includes(file.type)) throw new Error(t('gallery.coverInvalid'));
+        cover = await new Promise<string>((resolve, reject) => {
+          const reader = new FileReader();
+          reader.onload = () => resolve(String(reader.result));
+          reader.onerror = () => reject(new Error(t('gallery.coverInvalid')));
+          reader.readAsDataURL(file);
+        });
+        const image = new Image();
+        image.src = cover;
+        await image.decode().catch(() => { throw new Error(t('gallery.coverInvalid')); });
+      }
+      onCoverChanged(await sourcesApi.setSkillCover(skill.name, cover, projectId));
+    } catch (e) { setError(e instanceof Error ? e.message : String(e)); }
+    finally { setBusy(false); }
+  };
   return (
     <div className="grid h-full min-h-0 grid-cols-[minmax(0,1.65fr)_minmax(320px,1fr)] border-t border-[var(--border)]">
-      <div className="flex min-h-0 items-center justify-center bg-[color-mix(in_srgb,var(--bg)_55%,transparent)] p-8">
+      <div className="flex min-h-0 flex-col items-center justify-center gap-4 bg-[color-mix(in_srgb,var(--bg)_55%,transparent)] p-8">
         <div className="relative aspect-video w-full overflow-hidden rounded-[12px] bg-black ring-1 ring-[var(--border)]">
           {skill.preview ? <video src={skill.preview} poster={skill.cover} autoPlay muted loop controls playsInline className="absolute inset-0 h-full w-full object-contain" />
-            : <SkillCover skill={skill} title={words.title} big />}
+            : <SkillCover key={skill.cover ?? ''} skill={skill} title={words.title} big />}
         </div>
+        {skill.source === 'mine' ? <div className="flex flex-wrap items-center justify-center gap-3 text-[12px] text-[var(--text-muted)]">
+          <label className={`cursor-pointer rounded-[8px] border border-[var(--border)] px-3 py-2 focus-within:ring-2 focus-within:ring-[var(--text-muted)] ${busy ? 'pointer-events-none opacity-40' : 'hover:bg-[var(--bg-hover)]'}`}>
+            {t(skill.cover ? 'gallery.changeCover' : 'gallery.chooseCover')}
+            <input type="file" accept="image/png,image/jpeg,image/webp" aria-label={t(skill.cover ? 'gallery.changeCover' : 'gallery.chooseCover')} disabled={busy} className="sr-only"
+              onChange={(e) => { const file = e.target.files?.[0]; e.target.value = ''; if (file) void changeCover(file); }} />
+          </label>
+          {skill.cover ? <button type="button" disabled={busy} onClick={() => void changeCover(null)} className="rounded-[8px] px-3 py-2 hover:bg-[var(--bg-hover)] disabled:opacity-40">{t('gallery.removeCover')}</button> : null}
+          {busy ? <span role="status">{t('gallery.coverSaving')}</span> : null}
+        </div> : null}
+        {error ? <p role="alert" className="text-[12px] text-[var(--warn)]">{error}</p> : null}
       </div>
       <div className="flex min-h-0 flex-col border-l border-[var(--border)]">
         <div className="min-h-0 flex-1 overflow-y-auto px-7 pt-7">

@@ -14,6 +14,11 @@ export const zhCN: Words = {
   tabs: { label: '标签页', new: '打开项目', close: '关闭标签页', closeOthers: '关闭其他标签页', closeRight: '关闭右侧标签页' },
   launcher: { projects: '我的项目', examples: '示例' },
   gallery: {
+    chooseCover: "选择封面",
+    changeCover: "更换封面",
+    removeCover: "移除封面",
+    coverSaving: "保存中…",
+    coverInvalid: "请选择有效的 PNG、JPEG 或 WebP 图片，最大 5 MB。",
     title: '示例',
     community: '社区',
     discoverNote: '用 OpenFilm 做的片子，可以从它开始，也可以参考它的做法。',

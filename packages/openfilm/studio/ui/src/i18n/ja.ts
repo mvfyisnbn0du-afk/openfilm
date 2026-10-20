@@ -13,6 +13,11 @@ export const ja: Words = {
   tabs: { label: 'タブ', new: 'プロジェクトを開く', close: 'タブを閉じる', closeOthers: '他のタブを閉じる', closeRight: '右側のタブを閉じる' },
   launcher: { projects: 'プロジェクト', examples: 'サンプル' },
   gallery: {
+    chooseCover: "カバーを選択",
+    changeCover: "カバーを変更",
+    removeCover: "カバーを外す",
+    coverSaving: "保存中…",
+    coverInvalid: "5 MB 以下の有効な PNG、JPEG、WebP 画像を選択してください。",
     title: 'サンプル',
     community: 'コミュニティ',
     discoverNote: 'OpenFilm で作った映像。ここから始めることも、作り方を参考にすることもできます。',

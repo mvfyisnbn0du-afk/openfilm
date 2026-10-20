@@ -2,8 +2,37 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
   SourceError, createSpeedMeter, examplesCollapsed, fetchErrorKey, followFetch, formatBytes, formatSeconds, looksLikeRepoUrl,
-  pathCrumbs, secondsLeft, setExamplesCollapsed, type FetchJob,
+  pathCrumbs, secondsLeft, setExamplesCollapsed, seenSkills, sourcesApi, type FetchJob,
 } from './project-sources.ts';
+
+test('cover edits update cached personal skills, preserve project overrides, and retain state on failure', async (t) => {
+  const mine = { name: 'cover-edit', description: '', source: 'mine', scripts: 0, cover: '/old.png' };
+  const project = { ...mine, source: 'project' };
+  const requests: Array<{ path: string; method: string; body?: string }> = [];
+  t.mock.method(globalThis, 'fetch', async (path: string, opts: RequestInit = {}) => {
+    requests.push({ path, method: String(opts.method ?? 'GET'), body: opts.body as string | undefined });
+    if (opts.method === 'PUT') return new Response(JSON.stringify({ cover: '/new.png' }));
+    if (opts.method === 'DELETE') return new Response(JSON.stringify({ cover: null }));
+    return new Response(JSON.stringify({ skills: path.includes('override') ? [project] : [mine] }));
+  });
+  await sourcesApi.skills('personal');
+  await sourcesApi.skills('override');
+  assert.equal(await sourcesApi.setSkillCover(mine.name, 'data:image/png;base64,test', 'personal'), '/new.png');
+  assert.deepEqual(requests.at(-1), { path: '/api/skills/cover-edit/cover?project=personal', method: 'PUT', body: '{"cover":"data:image/png;base64,test"}' });
+  assert.equal(seenSkills('personal')?.[0]?.cover, '/new.png');
+  assert.equal(seenSkills('override')?.[0]?.cover, '/old.png');
+  t.mock.method(globalThis, 'fetch', async () => new Response('{"error":"not saved"}', { status: 400 }));
+  await assert.rejects(sourcesApi.setSkillCover(mine.name, null, 'personal'), /not saved/);
+  assert.equal(seenSkills('personal')?.[0]?.cover, '/new.png');
+  t.mock.restoreAll();
+  t.mock.method(globalThis, 'fetch', async (_path: string, opts: RequestInit) => {
+    assert.equal(opts.method, 'DELETE');
+    assert.equal(opts.body, undefined);
+    return new Response('{"cover":null}');
+  });
+  assert.equal(await sourcesApi.setSkillCover(mine.name, null, 'personal'), null);
+  assert.equal(seenSkills('personal')?.[0]?.cover, undefined);
+});
 
 test('what looks like a repository address enables "Get"', () => {
   assert.ok(looksLikeRepoUrl('https://github.com/openfilm/examples/tree/main/one-prompt'));

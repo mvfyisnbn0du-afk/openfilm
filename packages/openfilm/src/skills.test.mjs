@@ -1,9 +1,9 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { cpSync, mkdirSync, mkdtempSync, writeFileSync, existsSync, readFileSync } from 'node:fs';
+import { cpSync, mkdirSync, mkdtempSync, writeFileSync, existsSync, readFileSync, symlinkSync, lstatSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { addSkills, findSkill, listSkills, migrateMySkills, mySkillsDir, parseSkillFile, readSkill, removeSkill, skillOrigins, skillText } from './skills.mjs';
+import { addSkills, findSkill, listSkills, migrateMySkills, mySkillsDir, parseSkillFile, readSkill, removeSkill, setSkillCover, skillOrigins, skillText } from './skills.mjs';
 import { commitSkills, discardSkills, previewFolder, previewSkills, skillCommand, skillsCommand } from './skills-cli.mjs';
 
 const skill = (dir, name, description, body = 'How to make it.', extra = {}) => {
@@ -17,6 +17,27 @@ const skill = (dir, name, description, body = 'How to make it.', extra = {}) => 
 };
 
 const coverPng = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jRZkAAAAASUVORK5CYII=';
+
+test('cover edits do not follow a personal skill folder outside its library or write through metadata symlinks', () => {
+  const root = mkdtempSync(join(tmpdir(), 'of-skill-cover-links-'));
+  const mine = join(root, 'mine');
+  mkdirSync(mine);
+  const outside = skill(join(root, 'outside'), 'linked', 'Outside');
+  symlinkSync(outside, join(mine, 'linked'), 'junction');
+  assert.throws(() => setSkillCover('linked', coverPng, { mine }), /inside your skills folder/);
+  assert.equal(existsSync(join(outside, 'openfilm.json')), false);
+  const own = skill(join(mine, 'own'), 'own', 'Own');
+  const metadata = join(root, 'shared.json');
+  writeFileSync(metadata, '{"custom":"original"}');
+  /* A file symlink needs privileges on Windows; the folder-junction boundary above still runs there. */
+  if (process.platform === 'win32') return;
+  symlinkSync(metadata, join(own, 'openfilm.json'));
+  setSkillCover('own', coverPng, { mine });
+  assert.equal(readFileSync(metadata, 'utf8'), '{"custom":"original"}');
+  assert.equal(lstatSync(join(own, 'openfilm.json')).isSymbolicLink(), false);
+  setSkillCover('own', null, { mine });
+  assert.deepEqual(JSON.parse(readFileSync(join(own, 'openfilm.json'), 'utf8')), { custom: 'original' });
+});
 
 test('a chosen cover is kept with the copied skill, preserving its metadata and source', async () => {
   const root = mkdtempSync(join(tmpdir(), 'of-skill-cover-'));

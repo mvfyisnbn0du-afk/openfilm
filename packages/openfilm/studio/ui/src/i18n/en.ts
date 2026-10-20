@@ -14,6 +14,11 @@ export const en = {
   tabs: { label: 'Tabs', new: 'Open a project', close: 'Close tab', closeOthers: 'Close other tabs', closeRight: 'Close tabs to the right' },
   launcher: { projects: 'Projects', examples: 'Examples' },
   gallery: {
+    chooseCover: "Choose cover",
+    changeCover: "Change cover",
+    removeCover: "Remove cover",
+    coverSaving: "Saving…",
+    coverInvalid: "Choose a valid PNG, JPEG or WebP image up to 5 MB.",
     title: 'Examples',
     community: 'Community',
     discoverNote: 'Films made with OpenFilm, to start from or to learn from.',

@@ -13,6 +13,11 @@ export const ko: Words = {
   tabs: { label: '탭', new: '프로젝트 열기', close: '탭 닫기', closeOthers: '다른 탭 닫기', closeRight: '오른쪽 탭 닫기' },
   launcher: { projects: '내 프로젝트', examples: '예시' },
   gallery: {
+    chooseCover: "표지 선택",
+    changeCover: "표지 변경",
+    removeCover: "표지 제거",
+    coverSaving: "저장 중…",
+    coverInvalid: "5 MB 이하의 올바른 PNG, JPEG 또는 WebP 이미지를 선택하세요.",
     title: '예시',
     community: '커뮤니티',
     discoverNote: 'OpenFilm으로 만든 영상. 여기서 시작하거나 만든 방식을 참고하세요.',

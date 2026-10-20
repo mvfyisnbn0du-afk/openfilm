@@ -18,10 +18,10 @@
  * `openfilm skills` lists them and `openfilm skill <name>` prints one, as `openfilm` prints the manual: that is how any
  * agent reads a skill. The desktop app's chat offers the same list (apps/desktop).
  */
-import { cpSync, existsSync, mkdirSync, readFileSync, readdirSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { cpSync, existsSync, mkdirSync, readFileSync, readdirSync, realpathSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { cp, mkdir, rename, rm } from 'node:fs/promises';
 import { homedir } from 'node:os';
-import { basename, dirname, join, resolve } from 'node:path';
+import { basename, dirname, join, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { randomUUID } from 'node:crypto';
 import { moveToTrash } from '../studio/server/trash.mjs';
@@ -284,18 +284,7 @@ export async function addSkills(from, { mine = mySkillsDir(), move = false, orig
     if (move && found.length === 1) await rename(skill.folder, staging);
     else await cp(skill.folder, staging, { recursive: true, filter: (p) => basename(p) !== '.git' });
     const picture = pictures.get(skill.name);
-    if (picture) {
-      const file = `openfilm-cover-${randomUUID()}.${picture.extension}`;
-      let metadata = {};
-      try { metadata = JSON.parse(readFileSync(join(staging, 'openfilm.json'), 'utf8')); } catch (e) {
-        if (/** @type {any} */ (e).code !== 'ENOENT') throw new Error('Cannot update the skill\'s openfilm.json.', { cause: e });
-      }
-      if (!metadata || typeof metadata !== 'object' || Array.isArray(metadata)) throw new Error('Cannot update the skill\'s openfilm.json.');
-      writeFileSync(join(staging, file), picture.bytes, { flag: 'wx' });
-      /* Replace the copied metadata file itself; a source symlink must not be written through. */
-      await rm(join(staging, 'openfilm.json'), { force: true });
-      writeFileSync(join(staging, 'openfilm.json'), `${JSON.stringify({ ...metadata, cover: file }, null, 2)}\n`, { flag: 'wx' });
-    }
+    if (picture) writeSkillCover(staging, picture);
     /* one of the same name is replaced: the one there goes to the trash, never deleted */
     if (existsSync(to)) await moveToTrash(to);
     await rename(staging, to);
@@ -316,6 +305,41 @@ function coverPicture(data) {
   const extension = match[1] === 'jpeg' ? 'jpg' : match[1];
   if (pictureType(bytes) !== extension) throw new Error('Skill cover does not match its image format.');
   return { bytes, extension };
+}
+
+/** Replace the metadata atomically; keep previous pictures, which may also be used by the skill's content.
+ * @param {string} folder @param {{ bytes: Buffer, extension: string } | null} picture */
+function writeSkillCover(folder, picture) {
+  const metadataFile = join(folder, 'openfilm.json');
+  /** @type {Record<string, unknown>} */
+  let metadata = {};
+  try { metadata = JSON.parse(readFileSync(metadataFile, 'utf8')); } catch (e) {
+    if (/** @type {any} */ (e).code !== 'ENOENT') throw new Error('Cannot update the skill\'s openfilm.json.', { cause: e });
+  }
+  if (!metadata || typeof metadata !== 'object' || Array.isArray(metadata)) throw new Error('Cannot update the skill\'s openfilm.json.');
+  const file = picture ? `openfilm-cover-${randomUUID()}.${picture.extension}` : null;
+  const temporary = join(folder, `.openfilm-${randomUUID()}.json`);
+  let wrotePicture = false;
+  try {
+    if (picture && file) { writeFileSync(join(folder, file), picture.bytes, { flag: 'wx' }); wrotePicture = true; metadata.cover = file; }
+    else delete metadata.cover;
+    writeFileSync(temporary, `${JSON.stringify(metadata, null, 2)}\n`, { flag: 'wx' });
+    /* Rename replaces a metadata symlink itself, without writing through it to the source. */
+    renameSync(temporary, metadataFile);
+  } catch (e) {
+    if (wrotePicture && file) rmSync(join(folder, file), { force: true });
+    throw e;
+  } finally { rmSync(temporary, { force: true }); }
+}
+
+/** Change only a person's own installed skill. Null removes its cover declaration, never its picture files.
+ * @param {string} name @param {string | null} cover @param {{ mine?: string }} [where] */
+export function setSkillCover(name, cover, { mine = mySkillsDir() } = {}) {
+  const skill = skillsIn(mine, 'mine').find((s) => s.name === name);
+  if (!skill) throw new Error('No personal skill with that name.');
+  if (!realpathSync(skill.folder).startsWith(`${realpathSync(mine)}${sep}`)) throw new Error('The skill must be kept inside your skills folder.');
+  writeSkillCover(skill.folder, cover === null ? null : coverPicture(cover));
+  return readSkill(skill.folder, 'mine');
 }
 
 /**

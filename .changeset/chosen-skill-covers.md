@@ -3,4 +3,4 @@
 "@openfilm/desktop": minor
 ---
 
-Choose a cover image for each skill while adding it from a link or a folder.
+Choose cover images when adding skills, and replace or remove covers for your own skills from their details.

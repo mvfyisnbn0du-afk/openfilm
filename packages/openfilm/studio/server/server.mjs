@@ -49,7 +49,7 @@ import { FILM_PAGE, PageFrameError, closePageFrames, filmPoster, pageFacts, page
 import { COVER_FRAME_W, CoverError, clearCover, readCover, readCoverBody, setCover, setCoverFromFile } from './cover.mjs';
 import { SavedError, bundlePoster, libraryPath, libraryRel, libraryRoot as savedLibrary, listLibrary, saveClip, saveFile, saveGroup, takeSaved } from './saved.mjs';
 import { FILM_FILE, clipKind, isPage } from '../../src/film-doc.mjs';
-import { listSkills, skillOrigins } from '../../src/skills.mjs';
+import { listSkills, setSkillCover, skillOrigins } from '../../src/skills.mjs';
 import { providersRoute } from './providers/index.mjs';
 import { captionRoutes } from './captions.mjs';
 import { projectSettingsRoute } from './project-settings.mjs';
@@ -441,6 +441,20 @@ export async function startStudio({ port = 4747, key, openBrowser = systemBrowse
           ...(k.source === 'mine' ? { origin: origins[basename(k.folder)] ?? { from: 'made' } } : {}),
         })),
       });
+    }
+    /* Only the person's own skill can be changed; a project override must not edit a hidden personal skill. */
+    if (parts[0] === 'skills' && parts.length === 3 && parts[2] === 'cover' && (req.method === 'PUT' || req.method === 'DELETE')) {
+      const id = url.searchParams.get('project');
+      const project = id ? (await listProjects()).find((p) => p.id === id && !p.missing) : null;
+      const name = decodeURIComponent(parts[1]);
+      const skill = listSkills({ project: project?.path ?? null }).find((s) => s.name === name);
+      if (!skill) throw new HttpError(404, 'no such skill');
+      if (skill.source !== 'mine') throw new HttpError(403, 'Only your own skills can have their cover changed.');
+      const cover = req.method === 'DELETE' ? null : (await readJson(req, 7 << 20))?.cover;
+      try {
+        const updated = setSkillCover(name, cover);
+        return json(res, 200, { cover: updated?.cover ? `/api/skills/${encodeURIComponent(name)}/cover?v=${encodeURIComponent(updated.cover)}` : null });
+      } catch (e) { throw new HttpError(400, e instanceof Error ? e.message : String(e)); }
     }
     /* a skill's cover picture or preview video (its openfilm.json's `cover`, `preview`) */
     if (parts[0] === 'skills' && parts.length === 3 && (parts[2] === 'cover' || parts[2] === 'preview') && req.method === 'GET') {

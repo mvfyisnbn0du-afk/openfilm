@@ -100,6 +100,12 @@ export const sourcesApi = {
   exampleFolder: (id: string) => call<{ folder: string }>(`examples/${encodeURIComponent(id)}/folder`, 'POST').then((r) => r.folder),
   skills: (projectId?: string | null) => call<{ skills: SkillEntry[] }>(`skills${projectId ? `?project=${encodeURIComponent(projectId)}` : ''}`)
     .then((r) => { seen.skills.set(projectId ?? '', r.skills); return r.skills; }, () => seenSkills(projectId) ?? []),
+  setSkillCover: async (name: string, cover: string | null, projectId?: string | null): Promise<string | null> => {
+    const path = `skills/${encodeURIComponent(name)}/cover${projectId ? `?project=${encodeURIComponent(projectId)}` : ''}`;
+    const result = await call<{ cover: string | null }>(path, cover === null ? 'DELETE' : 'PUT', cover === null ? undefined : { cover });
+    for (const [key, skills] of seen.skills) seen.skills.set(key, skills.map((skill) => skill.source === 'mine' && skill.name === name ? { ...skill, cover: result.cover ?? undefined } : skill));
+    return result.cover;
+  },
   /** asked as Studio opens, so a gallery opened later shows its examples and skills at once */
   preload: () => { void sourcesApi.examples(); void sourcesApi.skills(null); },
   locate: (id: string, path: string) => call<{ project: { id: string } }>(`projects/${encodeURIComponent(id)}/locate`, 'POST', { path }).then((r) => r.project),
