@@ -174,6 +174,8 @@ export const en = {
     missing: 'Folder not found',
     missingOpen: 'This project’s folder is not there any more: it was moved, renamed or deleted. You can remove it from the list.',
     agentRunning: 'Agent running',
+    agentRunningRename: 'An agent is running in this project. Stop it first, then rename the project.',
+    exportRunningRename: 'An export is running or queued for this project. Wait for it to finish or cancel it, then rename the project.',
     agentRunningDelete: 'An agent is running in this project. Stop it first, then delete the project.',
     agentRunningDeleteMany: 'An agent is running in {n} of these projects. Stop it first, then delete them.',
     removeFromList: 'Remove from list',

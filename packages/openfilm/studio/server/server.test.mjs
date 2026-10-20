@@ -1,6 +1,8 @@
 import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, rmSync, statSync, symlinkSync, writeFileSync } from 'node:fs';
+import fsPromises from 'node:fs/promises';
+import { syncBuiltinESMExports } from 'node:module';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { execFileSync } from 'node:child_process';
@@ -177,6 +179,171 @@ test('a project\'s event stream reports the agent writing film.html', async () =
   assert.ok(got.find((e) => e.type === 'film').rev);
 });
 
+test('rename refreshes only its open pages, including writes still waiting to settle', { timeout: 10_000 }, async () => {
+  const { project } = await (await api('/api/projects', { method: 'POST', body: { name: 'Refresh draft' } })).json();
+  const before = await (await api(`/api/projects/${project.id}`)).json();
+  const { project: other } = await (await api('/api/projects', { method: 'POST', body: { name: 'Unchanged project' } })).json();
+  const sockets = [project, project, other].map((project) => {
+    const ws = new WebSocket(`${studio.origin.replace(/^http/, 'ws')}/api/projects/${project.id}/events`, { headers: { 'x-studio-key': studio.key } });
+    const page = { ws, events: [] };
+    ws.onmessage = (event) => page.events.push(JSON.parse(String(event.data)));
+    return page;
+  });
+  const pages = sockets.slice(0, 2);
+  const unaffected = sockets[2];
+  try {
+    await Promise.all(sockets.map(({ ws }) => new Promise((done, fail) => { ws.onopen = done; ws.onerror = fail; })));
+    await new Promise((r) => setTimeout(r, 600));
+    /* only the project event: on a Mac the watcher can still report the new project's own files after the wait */
+    assert.deepEqual(unaffected.events.filter((e) => e.type === 'project'), [{ type: 'project', project: other }], 'every connection receives its current project');
+    unaffected.events.length = 0;
+    let current = before;
+    for (const [name, text] of [['Refresh film', null], ['Refresh final', filmHtml({ stage: { w: 800, h: 450 }, tracks: [] })]]) {
+      for (const page of pages) page.events.length = 0;
+      // A write just before rename must not be lost when its old watcher's settle timer is cancelled.
+      if (text) writeFileSync(join(current.project.path, 'film.html'), text);
+      const previous = current.project.path;
+      const renamed = (await (await api(`/api/projects/${project.id}`, { method: 'PATCH', body: { name } })).json()).project;
+      const refreshed = () => pages.every(({ events }) => ['project', 'film', 'files', 'history'].every((type) => events.some((e) => e.type === type)));
+      for (const end = Date.now() + 4000; !refreshed() && Date.now() < end;) await new Promise((r) => setTimeout(r, 25));
+      assert.ok(refreshed(), 'both existing sockets refresh without another write or reconnect');
+      current = await (await api(`/api/projects/${project.id}`)).json();
+      assert.equal(current.project.path, renamed.path);
+      assert.notEqual(current.project.path, previous);
+      if (text) assert.deepEqual(current.doc.stage, { w: 800, h: 450 });
+      else assert.equal(current.rev, before.rev, 'unchanged films still refresh the project path');
+      for (const { events } of pages) {
+        assert.ok(events.some((e) => e.type === 'film' && e.rev === ''), 'a forced refresh bypasses the editor’s unchanged-revision filter');
+        assert.deepEqual(events.find((e) => e.type === 'project').project, renamed);
+      }
+      assert.deepEqual(unaffected.events, [], 'a different open project never refreshes');
+      const reconnected = await collect(`/api/projects/${project.id}/events`, (events) => events.some((e) => e.type === 'project'));
+      assert.deepEqual(reconnected.find((e) => e.type === 'project').project, renamed, 'a page reconnecting after rename receives the current name and path');
+      assert.equal((await fetch(`${before.folder}film.html`)).status, 200, 'the existing preview address resolves to the renamed folder');
+    }
+  } finally {
+    await Promise.all(sockets.map(({ ws }) => new Promise((done) => { ws.onclose = done; ws.close(); })));
+  }
+});
+
+test('saving the same project name does not redraw its open page or replace its watcher', { timeout: 10_000 }, async () => {
+  const { project } = await (await api('/api/projects', { method: 'POST', body: { name: 'Same name' } })).json();
+  const ws = new WebSocket(`${studio.origin.replace(/^http/, 'ws')}/api/projects/${project.id}/events`, { headers: { 'x-studio-key': studio.key } });
+  const events = [];
+  ws.onmessage = (event) => events.push(JSON.parse(String(event.data)));
+  try {
+    await new Promise((done, fail) => { ws.onopen = done; ws.onerror = fail; });
+    await new Promise((done) => setTimeout(done, 600));
+    events.length = 0;
+    for (const name of ['Same name', '  Same name  ']) {
+      const response = await api(`/api/projects/${project.id}`, { method: 'PATCH', body: { name } });
+      assert.equal(response.status, 200);
+      assert.deepEqual((await response.json()).project, project);
+    }
+    await new Promise((done) => setTimeout(done, 250));
+    assert.deepEqual(events, [], 'unchanged names, including normalized names, send no redraw events');
+    writeFileSync(join(project.path, 'after.html'), '<p>still watched</p>');
+    for (const end = Date.now() + 4000; !events.some((e) => e.type === 'files') && Date.now() < end;) await new Promise((done) => setTimeout(done, 25));
+    assert.ok(events.some((e) => e.type === 'files' && e.paths?.includes('after.html')), 'the original watcher still reports changes');
+  } finally {
+    await new Promise((done) => { ws.onclose = done; ws.close(); });
+  }
+});
+
+test('rename waits for this project’s running or queued exports, but other projects can be renamed', { timeout: 15_000 }, async (t) => {
+  const create = async (name) => (await (await api('/api/projects', { method: 'POST', body: { name } })).json()).project;
+  const running = await create('Exporting draft');
+  const waiting = await create('Queued draft');
+  const other = await create('Idle draft');
+  const film = join(running.path, 'film.html');
+  const originalFilm = readFileSync(film, 'utf8');
+  const copyFile = fsPromises.copyFile;
+  const copying = Promise.withResolvers();
+  const release = Promise.withResolvers();
+  // Hold a real project export at its copy, so the route sees stable running and waiting jobs.
+  t.mock.method(fsPromises, 'copyFile', async (...args) => {
+    if (args[0] === film) { copying.resolve(); await release.promise; }
+    return copyFile(...args);
+  });
+  syncBuiltinESMExports();
+  const start = async (project) => {
+    const response = await api(`/api/projects/${project.id}/exports`, { method: 'POST', body: { kind: 'project', as: 'folder', folder: join(scratch, 'rename-export-output') } });
+    assert.equal(response.status, 200);
+    return (await response.json()).export;
+  };
+  const jobs = async (project) => (await (await api(`/api/projects/${project.id}/exports`)).json()).exports;
+  const rename = (project) => api(`/api/projects/${project.id}`, { method: 'PATCH', body: { name: `${project.name} renamed` } });
+  let active;
+  let queued;
+  try {
+    active = await start(running);
+    await copying.promise;
+    queued = await start(waiting);
+    assert.equal((await jobs(running)).find((job) => job.id === active.id).status, 'running');
+    assert.equal((await jobs(waiting)).find((job) => job.id === queued.id).status, 'waiting');
+    for (const project of [running, waiting]) {
+      const response = await rename(project);
+      assert.equal(response.status, 409);
+      assert.equal((await response.json()).code, 'export-running');
+      assert.ok(existsSync(project.path), 'the export’s captured source folder stays in place');
+    }
+    assert.equal((await rename(other)).status, 200, 'another project is unaffected by the export queue');
+    assert.equal((await api(`/api/projects/${waiting.id}/exports/${queued.id}`, { method: 'DELETE' })).status, 200);
+    assert.equal((await jobs(waiting)).find((job) => job.id === queued.id).status, 'cancelled');
+    assert.equal((await rename(waiting)).status, 200, 'a cancelled queued job no longer prevents rename');
+    release.resolve();
+    let completed;
+    for (const end = Date.now() + 4000; Date.now() < end;) {
+      completed = (await jobs(running)).find((job) => job.id === active.id);
+      if (completed.status !== 'running') break;
+      await new Promise((done) => setTimeout(done, 25));
+    }
+    assert.equal(completed.status, 'done');
+    assert.equal(readFileSync(join(completed.outputs[0], 'film.html'), 'utf8'), originalFilm);
+    assert.equal((await rename(running)).status, 200, 'a finished export no longer prevents rename');
+  } finally {
+    release.resolve();
+    if (queued) await api(`/api/projects/${waiting.id}/exports/${queued.id}`, { method: 'DELETE' });
+    if (active) await api(`/api/projects/${running.id}/exports/${active.id}`, { method: 'DELETE' });
+    t.mock.restoreAll();
+    syncBuiltinESMExports();
+  }
+});
+
+test('an open project keeps film, file, history and export events after rename without reconnecting', { timeout: 15_000 }, async () => {
+  const { project } = await (await api('/api/projects', { method: 'POST', body: { name: 'Watched draft' } })).json();
+  const ws = new WebSocket(`${studio.origin.replace(/^http/, 'ws')}/api/projects/${project.id}/events`, { headers: { 'x-studio-key': studio.key } });
+  const events = [];
+  ws.onmessage = (event) => events.push(JSON.parse(String(event.data)));
+  const waitFor = async (predicate, message) => {
+    for (const end = Date.now() + 4000; !events.some(predicate) && Date.now() < end;) await new Promise((r) => setTimeout(r, 25));
+    assert.ok(events.some(predicate), message);
+  };
+  try {
+    await new Promise((done, fail) => { ws.onopen = done; ws.onerror = fail; });
+    const renamed = (await (await api(`/api/projects/${project.id}`, { method: 'PATCH', body: { name: 'Watched film' } })).json()).project;
+    await new Promise((r) => setTimeout(r, 600));
+    events.length = 0;
+    writeFileSync(join(renamed.path, 'film.html'), filmHtml({ stage: { w: 640, h: 360 }, tracks: [] }));
+    writeFileSync(join(renamed.path, 'scene.html'), '<p>after rename</p>');
+    await waitFor((e) => e.type === 'film' && e.rev, 'the existing socket sees the new film revision');
+    await waitFor((e) => e.type === 'files' && e.paths?.includes('scene.html'), 'the existing socket sees new files');
+    const committed = await api(`/api/projects/${project.id}/history/commit`, { method: 'POST', body: { message: 'After rename' } });
+    assert.equal(committed.status, 200);
+    await waitFor((e) => e.type === 'history', 'the existing socket sees history changes');
+    assert.ok(events.some((e) => e.type === 'history-progress' && e.op === 'commit'));
+    const started = await api(`/api/projects/${project.id}/exports`, { method: 'POST', body: { kind: 'project', as: 'folder' } });
+    assert.equal(started.status, 200);
+    const job = (await started.json()).export;
+    await waitFor((e) => e.type === 'export' && e.job.id === job.id && ['done', 'failed'].includes(e.job.status), 'the existing socket sees the finished export');
+    const completed = events.find((e) => e.type === 'export' && e.job.id === job.id && e.job.status === 'done');
+    assert.ok(completed, 'the export finishes successfully');
+    assert.equal(readFileSync(join(completed.job.outputs[0], 'scene.html'), 'utf8'), '<p>after rename</p>');
+  } finally {
+    await new Promise((done) => { ws.onclose = done; ws.close(); });
+  }
+});
+
 test('a film whose clips have no ids comes back with each named after its file, as the preview names them', async () => {
   const { project } = await (await api('/api/projects', { method: 'POST', body: { path: join(scratch, 'Unnamed') } })).json();
   writeFileSync(join(project.path, 'film.html'), filmHtml({ stage: { w: 1920, h: 1080 }, tracks: [{ clips: [{ src: 'title.html' }, { src: 'title.html', at: 2 }] }] }));
@@ -186,11 +353,11 @@ test('a film whose clips have no ids comes back with each named after its file, 
 
 test('rename renames the folder and tells the pages showing it; delete moves it to the Trash and off the list', async () => {
   const { project } = await (await api('/api/projects', { method: 'POST', body: { name: 'Draft' } })).json();
-  const events = collect(`/api/projects/${project.id}/events`, (e) => e.some((x) => x.type === 'project'));
+  const events = collect(`/api/projects/${project.id}/events`, (e) => e.some((x) => x.type === 'project' && x.project.name === 'Final'));
   await new Promise((r) => setTimeout(r, 300));
   const renamed = await (await api(`/api/projects/${project.id}`, { method: 'PATCH', body: { name: 'Final' } })).json();
   assert.equal(renamed.project.name, 'Final');
-  assert.equal((await events).find((e) => e.type === 'project').project.name, 'Final');
+  assert.equal((await events).findLast((e) => e.type === 'project').project.name, 'Final');
   assert.ok(existsSync(renamed.project.path));
   assert.equal((await api(`/api/projects/${project.id}`, { method: 'DELETE' })).status, 200);
   assert.equal((await api(`/api/projects/${project.id}`)).status, 404);
@@ -473,7 +640,7 @@ test('an advertised Studio writes run.json, quits when asked by a key holder, an
   assert.equal(existsSync(run), false);
 });
 
-test('a project an app\'s agent is working in is marked so, and is not deleted until it stops', async () => {
+test('a project an app\'s agent is working in is marked so, and is neither renamed nor deleted until it stops', async () => {
   let working = [];
   const app = await startStudio({ port: 0, openBrowser: () => {}, working: () => working });
   try {
@@ -486,9 +653,18 @@ test('a project an app\'s agent is working in is marked so, and is not deleted u
     assert.equal(refused.status, 409);
     assert.equal((await refused.json()).code, 'agent-running');
     assert.ok(existsSync(project.path), 'its folder untouched');
+    const rename = await call(`/api/projects/${project.id}`, 'PATCH', { name: 'Busy renamed' });
+    assert.equal(rename.status, 409);
+    assert.equal((await rename.json()).code, 'agent-running');
+    assert.ok(existsSync(project.path), 'rename leaves the working folder untouched');
+    assert.equal((await (await call(`/api/projects/${project.id}`)).json()).project.path, project.path);
     working = [];
+    const renamed = await call(`/api/projects/${project.id}`, 'PATCH', { name: 'Busy renamed' });
+    assert.equal(renamed.status, 200, 'rename succeeds once the agent stops');
+    const moved = (await renamed.json()).project;
+    assert.ok(existsSync(moved.path));
     assert.equal((await call(`/api/projects/${project.id}`, 'DELETE')).status, 200, 'once the agent stops');
-    assert.ok(!existsSync(project.path), 'to the Trash');
+    assert.ok(!existsSync(moved.path), 'to the Trash');
   } finally {
     await app.close();
   }

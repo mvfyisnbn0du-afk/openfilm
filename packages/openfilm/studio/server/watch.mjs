@@ -40,6 +40,7 @@ export function watchFolder(root, send) {
   let paths = new Set();
   let timer = /** @type {NodeJS.Timeout | null} */ (null);
   let lastRev = '';
+  let closed = false;
   readProjectFilm(root).then((f) => { lastRev = f.rev; }, () => {});
 
   const flush = async () => {
@@ -51,12 +52,14 @@ export function watchFolder(root, send) {
     if (kinds.includes('film')) {
       const { rev } = await readProjectFilm(root).catch(() => ({ rev: '' }));
       /* the same text written again (an editor's save, Studio's own write echoed back) is no change */
+      if (closed) return;
       if (rev && rev !== lastRev) { lastRev = rev; send({ type: 'film', rev }); }
     }
     if (kinds.includes('files')) send(changed ? { type: 'files', paths: [...changed] } : { type: 'files' });
   };
 
   const close = watchTree(root, (name) => {
+    if (closed) return;
     if (!name) { pending.add('files'); pending.add('film'); paths = null; }
     else {
       const rel = name;
@@ -66,7 +69,7 @@ export function watchFolder(root, send) {
     }
     if (!timer) timer = setTimeout(flush, SETTLE_MS);
   });
-  return () => { if (timer) clearTimeout(timer); close(); };
+  return () => { closed = true; if (timer) clearTimeout(timer); close(); };
 }
 
 /**
@@ -117,29 +120,45 @@ export function watchTree(root, onChange, native = process.platform === 'darwin'
  * it with its last.
  */
 export function createWatchers() {
-  /** @type {Map<string, { close: () => void, listeners: Set<(e: FolderEvent) => void> }>} */
+  /** @typedef {{ root: string, listener: (e: FolderEvent) => void }} Subscription */
+  /** @type {Map<string, { close: () => void, listeners: Set<Subscription> }>} */
   const byRoot = new Map();
+  /** @param {string} root @param {Set<Subscription>} listeners */
+  const start = (root, listeners) => ({ listeners, close: watchFolder(root, (e) => { for (const { listener } of listeners) listener(e); }) });
   return {
     /** @param {string} root @param {(e: FolderEvent) => void} listener */
     subscribe(root, listener) {
       let entry = byRoot.get(root);
       if (!entry) {
-        const listeners = new Set();
-        entry = { listeners, close: watchFolder(root, (e) => { for (const fn of listeners) fn(e); }) };
+        entry = start(root, new Set());
         byRoot.set(root, entry);
       }
-      entry.listeners.add(listener);
+      const subscription = { root, listener };
+      entry.listeners.add(subscription);
       return () => {
-        const current = byRoot.get(root);
+        const current = byRoot.get(subscription.root);
         if (!current) return;
-        current.listeners.delete(listener);
-        if (!current.listeners.size) { current.close(); byRoot.delete(root); }
+        current.listeners.delete(subscription);
+        if (!current.listeners.size) { current.close(); byRoot.delete(subscription.root); }
       };
+    },
+    /** A renamed folder: keep its pages subscribed, but watch and read the new path. */
+    move(/** @type {string} */ from, /** @type {string} */ to) {
+      if (from === to) return;
+      const entry = byRoot.get(from);
+      if (!entry) return;
+      entry.close();
+      byRoot.delete(from);
+      const target = byRoot.get(to);
+      target?.close();
+      for (const subscription of target?.listeners ?? []) entry.listeners.add(subscription);
+      for (const subscription of entry.listeners) subscription.root = to;
+      byRoot.set(to, start(to, entry.listeners));
     },
     /** The projects someone is watching now. */
     roots: () => [...byRoot.keys()],
     /** Tell everyone watching `root` something the folder itself does not say (a new version in its history). */
-    emit(/** @type {string} */ root, /** @type {FolderEvent} */ event) { for (const fn of byRoot.get(root)?.listeners ?? []) fn(event); },
+    emit(/** @type {string} */ root, /** @type {FolderEvent} */ event) { for (const { listener } of byRoot.get(root)?.listeners ?? []) listener(event); },
     closeAll() { for (const entry of byRoot.values()) entry.close(); byRoot.clear(); },
   };
 }

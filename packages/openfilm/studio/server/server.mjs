@@ -97,7 +97,7 @@ export function desktopInstaller(os, arch, base = DESKTOP_FILES) {
  * `onQuit`: what `POST /api/quit` does (by default, close); `stays`: it does nothing and says so (an app's Studio,
  * which its window needs). `editorDir`: the built editor to serve (by default studio/ui/dist); an app that builds
  * Studio's editor into a page of its own (its chat beside it) serves that one. `working`: the folders an app's agent
- * is working in right now (an app with a chat), which cannot be deleted meanwhile. Resolves once both servers listen.
+ * is working in right now (an app with a chat), which cannot be renamed or deleted meanwhile. Resolves once both servers listen.
  * @param {{ port?: number, key?: string, openBrowser?: (url: string) => void, advertise?: boolean, onQuit?: () => void, stays?: boolean, editorDir?: string, working?: () => string[] }} [options]
  */
 export async function startStudio({ port = 4747, key, openBrowser = systemBrowser, advertise = false, onQuit, stays = false, editorDir = EDITOR_DIR, working = () => [] } = {}) {
@@ -155,9 +155,11 @@ export async function startStudio({ port = 4747, key, openBrowser = systemBrowse
     pageCame();
     return () => { editorPages.delete(send); };
   };
-  /** @param {{ path: string }} project @param {(event: any) => void} send */
+  /** @param {Awaited<ReturnType<typeof projectById>>} project @param {(event: any) => void} send */
   const projectStream = (project, send) => {
     const stop = watchers.subscribe(project.path, send);
+    /* A page reconnecting after a rename takes the current path even if it missed the live event. */
+    send({ type: 'project', project });
     for (const ask of asks.pending(project.path)) send(ask);
     return stop;
   };
@@ -528,11 +530,24 @@ export async function startStudio({ port = 4747, key, openBrowser = systemBrowse
       }
       if (req.method === 'PATCH') {
         const { name } = /** @type {{ name?: string }} */ (await readJson(req));
+        if (agentIn(project.path)) throw new HttpError(409, 'An agent is running in this project: stop it first, then rename the project.', { code: 'agent-running' });
+        if (exports.list(project.id).some((job) => job.status === 'waiting' || job.status === 'running')) {
+          throw new HttpError(409, 'An export is queued or running in this project: wait for it to finish or stop it first, then rename the project.', { code: 'export-running' });
+        }
         const renamed = await renameProject(project.id, String(name ?? ''));
-        /* its address stays: the preview open on it keeps loading from the folder by its new name */
-        pages.folderUrl(renamed);
-        /* the pages showing it (renamed from another tab, or the projects list) take the new name */
-        watchers.emit(project.path, { type: 'project', project: renamed });
+        if (renamed.path !== project.path || renamed.name !== project.name) {
+          watchers.move(project.path, renamed.path);
+          exportRoots.set(project.id, renamed.path);
+          /* its address stays: the preview open on it keeps loading from the folder by its new name */
+          pages.folderUrl(renamed);
+          /* the pages showing it (renamed from another tab, or the projects list) take the new name */
+          watchers.emit(renamed.path, { type: 'project', project: renamed });
+          /* Reload changes waiting to settle when the old watcher closed. A blank revision also refreshes
+             an unchanged film, but only for this project after an actual rename. */
+          watchers.emit(renamed.path, { type: 'film', rev: '' });
+          watchers.emit(renamed.path, { type: 'files' });
+          watchers.emit(renamed.path, { type: 'history' });
+        }
         return json(res, 200, { project: renamed });
       }
       /* the project is deleted: its folder goes to the Trash (pages showing it go back to the list) */

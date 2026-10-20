@@ -3,6 +3,7 @@
  * cookie `/open` set; writes are refused from any other origin.
  */
 import type { ExportJob } from '@/lib/export-jobs';
+import { studioHost } from '@/lib/host';
 import { watchStudioVersion } from '@/lib/studio-version';
 
 /** `working`: an agent of the app's chat is working in it right now (it cannot be deleted meanwhile). */
@@ -130,7 +131,10 @@ export const api = {
   newProject: (name?: string) => call<{ project: Project }>('projects', { method: 'POST', json: { name } }).then((r) => r.project),
   /** open a folder (its full path) as a project: made one when it is not yet */
   openFolder: (path: string) => call<{ project: Project }>('projects', { method: 'POST', json: { path } }).then((r) => r.project),
-  rename: (id: string, name: string) => call<{ project: Project }>(p(id), { method: 'PATCH', json: { name } }).then((r) => r.project),
+  rename: (id: string, name: string) => call<{ project: Project }>(p(id), { method: 'PATCH', json: { name } }).then((r) => {
+    studioHost?.projectChanged?.(r.project);
+    return r.project;
+  }),
   forget: (id: string) => call<object>(p(id), { method: 'DELETE' }),
   film: (id: string) => call<ProjectFilm>(p(id)),
   /** the person opened it here: the one `openfilm open` alone comes back to */
@@ -284,7 +288,10 @@ export function projectEvents(id: string, on: (event: FolderEvent) => void): () 
   let stream = streams.get(id);
   if (!stream) {
     const listeners = new Set<(event: FolderEvent) => void>();
-    const tell = (event: FolderEvent) => { for (const fn of [...listeners]) fn(event); };
+    const tell = (event: FolderEvent) => {
+      if (listeners.size && event.type === 'project') studioHost?.projectChanged?.(event.project);
+      for (const fn of [...listeners]) fn(event);
+    };
     /* back after Studio was away: the film, the files and the history may all have changed meanwhile */
     const stop = listen(`${p(id)}/events`, tell, { onBack: () => { tell({ type: 'film', rev: '' }); tell({ type: 'files' }); tell({ type: 'history' }); } });
     stream = { stop, listeners };

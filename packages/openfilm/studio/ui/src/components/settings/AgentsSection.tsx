@@ -23,6 +23,7 @@ import { Check, Copy, Download, KeyRound, Loader2, Plus, X } from 'lucide-react'
 import { useLanguage, useT } from '@/i18n';
 import { BYOK_EFFORTS, studioHost, type HostAgent, type HostAgentDiagnosis, type HostAgentId, type HostAgentUsage, type HostByokEffort, type HostByokEffortLevel, type HostByokFormat, type HostOwnModel } from '@/lib/host';
 import { parseContextLength } from '@/lib/context-length';
+import { missingActions } from '@/lib/agent-row';
 
 /** What is left of the plan: what Codex can say (the app's agent-usage.mjs; Claude Code's own report is wrong for Team accounts). */
 const PLAN_AGENTS: readonly HostAgentId[] = ['codex'];
@@ -203,22 +204,22 @@ export function AgentsSection() {
       );
     }
     if (agent.status === 'missing') {
-      const canLocate = host.locate && agent.setupRequired !== 'code-tab';
-      if (!agent.install && !canLocate) return null;
+      const offer = missingActions(agent, { locate: Boolean(host.locate), install: Boolean(host.install) });
+      if (!offer.locate && !offer.install) return null;
       return (
         <>
-          {canLocate ? (
+          {offer.locate ? (
             <SettingsButton variant="quiet" disabled={working} onClick={() => locate(agent)}>
               {working ? <Loader2 size={16} className="animate-spin" aria-hidden /> : null}
               {t('settings.agents.locate')}
             </SettingsButton>
           ) : null}
           {/* its official installer, run once the person agrees to the command; else its install page */}
-          {agent.installer && host.install ? (
+          {offer.install === 'run' ? (
             <SettingsButton disabled={working || agent.installing || confirming === agent.id} onClick={() => setConfirming(agent.id)}>
               <Download size={16} />{t('settings.agents.install')}
             </SettingsButton>
-          ) : agent.install ? <SettingsLinkButton href={agent.install}><Download size={16} />{t('settings.agents.install')}</SettingsLinkButton> : null}
+          ) : offer.install === 'page' && agent.install ? <SettingsLinkButton href={agent.install}><Download size={16} />{t('settings.agents.install')}</SettingsLinkButton> : null}
         </>
       );
     }

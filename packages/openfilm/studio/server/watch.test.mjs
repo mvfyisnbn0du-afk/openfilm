@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdirSync, mkdtempSync, renameSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { revOf } from './film.mjs';
@@ -69,5 +69,86 @@ test('watching folder by folder (Linux): a file replaced by a rename is seen eve
     assert.ok(![...names].some((n) => n?.startsWith('node_modules/')), 'ignored folders are not watched');
   } finally {
     close();
+  }
+});
+
+
+test('renamed folders keep their listeners and original unsubscribe functions through repeated moves', async () => {
+  const scratch = mkdtempSync(join(tmpdir(), 'of-watch-rename-'));
+  const from = join(scratch, 'Untitled');
+  const to = join(scratch, 'Named film');
+  const again = join(scratch, 'Final film');
+  mkdirSync(from);
+  writeFileSync(join(from, 'film.html'), 'initial');
+  const watchers = createWatchers();
+  const first = [], second = [];
+  const stopFirst = watchers.subscribe(from, (event) => first.push(event));
+  const stopSecond = watchers.subscribe(from, (event) => second.push(event));
+  try {
+    await settle(600);
+    renameSync(from, to);
+    watchers.move(from, to);
+    assert.deepEqual(watchers.roots(), [to]);
+    await settle(600);
+    first.length = second.length = 0;
+    writeFileSync(join(to, 'film.html'), 'renamed');
+    writeFileSync(join(to, 'scene.html'), '<p>new scene</p>');
+    await settle();
+    for (const seen of [first, second]) {
+      assert.deepEqual(seen.filter((e) => e.type === 'film'), [{ type: 'film', rev: revOf('renamed') }]);
+      assert.ok(seen.some((e) => e.type === 'files' && e.paths?.includes('scene.html')));
+    }
+    const history = { type: 'history' };
+    watchers.emit(to, history);
+    assert.equal(first.at(-1), history);
+    assert.equal(second.at(-1), history);
+    stopFirst();
+    stopFirst(); // closing the same page twice must not stop the other one
+    first.length = second.length = 0;
+    renameSync(to, again);
+    watchers.move(to, again);
+    await settle(600);
+    second.length = 0;
+    writeFileSync(join(again, 'film.html'), 'renamed again');
+    await settle();
+    assert.deepEqual(first, [], 'the first page stays unsubscribed after another rename');
+    assert.deepEqual(second.filter((e) => e.type === 'film'), [{ type: 'film', rev: revOf('renamed again') }]);
+    watchers.emit(from, history);
+    watchers.emit(to, history);
+    assert.ok(!second.some((e) => e.type === 'history'), 'old paths no longer route events');
+    stopSecond();
+    assert.deepEqual(watchers.roots(), [], 'the original final unsubscribe closes the moved watcher');
+  } finally {
+    watchers.closeAll();
+    rmSync(scratch, { recursive: true, force: true });
+  }
+});
+
+test('moving into an already watched path preserves both subscriptions', () => {
+  const scratch = mkdtempSync(join(tmpdir(), 'of-watch-merge-'));
+  const from = join(scratch, 'before'), to = join(scratch, 'after');
+  mkdirSync(from);
+  mkdirSync(to);
+  const watchers = createWatchers();
+  const first = [], second = [];
+  const stopFirst = watchers.subscribe(from, (event) => first.push(event));
+  const stopSecond = watchers.subscribe(to, (event) => second.push(event));
+  try {
+    watchers.move(from, to);
+    watchers.move(to, to);
+    watchers.move(join(scratch, 'not watched'), to);
+    assert.deepEqual(watchers.roots(), [to]);
+    watchers.emit(to, { type: 'history' });
+    assert.equal(first.length, 1);
+    assert.equal(second.length, 1);
+    stopFirst();
+    watchers.emit(to, { type: 'history' });
+    assert.equal(first.length, 1);
+    assert.equal(second.length, 2);
+    stopSecond();
+    assert.deepEqual(watchers.roots(), []);
+  } finally {
+    watchers.closeAll();
+    rmSync(scratch, { recursive: true, force: true });
   }
 });

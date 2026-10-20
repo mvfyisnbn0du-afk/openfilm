@@ -17,6 +17,7 @@ import { ATTACHMENT_CARD, ATTACHMENT_THUMB, AttachmentCardBody, PlayMark } from 
 import { attachmentPlace } from '@/lib/attachment-place';
 import { ModelPopover } from '@/components/ModelPopover';
 import { AddSkillDialog, type PickedSkill } from '@/components/AddSkill';
+import { SKILLS_CHANGED } from 'openfilm/studio-ui/lib/project-sources.ts';
 import { CardActions, CardButton, ComposerCard } from '@/components/ComposerCard';
 import { LocalAgentQuestionCard } from '@/components/TurnQuestionCard';
 import { Tooltip } from '@/components/Tooltip';
@@ -85,7 +86,6 @@ const CONTEXT_NOTICE_SHARE = 0.85;
 
 /** On a video's thumbnail: it plays, it is not a picture. */
 /* between the chat's root (the add-skill dialog) and the project's chat: a skill added, a skill to make */
-const SKILLS_CHANGED = 'openfilm:skills-changed';
 const MAKE_SKILL = 'openfilm:make-skill';
 
 export function App({ initialProject, initialSelection, initialFfmpeg }: {

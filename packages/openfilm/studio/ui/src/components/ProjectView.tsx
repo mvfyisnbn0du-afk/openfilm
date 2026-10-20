@@ -246,7 +246,8 @@ export function ProjectView({ projectId, onProject, onLeave }: {
   const [undone, setUndone] = React.useState<PersonEdit[]>([]);
   const personSteps = React.useRef<readonly Step[]>([]);
   const settledEdits = React.useRef(new Set<PersonEdit>());
-  const initial = React.useMemo(() => (loaded?.doc && loaded.value ? { value: loaded.value, rev: loaded.rev } : null), [loaded]);
+  /* the film as loaded: a new project name (a rename, or the snapshot a reconnecting page is sent) leaves it as it is */
+  const initial = React.useMemo(() => (loaded?.doc && loaded.value ? { value: loaded.value, rev: loaded.rev } : null), [loaded?.doc, loaded?.value, loaded?.rev]);
   React.useEffect(() => { if (initial) lastServerDoc.current = initial.value; }, [initial]);
   const film = useFilm(projectId, initial, React.useCallback((value: Film, kind: 'edit' | 'server', head?: string) => {
     preview.current?.update(value, head);
@@ -2484,7 +2485,9 @@ export function ProjectView({ projectId, onProject, onLeave }: {
   React.useEffect(() => studioHost?.tabs?.onPick(() => setProjectsOpen(true)), []);
   React.useEffect(() => { if (title) studioHost?.tabs?.report({ title }); }, [title]);
   const renameError = (e: unknown, name: string) =>
-    toast.showError(e instanceof ApiError && e.status === 409 ? t('projects.renameTaken').replace('{name}', name) : t('project.renameFailed'));
+    toast.showError(e instanceof ApiError && e.body.code === 'agent-running' ? t('projects.agentRunningRename')
+      : e instanceof ApiError && e.body.code === 'export-running' ? t('projects.exportRunningRename')
+      : e instanceof ApiError && e.status === 409 ? t('projects.renameTaken').replace('{name}', name) : t('project.renameFailed'));
   const commitTitle = async (draft = titleDraft) => {
     setRenaming(false);
     const next = draft.trim();

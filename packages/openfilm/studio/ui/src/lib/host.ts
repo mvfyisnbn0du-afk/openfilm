@@ -12,6 +12,9 @@ export interface HostTab { id: string; projectId: string; title: string; active:
 /** Settings → Developer, as the app keeps it (`developer` below). */
 export interface HostDeveloper { logs: boolean; changes: boolean }
 
+/** The project identity and current folder shared with an embedded chat. */
+export interface HostProject { id: string; name: string; path: string }
+
 export interface StudioHost {
   /** the version of this interface the app speaks */
   version: 1;
@@ -19,6 +22,8 @@ export interface StudioHost {
   settings?: { onOpen: (listener: () => void) => () => void };
   /** the app's name, for the person */
   name?: string;
+  /** A successful rename, here or in another page: the chat keeps its identity but uses the new name and folder. */
+  projectChanged?: (project: HostProject) => void;
   /**
    * The window has no title bar of its own: Studio's top bar is where the window is dragged, and `inset` pixels at its
    * left (macOS) and `insetRight` at its right (Windows) are left free for the window's controls. `onChange` tells of a

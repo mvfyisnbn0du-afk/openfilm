@@ -88,6 +88,21 @@ export const seenExamples = (): Example[] | null => seen.examples;
 /** The skills read last for a project (else for no project: the official ones and the person's own), or null. */
 export const seenSkills = (projectId?: string | null): SkillEntry[] | null => seen.skills.get(projectId ?? '') ?? seen.skills.get('') ?? null;
 
+/** The desktop's add dialog and Studio's gallery share the window. */
+export const SKILLS_CHANGED = 'openfilm:skills-changed';
+
+/** Read an open gallery's skills again after an addition; a stale request must not replace the newer list. */
+export function watchSkills(projectId: string | null | undefined, changed: (skills: SkillEntry[]) => void, events: EventTarget = window): () => void {
+  let revision = 0;
+  const refresh = () => {
+    const request = ++revision;
+    void sourcesApi.skills(projectId).then((skills) => { if (request === revision) changed(skills); });
+  };
+  events.addEventListener(SKILLS_CHANGED, refresh);
+  refresh();
+  return () => { ++revision; events.removeEventListener(SKILLS_CHANGED, refresh); };
+}
+
 export const sourcesApi = {
   browse: (path?: string | null) => call<BrowseListing>(`browse${path ? `?path=${encodeURIComponent(path)}` : ''}`),
   /** opens the folder only when it holds a film: else a SourceError with code 'no-film' (or 'not-found') */
