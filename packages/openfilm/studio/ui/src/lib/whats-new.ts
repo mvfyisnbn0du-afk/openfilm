@@ -17,6 +17,52 @@ export interface ReleaseNotes { version: string; date: string; notes: Record<Lan
 
 export const RELEASES: readonly ReleaseNotes[] = [
   {
+    version: '0.2.3',
+    date: '2026-10-20',
+    notes: {
+      en: [
+        { kind: 'new', text: 'Skills: install OpenFilm’s from Discover, turn any skill on or off, and Try now starts a conversation with it. Choose a cover when you add your own.' },
+        { kind: 'new', text: 'Keyboard shortcuts: use OpenFilm’s keys, Premiere Pro’s or Final Cut Pro’s, or record your own in Settings › Keyboard shortcuts.' },
+        { kind: 'new', text: 'Page clips: make a layer’s words, picture or visibility a property and change it in the inspector; replace a picture right on it.' },
+        { kind: 'improved', text: 'The viewer’s playback menu has loop, subtitles and speed from 0.25× to 2×, and sound keeps its pitch. Projects and tabs keep in step, and moving shows your folders as a tree.' },
+        { kind: 'improved', text: 'Providers: four recommended first, the rest under More. Google transcribes speech for captions, and Microsoft Azure is set up service by service. Agents use your system’s proxy.' },
+        { kind: 'fixed', text: 'On Windows, Codex from the Codex app starts, Install and Sign in open their window, and an editing-project export that can’t write to its drafts folder lands in your exports folder.' },
+      ],
+      'zh-CN': [
+        { kind: 'new', text: 'Skill：在“发现”里安装 OpenFilm 的 skill，每个 skill 都能开关，“试一试”会用它开始一段对话。添加自己的 skill 时可以选封面。' },
+        { kind: 'new', text: '快捷键：可以用 OpenFilm 的键位、Premiere Pro 或 Final Cut Pro 的键位，也可以在 设置 › 快捷键 里录自己的。' },
+        { kind: 'new', text: '页面片段：把某一层的文字、图片或显示设为属性，在检查器里修改；图片可以直接在画面上替换。' },
+        { kind: 'improved', text: '预览的播放菜单里有循环、字幕和 0.25× 到 2× 的速度，变速时声音保持原调。项目和标签页始终同步，移动时文件夹按层级显示。' },
+        { kind: 'improved', text: '服务商：推荐的四家排在前面，其他的收在“更多”里。Google 可以转写语音做字幕，Microsoft Azure 按服务分别设置。智能体会使用系统代理。' },
+        { kind: 'fixed', text: 'Windows 上：Codex 应用里的 Codex 能启动了，“安装”和“登录”会打开窗口，导出剪辑工程时草稿文件夹写不进去，草稿会放到导出文件夹。' },
+      ],
+      ja: [
+        { kind: 'new', text: 'スキル：「見つける」から OpenFilm のスキルをインストールし、どのスキルもオン・オフでき、「試す」でそのスキルを使った会話を始められます。自分のスキルを追加するときはカバーを選べます。' },
+        { kind: 'new', text: 'キーボードショートカット：OpenFilm、Premiere Pro、Final Cut Pro のキー配置から選ぶか、設定 › キーボードショートカットで自分のキーを登録できます。' },
+        { kind: 'new', text: 'ページクリップ：レイヤーの文字、画像、表示をプロパティにしてインスペクタで変更できます。画像はその場で差し替えられます。' },
+        { kind: 'improved', text: 'ビューアの再生メニューにループ、字幕、0.25×〜2× の速度があり、速度を変えても音の高さは変わりません。プロジェクトとタブは常に連動し、移動先のフォルダは階層で表示されます。' },
+        { kind: 'improved', text: 'プロバイダ：おすすめの 4 社を先に、ほかは「その他」に。Google で音声を文字起こしして字幕にでき、Microsoft Azure はサービスごとに設定します。エージェントはシステムのプロキシを使います。' },
+        { kind: 'fixed', text: 'Windows で、Codex アプリの Codex が起動し、「インストール」と「サインイン」がウィンドウを開き、編集プロジェクトの書き出しで下書きフォルダに書けないときは書き出しフォルダに保存されます。' },
+      ],
+      ko: [
+        { kind: 'new', text: '스킬: 찾아보기에서 OpenFilm 스킬을 설치하고, 모든 스킬을 켜고 끌 수 있으며, 사용해 보기로 그 스킬과 대화를 시작합니다. 내 스킬을 추가할 때 표지를 고를 수 있습니다.' },
+        { kind: 'new', text: '키보드 단축키: OpenFilm, Premiere Pro, Final Cut Pro의 키 배치 중에서 고르거나, 설정 › 키보드 단축키에서 직접 키를 지정할 수 있습니다.' },
+        { kind: 'new', text: '페이지 클립: 레이어의 글자, 그림, 표시 여부를 속성으로 만들어 인스펙터에서 바꿀 수 있고, 그림은 화면에서 바로 교체할 수 있습니다.' },
+        { kind: 'improved', text: '뷰어의 재생 메뉴에 반복, 자막, 0.25×~2× 속도가 있고, 속도를 바꿔도 음높이는 그대로입니다. 프로젝트와 탭이 항상 함께 맞춰지고, 옮길 때 폴더가 계층으로 보입니다.' },
+        { kind: 'improved', text: '서비스 제공자: 추천 4곳을 먼저, 나머지는 더 보기에. Google로 음성을 받아써 자막을 만들고, Microsoft Azure는 서비스별로 설정합니다. 에이전트는 시스템 프록시를 사용합니다.' },
+        { kind: 'fixed', text: 'Windows에서 Codex 앱의 Codex가 시작되고, 설치와 로그인이 창을 열며, 편집 프로젝트 내보내기에서 초안 폴더에 쓸 수 없으면 내보내기 폴더에 저장됩니다.' },
+      ],
+      es: [
+        { kind: 'new', text: 'Skills: instala las de OpenFilm desde Descubrir, activa o desactiva cualquiera, y Probar empieza una conversación con ella. Elige una portada al añadir las tuyas.' },
+        { kind: 'new', text: 'Atajos de teclado: usa las teclas de OpenFilm, de Premiere Pro o de Final Cut Pro, o graba las tuyas en Ajustes › Atajos de teclado.' },
+        { kind: 'new', text: 'Clips de página: convierte el texto, la imagen o la visibilidad de una capa en una propiedad y cámbiala en el inspector; reemplaza una imagen directamente sobre ella.' },
+        { kind: 'improved', text: 'El menú de reproducción del visor tiene bucle, subtítulos y velocidad de 0,25× a 2×, y el sonido mantiene su tono. Los proyectos y las pestañas van siempre a la par, y al mover ves tus carpetas como un árbol.' },
+        { kind: 'improved', text: 'Proveedores: los cuatro recomendados primero y el resto en Más. Google transcribe la voz para subtítulos y Microsoft Azure se configura servicio por servicio. Los agentes usan el proxy del sistema.' },
+        { kind: 'fixed', text: 'En Windows, Codex de la app de Codex arranca, Instalar e Iniciar sesión abren su ventana, y una exportación de proyecto de edición que no puede escribir en su carpeta de borradores queda en tu carpeta de exportaciones.' },
+      ],
+    },
+  },
+  {
     version: '0.2.2',
     date: '2026-10-19',
     notes: {
