@@ -569,7 +569,9 @@ export function ExportCenter(props: ExportCenterProps) {
 
   return createPortal(
     <div
-      className="fixed inset-0 z-[130] flex items-center justify-center bg-black/45 p-4 backdrop-blur-[2px]"
+      /* a plain dim, no backdrop blur: a blur over the whole window is drawn again on every frame of a wheel scroll in
+         the dialog, and the window flickered on macOS */
+      className="fixed inset-0 z-[130] flex items-center justify-center bg-black/50 p-4"
       onClick={() => { if (!working) onClose(); }}
     >
       <div
@@ -584,7 +586,7 @@ export function ExportCenter(props: ExportCenterProps) {
         {/* the list scrolls when the window is short; the note under it stays whole */}
         <nav className="flex min-h-0 w-[212px] shrink-0 flex-col border-r border-[var(--border-soft)] bg-[var(--surface-2)]">
           <h2 className="shrink-0 px-5 pb-2 pt-4 text-[15px] font-semibold tracking-tight text-[var(--text)]">{t('exportCenter.title')}</h2>
-          <div className="flex min-h-0 flex-1 flex-col gap-0.5 overflow-y-auto px-3 pb-2">
+          <div className="flex min-h-0 flex-1 flex-col gap-0.5 overflow-y-auto overscroll-contain px-3 pb-2">
           {DESTS.map((d) => {
             const on = dest === d.id;
             return (
@@ -631,7 +633,7 @@ export function ExportCenter(props: ExportCenterProps) {
             </button>
           </div>
 
-          <div className="min-h-0 flex-1 overflow-y-auto px-5 pb-4 pt-3">
+          <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-5 pb-4 pt-3">
             <div className="flex flex-col gap-5">
               {dest === 'social' && (
                 <>
@@ -776,7 +778,7 @@ export function ExportCenter(props: ExportCenterProps) {
               {dest === 'alpha' && (
                 <>
                   <Field label={t('exportCenter.alphaSource')}>
-                    <div className="flex max-h-[200px] flex-col gap-1.5 overflow-y-auto pr-1">
+                    <div className="flex max-h-[200px] flex-col gap-1.5 overflow-y-auto overscroll-contain pr-1">
                       {[{ clipId: WHOLE_FILM, label: t('exportCenter.alphaWhole'), startMs: 0, durMs: totalMs }, ...blocks].map((b) => {
                         const on = (alphaBlock ? alphaBlock.clipId : WHOLE_FILM) === b.clipId;
                         return (
