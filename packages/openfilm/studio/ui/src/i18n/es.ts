@@ -1479,7 +1479,6 @@ export const es: Words = {
     storage: {
       group: 'Almacenamiento',
       projects: 'Carpeta de proyectos',
-      projectsHint: 'Cada proyecto es una carpeta aquí, con sus medios y su caché. La lista de proyectos muestra todos los de esta carpeta.',
       projectsPick: 'Elige la carpeta de proyectos',
       pickButton: 'Elegir',
       change: 'Cambiar…',
@@ -1497,7 +1496,7 @@ export const es: Words = {
     playback: {
       group: "Reproducción",
       proxies: "Proxies para el metraje pesado",
-      proxiesHint: "El metraje de más de 1080p, o lento de decodificar (ProRes, HEVC, 10 bits), se reproduce desde una copia ligera hecha en segundo plano. Las exportaciones siempre usan los originales.",
+      proxiesHint: "El metraje de más de 1080p (4K, por ejemplo), o lento de decodificar (ProRes, HEVC, 10 bits), se reproduce desde una copia ligera hecha en segundo plano. Las exportaciones siempre usan los originales.",
       proxySize: "Tamaño del proxy",
       proxySizeHint: "Más pequeño se reproduce con más fluidez; más grande se ve más nítido en el visor.",
     },

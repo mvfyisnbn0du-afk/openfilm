@@ -71,7 +71,6 @@ export function StorageGroup() {
       title={t(`settings.storage.${which}`)}
       description={(
         <>
-          <span className="block">{t(`settings.storage.${which}Hint`)}</span>
           {typing?.which === which ? (
             <form className="mt-2 flex items-center gap-2" onSubmit={(e) => { e.preventDefault(); if (typing.text.trim()) keep(which, typing.text.trim()); }}>
               <SettingsField autoFocus value={typing.text} onChange={(e) => setTyping({ which, text: e.target.value })} spellCheck={false}
@@ -80,7 +79,7 @@ export function StorageGroup() {
               <SettingsButton type="submit" variant="primary" disabled={busy === which || !typing.text.trim()}>{t('settings.storage.save')}</SettingsButton>
             </form>
           ) : (
-            <span className="mt-1 block break-all font-mono text-[13px] text-[var(--text)]" title={place.path}>{place.path}</span>
+            <span className="mt-1 block break-all font-mono text-[13px]" title={place.path}>{place.path}</span>
           )}
           {place.free != null ? <span className="mt-0.5 block text-[13px]">{t('settings.storage.free').replace('{size}', size(place.free))}</span> : null}
           {note?.which === which ? <span className="mt-1 block text-[13px]" role="status">{note.text}</span> : null}

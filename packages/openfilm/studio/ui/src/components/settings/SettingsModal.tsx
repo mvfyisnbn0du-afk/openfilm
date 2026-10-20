@@ -54,13 +54,13 @@ const SECTION_ICON: Record<SettingsSection, React.ReactNode> = {
 
 /** what a search through each section reads: its name and every phrase it shows */
 const SECTION_WORDS: Record<SettingsSection, string | string[]> = {
-  general: ['settings.appearance', 'settings.storage', 'settings.playback'],
+  general: ['settings.appearance', 'settings.storage'],
   agents: 'settings.agents',
   providers: 'settings.providers',
   models: 'settings.models',
   developer: ['settings.developer', 'settings.report'],
   shortcuts: 'settings.shortcuts',
-  advanced: 'settings.advanced',
+  advanced: ['settings.advanced', 'settings.playback'],
 };
 
 export interface SettingsModalProps {
@@ -245,7 +245,6 @@ function GeneralSection() {
         />
       </SettingsGroup>
       <StorageGroup />
-      <PlaybackGroup />
       {studioHost?.update?.onState ? <AppAboutGroup /> : <AboutGroup />}
     </SettingsPage>
   );
@@ -253,11 +252,12 @@ function GeneralSection() {
 
 /**
  * How the preview plays heavy footage (studio/server/proxies.mjs): from a lighter copy made in the background (a
- * proxy), and how tall that copy is (Advanced has how pages draw and what plays late). Exports always read the
- * originals and draw at full size.
+ * proxy), and how tall that copy is; whether pages draw at the viewer's size, and whether stretches that play late are
+ * rendered to play smoothly (lib/preview-prefs). Exports always read the originals and draw at full size.
  */
 function PlaybackGroup() {
   const t = useT();
+  const { fitPages, renders } = usePreviewPrefs();
   const [prefs, setPrefs] = React.useState<StudioPrefs | null>(null);
   React.useEffect(() => { void api.prefs().then(setPrefs).catch(() => {}); }, []);
   if (!prefs) return null;
@@ -286,31 +286,26 @@ function PlaybackGroup() {
           )}
         />
       ) : null}
+      <SettingsItem
+        title={t('settings.advanced.fitPages')}
+        description={t('settings.advanced.fitPagesHint')}
+        control={<SettingsSwitch checked={fitPages} onChange={(on) => writePreviewPref('fitPages', on)} label={t('settings.advanced.fitPages')} />}
+      />
+      <SettingsItem
+        title={t('settings.advanced.renders')}
+        description={t('settings.advanced.rendersHint')}
+        control={<SettingsSwitch checked={renders} onChange={(on) => writePreviewPref('renders', on)} label={t('settings.advanced.renders')} />}
+      />
     </SettingsGroup>
   );
 }
 
-/**
- * What is already set for the best experience, for whoever wants it otherwise: whether pages draw at the viewer's
- * size, and whether stretches that play late are rendered to play smoothly (lib/preview-prefs). Both on by default.
- */
+/** What is already set for the best experience, for whoever wants it otherwise: how the preview plays (PlaybackGroup). */
 function AdvancedSection() {
   const t = useT();
-  const { fitPages, renders } = usePreviewPrefs();
   return (
     <SettingsPage note={t('settings.advanced.intro')}>
-      <SettingsGroup title={t('settings.playback.group')}>
-        <SettingsItem
-          title={t('settings.advanced.fitPages')}
-          description={t('settings.advanced.fitPagesHint')}
-          control={<SettingsSwitch checked={fitPages} onChange={(on) => writePreviewPref('fitPages', on)} label={t('settings.advanced.fitPages')} />}
-        />
-        <SettingsItem
-          title={t('settings.advanced.renders')}
-          description={t('settings.advanced.rendersHint')}
-          control={<SettingsSwitch checked={renders} onChange={(on) => writePreviewPref('renders', on)} label={t('settings.advanced.renders')} />}
-        />
-      </SettingsGroup>
+      <PlaybackGroup />
     </SettingsPage>
   );
 }

@@ -1478,7 +1478,6 @@ export const ko: Words = {
     storage: {
       group: '저장 위치',
       projects: '프로젝트 위치',
-      projectsHint: '각 프로젝트는 이곳의 폴더이며, 소재와 캐시도 그 안에 있습니다. 이 폴더의 프로젝트는 모두 프로젝트 목록에 표시됩니다.',
       projectsPick: '프로젝트 위치 선택',
       pickButton: '선택',
       change: '변경…',
@@ -1496,7 +1495,7 @@ export const ko: Words = {
     playback: {
       group: "재생",
       proxies: "무거운 영상에 프록시 사용",
-      proxiesHint: "1080p를 넘거나 디코딩이 무거운(ProRes, HEVC, 10비트) 영상은 백그라운드에서 만든 가벼운 사본으로 재생합니다. 내보내기에는 항상 원본을 씁니다.",
+      proxiesHint: "1080p를 넘거나(4K 등) 디코딩이 무거운(ProRes, HEVC, 10비트) 영상은 백그라운드에서 만든 가벼운 사본으로 재생합니다. 내보내기에는 항상 원본을 씁니다.",
       proxySize: "프록시 크기",
       proxySizeHint: "작을수록 더 부드럽게 재생되고, 클수록 뷰어에서 더 선명합니다.",
     },

@@ -1479,7 +1479,6 @@ export const ja: Words = {
     storage: {
       group: '保存場所',
       projects: 'プロジェクトの場所',
-      projectsHint: '各プロジェクトはここにあるフォルダで、素材やキャッシュも中にあります。このフォルダのプロジェクトはすべてプロジェクト一覧に表示されます。',
       projectsPick: 'プロジェクトの場所を選択',
       pickButton: '選択',
       change: '変更…',
@@ -1497,7 +1496,7 @@ export const ja: Words = {
     playback: {
       group: "再生",
       proxies: "重い素材にプロキシを使う",
-      proxiesHint: "1080p を超える素材や、デコードが重い素材（ProRes、HEVC、10 ビット）は、バックグラウンドで作る軽いコピーで再生します。書き出しには常に元の素材を使います。",
+      proxiesHint: "1080p を超える素材（4K など）や、デコードが重い素材（ProRes、HEVC、10 ビット）は、バックグラウンドで作る軽いコピーで再生します。書き出しには常に元の素材を使います。",
       proxySize: "プロキシのサイズ",
       proxySizeHint: "小さいほど滑らかに再生でき、大きいほどビューアで鮮明に見えます。",
     },

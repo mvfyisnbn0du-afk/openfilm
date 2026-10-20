@@ -1480,7 +1480,6 @@ export const zhCN: Words = {
     storage: {
       group: '存储位置',
       projects: '项目位置',
-      projectsHint: '每个项目是这里的一个文件夹，素材和缓存都在里面。这个文件夹里的项目都显示在项目列表里。',
       projectsPick: '选择项目位置',
       pickButton: '选择',
       change: '更改…',
@@ -1498,7 +1497,7 @@ export const zhCN: Words = {
     playback: {
       group: "播放",
       proxies: "为大体积素材生成代理",
-      proxiesHint: "超过 1080p 或解码较慢（ProRes、HEVC、10 位）的素材，会在后台生成一份轻量副本用于预览播放。导出始终使用原素材。",
+      proxiesHint: "超过 1080p（比如 4K）或解码较慢（ProRes、HEVC、10 位）的素材，会在后台生成一份轻量副本用于预览播放。导出始终使用原素材。",
       proxySize: "代理分辨率",
       proxySizeHint: "越小播放越流畅，越大预览越清晰。",
     },
