@@ -23,6 +23,7 @@ import { useT } from '@/i18n';
 import { folderApi, folderCounts, folderTrail, type ProjectFolder } from '@/lib/project-folders';
 import { studioHost } from '@/lib/host';
 import { SourceError, sourcesApi } from '@/lib/project-sources';
+import { LIST_WAIT_MS, within } from '@/lib/projects-page';
 import { ConfirmDialog } from './ConfirmDialog';
 import { ProjectsView, type LibraryProject } from './ProjectsView';
 import { FolderBrowserDialog, GitHubDialog } from './ProjectSources';
@@ -39,6 +40,9 @@ function useProjectLibrary(open: boolean) {
   const [projects, setProjects] = React.useState<LibraryProject[]>([]);
   const [folders, setFolders] = React.useState<ProjectFolder[]>([]);
   const [loaded, setLoaded] = React.useState(false);
+  /** the list could not be read (Studio refused, or did not answer in time): said, with a way to try again */
+  const [loadFailed, setLoadFailed] = React.useState(false);
+  const [tries, setTries] = React.useState(0);
   const [error, setError] = React.useState<string | null>(null);
   const errorTimer = React.useRef<ReturnType<typeof setTimeout> | null>(null);
   React.useEffect(() => () => { if (errorTimer.current) clearTimeout(errorTimer.current); }, []);
@@ -49,19 +53,24 @@ function useProjectLibrary(open: boolean) {
     errorTimer.current = setTimeout(() => setError(null), 4000);
   }, []);
 
-  /* fetched fresh on every open: the agent or another window may have made or removed one meanwhile */
+  /* fetched fresh on every open: the agent or another window may have made or removed one meanwhile. Waited for a
+     while only: a list that never comes is said, not shown as a spinner for ever (one shown already stays) */
   React.useEffect(() => {
     if (!open) return undefined;
     let alive = true;
-    void Promise.all([
-      api.projects().then(
-        (list) => { if (alive) setProjects(list.map((p) => ({ ...p, poster: posterOf(p) }))); },
-        () => {},
-      ),
-      folderApi.list().then((list) => { if (alive) setFolders(list); }, () => {}),
-    ]).then(() => { if (alive) setLoaded(true); });
+    setLoadFailed(false);
+    Promise.all([within(api.projects(), LIST_WAIT_MS), within(folderApi.list(), LIST_WAIT_MS)]).then(
+      ([list, folderList]) => {
+        if (!alive) return;
+        setProjects(list.map((p) => ({ ...p, poster: posterOf(p) })));
+        setFolders(folderList);
+        setLoaded(true);
+      },
+      () => { if (alive) setLoadFailed(true); },
+    );
     return () => { alive = false; };
-  }, [open]);
+  }, [open, tries]);
+  const retryLoad = React.useCallback(() => setTries((n) => n + 1), []);
 
   const reloadFolders = React.useCallback(() => {
     void folderApi.list().then(setFolders, () => {});
@@ -179,7 +188,7 @@ function useProjectLibrary(open: boolean) {
     }
   }
 
-  return { projects, folders, loaded, error, flash, reload: reloadFolders, agentRunning, workingIn, deleteProjects, renameProject, createFolder, renameFolder, moveProject, deleteFolder, coverChanged };
+  return { projects, folders, loaded, loadFailed, retryLoad, error, flash, reload: reloadFolders, agentRunning, workingIn, deleteProjects, renameProject, createFolder, renameFolder, moveProject, deleteFolder, coverChanged };
 }
 
 /** The launcher's two views: the person's projects, and the examples to start from (ExamplesGallery). */
@@ -255,6 +264,7 @@ export function ProjectsPopover({
     if (wasOpen.current) latestClose.current();
   }, [currentProjectId]);
 
+  /** A new project, named as Studio names it (Untitled, Untitled 2…), opened at once: it is renamed later. */
   async function newProject() {
     setBusy('creating');
     try {
@@ -409,6 +419,17 @@ export function ProjectsPopover({
               onClose={onClose}
             />
             </ProjectCoverContext.Provider>
+          ) : lib.loadFailed ? (
+            <div role="alert" className="flex flex-1 flex-col items-center justify-center gap-3 text-[13px] text-[var(--text-muted)]">
+              {t('projects.loadFailed')}
+              <button
+                type="button"
+                onClick={lib.retryLoad}
+                className="h-8 rounded-lg bg-[var(--surface-2)] px-3 text-[12.5px] font-medium text-[var(--text)] transition hover:bg-[var(--bg-hover)]"
+              >
+                {t('projects.loadRetry')}
+              </button>
+            </div>
           ) : (
             <div className="flex flex-1 items-center justify-center text-[var(--text-muted)]">
               <Loader2 size={18} className="animate-spin" />

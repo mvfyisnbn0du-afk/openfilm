@@ -886,6 +886,11 @@ export async function startStudio({ port = 4747, key, openBrowser = systemBrowse
       const jpeg = await filmPoster(project.path, pages.folderUrl(project)).catch((e) => {
         throw new HttpError(e instanceof PageFrameError ? 404 : 422, String(e?.message ?? e));
       });
+      /* its first one is still being drawn: the card asks again in a while, rather than hold a connection meanwhile */
+      if (!jpeg) {
+        res.writeHead(503, { 'retry-after': '5', 'cache-control': 'no-store', 'content-type': 'application/json' });
+        return res.end(JSON.stringify({ error: 'the film\'s poster is being drawn; ask again in a few seconds', code: 'drawing' }));
+      }
       res.writeHead(200, { 'content-type': 'image/jpeg', 'cache-control': 'private, max-age=60', 'content-length': jpeg.length });
       return res.end(jpeg);
     }

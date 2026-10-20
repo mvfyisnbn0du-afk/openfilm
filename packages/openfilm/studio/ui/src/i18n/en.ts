@@ -143,6 +143,8 @@ export const en = {
   projects: {
     newProject: 'New project',
     localProjectFailed: 'Couldn’t create the project. Please retry.',
+    loadFailed: 'Couldn’t load your projects.',
+    loadRetry: 'Try again',
     revealFolder: `Reveal in ${FILES}`,
     folderAll: 'All',
     folderUp: 'Up one level',

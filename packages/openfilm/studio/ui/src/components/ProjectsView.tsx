@@ -33,6 +33,7 @@ import { useLanguage, useT, type Language } from '@/i18n';
 import { limitTitleWidth, TITLE_MAX_WIDTH } from '@/lib/title';
 import { api, type Project } from '@/api';
 import { folderCounts, folderPosters, folderTrail, parentOf, visibleProjects, type LibrarySort, type ProjectFolder } from '@/lib/project-folders';
+import { posterRetryDelay, posterTry } from '@/lib/projects-page';
 import { ContextMenu } from './ContextMenu';
 import { ProjectMenu } from './ProjectMenu';
 import { ProjectCoverContext } from './ProjectCover';
@@ -71,6 +72,7 @@ export function ProjectsView({
   projects: LibraryProject[];
   /** A project is being created or opened; "New project" does not take a second click meanwhile. */
   creating?: boolean;
+  /** "New project": made at once, named as Studio names it (Untitled, Untitled 2…), and opened. */
   onNewProject: () => void;
   /** "Open folder…": a folder anywhere, opened as a project (the app's own dialog, else Studio's folder browser). */
   onOpenFolder: () => void;
@@ -1357,32 +1359,42 @@ function FolderPicker({
 
 /**
  * The cover, or (none, or it failed to load) a gradient made from the id. While Studio draws it (the first time can
- * take a while) the card shows its plain face with the film mark, not a black frame that reads as a black film.
+ * take a while) the card shows its plain face with the film mark, not a black frame that reads as a black film. Studio
+ * answers at once while it draws a film's first poster (so the card holds none of the browser's few connections to
+ * it): the card shows its gradient and asks again a few times.
  */
 function PosterMedia({ project, shade = false }: { project: LibraryProject; shade?: boolean }) {
-  const [failedUrl, setFailedUrl] = React.useState<string | null>(null);
+  /* the try asked for now (0: the first) and whether it failed, for this poster */
+  const [attempt, setAttempt] = React.useState<{ url: string; n: number; failed: boolean } | null>(null);
   const [loadedUrl, setLoadedUrl] = React.useState<string | null>(null);
+  const tried = attempt && attempt.url === project.poster ? attempt : { url: project.poster ?? '', n: 0, failed: false };
+  const again = tried.failed ? posterRetryDelay(tried.n) : null;
+  React.useEffect(() => {
+    if (again == null) return undefined;
+    const timer = setTimeout(() => setAttempt({ url: tried.url, n: tried.n + 1, failed: false }), again);
+    return () => clearTimeout(timer);
+  }, [again, tried.url, tried.n]);
   /* `shade`: darker toward the bottom, under the length badge; only over a picture (on the plain face it is a smudge) */
   const shadow = shade ? <div className="absolute inset-0 bg-gradient-to-t from-black/55 via-transparent to-transparent opacity-90" /> : null;
-  if (!project.poster || failedUrl === project.poster) {
-    return <><div className="absolute inset-0 opacity-80" style={{ background: gradientForId(project.id) }} />{shadow}</>;
-  }
-  const ready = loadedUrl === project.poster;
+  const face = <div className="absolute inset-0 opacity-80" style={{ background: gradientForId(project.id) }} />;
+  if (!project.poster || (tried.failed && again == null)) return <>{face}{shadow}</>;
+  const src = posterTry(project.poster, tried.n);
+  const ready = loadedUrl === src;
   return (
     <>
-      {ready ? null : (
+      {ready ? null : tried.n > 0 || tried.failed ? face : (
         <span aria-hidden className="absolute inset-0 flex items-center justify-center text-[var(--text-faint)]">
           <Video size={22} strokeWidth={1.5} />
         </span>
       )}
       <img
-        src={project.poster}
+        src={src}
         alt=""
         loading="lazy"
         decoding="async"
         draggable={false}
-        onLoad={() => setLoadedUrl(project.poster ?? null)}
-        onError={() => setFailedUrl(project.poster ?? null)}
+        onLoad={() => setLoadedUrl(src)}
+        onError={() => setAttempt({ url: tried.url, n: tried.n, failed: true })}
         className={`absolute inset-0 h-full w-full object-cover transition-opacity duration-200 ${ready ? 'opacity-100' : 'opacity-0'}`}
       />
       {ready ? shadow : null}
