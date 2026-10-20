@@ -436,7 +436,7 @@ export async function startStudio({ port = 4747, key, openBrowser = systemBrowse
           name: k.name, description: k.description, source: k.source, scripts: k.scripts.length,
           ...(k.shown ? { shown: k.shown } : {}), ...(k.version ? { version: k.version } : {}), ...(k.kind ? { kind: k.kind } : {}),
           ...(k.order != null ? { order: k.order } : {}), ...(k.icon ? { icon: k.icon } : {}), ...(k.repository ? { repository: k.repository } : {}),
-          ...(k.cover ? { cover: media(k.name, 'cover') } : {}), ...(k.preview ? { preview: media(k.name, 'preview') } : {}),
+          ...(k.cover ? { cover: `${media(k.name, 'cover')}${id ? '&' : '?'}v=${encodeURIComponent(k.cover)}` } : {}), ...(k.preview ? { preview: media(k.name, 'preview') } : {}),
           /* the person's own: where it came from (none kept: made where it is) */
           ...(k.source === 'mine' ? { origin: origins[basename(k.folder)] ?? { from: 'made' } } : {}),
         })),

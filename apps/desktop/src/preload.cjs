@@ -106,7 +106,7 @@ contextBridge.exposeInMainWorld('openfilmNative', {
     preview: (url) => ipcRenderer.invoke('desktop:skills:preview', { url }),
     /* a folder dropped (its path), or null: one picked in the system's dialog, with the page's words { title, button } */
     previewFolder: (path, words) => ipcRenderer.invoke('desktop:skills:preview', { folder: typeof path === 'string' ? path : null, words }),
-    commit: (id) => ipcRenderer.invoke('desktop:skills:commit', { id }),
+    commit: (id, covers) => ipcRenderer.invoke('desktop:skills:commit', { id, covers }),
     discard: (id) => ipcRenderer.invoke('desktop:skills:discard', { id }),
     reveal: () => ipcRenderer.invoke('desktop:skills:reveal'),
   },

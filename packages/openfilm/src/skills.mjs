@@ -23,7 +23,9 @@ import { cp, mkdir, rename, rm } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import { basename, dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { randomUUID } from 'node:crypto';
 import { moveToTrash } from '../studio/server/trash.mjs';
+import { pictureType } from '../studio/server/cover.mjs';
 import { libraryDefault } from './locations.mjs';
 
 const mkdirSyncSafe = (/** @type {string} */ dir) => mkdirSync(dir, { recursive: true });
@@ -260,15 +262,17 @@ export function skillText(skill) {
  * `from` (a GitHub or GitLab address, studio/server/fetch-repo.mjs). A folder holding several skills (each a folder
  * with a SKILL.md) adds them all. One of the same name is replaced. → the skills added.
  * Where each came from is kept beside them (skillOrigins).
- * @param {string} from @param {{ mine?: string, move?: boolean, origin?: SkillOrigin }} [opts]  `move`: the folder is a
+ * @param {string} from @param {{ mine?: string, move?: boolean, origin?: SkillOrigin, covers?: Record<string, string> }} [opts]  `move`: the folder is a
  *   download of the caller's; `origin`: where it came from (default: the folder)
  * @returns {Promise<Skill[]>}
  */
-export async function addSkills(from, { mine = mySkillsDir(), move = false, origin = { from: 'folder', address: resolve(from) } } = {}) {
+export async function addSkills(from, { mine = mySkillsDir(), move = false, origin = { from: 'folder', address: resolve(from) }, covers = {} } = {}) {
   const src = resolve(from);
   const one = readSkill(src, 'mine');
   const found = one ? [one] : skillsIn(src, 'mine').concat(skillsIn(join(src, PROJECT_SKILLS), 'mine'));
   if (!found.length) throw new Error(`There is no ${SKILL_FILE} in ${from}: it is not a skill.`);
+  /* Validate all chosen covers before moving or replacing any skill. */
+  const pictures = new Map(found.filter((s) => Object.hasOwn(covers, s.name)).map((s) => [s.name, coverPicture(covers[s.name])]));
   await mkdir(mine, { recursive: true });
   /** @type {Skill[]} */
   const added = [];
@@ -279,6 +283,19 @@ export async function addSkills(from, { mine = mySkillsDir(), move = false, orig
     await rm(staging, { recursive: true, force: true });
     if (move && found.length === 1) await rename(skill.folder, staging);
     else await cp(skill.folder, staging, { recursive: true, filter: (p) => basename(p) !== '.git' });
+    const picture = pictures.get(skill.name);
+    if (picture) {
+      const file = `openfilm-cover-${randomUUID()}.${picture.extension}`;
+      let metadata = {};
+      try { metadata = JSON.parse(readFileSync(join(staging, 'openfilm.json'), 'utf8')); } catch (e) {
+        if (/** @type {any} */ (e).code !== 'ENOENT') throw new Error('Cannot update the skill\'s openfilm.json.', { cause: e });
+      }
+      if (!metadata || typeof metadata !== 'object' || Array.isArray(metadata)) throw new Error('Cannot update the skill\'s openfilm.json.');
+      writeFileSync(join(staging, file), picture.bytes, { flag: 'wx' });
+      /* Replace the copied metadata file itself; a source symlink must not be written through. */
+      await rm(join(staging, 'openfilm.json'), { force: true });
+      writeFileSync(join(staging, 'openfilm.json'), `${JSON.stringify({ ...metadata, cover: file }, null, 2)}\n`, { flag: 'wx' });
+    }
     /* one of the same name is replaced: the one there goes to the trash, never deleted */
     if (existsSync(to)) await moveToTrash(to);
     await rename(staging, to);
@@ -287,6 +304,18 @@ export async function addSkills(from, { mine = mySkillsDir(), move = false, orig
   }
   noteOrigins(mine, Object.fromEntries(added.map((k) => [basename(k.folder), { ...origin, added: new Date().toISOString() }])));
   return added;
+}
+
+/** A chosen raster picture, bounded before decoding; never an SVG or an arbitrary file. @param {string} data */
+function coverPicture(data) {
+  if (typeof data !== 'string' || data.length > 7 * 1024 * 1024) throw new Error('Skill cover exceeds 5 MB.');
+  const match = /^data:image\/(png|jpeg|webp);base64,([A-Za-z0-9+/]+={0,2})$/.exec(data);
+  if (!match) throw new Error('Skill cover must be a PNG, JPEG or WebP image.');
+  const bytes = Buffer.from(match[2], 'base64');
+  if (bytes.length > 5 * 1024 * 1024) throw new Error('Skill cover exceeds 5 MB.');
+  const extension = match[1] === 'jpeg' ? 'jpg' : match[1];
+  if (pictureType(bytes) !== extension) throw new Error('Skill cover does not match its image format.');
+  return { bytes, extension };
 }
 
 /**

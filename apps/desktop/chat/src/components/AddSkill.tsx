@@ -12,6 +12,7 @@ import { keepFocus } from './Popover';
 import { useT } from '@/i18n';
 import { chatLayer } from '@/lib/chat-layer';
 import { app, type SkillInfo, type SkillPreview } from '../app-bridge';
+import { readFileDataUrl } from '@/lib/composer-attachments';
 
 const QUIET_BUTTON = 'h-9 rounded-[9px] px-3.5 text-[13px] text-[var(--text-dim)] transition hover:bg-[var(--bg-hover)] hover:text-[var(--text)] disabled:opacity-40';
 const MAIN_BUTTON = 'flex h-9 items-center gap-1.5 rounded-[9px] bg-[var(--text)] px-4 text-[13px] font-medium text-[var(--bg)] transition hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-40';
@@ -42,12 +43,15 @@ export function AddSkillDialog({ onClose, onAdded, onPick, onMake }: {
   const [fetched, setFetched] = React.useState<{ id: string; skills: SkillPreview[] } | null>(null);
   const [added, setAdded] = React.useState<SkillInfo[]>([]);
   const [dragging, setDragging] = React.useState(false);
+  const [covers, setCovers] = React.useState<Record<string, string>>({});
+  const [readingCover, setReadingCover] = React.useState(false);
   const waiting = React.useRef<string | null>(null);
 
   const letGo = () => {
     if (waiting.current) void app.skills.discard(waiting.current);
     waiting.current = null;
     setFetched(null);
+    setCovers({});
   };
   const close = () => { letGo(); onClose(); };
   /* closed some other way before it was kept: let go */
@@ -61,6 +65,7 @@ export function AddSkillDialog({ onClose, onAdded, onPick, onMake }: {
   const look = async (preview: () => ReturnType<typeof app.skills.previewFolder>) => {
     setStep('fetching');
     setError(null);
+    setCovers({});
     const r = await preview().catch((e: unknown) => ({ ok: false as const, error: e instanceof Error ? e.message : String(e) }));
     if (!r.ok) { if (!('cancelled' in r)) setError(r.error); setStep('choose'); return; }
     waiting.current = r.id;
@@ -72,7 +77,7 @@ export function AddSkillDialog({ onClose, onAdded, onPick, onMake }: {
   const keep = async () => {
     if (!fetched) return;
     setStep('adding');
-    const r = await app.skills.commit(fetched.id).catch((e: unknown) => ({ ok: false as const, error: e instanceof Error ? e.message : String(e) }));
+    const r = await app.skills.commit(fetched.id, covers).catch((e: unknown) => ({ ok: false as const, error: e instanceof Error ? e.message : String(e) }));
     waiting.current = null;
     if (!r.ok) { setError(r.error); setStep('choose'); setFetched(null); return; }
     setAdded(r.skills);
@@ -80,15 +85,37 @@ export function AddSkillDialog({ onClose, onAdded, onPick, onMake }: {
     await onAdded();
   };
 
+  const chooseCover = async (name: string, file: File) => {
+    setReadingCover(true);
+    setError(null);
+    try {
+      if (file.size > 5 * 1024 * 1024 || !['image/png', 'image/jpeg', 'image/webp'].includes(file.type)) throw new Error(t('skills.coverInvalid'));
+      const data = await readFileDataUrl(file);
+      const image = new Image();
+      image.src = data;
+      await image.decode().catch(() => { throw new Error(t('skills.coverInvalid')); });
+      setCovers((previous) => ({ ...previous, [name]: data }));
+    } catch (e) { setError(e instanceof Error ? e.message : String(e)); }
+    finally { setReadingCover(false); }
+  };
+
   const scripts = (fetched?.skills ?? []).reduce((n, s) => n + s.scripts.length, 0);
   const replaces = (fetched?.skills ?? []).filter((s) => s.replaces).map((s) => s.name);
-  const item = (s: { name: string; description: string }, facts?: string) => (
+  const item = (s: { name: string; description: string }, facts?: string, editable = false) => (
     <div key={s.name} className="flex items-start gap-3 rounded-[10px] bg-[var(--surface-2)] px-3 py-2.5">
-      <span className="mt-[1px] flex h-8 w-8 shrink-0 items-center justify-center rounded-[8px] bg-[var(--bg-surface)] text-[var(--text-dim)]"><Blocks size={15} strokeWidth={1.75} /></span>
+      <span className="mt-[1px] flex h-8 w-8 shrink-0 items-center justify-center overflow-hidden rounded-[8px] bg-[var(--bg-surface)] text-[var(--text-dim)]">{covers[s.name] ? <img src={covers[s.name]} alt="" className="h-full w-full object-cover" /> : <Blocks size={15} strokeWidth={1.75} />}</span>
       <span className="min-w-0 flex-1">
         <span className="block truncate text-[13px] font-medium text-[var(--text)]">{s.name}</span>
         {s.description ? <span className="mt-0.5 line-clamp-2 block text-[12px] leading-[17px] text-[var(--text-muted)]">{s.description}</span> : null}
         {facts ? <span className="mt-1 block text-[11.5px] text-[var(--text-faint)]">{facts}</span> : null}
+        {editable ? <span className="mt-2 flex items-center gap-2">
+          <label className={`cursor-pointer text-[12px] text-[var(--text-dim)] focus-within:underline ${step === 'adding' || readingCover ? 'pointer-events-none opacity-40' : 'hover:text-[var(--text)]'}`}>
+            {t('skills.chooseCover')}
+            <input type="file" accept="image/png,image/jpeg,image/webp" aria-label={`${t('skills.chooseCover')}: ${s.name}`} className="sr-only" disabled={step === 'adding' || readingCover}
+              onChange={(e) => { const file = e.target.files?.[0]; e.target.value = ''; if (file) void chooseCover(s.name, file); }} />
+          </label>
+          {covers[s.name] ? <button type="button" disabled={step === 'adding' || readingCover} onClick={() => setCovers((previous) => { const next = { ...previous }; delete next[s.name]; return next; })} className="text-[12px] text-[var(--text-faint)] hover:text-[var(--text)] disabled:opacity-40">{t('skills.removeCover')}</button> : null}
+        </span> : null}
       </span>
     </div>
   );
@@ -109,8 +136,10 @@ export function AddSkillDialog({ onClose, onAdded, onPick, onMake }: {
     body = (
       <>
         <div className="flex max-h-[260px] flex-col gap-2 overflow-y-auto">
-          {fetched.skills.map((s) => item(s, [sizeOf(s.size), s.scripts.length ? t('skills.scriptsCount').replace('{n}', String(s.scripts.length)) : null].filter(Boolean).join(' · ')))}
+          {fetched.skills.map((s) => item(s, [sizeOf(s.size), s.scripts.length ? t('skills.scriptsCount').replace('{n}', String(s.scripts.length)) : null].filter(Boolean).join(' · '), true))}
         </div>
+        <p className="mt-2 text-[11.5px] text-[var(--text-faint)]">{t('skills.coverHint')}</p>
+        {error ? <p role="alert" className="mt-2 text-[12px] text-[var(--warn)]">{error}</p> : null}
         {replaces.length ? <p className="mt-3 text-[12px] leading-[17px] text-[var(--text-muted)]">{t('skills.replaceNote').replace('{names}', replaces.join(', '))}</p> : null}
         {scripts ? (
           <p className="mt-3 flex gap-2 rounded-[10px] bg-[var(--surface-2)] px-3 py-2.5 text-[12px] leading-[17px] text-[var(--text-muted)]">
@@ -119,8 +148,8 @@ export function AddSkillDialog({ onClose, onAdded, onPick, onMake }: {
           </p>
         ) : null}
         <div className="mt-5 flex justify-end gap-2">
-          <button type="button" onMouseDown={keepFocus} onClick={() => { letGo(); setStep('choose'); }} disabled={step === 'adding'} className={QUIET_BUTTON}>{t('skills.cancel')}</button>
-          <button type="button" onMouseDown={keepFocus} onClick={() => void keep()} disabled={step === 'adding'} className={MAIN_BUTTON}>
+          <button type="button" onMouseDown={keepFocus} onClick={() => { letGo(); setStep('choose'); }} disabled={step === 'adding' || readingCover} className={QUIET_BUTTON}>{t('skills.cancel')}</button>
+          <button type="button" onMouseDown={keepFocus} onClick={() => void keep()} disabled={step === 'adding' || readingCover} className={MAIN_BUTTON}>
             {step === 'adding' ? <><Loader2 size={13} className="animate-spin" />{t('skills.adding')}</> : t(replaces.length ? 'skills.replaceAndAdd' : 'skills.add')}
           </button>
         </div>

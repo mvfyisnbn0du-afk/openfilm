@@ -99,14 +99,14 @@ export function previewFolder(folder, { mine = mySkillsDir() } = {}) {
 const ownFetch = (/** @type {string} */ staging, /** @type {string} */ mine) => resolve(dirname(staging)) === resolve(mine) && /^\.adding-/.test(staging.split(/[\\/]/).pop() ?? '');
 
 /** Keep what previewSkills fetched: added to the person's own (one of the same name to the trash). → the skills kept. */
-export async function commitSkills(/** @type {string} */ staging, { mine = mySkillsDir() } = {}) {
+export async function commitSkills(/** @type {string} */ staging, { mine = mySkillsDir(), covers = /** @type {Record<string, string>} */ ({}) } = {}) {
   if (!ownFetch(staging, mine)) throw new Error('Nothing is waiting to be added.');
   try {
     const [fetched] = readdirSync(staging).filter((n) => !n.startsWith('.')).map((n) => join(staging, n));
     if (!fetched) throw new Error('Nothing is waiting to be added.');
     let address = '';
     try { address = readFileSync(join(staging, '.from'), 'utf8').trim(); } catch { /* fetched before addresses were kept */ }
-    return await addSkills(fetched, { mine, ...(address ? { origin: { from: 'link', address } } : {}) });
+    return await addSkills(fetched, { mine, covers, ...(address ? { origin: { from: 'link', address } } : {}) });
   } finally {
     await rm(staging, { recursive: true, force: true }).catch(() => {});
   }

@@ -273,6 +273,10 @@ export const zhCN: Words = {
   /* the composer's button that opens the Community over the film: skills and examples (Studio's ExamplesGallery) */
   community: { button: '社区', tooltip: '社区：Skill 和示例' },
   skills: {
+    chooseCover: "选择封面",
+    removeCover: "撤销封面选择",
+    coverHint: "可选 · PNG、JPEG 或 WebP，最大 5 MB。不选择则保留原封面。",
+    coverInvalid: "请选择有效的 PNG、JPEG 或 WebP 图片，最大 5 MB。",
     button: 'Skills',
     addTitle: '添加 skill',
     addHint: '粘贴 GitHub 或 GitLab 上一个 skill（或一组 skill）的地址。',

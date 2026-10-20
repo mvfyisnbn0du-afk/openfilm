@@ -12,8 +12,8 @@
  *                           | { ok: false, error } | { ok: false, cancelled }   a GitHub or GitLab address fetched beside
  *                           the person's skills, or a folder on this computer (one dropped, or `folder` null: picked
  *                           in the system's dialog, with the page's `words` { title, button }) looked at where it is, to be looked at first
- *   desktop:skills:commit   { id } → { ok, skills: [Skill] } | { ok: false, error }   kept: added to the person's own
- *                           (a folder copied), one of the same name to the trash
+ *   desktop:skills:commit   { id, covers? } → { ok, skills: [Skill] } | { ok: false, error }   kept: added to the person's own
+ *                           (a folder copied), one of the same name to the trash; covers are chosen image data URLs by skill name
  *   desktop:skills:discard  { id }   let go
  *   desktop:skills:reveal   the person's own skills folder in the file manager
  * For Settings → Agents:
@@ -127,12 +127,13 @@ export function registerSkillsIpc(ipcMain, { trusted, projects, dataDir, mine, o
       return { ok: false, error: e instanceof Error ? e.message : String(e) };
     }
   });
-  handle('desktop:skills:commit', async ({ id }) => {
+  handle('desktop:skills:commit', async ({ id, covers }) => {
     const what = waiting.get(id);
     waiting.delete(id);
     if (!what) return { ok: false, error: 'Nothing is waiting to be added.' };
     try {
-      const kept = what.folder ? await (await lib()).addSkills(what.folder, { mine }) : await (await cli()).commitSkills(what.staging, { mine });
+      if (covers != null && (typeof covers !== 'object' || Array.isArray(covers))) throw new Error('Invalid skill covers.');
+      const kept = what.folder ? await (await lib()).addSkills(what.folder, { mine, covers }) : await (await cli()).commitSkills(what.staging, { mine, covers });
       return { ok: true, skills: kept.map(shown) };
     } catch (e) {
       return { ok: false, error: e instanceof Error ? e.message : String(e) };

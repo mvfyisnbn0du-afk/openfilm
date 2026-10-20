@@ -273,6 +273,10 @@ export const ja: Words = {
   /* the composer's button that opens the Community over the film: skills and examples (Studio's ExamplesGallery) */
   community: { button: 'コミュニティ', tooltip: 'コミュニティ：スキルとサンプル' },
   skills: {
+    chooseCover: "カバーを選択",
+    removeCover: "選択を元に戻す",
+    coverHint: "任意 · PNG、JPEG、WebP、最大 5 MB。変更しなければ元のカバーを保持します。",
+    coverInvalid: "5 MB 以下の有効な PNG、JPEG、WebP 画像を選択してください。",
     button: 'Skills',
     addTitle: 'スキルを追加',
     addHint: 'GitHub か GitLab にあるスキル（またはスキルのフォルダ）のアドレスを貼り付けてください。',

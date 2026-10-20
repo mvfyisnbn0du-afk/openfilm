@@ -16,6 +16,47 @@ const skill = (dir, name, description, body = 'How to make it.', extra = {}) => 
   return dir;
 };
 
+const coverPng = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jRZkAAAAASUVORK5CYII=';
+
+test('a chosen cover is kept with the copied skill, preserving its metadata and source', async () => {
+  const root = mkdtempSync(join(tmpdir(), 'of-skill-cover-'));
+  const meta = { title: { en: 'A title' }, kind: 'style', custom: 'kept' };
+  const from = skill(join(root, 'source'), 'covered', 'Covered skill', 'Steps', { 'openfilm.json': JSON.stringify(meta) });
+  const [kept] = await addSkills(from, { mine: join(root, 'mine'), covers: { covered: coverPng } });
+  assert.ok(kept.cover);
+  assert.deepEqual(readFileSync(join(kept.folder, kept.cover)), Buffer.from(coverPng.split(',')[1], 'base64'));
+  const saved = JSON.parse(readFileSync(join(kept.folder, 'openfilm.json'), 'utf8'));
+  assert.deepEqual(saved, { ...meta, cover: kept.cover });
+  assert.deepEqual(JSON.parse(readFileSync(join(from, 'openfilm.json'), 'utf8')), meta);
+  assert.equal(existsSync(join(from, kept.cover)), false);
+  assert.equal(readSkill(kept.folder, 'mine').cover, kept.cover, 'cover persists when read again');
+});
+
+test('covers follow each skill through a fetched collection; unselected covers remain unchanged', async () => {
+  const root = mkdtempSync(join(tmpdir(), 'of-skill-covers-'));
+  const mine = join(root, 'mine');
+  const { staging } = await previewSkills('https://github.com/x/y', { mine, fetch: async (_url, into) => {
+    const pack = join(into, 'pack');
+    skill(join(pack, 'one'), 'one', 'One');
+    skill(join(pack, 'two'), 'two', 'Two', 'Steps', { 'openfilm.json': '{"cover":"original.png"}', 'original.png': Buffer.from(coverPng.split(',')[1], 'base64') });
+    return pack;
+  } });
+  const kept = await commitSkills(staging, { mine, covers: { one: coverPng } });
+  assert.ok(kept.find(s => s.name === 'one').cover);
+  assert.equal(kept.find(s => s.name === 'two').cover, 'original.png');
+});
+
+test('invalid cover data is rejected before replacing an existing skill', async () => {
+  const root = mkdtempSync(join(tmpdir(), 'of-skill-bad-cover-'));
+  const mine = join(root, 'mine');
+  const from = skill(join(root, 'from'), 'same', 'New');
+  const previous = skill(join(mine, 'same'), 'same', 'Original');
+  for (const data of ['data:image/svg+xml;base64,PHN2Zy8+', 'data:image/png;base64,bm90IGEgcG5n', `data:image/png;base64,${'A'.repeat(7 * 1024 * 1024)}`]) {
+    await assert.rejects(addSkills(from, { mine, covers: { same: data } }), /Skill cover (must|exceeds|does)/);
+    assert.equal(readSkill(previous, 'mine').description, 'Original');
+  }
+});
+
 test('a SKILL.md front matter: plain, quoted and block values; the body after it', () => {
   const { fields, body } = parseSkillFile([
     '---',

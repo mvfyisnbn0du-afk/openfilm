@@ -95,7 +95,7 @@ interface AppBridge {
     /** a folder on this computer looked at where it is: one dropped (its path), or null: picked in the system's dialog
         with these words (cancelled: nothing to show) */
     previewFolder(path: string | null, words?: { title: string; button: string }): Promise<{ ok: true; id: string; skills: SkillPreview[] } | { ok: false; error: string } | { ok: false; cancelled: true }>;
-    commit(id: string): Promise<{ ok: true; skills: SkillInfo[] } | { ok: false; error: string }>;
+    commit(id: string, covers?: Record<string, string>): Promise<{ ok: true; skills: SkillInfo[] } | { ok: false; error: string }>;
     discard(id: string): Promise<unknown>;
     reveal(): Promise<unknown>;
   };

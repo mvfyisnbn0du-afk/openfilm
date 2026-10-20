@@ -273,6 +273,10 @@ export const enUS = {
   /* the composer's button that opens the Community over the film: skills and examples (Studio's ExamplesGallery) */
   community: { button: 'Community', tooltip: 'Community: skills and examples' },
   skills: {
+    chooseCover: "Choose cover",
+    removeCover: "Undo cover choice",
+    coverHint: "Optional · PNG, JPEG or WebP, up to 5 MB. Keeps the original cover when left unchanged.",
+    coverInvalid: "Choose a valid PNG, JPEG or WebP image up to 5 MB.",
     button: 'Skills',
     addTitle: 'Add a skill',
     addHint: 'Paste the address of a skill, or a folder of skills, on GitHub or GitLab.',
