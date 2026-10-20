@@ -1,6 +1,6 @@
 import React from 'react';
 import { createPortal } from 'react-dom';
-import { Captions, Repeat, Settings2 } from 'lucide-react';
+import { Captions, Gauge, Repeat } from 'lucide-react';
 import { useT } from '@/i18n';
 import { useKeyHint } from '@/lib/keymap-store';
 import { Tooltip } from './Tooltip';
@@ -88,7 +88,7 @@ export function PlaybackMenu({ className, disabled, settings }: {
         }}>
         {loop ? <Repeat size={14} className="text-[var(--accent)]" aria-hidden /> : null}
         {speed !== 1 ? <span className="text-[12px] leading-none tabular-nums">{speedText(speed)}</span> : null}
-        {!loop && speed === 1 ? <Settings2 size={14} aria-hidden /> : null}
+        {!loop && speed === 1 ? <Gauge size={14} aria-hidden /> : null}
       </button>
     </Tooltip>
     {anchor && createPortal(<div ref={panel} id={id} role="dialog" aria-label={t('viewer.playback')}
