@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { anchorTime, EASE_STEP, easedLead, fadeSteps, JUMP, soundsDue, soundSpeed, stretchedSpan } from './player.ts';
+import { anchorTime, EASE_STEP, easedLead, fadeSteps, fileTime, JUMP, soundsDue, stretchRate } from './player.ts';
 
 test('a sound\'s fades as ramps: where it is now, then each corner after it', () => {
   /* 4 s long, 1 s in, 2 s out */
@@ -40,16 +40,24 @@ test('sounds are started a few seconds ahead of the film, each once, solo leavin
   assert.deepEqual(soundsDue([{ ...s(0, 4, 'e'), speed: 2 }], 2.5, 3, new Set(), null), []);
 });
 
-test('a sound at another speed is played from a copy stretched to it: where to start in it and for how long', () => {
-  /* a clip at 2× of the file's seconds 10–20, at film second 4: 5 film seconds long */
+test('a sound heard at another speed is played by a media element at its rate, pitch kept; at 1× it is decoded', () => {
+  /* its clip's speed by the viewer's */
+  assert.equal(stretchRate(2, 1), 2);
+  assert.equal(stretchRate(2, 0.75), 1.5);
+  assert.equal(stretchRate(1, 0.25), 0.25);
+  assert.equal(stretchRate(1, 1 / 3), 0.3333);
+  /* at 1× (by any pair), the decoded sound plays */
+  assert.equal(stretchRate(1, 1), null);
+  assert.equal(stretchRate(2, 0.5), null);
+  /* within what a browser plays */
+  assert.equal(stretchRate(64, 2), 16);
+  assert.equal(stretchRate(0.1, 0.25), 1 / 16);
+});
+
+test('where in its file a sound is at a film second', () => {
+  /* a clip at 2× of the file's seconds 10–20, at film second 4 */
   const s = { src: 'a.wav', at: 4, from: 10, to: 20, volume: 1, speed: 2 };
-  assert.equal(soundSpeed(2, 1), 2);
-  assert.equal(soundSpeed(2, 0.75), 1.5);
-  assert.equal(soundSpeed(1, 1 / 3), 0.3333);
-  /* from its start, the viewer at 1×: the 2× copy from 10 / 2, all 10 file seconds as 5 */
-  assert.deepEqual(stretchedSpan(s, 4, 2), { offset: 5, duration: 5 });
-  /* the film started 1 s into it, the viewer at 1.5× (the copy at 3×): file second 12, 8 file seconds left */
-  assert.deepEqual(stretchedSpan(s, 5, 3), { offset: 4, duration: 8 / 3 });
-  /* at 1× of a 1× clip it is the file itself */
-  assert.deepEqual(stretchedSpan({ ...s, speed: 1, to: 15 }, 6, 1), { offset: 12, duration: 3 });
+  assert.equal(fileTime(s, 4), 10);
+  assert.equal(fileTime(s, 5), 12);
+  assert.equal(fileTime({ ...s, speed: 1 }, 6.5), 12.5);
 });

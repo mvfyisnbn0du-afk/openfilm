@@ -16,8 +16,7 @@
  * Pages get the host flag (the film's clock, see src/host.mjs) before any of their scripts, as `look` and `render`
  * give it, so a film draws here exactly as it renders. Everything may be read by the editor's origin (its sound mixer
  * fetches the media), which frames the pages. A media file asked for with `?film-sound` is its sound,
- * small (derived.mjs soundOf): what the mixer plays, never the whole of a video; 204 when it has none. With
- * `&speed=…` it is stretched to that speed, its pitch kept.
+ * small (derived.mjs soundOf): what the mixer plays, never the whole of a video; 204 when it has none.
  */
 import { execFile } from 'node:child_process';
 import { createHash, createHmac } from 'node:crypto';
@@ -32,7 +31,7 @@ import { readPrefs } from './prefs.mjs';
 import { readyProxy } from './proxies.mjs';
 import { madeCopy } from '../../src/seekable.mjs';
 import { isPreviewKey, previewDir } from './preview-cache.mjs';
-import { SOUND_SPEED, soundOf } from './derived.mjs';
+import { soundOf } from './derived.mjs';
 
 const BRIDGE = readFileSync(new URL('./bridge.js', import.meta.url), 'utf8');
 
@@ -179,10 +178,7 @@ export async function startPages({ port, editorOrigin, secret, projects }) {
     if (!servable(entry.root, plain)) { res.writeHead(404, headers).end('not found'); return; }
     if (url.searchParams.has('film-sound')) {
       /* waited for while it is made (a few seconds for a long recording): the mixer plays the film without it meanwhile */
-      /* `speed`: stretched to it, its pitch kept (the clip's speed by the viewer's) */
-      const speed = Number(url.searchParams.get('speed') ?? 1);
-      if (!(speed >= SOUND_SPEED.min && speed <= SOUND_SPEED.max)) { res.writeHead(400, headers).end('speed: from 1/16 to 16'); return; }
-      const file = await soundOf(entry.root, plain.replace(/^\/+/, ''), speed).catch((/** @type {any} */ e) => (e?.status === 404 ? undefined : null));
+      const file = await soundOf(entry.root, plain.replace(/^\/+/, '')).catch((/** @type {any} */ e) => (e?.status === 404 ? undefined : null));
       if (file === undefined) { res.writeHead(404, headers).end('not found'); return; }
       if (!file) { res.writeHead(204, headers).end(); return; }
       if (!folderFiles(dirname(file), { headers: policy() })(req, res, `/${basename(file)}`, url.searchParams)) res.writeHead(403, headers).end();

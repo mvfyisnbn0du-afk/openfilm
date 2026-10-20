@@ -10,11 +10,12 @@
  *
  * `sounds` is the timeline's own list (src/timeline.mjs `__filmSounds`): each sound clip's sound and each video's own,
  * already placed and cut to its clip, with its volume and speed. Each file's sound is fetched small (`?film-sound`, see
- * studio/server/pages.mjs): a video's is a copy of its sound alone, never the whole video. A sound played faster or
- * slower (its clip's speed by the viewer's) is fetched stretched to that speed with its pitch kept (`&speed=`, the
- * atempo filter exports use) and played as it is: never sped up as a tape is, which would be heard higher. A sound not
- * here yet (its copy still being made) is silent until it is, then joins where the film is. Sounds are started a few seconds ahead of
- * the film, not all at once: a film of hundreds of sounds starts as quickly as one of a few.
+ * studio/server/pages.mjs): a video's is a copy of its sound alone, never the whole video. A sound heard at its own
+ * speed (its clip's speed by the viewer's is 1) is decoded and played sample-accurate. One heard faster or slower is
+ * played by the browser's own media element with its pitch kept (`preservesPitch`), in the same mix: another speed is
+ * heard at once, with nothing made for it, and its place is checked against the film as it plays. A sound not here yet
+ * (its copy still being made) is silent until it is, then joins where the film is. Sounds are started a few seconds
+ * ahead of the film, not all at once: a film of hundreds of sounds starts as quickly as one of a few.
  *
  * Every sound goes through one mix, metered (`levels`: the audio meters read it while the film plays, nothing reads it
  * paused) before the person's volume. Solo (`setHeard`) leaves the clips of the other tracks out of what plays here
@@ -29,6 +30,10 @@ const AHEAD = 8;
 const CHECK_MS = 250;
 /** How long after now a sound can be started at the soonest (s): sooner, its start is cut. */
 const LEAD = 0.03;
+/** A sound played by a media element further than this from where the film is (s) is put back in its place. */
+const DRIFT = 0.12;
+/** After a sound is put back in its place, how long it is left to settle before it is checked again (ms). */
+const SETTLE_MS = 1000;
 
 /** `fade`: its fades in and out, film seconds, already fitted to its length (src/timeline.mjs). */
 export type Sound = { src: string; at: number; from: number; to: number; volume: number; speed: number; clip?: string; fade?: [number, number] };
@@ -84,25 +89,22 @@ export type MixSamples = [Float32Array<ArrayBuffer>, Float32Array<ArrayBuffer>];
 /** A sound's length on the film (s). */
 const lengthOf = (s: Sound) => (s.to - s.from) / s.speed;
 
-/** The speed a sound's file is played at: its clip's by the viewer's, to 4 places (the copy made for it, see soundOf). */
-export function soundSpeed(speed: number, rate: number): number {
-  return Math.round(speed * rate * 1e4) / 1e4;
-}
-
 /**
- * Where to start in a copy of the sound stretched to `speed` (soundSpeed) and how long to play it (its own seconds),
- * for the sound heard from film second `startFilm` to its end: the copy's second is `speed` of the file's.
+ * The rate a sound's media element plays its file at, its pitch kept: its clip's speed by the viewer's, within what a
+ * browser plays (1/16 to 16). Null when that is 1: the sound is decoded and played as it is.
  */
-export function stretchedSpan(s: Sound, startFilm: number, speed: number): { offset: number; duration: number } {
-  const end = s.at + lengthOf(s);
-  return {
-    offset: (s.from + (startFilm - s.at) * s.speed) / speed,
-    duration: ((end - startFilm) * s.speed) / speed,
-  };
+export function stretchRate(speed: number, rate: number): number | null {
+  const v = Math.round(speed * rate * 1e4) / 1e4;
+  return v === 1 ? null : Math.max(1 / 16, Math.min(16, v));
 }
 
-/** A decoded sound's place: its file, at a speed. */
-const bufferKey = (src: string, speed: number) => `${speed}|${src}`;
+/** Where in its file a sound is at film second `t` (s). */
+export function fileTime(s: Sound, t: number): number {
+  return s.from + (t - s.at) * s.speed;
+}
+
+/** A sound played by a media element: the element, what it goes through in the mix, and when it was last put back. */
+type Voice = { el: HTMLAudioElement; source: MediaElementAudioSourceNode; gain: GainNode; sound: Sound; timer: number; settled: number };
 
 /** How far film time `t` is from a sound: 0 while it plays, else until it starts; one already past after all those. */
 function awayFrom(s: Sound, t: number) {
@@ -125,13 +127,14 @@ export function soundsDue(sounds: readonly Sound[], from: number, until: number,
 
 export class Player {
   private ctx: AudioContext | null = null;
-  /** each file's decoded sound at a speed (bufferKey), and the version of the file it was decoded from (undefined: not
-      known then) */
+  /** each file's decoded sound, and the version of the file it was decoded from (undefined: not known then) */
   private buffers = new Map<string, { version: number | undefined; buffer: Promise<AudioBuffer | null> }>();
   private origin = '';
   private versionOf: (src: string) => number | undefined = () => undefined;
   private sounds: Sound[] = [];
   private playingNodes: AudioScheduledSourceNode[] = [];
+  /** the sounds heard faster or slower, each played by a media element (see stretchRate) */
+  private voices: Voice[] = [];
   /** where the film is while playing, on the page's clock (see Anchor) */
   private line: Anchor = { t: 0, at: 0, rate: 1 };
   /** the same line on the audio clock while the sound plays: film second `t` is heard at audio time `at` (s); null silent */
@@ -181,32 +184,24 @@ export class Player {
   }
 
   /**
-   * Fetches the sounds not decoded yet at the speed they play at now, or decoded from an older version; says whether
-   * there were any. Those at no speed played now or at 1× are let go (a long sound decoded is tens of MB).
+   * Fetches the sounds not decoded yet, or decoded from an older version; says whether there were any. A clip at another
+   * speed is never decoded: a media element plays it.
    */
   private fetchSounds(): boolean {
     if (!this.origin) return false;
     const ctx = this.context();
     let fetched = false;
     const t = this.time();
-    const kept = new Set(this.sounds.flatMap((s) => [bufferKey(s.src, soundSpeed(s.speed, this.rate)), bufferKey(s.src, soundSpeed(s.speed, 1))]));
-    for (const key of [...this.buffers.keys()]) if (!kept.has(key)) this.buffers.delete(key);
-    for (const s of [...this.sounds].sort((a, b) => awayFrom(a, t) - awayFrom(b, t))) {
+    for (const s of [...this.sounds].filter((x) => x.speed === 1).sort((a, b) => awayFrom(a, t) - awayFrom(b, t))) {
       const version = this.versionOf(s.src);
-      const speed = soundSpeed(s.speed, this.rate);
-      const key = bufferKey(s.src, speed);
-      const had = this.buffers.get(key);
+      const had = this.buffers.get(s.src);
       /* a version not known on one side is taken as the same: the file was not seen to change */
       if (had && (had.version === version || had.version === undefined || version === undefined)) {
         had.version ??= version;
         continue;
       }
-      const url = new URL(s.src, this.origin);
-      url.searchParams.set('film-sound', '1');
-      if (speed !== 1) url.searchParams.set('speed', String(speed));
-      /* past the browser's cache, which keeps the old file under the same address */
-      if (version !== undefined) url.searchParams.set('v', String(version));
-      this.buffers.set(key, { version, buffer: this.slot(s.src)
+      const url = this.soundUrl(s.src);
+      this.buffers.set(s.src, { version, buffer: this.slot(s.src)
         .then((done) => fetch(url)
           /* 204: there is no sound in it */
           .then((r) => (r.status === 204 ? null : r.ok ? r.arrayBuffer() : Promise.reject(new Error(String(r.status)))))
@@ -216,6 +211,15 @@ export class Player {
       fetched = true;
     }
     return fetched;
+  }
+
+  /** The address of a file's sound, small (`?film-sound`), past the browser's cache when the file was made again. */
+  private soundUrl(src: string): string {
+    const url = new URL(src, this.origin);
+    url.searchParams.set('film-sound', '1');
+    const version = this.versionOf(src);
+    if (version !== undefined) url.searchParams.set('v', String(version));
+    return url.href;
   }
 
   /** A turn to fetch `src`'s sound; resolves with what ends it. */
@@ -315,13 +319,12 @@ export class Player {
     if (this.master) this.master.gain.value = muted ? 0 : this.volume;
   }
 
-  /** Play faster or slower, the pitch kept (each sound at that speed is fetched); playing goes on from where it is. */
+  /** Play faster or slower, the pitch kept (see stretchRate); playing goes on from where it is, heard at once. */
   setRate(rate: number) {
     const t = this.time();
     const next = Math.max(0.25, Math.min(2, rate));
     if (next === this.rate) return;
     this.rate = next;
-    this.fetchSounds();
     if (this.playing) this.restart(t);
   }
 
@@ -405,6 +408,7 @@ export class Player {
         }
       }
       this.startDue();
+      this.keepVoices();
     }, CHECK_MS);
   }
 
@@ -416,7 +420,8 @@ export class Player {
     for (const i of soundsDue(this.sounds, now, now + AHEAD * this.rate, this.started, this.heard)) {
       this.started.add(i);
       const s = this.sounds[i];
-      void this.buffers.get(bufferKey(s.src, soundSpeed(s.speed, this.rate)))?.buffer.then((buffer) => {
+      if (stretchRate(s.speed, this.rate) != null) { this.voice(s, heard); continue; }
+      void this.buffers.get(s.src)?.buffer.then((buffer) => {
         if (!buffer || !this.playing || this.heardLine !== heard) return;
         this.schedule(buffer, s, heard);
       });
@@ -435,24 +440,88 @@ export class Player {
     const startFilm = Math.max(s.at, heard.t + Math.max(0, soonest - heard.at) * r);
     if (startFilm >= end) return;
     const when = Math.max(soonest, ctxAt(startFilm));
-    /* the buffer is the sound stretched to this speed already: played as it is, its pitch is the file's */
-    const span = stretchedSpan(s, startFilm, soundSpeed(s.speed, r));
     const source = ctx.createBufferSource();
     source.buffer = buffer;
-    const gain = ctx.createGain();
-    if (s.fade) {
-      /* its fades as ramps on the audio clock, sample-accurate: from where it starts, each corner at its own moment */
-      const [[, first], ...rest] = fadeSteps(startFilm - s.at, end - s.at, s.fade);
-      gain.gain.setValueAtTime(s.volume * first, when);
-      for (const [u, g] of rest) gain.gain.linearRampToValueAtTime(s.volume * g, Math.max(when, ctxAt(s.at + u)));
-    } else gain.gain.value = s.volume;
+    const gain = this.fades(s, startFilm, when, ctxAt);
     source.connect(gain).connect(this.mix ?? ctx.destination);
-    source.start(when, span.offset, span.duration);
+    source.start(when, fileTime(s, startFilm), end - startFilm);
     source.onended = () => {
       const i = this.playingNodes.indexOf(source);
       if (i >= 0) this.playingNodes.splice(i, 1);
     };
     this.playingNodes.push(source);
+  }
+
+  /** A sound's gain in the mix, its fades as ramps on the audio clock from `when` (film second `startFilm`) on. */
+  private fades(s: Sound, startFilm: number, when: number, ctxAt: (filmT: number) => number): GainNode {
+    const gain = this.context().createGain();
+    if (s.fade) {
+      /* sample-accurate: from where it starts, each corner at its own moment */
+      const [[, first], ...rest] = fadeSteps(startFilm - s.at, lengthOf(s), s.fade);
+      gain.gain.setValueAtTime(s.volume * first, when);
+      for (const [u, g] of rest) gain.gain.linearRampToValueAtTime(s.volume * g, Math.max(when, ctxAt(s.at + u)));
+    } else gain.gain.value = s.volume;
+    return gain;
+  }
+
+  /**
+   * One sound heard faster or slower: its file played by a media element at its rate, the pitch kept, through the mix.
+   * It is put where the film will be when it starts and started then; keepVoices keeps it there.
+   */
+  private voice(s: Sound, heard: { t: number; at: number }) {
+    const ctx = this.context();
+    const r = this.rate;
+    const ctxAt = (filmT: number) => heard.at + (filmT - heard.t) / r;
+    const end = s.at + lengthOf(s);
+    const soonest = ctx.currentTime + LEAD;
+    const startFilm = Math.max(s.at, heard.t + Math.max(0, soonest - heard.at) * r);
+    if (startFilm >= end) return;
+    const when = Math.max(soonest, ctxAt(startFilm));
+    const el = new Audio();
+    /* the film's origin is not the editor's: read across, so the mix hears it (its server says the editor may) */
+    el.crossOrigin = 'anonymous';
+    el.preload = 'auto';
+    el.preservesPitch = true;
+    el.src = this.soundUrl(s.src);
+    el.defaultPlaybackRate = el.playbackRate = stretchRate(s.speed, r) ?? 1;
+    el.currentTime = fileTime(s, startFilm);
+    const source = ctx.createMediaElementSource(el);
+    const gain = this.fades(s, startFilm, when, ctxAt);
+    source.connect(gain).connect(this.mix ?? ctx.destination);
+    const voice: Voice = { el, source, gain, sound: s, settled: 0, timer: 0 };
+    voice.timer = window.setTimeout(() => {
+      if (!this.voices.includes(voice)) return;
+      el.playbackRate = stretchRate(s.speed, this.rate) ?? 1;
+      void el.play().catch(() => {});
+    }, Math.max(0, (when - ctx.currentTime) * 1000));
+    this.voices.push(voice);
+  }
+
+  /** Each sound a media element plays, kept where the film is: put back when it drifts, let go when it has ended. */
+  private keepVoices() {
+    const heard = this.heardLine;
+    const ctx = this.ctx;
+    if (!heard || !ctx) return;
+    /* the film second the mix plays now */
+    const film = heard.t + (ctx.currentTime - heard.at) * this.rate;
+    const now = performance.now();
+    for (const v of [...this.voices]) {
+      const s = v.sound;
+      if (film >= s.at + lengthOf(s)) { this.dropVoice(v); continue; }
+      if (film < s.at || v.el.paused || v.el.seeking || v.el.readyState < 2 || now - v.settled < SETTLE_MS) continue;
+      const want = fileTime(s, film);
+      if (Math.abs(v.el.currentTime - want) > DRIFT) { v.el.currentTime = want; v.settled = now; }
+    }
+  }
+
+  private dropVoice(v: Voice) {
+    window.clearTimeout(v.timer);
+    v.el.pause();
+    v.el.removeAttribute('src');
+    v.el.load();
+    try { v.source.disconnect(); v.gain.disconnect(); } catch { /* already apart */ }
+    const i = this.voices.indexOf(v);
+    if (i >= 0) this.voices.splice(i, 1);
   }
 
   pause() {
@@ -474,6 +543,7 @@ export class Player {
   private stopNodes() {
     for (const node of this.playingNodes) { try { node.onended = null; node.stop(); } catch { /* already stopped */ } }
     this.playingNodes = [];
+    for (const v of [...this.voices]) this.dropVoice(v);
     this.started.clear();
   }
 
