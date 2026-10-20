@@ -33,7 +33,7 @@ import { Readable, Writable } from 'node:stream';
 import { fileURLToPath } from 'node:url';
 import * as acp from '@agentclientprotocol/sdk';
 import { PATH_SEP, childEnvironment, lastPathSource, loginShellEnvironment, loginShellVariables, shellSubset } from './environment.mjs';
-import { AGENT_PROGRAMS, HOME_BIN_CANDIDATES, chosenProgram, codexVersion, consoleProgram, detectAgentInstallation, laterVersion, searchReport } from './agent-installation.mjs';
+import { AGENT_PROGRAMS, HOME_BIN_CANDIDATES, chosenProgram, codexAppCopies, codexVersion, desktopApp, detectAgentInstallation, installCommand, laterVersion, notTheAgent, searchReport } from './agent-installation.mjs';
 import { logSwitches } from './agent-logs.mjs';
 import { mergeConfig, sessionSkills } from './agent-skills.mjs';
 import { nodeBinary } from './node-runtime.mjs';
@@ -189,32 +189,23 @@ export function codexLaunchEnv(/** @type {string} */ path, { win = windows, dir 
     return { CODEX_PATH: path };
   }
 }
-/** what the slower search found last (Windows): npm's global folder, Codex inside a Microsoft Store app */
-let slowFound = { npmPrefix: null, storeCodex: null };
+/** what the slower search found last (Windows): npm's global folder */
+let slowFound = { npmPrefix: null };
 let slowCache = null;
 const SLOW_FOR_MS = 10 * 60_000;
-/* an OpenAI app from the Microsoft Store (ChatGPT, Codex) that carries Codex: where its codex.exe is */
-const STORE_CODEX = "Get-AppxPackage -Name 'OpenAI.*' | ForEach-Object { Get-ChildItem -LiteralPath $_.InstallLocation -Recurse -Depth 5 -Filter codex.exe -ErrorAction SilentlyContinue | Select-Object -ExpandProperty FullName }";
 
 /**
  * Windows only, and only when an agent is not found the quick way: where npm puts global commands (a prefix of the
- * person's own that is not on their PATH), and Codex inside an OpenAI app from the Microsoft Store. Asked again after
- * ten minutes, or at once with `fresh`.
+ * person's own that is not on their PATH). Asked again after ten minutes, or at once with `fresh`.
  */
 function windowsSlowSearch({ fresh = false } = {}) {
   if (!windows) return Promise.resolve(slowFound);
   if (slowCache && !fresh && Date.now() - slowCache.at < SLOW_FOR_MS) return slowCache.value;
   const value = (async () => {
     const env = childEnvironment({ shell: await loginShellEnvironment() });
-    const [npm, store] = await Promise.all([
-      run(process.env.ComSpec || 'cmd.exe', ['/d', '/s', '/c', 'npm prefix -g'], 15_000, { env }),
-      run('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', STORE_CODEX], 20_000, { env }),
-    ]);
+    const npm = await run(process.env.ComSpec || 'cmd.exe', ['/d', '/s', '/c', 'npm prefix -g'], 15_000, { env });
     const prefix = npm.ok ? npm.stdout.trim().split(/\r?\n/).pop()?.trim() : null;
-    /* the Codex app's own window program is a codex.exe too (`app\Codex.exe`, the filter ignores case): only a console
-       program is the CLI */
-    const exe = store.ok ? store.stdout.split(/\r?\n/).map((l) => l.trim()).find((l) => /codex\.exe$/i.test(l) && isAbsolute(l) && consoleProgram(l)) : null;
-    slowFound = { npmPrefix: prefix && isAbsolute(prefix) ? prefix : null, storeCodex: exe && isAbsolute(exe) ? exe : null };
+    slowFound = { npmPrefix: prefix && isAbsolute(prefix) ? prefix : null };
     return slowFound;
   })().catch(() => slowFound);
   slowCache = { at: Date.now(), value };
@@ -234,7 +225,6 @@ export function resolveAgentCli(id, { pathDirs = [] } = {}) {
     env: { PATH: pathDirs.join(PATH_SEP) },
     pathDirs: searchDirs(),
     chosen: chosenPaths[id] ?? null,
-    others: id === 'codex' && slowFound.storeCodex ? [slowFound.storeCodex] : [],
   });
   return found.cli ? { path: found.cli, source: found.source } : null;
 }
@@ -270,15 +260,24 @@ function starting(cliPath, args) {
   return { cmd: cliPath, args, env: {}, options: {} };
 }
 
+/** Why a program is not the agent (notTheAgent), in words. */
+const NOT_THE_AGENT = Object.freeze({
+  app: 'This is an editor or a desktop app, not the agent\'s command-line program.',
+  'not-cursor-agent': 'This is not Cursor\'s command-line agent, which installs in a cursor-agent folder.',
+});
+
 /**
  * A program the person chose for an agent, tried: it has to start and answer `--version`. `{ ok, version }`, or why
- * not: `code` 'not-a-program' (nothing there this computer can start) or 'did-not-start' (with what it said).
+ * not: `code` 'not-a-program' (nothing there this computer can start), 'app' or 'not-cursor-agent' (not the agent:
+ * an editor or a desktop app, never started) or 'did-not-start' (with what it said).
  */
 export async function checkAgentProgram(id, path) {
   const spec = AGENTS[id];
   if (!spec) return { ok: false, error: `No agent ${id}`, code: 'not-a-program' };
   const cli = chosenProgram(path, { names: AGENT_PROGRAMS[id]?.names ?? [id] });
   if (!cli) return { ok: false, error: 'That is not a program this computer can start.', code: 'not-a-program' };
+  const refused = notTheAgent(id, cli, { chosen: path });
+  if (refused) return { ok: false, error: NOT_THE_AGENT[refused], code: refused };
   const how = starting(cli, ['--version']);
   const r = await run(how.cmd, how.args, 20_000, { env: childEnvironment({ shell: await loginShellVariables(), extra: how.env }), options: how.options });
   if (!r.ok) return { ok: false, error: r.out.trim().slice(0, 400), code: 'did-not-start' };
@@ -320,12 +319,12 @@ export async function diagnoseAgent(id, { appVersion = '' } = {}) {
     `Found: ${found ? `${found.path} (${found.source})` : '(not found)'}`,
     ...(windows ? [
       `npm global folder: ${slow.npmPrefix ?? '(unknown)'}`,
-      ...(id === 'codex' ? [`Codex in a Store app: ${slow.storeCodex ?? '(none)'}`] : []),
+      ...(id === 'codex' ? [`Codex the Codex app starts: ${codexAppCopies()[0] ?? '(none)'}`] : []),
       `In WSL: ${found ? '(not checked)' : wsl ?? '(no)'}`,
     ] : []),
     '',
     `Files named ${names.join(', ')}:`,
-    ...(report.files.length ? report.files.map((f) => `  ${f.file}${f.runs && f.runs !== f.file ? ` -> ${f.runs}` : ''}${f.usable ? '' : ' (cannot be started)'}`) : ['  (none)']),
+    ...(report.files.length ? report.files.map((f) => `  ${f.file}${f.runs && f.runs !== f.file ? ` -> ${f.runs}` : ''}${f.refused ? ` (not the agent: ${f.refused})` : f.usable ? '' : ' (cannot be started)'}`) : ['  (none)']),
     '',
     `Folders searched (${report.searched.length}):`,
     ...report.searched.map((d) => `  ${d}`),
@@ -442,7 +441,11 @@ const shq = (s) => `'${String(s).replace(/'/g, `'\\''`)}'`;
  * folder a new window opens in).
  */
 export function signInScript(cliPath, args, { cwd } = {}) {
-  const command = `${cwd ? `cd ${shq(cwd)} && ` : ''}${[cliPath, ...args].map(shq).join(' ')}`;
+  return terminalScript(`${cwd ? `cd ${shq(cwd)} && ` : ''}${[cliPath, ...args].map(shq).join(' ')}`);
+}
+
+/** The AppleScript that has Terminal run a command line, as it is, in a new window. */
+export function terminalScript(command) {
   return `tell application "Terminal"\nactivate\ndo script "${command.replace(/\\/g, '\\\\').replace(/"/g, '\\"')}"\nend tell`;
 }
 
@@ -451,8 +454,30 @@ export function signInScript(cliPath, args, { cwd } = {}) {
  * PowerShell quotes): Windows sign-in. With a BOM, so Windows PowerShell reads a path with Chinese in it as UTF-8.
  */
 export function powerShellScript(title, cmd, args) {
-  const q = (s) => `'${String(s).replace(/'/g, "''")}'`;
-  return `\ufeff$Host.UI.RawUI.WindowTitle = ${q(title)}\r\n& ${[cmd, ...args].map(q).join(' ')}\r\n`;
+  return powerShellLine(title, `& ${[cmd, ...args].map(psq).join(' ')}`);
+}
+
+/** The same for a command line as it is (an installer's). */
+export function powerShellLine(title, line) {
+  return `\ufeff$Host.UI.RawUI.WindowTitle = ${psq(title)}\r\n${line}\r\n`;
+}
+const psq = (s) => `'${String(s).replace(/'/g, "''")}'`;
+
+/**
+ * A PowerShell window of its own running a script (a sign-in, an installer), left open so what it says can be read
+ * and answered.
+ */
+async function powerShellWindow(name, script, env) {
+  const dir = SIGN_IN_DIR();
+  mkdirSync(dir, { recursive: true });
+  const file = join(dir, name);
+  writeFileSync(file, script, 'utf8');
+  const powershell = join(process.env.SystemRoot ?? 'C:\\Windows', 'System32', 'WindowsPowerShell', 'v1.0', 'powershell.exe');
+  const child = spawn(powershell, ['-NoLogo', '-NoExit', '-ExecutionPolicy', 'Bypass', '-File', file], {
+    cwd: dir, detached: true, stdio: 'ignore', windowsHide: false, env,
+  });
+  await new Promise((done, fail) => { child.once('spawn', done); child.once('error', fail); });
+  child.unref();
 }
 
 /** The person's shell variables as this agent is given them (`fromShell`; all of them, for most). */
@@ -526,16 +551,8 @@ export async function openAgentSignIn(id) {
     how ??= /\.(?:cmd|bat)$/i.test(cli.path) ? { cmd: cli.path, args: spec.login, env: {} } : starting(cli.path, spec.login);
     how = { ...how, env: { ...defaults, ...how.env } };
     try {
-      const dir = SIGN_IN_DIR();
-      mkdirSync(dir, { recursive: true });
-      const file = join(dir, `${id}.ps1`);
-      writeFileSync(file, powerShellScript(`${spec.label} sign-in`, how.cmd, how.args), 'utf8');
-      const powershell = join(process.env.SystemRoot ?? 'C:\\Windows', 'System32', 'WindowsPowerShell', 'v1.0', 'powershell.exe');
-      const child = spawn(powershell, ['-NoLogo', '-NoExit', '-ExecutionPolicy', 'Bypass', '-File', file], {
-        cwd: dir, detached: true, stdio: 'ignore', windowsHide: false, env: childEnvironment({ shell: agentShell(id, await loginShellVariables()), extra: how.env }),
-      });
-      await new Promise((done, fail) => { child.once('spawn', done); child.once('error', fail); });
-      child.unref();
+      await powerShellWindow(`${id}.ps1`, powerShellScript(`${spec.label} sign-in`, how.cmd, how.args),
+        childEnvironment({ shell: agentShell(id, await loginShellVariables()), extra: how.env }));
       return { ok: true };
     } catch (e) { return { ok: false, error: e instanceof Error ? e.message : String(e) }; }
   }
@@ -550,15 +567,34 @@ export async function openAgentSignIn(id) {
 }
 
 /**
+ * Install an agent with its maker's official installer (installCommand), in a window the person sees: Terminal on a
+ * Mac, PowerShell on Windows. The person agreed to that exact command in Settings → Agents first. Whether it worked is
+ * learnt by looking for the agent again (agent-roster.mjs).
+ */
+export async function openAgentInstaller(id) {
+  const spec = AGENTS[id];
+  const command = spec ? installCommand(id) : null;
+  if (!command) return { ok: false, error: `${spec?.label ?? id} has no installer to run here.` };
+  if (windows) {
+    try {
+      await powerShellWindow(`${id}-install.ps1`, powerShellLine(`${spec.label} install`, command), childEnvironment({ shell: await loginShellVariables() }));
+      return { ok: true };
+    } catch (e) { return { ok: false, error: e instanceof Error ? e.message : String(e) }; }
+  }
+  const r = await run('/usr/bin/osascript', ['-e', terminalScript(command)], 15_000);
+  return r.ok ? { ok: true } : { ok: false, error: r.out.trim() || 'Terminal did not open.' };
+}
+
+/**
  * The agents as they are on this machine, for the chat's picker. `setupRequired: 'code-tab'`: the Claude app is
- * here but has not downloaded Claude Code yet (opening its Code tab does).
+ * here but has not downloaded Claude Code yet (opening its Code tab does). One not found: `app`, the maker's desktop
+ * app when it is here without the agent's program; `installer`, the official command that installs it, when it has one.
  */
 export async function listAgents() {
   /* looked at as the person comes back from installing one: a PATH from a few seconds ago at most */
   const pathDirs = (await loginShellEnvironment({ maxAgeMs: 10_000 })).PATH.split(PATH_SEP);
-  /* the slower search (Windows): always, as it finds Codex inside a Store app, which may be later than one on the PATH
-     (resolveAgentCli takes the later); waited for, a few seconds at most, when one is not found the quick way. What it
-     finds later is there on the next look */
+  /* the slower search (Windows): waited for, a few seconds at most, when one is not found the quick way. What it finds
+     later is there on the next look */
   if (windows) {
     const slow = windowsSlowSearch();
     if (Object.keys(AGENTS).some((id) => !resolveAgentCli(id, { pathDirs }))) {
@@ -577,7 +613,8 @@ export async function localAgent(id) {
 async function agentOnComputer(id, pathDirs) {
   const cli = resolveAgentCli(id, { pathDirs });
   const { install } = detectAgentInstallation(id);
-  const claudeApp = id === 'claude' && !cli && ['/Applications', join(homedir(), 'Applications')].some((dir) => existsSync(join(dir, 'Claude.app')));
+  const app = cli ? null : desktopApp(id);
+  const claudeApp = id === 'claude' && Boolean(app);
   return {
     id,
     label: AGENTS[id].label,
@@ -586,6 +623,7 @@ async function agentOnComputer(id, pathDirs) {
     ...(cli ? ownSignIn(AGENTS[id], await agentStatus(id, cli.path)) : { signedIn: null, account: null }),
     install,
     setupRequired: claudeApp ? 'code-tab' : null,
+    ...(cli ? {} : { app: claudeApp ? null : app, installer: installCommand(id) }),
   };
 }
 
