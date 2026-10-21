@@ -163,6 +163,7 @@ export const ko: Words = {
   },
   projects: {
     inProject: '{n} 안',
+    newWindowBar: '새 창',
     newWindowDesc: '{name} 안의 창: 그 안의 폴더로, 자기만의 영상을 가집니다.',
     newProject: '새 프로젝트',
     localProjectFailed: '프로젝트를 만들지 못했습니다. 다시 시도하세요.',

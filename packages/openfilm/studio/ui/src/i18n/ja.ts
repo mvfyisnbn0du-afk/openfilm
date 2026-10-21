@@ -163,6 +163,7 @@ export const ja: Words = {
   },
   projects: {
     inProject: '{n} 内',
+    newWindowBar: '新しいウィンドウ',
     newWindowDesc: '{name} の中のウィンドウ：その中のフォルダで、自分だけの作品を持ちます。',
     newProject: '新規プロジェクト',
     localProjectFailed: 'プロジェクトを作成できませんでした。もう一度お試しください。',

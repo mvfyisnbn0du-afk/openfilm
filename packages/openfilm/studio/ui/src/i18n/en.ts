@@ -164,6 +164,7 @@ export const en = {
   },
   projects: {
     inProject: 'in {n}',
+    newWindowBar: 'New window',
     newWindowDesc: 'A window in {name}: a folder inside it, with a film of its own.',
     newProject: 'New project',
     localProjectFailed: 'Couldn’t create the project. Please retry.',

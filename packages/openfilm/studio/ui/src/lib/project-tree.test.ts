@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { parentProjectName, windowNameFor, withWindows, depthsOf, windowTabMetrics } from './project-tree.ts';
+import { parentProjectName, windowNameFor, withWindows, depthsOf, windowTabMetrics, groupWindows } from './project-tree.ts';
 
 const show = { id: 'p1', path: '/a/Show', name: 'Show' };
 const window = { id: 'w1', path: '/a/Show/Version 2', name: 'Version 2', parentId: 'p1' };
@@ -109,4 +109,48 @@ test('a window of a window is deeper still, and narrower still', () => {
 
 test('a window is never drawn narrower than the strip can show', () => {
   assert.ok(windowTabMetrics(9).width >= 120);
+});
+
+/* The Projects list is read top to bottom, so the windows of a project are drawn **under** it. Laid side by side in a
+   grid, an indented window read as a card of its own that happened to be shifted — which is what the person said was
+   wrong. */
+test("a project's windows are the group's own, and they come after it", () => {
+  const other = { id: 'p2', path: '/a/Other', name: 'Other' };
+  const w2 = { id: 'w2', path: '/a/Show/Version 3', name: 'Version 3', parentId: 'p1' };
+  const groups = groupWindows([show, window, other, w2]);
+  assert.deepEqual(groups.map((g) => [g.project.name, g.windows.map((w) => w.project.name)]), [
+    ['Show', ['Version 2', 'Version 3']],
+    ['Other', []],
+  ]);
+});
+
+test('a project with no windows is still a group, so its card is drawn once', () => {
+  const groups = groupWindows([show]);
+  assert.equal(groups.length, 1);
+  assert.equal(groups[0].project.name, 'Show');
+  assert.deepEqual(groups[0].windows, []);
+});
+
+test("a window's own window is in the same group, one level deeper", () => {
+  const inner = { id: 'w-inner', path: '/a/Show/Version 2/Inner', name: 'Inner', parentId: 'w1' };
+  const groups = groupWindows([show, window, inner]);
+  assert.equal(groups.length, 1, 'the window of a window does not start a group of its own');
+  assert.deepEqual(groups[0].windows.map((w) => [w.project.name, w.depth]), [
+    ['Version 2', 1],
+    ['Inner', 2],
+  ]);
+});
+
+test('a window whose project is not in the list is a group of its own, not dropped', () => {
+  const orphan = { id: 'w2', path: '/a/Gone/Version 3', name: 'Version 3', parentId: 'gone' };
+  const groups = groupWindows([orphan]);
+  assert.deepEqual(groups.map((g) => g.project.name), ['Version 3']);
+  assert.deepEqual(groups[0].windows, []);
+});
+
+test('every project lands in exactly one group', () => {
+  const other = { id: 'p2', path: '/a/Other', name: 'Other' };
+  const w2 = { id: 'w2', path: '/a/Show/Version 3', name: 'Version 3', parentId: 'p1' };
+  const seen = groupWindows([show, window, other, w2]).flatMap((g) => [g.project.id, ...g.windows.map((w) => w.project.id)]);
+  assert.deepEqual([...seen].sort(), ['p1', 'p2', 'w1', 'w2']);
 });

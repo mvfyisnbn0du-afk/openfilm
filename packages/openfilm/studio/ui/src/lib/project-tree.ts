@@ -73,6 +73,33 @@ export function withWindows<T extends { id: string; parentId?: string }>(project
 }
 
 /**
+ * A project in the list, with the windows that hang under it: `windows` is what is drawn **below** the project's own
+ * card, deeper ones last.
+ */
+export interface TreeGroup<T> {
+  project: T;
+  windows: TreeItem<T>[];
+}
+
+/**
+ * The projects the list draws: each project that is not a window is one group, and every window inside it — and the
+ * windows inside those — is that group's own, in the order they came. A window whose project is not in the list is a
+ * group of its own, so a search never drops anything it found.
+ *
+ * The list is read top to bottom, so this is what lets a window be drawn **under** the project it is in; a grid of
+ * cards laid side by side cannot say it, however far the window is indented.
+ */
+export function groupWindows<T extends { id: string; parentId?: string }>(projects: readonly T[]): TreeGroup<T>[] {
+  const groups: TreeGroup<T>[] = [];
+  for (const item of withWindows(projects)) {
+    if (item.depth === 0) groups.push({ project: item.project, windows: [] });
+    /* a deeper one always follows the group it is in: `withWindows` walks a project's windows right after it */
+    else groups[groups.length - 1]?.windows.push(item);
+  }
+  return groups;
+}
+
+/**
  * How deep each one is under the one it belongs to: a window is one level in, a window of a window two. A cycle (a
  * window that is its own ancestor) stops there rather than for ever.
  */

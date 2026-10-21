@@ -164,6 +164,7 @@ export const zhCN: Words = {
   },
   projects: {
     inProject: '在 {n} 下',
+    newWindowBar: '新建窗口',
     newWindowDesc: '{name} 里的一个窗口：它文件夹里的一个子目录，有自己的影片。',
     newProject: '新建项目',
     localProjectFailed: '无法创建项目，请重试。',

@@ -7,7 +7,28 @@
 import React from 'react';
 import { createPortal } from 'react-dom';
 import {
-  ArrowLeft, Check, ChevronDown, ChevronRight, Clock3, Folder, FolderInput, FolderOpen, FolderPlus, FolderSearch, Github, LayoutGrid, List, MoreHorizontal, Pencil, Plus, Search, SlidersHorizontal, Trash2, Video, X,
+  ArrowLeft,
+  Check,
+  ChevronDown,
+  ChevronRight,
+  Clock3,
+  Folder,
+  FolderInput,
+  FolderOpen,
+  FolderPlus,
+  FolderSearch,
+  Github,
+  Layers,
+  LayoutGrid,
+  List,
+  MoreHorizontal,
+  Pencil,
+  Plus,
+  Search,
+  SlidersHorizontal,
+  Trash2,
+  Video,
+  X,
 } from 'lucide-react';
 import type { Example } from '@/lib/project-sources';
 import { ExamplesSection } from './ProjectSources';
@@ -16,7 +37,7 @@ import { limitTitleWidth, TITLE_MAX_WIDTH } from '@/lib/title';
 import { api, type Project } from '@/api';
 import { folderCounts, folderPosters, folderTrail, listStarts, parentOf, visibleProjects, type LibrarySort, type ProjectFolder } from '@/lib/project-folders';
 import { opensOnClick, posterRetryDelay, posterTry } from '@/lib/projects-page';
-import { parentProjectName, withWindows } from '@/lib/project-tree';
+import { groupWindows, parentProjectName, type TreeGroup } from '@/lib/project-tree';
 import { ContextMenu } from './ContextMenu';
 import { ProjectMenu } from './ProjectMenu';
 import { ProjectCoverContext } from './ProjectCover';
@@ -118,8 +139,8 @@ export function ProjectsView({
     () => visibleProjects(projects, { query, folderId, sort, folders, titleOf: (p) => titleOf(p, t) }),
     [projects, query, folderId, sort, folders, t],
   );
-  /* a window is shown under the project it is in, indented */
-  const tree = React.useMemo(() => withWindows(visible), [visible]);
+  /* a window is shown under the project it is in, as that project's own */
+  const groups = React.useMemo(() => groupWindows(visible), [visible]);
   /* folder cards only at the top level and not while searching: inside a folder is its content, a search its results */
   /* the folders here: the top level's, or those inside the folder open (a search shows projects only) */
   const showFolders = !query.trim();
@@ -218,7 +239,7 @@ export function ProjectsView({
     setSelectedIds(new Set([project.id]));
   }
 
-  function itemProps(project: LibraryProject): ItemProps {
+  function itemProps(project: LibraryProject, depth = 0): ItemProps {
     return {
       project,
       title: titleOf(project, t),
@@ -240,7 +261,10 @@ export function ProjectsView({
       onLocate: () => onLocate(project),
       onNewWindow: () => onNewWindow(project),
       onDelete: () => onDelete([project.id]),
-      parentName: parentProjectName(project, projects),
+      /* the group says which project a window is in, so the line says it only when it is not obvious: a window of a
+         window is not under the project the group is drawn for */
+      parentName: depth > 1 ? parentProjectName(project, projects) : null,
+      depth,
     };
   }
 
@@ -319,16 +343,20 @@ export function ProjectsView({
               {t('library.noMatches')}
             </div>
           ) : view === 'cards' ? (
-            <div className="grid grid-cols-2 gap-x-4 gap-y-6 sm:grid-cols-3 lg:grid-cols-4">
+            <div className="grid grid-cols-2 items-start gap-x-4 gap-y-6 sm:grid-cols-3 lg:grid-cols-4">
               {showNew ? <NewProjectCard creating={creating} onNewProject={() => onNewProject(folderId)} {...(folderId === null ? { onOpenFolder, onGetFromGitHub } : {})} /> : null}
               {showFolders ? levelFolders.map((folder) => <FolderCard key={`folder:${folder.id}`} {...folderProps(folder)} />) : null}
-              {tree.map(({ project, depth }) => <ProjectCard key={project.id} depth={depth} {...itemProps(project)} />)}
+              {groups.map((group) => (
+                <ProjectGroup key={group.project.id} group={group} itemProps={itemProps} view="cards" />
+              ))}
             </div>
           ) : (
             <div className="flex flex-col divide-y divide-[var(--border)]">
               {showNew ? <NewProjectListRow creating={creating} onNewProject={() => onNewProject(folderId)} {...(folderId === null ? { onOpenFolder, onGetFromGitHub } : {})} /> : null}
               {showFolders ? levelFolders.map((folder) => <FolderListRow key={`folder:${folder.id}`} {...folderProps(folder)} />) : null}
-              {tree.map(({ project, depth }) => <ProjectListRow key={project.id} depth={depth} {...itemProps(project)} />)}
+              {groups.map((group) => (
+                <ProjectGroup key={group.project.id} group={group} itemProps={itemProps} view="list" />
+              ))}
             </div>
           )}
           {starts.examples && onOpenExample ? (
@@ -479,7 +507,7 @@ function ProjectCardTitle({
   display: string;
   stored: string;
   renaming: boolean;
-  size: 'card' | 'list';
+  size: 'card' | 'list' | 'window';
   onOpen: (event?: { detail: number }) => void;
   onCommit: (title: string) => void;
   onCancel: () => void;
@@ -497,7 +525,9 @@ function ProjectCardTitle({
   const textClass =
     size === 'card'
       ? 'text-[13px] font-semibold text-[var(--text)]'
-      : 'text-[14px] font-semibold text-[var(--text)]';
+      : size === 'window'
+        ? 'text-[12.5px] font-medium text-[var(--text)]'
+        : 'text-[14px] font-semibold text-[var(--text)]';
 
   function commit() {
     if (committed.current) return;
@@ -663,10 +693,66 @@ function ImportMenu({ creating, onOpenFolder, onGetFromGitHub, className }: Requ
   );
 }
 
-function ProjectCard({
+/**
+ * A project and the windows in it, as the list draws them: the project's own card, **directly under it the bar that
+ * makes another window**, and then the windows themselves — smaller, and one step in, so the list says what belongs
+ * to what without anyone having to read the names.
+ *
+ * The bar is under the card and not inside it: a window is the project's own next door, not a button on the project.
+ */
+function ProjectGroup({
+  group,
+  itemProps,
+  view,
+}: {
+  group: TreeGroup<LibraryProject>;
+  itemProps: (project: LibraryProject, depth?: number) => ItemProps;
+  view: LibraryViewMode;
+}) {
+  const parent = itemProps(group.project, 0);
+  return (
+    <article className="group min-w-0">
+      {view === 'cards' ? <ProjectCard {...parent} /> : <ProjectListRow {...parent} />}
+      <NewWindowBar project={group.project} onNewWindow={parent.onNewWindow} list={view === 'list'} />
+      {group.windows.length ? (
+        <div className="mt-1.5 flex flex-col gap-1 pl-3">
+          {group.windows.map((window) => (
+            <WindowRow key={window.project.id} depth={window.depth} {...itemProps(window.project, window.depth)} />
+          ))}
+        </div>
+      ) : null}
+    </article>
+  );
+}
+
+/**
+ * The bar under a project's card: make another window in it. It is there whether the project has windows or not — a
+ * project with none is exactly the one a window is made in.
+ */
+function NewWindowBar({ project, onNewWindow, list }: { project: LibraryProject; onNewWindow: () => void; list?: boolean }) {
+  const t = useT();
+  return (
+    <button
+      type="button"
+      onClick={onNewWindow}
+      aria-label={t('projectMenu.newWindow')}
+      title={t('projects.newWindowDesc').replace('{name}', titleOf(project, t))}
+      className={`mt-2 flex items-center gap-1.5 rounded-lg border border-dashed border-[var(--border-strong)] bg-[var(--surface-2)]/40 py-1.5 text-[12px] font-medium text-[var(--text-muted)] transition hover:border-[var(--text-faint)] hover:bg-[var(--bg-hover)] hover:text-[var(--text)] ${list ? 'mx-4 w-auto self-start px-3 sm:mx-6' : 'w-full justify-center'}`}
+    >
+      <Layers size={12} strokeWidth={1.9} />
+      {t('projects.newWindowBar')}
+    </button>
+  );
+}
+
+/**
+ * A window in the list: not a card of its own but a **row** under the project it is in, so the project reads as the
+ * window's home. It has its own cover, small, and its own name.
+ */
+function WindowRow({
   project,
   title,
-  depth = 0,
+  depth = 1,
   selecting,
   selected,
   renaming,
@@ -686,8 +772,64 @@ function ProjectCard({
   const language = useLanguage();
   const open = selecting ? onToggleSelect : onOpen;
   return (
-    /* a window is drawn under the project it is in, indented */
-    <article className="group min-w-0" style={depth ? { marginLeft: depth * 18 } : undefined}>
+    /* deeper than the project: a window of a window is further in still */
+    <div className={`group flex min-w-0 items-center gap-2 rounded-md px-1.5 py-1 transition hover:bg-[var(--bg-hover)] ${selected ? 'bg-[var(--bg-hover)]/40' : ''}`} style={{ paddingLeft: depth > 1 ? 12 + (depth - 1) * 14 : 6 }}>
+      <button
+        type="button"
+        onClick={open}
+        aria-label={title}
+        className={`relative h-7 w-12 shrink-0 overflow-hidden rounded bg-[var(--surface-2)] ring-1 ${selected ? 'ring-2 ring-[var(--accent)]' : 'ring-[var(--border)]'}`}
+      >
+        <PosterMedia project={project} />
+      </button>
+      <div className="min-w-0 flex-1 text-left">
+        <ProjectCardTitle
+          display={title}
+          stored={project.name}
+          renaming={renaming}
+          size="window"
+          onOpen={open}
+          onCommit={onCommitRename}
+          onCancel={onCancelRename}
+        />
+        <button
+          type="button"
+          onClick={open}
+          className="mt-0.5 flex w-full items-center gap-1.5 text-left text-[11px] text-[var(--text-faint)]"
+        >
+          <Video size={10} />
+          {formatDate(project.openedAt, language)}
+          {parentName ? <span className="truncate">· {t('projects.inProject').replace('{n}', parentName)}</span> : null}
+        </button>
+      </div>
+      {!selecting ? <ItemMenu project={project} onOpen={onOpen} onNewWindow={onNewWindow} onStartRename={onStartRename} onStartSelect={onStartSelect} onMoveToFolder={onMoveToFolder} onLocate={onLocate} onDelete={onDelete} size={13} /> : null}
+    </div>
+  );
+}
+
+function ProjectCard({
+  project,
+  title,
+  selecting,
+  selected,
+  renaming,
+  onToggleSelect,
+  onOpen,
+  onStartRename,
+  onCommitRename,
+  onCancelRename,
+  onStartSelect,
+  onMoveToFolder,
+  onLocate,
+  onNewWindow,
+  onDelete,
+  parentName,
+}: ItemProps) {
+  const t = useT();
+  const language = useLanguage();
+  const open = selecting ? onToggleSelect : onOpen;
+  return (
+    <article className="group min-w-0">
       <div className="relative">
         <button
           type="button"
@@ -819,14 +961,12 @@ function ProjectListRow({
   onLocate,
   onNewWindow,
   onDelete,
-  depth = 0,
 }: ItemProps) {
   const t = useT();
   const language = useLanguage();
   const open = selecting ? onToggleSelect : onOpen;
   return (
-    /* a window is drawn under the project it is in, indented */
-    <article className={`group flex min-w-0 items-center gap-3 py-4 sm:gap-4 ${selected ? 'bg-[var(--bg-hover)]/40' : ''}`} style={depth ? { paddingLeft: depth * 18 } : undefined}>
+    <article className={`group flex min-w-0 items-center gap-3 py-4 sm:gap-4 ${selected ? 'bg-[var(--bg-hover)]/40' : ''}`}>
       <div className="relative shrink-0">
         <button
           type="button"

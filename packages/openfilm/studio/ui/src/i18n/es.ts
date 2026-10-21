@@ -163,6 +163,7 @@ export const es: Words = {
   },
   projects: {
     inProject: 'en {n}',
+    newWindowBar: 'Nueva ventana',
     newWindowDesc: 'Una ventana en {name}: una carpeta dentro de él, con su propia película.',
     newProject: 'Nuevo proyecto',
     localProjectFailed: 'No se pudo crear el proyecto. Inténtalo de nuevo.',
