@@ -14,11 +14,12 @@ export function useNewWindow(onCreated?: (projectId: string) => void) {
   const [asking, setAsking] = React.useState<{ parent: string; name: string } | null>(null);
   const [count, setCount] = React.useState(2);
 
-  /* the name a window is offered with: the second one, the third, and so on */
+  /* the name a window is offered with: the second one, the third, and so on. It is read again each time the dialog
+     opens: a window made since the last time is a window more (and its name is taken) */
   React.useEffect(() => {
     if (!asking) return;
     void api.projects().then((list) => setCount(list.filter((p) => p.parentId === asking.parent).length + 2)).catch(() => {});
-  }, [asking?.parent]);
+  }, [asking]);
 
   const ask = React.useCallback((parent: string, name: string) => setAsking({ parent, name }), []);
 

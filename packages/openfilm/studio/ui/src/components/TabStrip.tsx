@@ -57,9 +57,11 @@ export function TabStrip({ onRename, onNew, onCoverFromFrame, maxLength }: {
   const unnamed = tabs.some((tab) => !tab.title && !names[tab.projectId]);
   /* which project is a window of which: a window's tab is drawn under the project it is in */
   const [parents, setParents] = React.useState<Record<string, string | undefined>>({});
+  /* a window opened now is not in the list the strip read when it opened: it is read again as the tabs change */
+  const tabProjects = tabs.map((tab) => tab.projectId).join(',');
   React.useEffect(() => {
     void api.projects().then((list) => setParents(Object.fromEntries(list.map((p) => [p.id, p.parentId]))), () => {});
-  }, []);
+  }, [tabProjects]);
   /**
    * The tabs **as they are drawn**: a window's tab sits **right under the project it is in**, so the project reads
    * as the window's home. The app's own order is kept for the projects; only a window is brought out to just after
