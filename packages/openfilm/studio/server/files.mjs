@@ -22,6 +22,7 @@ import { TOOL_DIR } from './projects.mjs';
 import { moveToTrash } from './trash.mjs';
 import { linkKind, rewriteLinks } from './page-links.mjs';
 import { ffmpeg } from '../../src/shared.mjs';
+import { transcriptFiles, transcriptName, transcriptPath } from './transcript-paths.mjs';
 
 export const ASSETS = 'assets';
 /** Folders that hold tools and builds, not a film's pages. */
@@ -348,10 +349,16 @@ export async function moveCheck(root, from, to) {
 /**
  * After `from` moved to `to`: every page, stylesheet and script of the project written again so its links reach the
  * same files (those that moved, and what they link to). Returns how many files changed.
- * @param {string} root @param {string} from @param {string} to
+ * @param {string} root @param {string} from @param {string} to @param {{ from: string, to: string, caseInsensitive?: boolean }[]} [sidecars]
  */
-async function relinkAfterMove(root, from, to) {
-  const where = movedTo(from, to);
+async function relinkAfterMove(root, from, to, sidecars = []) {
+  const mediaWhere = movedTo(from, to);
+  const where = (/** @type {string} */ path) => {
+    const move = sidecars.find((move) => move.from === path) ?? sidecars.find((move) => move.caseInsensitive
+      && basename(move.from).toLowerCase() === basename(path).toLowerCase()
+      && sameEntry(join(root, dirname(move.from)), join(root, dirname(path))));
+    return move?.to ?? mediaWhere(path);
+  };
   const back = (/** @type {string} */ path) => (path === to ? from : path.startsWith(`${to}/`) ? from + path.slice(to.length) : path);
   let changed = 0;
   for (const file of await linkedFiles(root)) {
@@ -370,7 +377,8 @@ async function relinkAfterMove(root, from, to) {
 /**
  * Rename or move a file or a folder, never over another, and point film.html's clips at the new place in the same
  * step: a renamed picture stays on the timeline. Pages, stylesheets and scripts that link to what moved, or that moved
- * themselves, are written again so their links still reach their files (relinkAfterMove). The new name is cleaned
+ * themselves, are written again so their links still reach their files (relinkAfterMove). A media file's transcript
+ * and translations go with it; sidecars still shared with another media file are copied. The new name is cleaned
  * (cleanName).
  * @param {string} root @param {string} from @param {string} asked
  */
@@ -390,10 +398,98 @@ export async function moveFile(root, from, asked) {
   if (existsSync(dst) && !sameEntry(src, dst)) throw new FileError(`${to} is already there`, 409);
   if (dst.startsWith(src + sep)) throw new FileError('a folder cannot go inside itself');
   await mkdir(dirname(dst), { recursive: true });
-  await rename(src, dst);
+  const media = (link || (await stat(src)).isFile()) && ['audio', 'video'].includes(kindOf(fromName));
+  const sidecars = media ? await moveMedia(root, src, dst) : [];
+  if (!media) await rename(src, dst);
   const moved = await repoint(root, posix(relative(root, src)), posix(relative(root, dst)));
-  const pages = await relinkAfterMove(root, posix(relative(root, src)), posix(relative(root, dst)));
+  const pages = await relinkAfterMove(root, posix(relative(root, src)), posix(relative(root, dst)), sidecars);
   return { path: posix(relative(root, dst)), clips: moved, pages };
+}
+
+/** Move media and its sidecars together, refusing every conflict before anything moves. */
+async function moveMedia(/** @type {string} */ root, /** @type {string} */ src, /** @type {string} */ dst) {
+  const sidecars = await transcriptFiles(src);
+  const targets = await transcriptFiles(dst);
+  const entries = sidecars.length ? await readdir(dirname(src), { withFileTypes: true }) : [];
+  let shared = false;
+  for (const entry of entries) {
+    if (sameNamedEntry(join(dirname(src), entry.name), src) || (!entry.isFile() && !entry.isSymbolicLink())
+      || !['audio', 'video'].includes(kindOf(entry.name))) continue;
+    /* A sidecar can be one media file's translation and another's original transcript (voice.fr.wav). */
+    const otherSidecars = await transcriptFiles(join(dirname(src), entry.name));
+    if (otherSidecars.some((other) => sidecars.some(({ path }) => sameEntry(path, other.path)))) {
+      shared = true;
+      break;
+    }
+  }
+  const moves = sidecars.map(({ path, language }) => {
+    const from = inside(root, posix(relative(root, path)));
+    const to = inside(root, posix(relative(root, transcriptPath(dst, language))));
+    const same = sameEntry(from, to);
+    if (lstatSync(to, { throwIfNoEntry: false }) && !same) throw new FileError(`${posix(relative(root, to))} is already there`, 409);
+    const alias = join(dirname(from), basename(from).replace(/[a-z]/gi, (letter) => letter === letter.toUpperCase() ? letter.toLowerCase() : letter.toUpperCase()));
+    const caseInsensitive = Boolean(lstatSync(alias, { throwIfNoEntry: false })?.isFile()
+      && realpathSync.native(alias) === realpathSync.native(from));
+    /* Keep a relative subtitle link where its target resolves, and give the moved media the bytes it reads. */
+    return { from, to, copy: (shared || lstatSync(from).isSymbolicLink()) && !same, caseInsensitive };
+  }).filter(({ from, to }) => from !== to);
+  for (const target of targets) {
+    /* Removing a language suffix can make this media's own transcript look like a destination translation. */
+    if (moves.some((move) => !move.copy && sameEntry(move.from, target.path) && !sameEntry(move.from, move.to))) continue;
+    const source = sidecars.find(({ language }) => language === target.language);
+    if (!source || !sameEntry(source.path, target.path)) throw new FileError(`${posix(relative(root, target.path))} is already there`, 409);
+  }
+  if (!sidecars.length) {
+    await rename(src, dst);
+    return [];
+  }
+  const neighbors = dirname(src) === dirname(dst) ? entries : await readdir(dirname(dst), { withFileTypes: true });
+  for (const entry of neighbors) {
+    const media = join(dirname(dst), entry.name);
+    if (sameNamedEntry(media, src) || (!entry.isFile() && !entry.isSymbolicLink()) || !['audio', 'video'].includes(kindOf(entry.name))) continue;
+    for (const move of moves) {
+      if (sameEntry(move.from, move.to)) continue;
+      const match = transcriptName(media, basename(move.to));
+      if (!match) continue;
+      if (match.name !== basename(move.to)) {
+        /* A new path has no realpath yet: check the media's case alias on this disk instead. */
+        const stem = basename(media, extname(media));
+        const alias = join(dirname(media), basename(move.to).slice(0, stem.length) + extname(media));
+        try { if (realpathSync.native(media) !== realpathSync.native(alias)) continue; } catch { continue; }
+      }
+      throw new FileError(`${posix(relative(root, move.to))} would become subtitles for ${posix(relative(root, media))}`, 409);
+    }
+  }
+  /** @type {typeof moves} */
+  const done = [];
+  try {
+    for (const move of moves) {
+      if (move.copy) await copyFile(move.from, move.to, constants.COPYFILE_EXCL);
+      else await rename(move.from, move.to);
+      done.push(move);
+    }
+    await rename(src, dst);
+  } catch (error) {
+    const failures = [];
+    for (const move of done.reverse()) {
+      try {
+        if (move.copy) await unlink(move.to);
+        else await rename(move.to, move.from);
+      } catch (restoreError) { failures.push(restoreError); }
+    }
+    if (failures.length) throw new AggregateError([error, ...failures], 'Could not restore the subtitles after the media move failed');
+    throw error;
+  }
+  return moves.filter(({ copy }) => !copy).map(({ from, to, caseInsensitive }) => ({ from: posix(relative(root, from)), to: posix(relative(root, to)), caseInsensitive }));
+}
+
+/** The same directory entry through a filename's case alias, not another hard link or media link. */
+function sameNamedEntry(/** @type {string} */ a, /** @type {string} */ b) {
+  if (a === b) return true;
+  if (basename(a).toLowerCase() !== basename(b).toLowerCase()) return false;
+  const x = lstatSync(a, { throwIfNoEntry: false }), y = lstatSync(b, { throwIfNoEntry: false });
+  if (!x || !y || x.dev !== y.dev || x.ino !== y.ino) return false;
+  try { return realpathSync.native(a) === realpathSync.native(b); } catch { return false; }
 }
 
 /** Whether two paths are one file on disk: a name changed only in case, on a disk that ignores case, is not "taken". */
