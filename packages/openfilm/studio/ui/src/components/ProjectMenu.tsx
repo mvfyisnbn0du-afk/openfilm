@@ -1,5 +1,5 @@
 import React from 'react';
-import { CheckSquare, Download, FolderInput, FolderOpen, FolderSearch, Image, ImageOff, ImagePlus, Layers, ListX, MoreHorizontal, Pencil, Trash2 } from 'lucide-react';
+import { CheckSquare, FolderInput, FolderOpen, FolderSearch, Image, ImageOff, ImagePlus, Layers, ListX, MoreHorizontal, Pencil, Trash2 } from 'lucide-react';
 import { ContextMenu, type ContextMenuEntry } from './ContextMenu';
 import { Tooltip } from './Tooltip';
 import { useT } from '@/i18n';

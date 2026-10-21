@@ -2729,7 +2729,6 @@ export function ProjectView({ projectId, onProject, onLeave }: {
                 onTimeline={setTimelineOpen} onInspector={setInspectorOpen}
                 hostPanel={hostPanel ? { label: hostPanel.label, open: hostPanel.open, onChange: hostPanel.setOpen } : null} />
               <ProjectHistoryButton open={historyOpen} onClick={openHistory} className={TOP_BTN} />
-<<<<<<< HEAD
               <Tooltip label={t('projectMenu.export')} side="bottom">
                 <button type="button" aria-label={t('projectMenu.export')} aria-haspopup="dialog" aria-expanded={exportOpen} className={TOP_BTN}
                   onClick={() => {
@@ -2741,23 +2740,7 @@ export function ProjectView({ projectId, onProject, onLeave }: {
                 </button>
               </Tooltip>
               {/* in an app's tabs these are in the tab's menu */}
-              {inTabs ? null : <ProjectMenu className={TOP_BTN} onCoverFromFrame={coverFromFrame} onNewWindow={() => setNamingWindow(true)} onReveal={() => reveal('')} />}
-=======
-              <ProjectMenu className={TOP_BTN}
-                /* the film at the playhead, drawn by Studio as the projects list will show it */
-                onCoverFromFrame={() => {
-                  if (previewError || totalMs <= 0) { toast.show(t('project.filmNotReady')); return; }
-                  void api.setCover(projectId, { ms: Math.max(0, Math.min(totalMs - 1, timeRef.current)) })
-                    .then(() => toast.show(t('projects.coverSet')), () => toast.showError(t('projects.coverFailed')));
-                }}
-                onNewWindow={() => newWindow.ask(projectId, title)}
-                onExport={() => {
-                  if (previewError) toast.showError(`${t('project.filmCannotExport')} ${previewError}`);
-                  else if (totalMs > 0) setExportOpen(true);
-                  else toast.show(t('project.filmNotReady'));
-                }}
-                onReveal={() => reveal('')} />
->>>>>>> e4bd735 (Studio: a window's tab sits under the project it is in)
+              {inTabs ? null : <ProjectMenu className={TOP_BTN} onCoverFromFrame={coverFromFrame} onNewWindow={() => newWindow.ask(projectId, title)} onReveal={() => reveal('')} />}
             </div>
             <div aria-hidden className="shrink-0 self-stretch" style={{ width: 'var(--titlebar-right-x)' }} />
           </div>
@@ -3147,23 +3130,8 @@ export function ProjectView({ projectId, onProject, onLeave }: {
       </div>
 
       <ProjectHistoryControls projectId={projectId} history={history} open={historyOpen} anchor={historyAnchor} onClose={() => setHistoryOpen(false)} />
-<<<<<<< HEAD
       <ProjectsPopover open={projectsOpen} currentProjectId={projectId} onOpen={(id) => { if (!studioHost?.tabs) setProjectsOpen(false); onProject(id); }} onCurrentRemoved={onLeave} onClose={() => setProjectsOpen(false)} />
-      <NameDialog
-        open={namingWindow}
-        title={t('projectMenu.newWindow')}
-        description={t('projects.newWindowDesc').replace('{name}', title)}
-        initialValue={`${t('projectMenu.newWindowDefault')} ${windowCount}`}
-        placeholder={t('projectMenu.newWindowName')}
-        confirmLabel={t('confirm.ok')}
-        cancelLabel={t('confirm.cancel')}
-        onCancel={() => setNamingWindow(false)}
-        onConfirm={(name) => void makeWindow(name)}
-      />
-=======
-      <ProjectsPopover open={projectsOpen} currentProjectId={projectId} onOpen={(id) => { setProjectsOpen(false); onProject(id); }} onCurrentRemoved={onLeave} onClose={() => setProjectsOpen(false)} />
       {newWindow.dialog}
->>>>>>> e4bd735 (Studio: a window's tab sits under the project it is in)
       {examplesOpen ? (
         <ExamplesDialog projectId={projectId} open={examplesOpen === true ? undefined : examplesOpen} onClose={() => setExamplesOpen(false)}
           /* a film started from an example: in a tab of its own where there are tabs, else here */

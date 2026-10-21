@@ -3,11 +3,7 @@ import assert from 'node:assert/strict';
 import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, renameSync, symlinkSync, writeFileSync } from 'node:fs';
 import { homedir, tmpdir } from 'node:os';
 import { join } from 'node:path';
-<<<<<<< HEAD
-import { createFolder, createProject, forgetProject, listFolders, listProjects, locateProject, moveFolder, moveLibrary, openProject, projectById, renameProject, ProjectError } from './projects.mjs';
-=======
-import { createProject, createWindow, forgetProject, listProjects, locateProject, moveLibrary, moveProjectToFolder, openProject, projectById, renameProject, ProjectError, createFolder } from './projects.mjs';
->>>>>>> b92ba00 (Studio: a project can hold more windows)
+import { createFolder, createProject, createWindow, forgetProject, listFolders, listProjects, locateProject, moveFolder, moveLibrary, moveProjectToFolder, openProject, projectById, renameProject, ProjectError } from './projects.mjs';
 import { chooseFolder } from '../../src/locations.mjs';
 import { readFilmFile } from '../../src/film-doc.mjs';
 
@@ -244,7 +240,6 @@ test('a listed project moved into the library outside Studio is the same project
   assert.equal(listed[0].missing, false);
 });
 
-<<<<<<< HEAD
 test('changes to the list made at the same moment all hold: projects made while others are taken off stay on it', async () => {
   const old = await Promise.all(['One', 'Two', 'Three'].map((name) => createProject(name)));
   const [made] = await Promise.all([
@@ -266,7 +261,8 @@ test('a folder moves into another with what it holds, back to the top level, and
   assert.equal((await moveFolder(c.id, null)).parentId, undefined);
   assert.deepEqual((await listFolders()).map((f) => [f.name, f.parentId ?? null]), [['A', null], ['B', a.id], ['C', null]]);
   await assert.rejects(moveFolder('nope', null), (e) => e instanceof ProjectError && e.status === 404);
-=======
+});
+
 test('a new window in a project: a folder inside it, with a film of its own, listed with the project it is in', async () => {
   const project = await openProject(join(scratch, 'Show'));
   const window = await createWindow(project.id, 'Version 2');
@@ -322,5 +318,4 @@ test('a project whose folder starts like another one is not in it', async () => 
   const listed = await listProjects();
   assert.equal(listed.find((p) => p.id === other.id)?.parentId, undefined);
   assert.equal(listed.find((p) => p.id === one.id)?.parentId, undefined);
->>>>>>> b92ba00 (Studio: a project can hold more windows)
 });
