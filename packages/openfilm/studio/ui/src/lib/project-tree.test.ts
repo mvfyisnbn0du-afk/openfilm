@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { parentProjectName, windowNameFor, withWindows, depthsOf } from './project-tree.ts';
+import { parentProjectName, windowNameFor, withWindows, depthsOf, windowTabMetrics } from './project-tree.ts';
 
 const show = { id: 'p1', path: '/a/Show', name: 'Show' };
 const window = { id: 'w1', path: '/a/Show/Version 2', name: 'Version 2', parentId: 'p1' };
@@ -80,4 +80,33 @@ test('a window of a window is drawn two deep', () => {
 test('a tab whose project is not open stands on its own', () => {
   const tabs = [{ id: 't-window', title: 'Version 2', parentId: 't-gone' }];
   assert.deepEqual(withWindows(tabs).map((i) => [i.project.title, i.depth]), [['Version 2', 0]]);
+});
+
+/* The strip is a row, not a list: an indent alone says nothing there. A window's tab has to be drawn so that the row
+   says what belongs to what — a window drawn like a project reads as a project, and that was the mistake. */
+test("a project's tab is drawn at the strip's own padding and full width", () => {
+  const project = windowTabMetrics(0);
+  assert.equal(project.indent, 12);
+  assert.equal(project.width, 184);
+  assert.equal(project.guide, 0, 'a project has no line joining it to a window');
+});
+
+test("a window's tab is drawn deeper and narrower than the project's", () => {
+  const project = windowTabMetrics(0);
+  const win = windowTabMetrics(1);
+  assert.ok(win.indent > project.indent, 'the window is indented deeper than the project');
+  assert.ok(win.width < project.width, 'the window is narrower than the project');
+  assert.ok(win.guide > 0, 'a hairline joins it to the project on its left');
+});
+
+test('a window of a window is deeper still, and narrower still', () => {
+  const one = windowTabMetrics(1);
+  const two = windowTabMetrics(2);
+  assert.ok(two.indent > one.indent);
+  assert.ok(two.width < one.width);
+  assert.ok(two.guide > one.guide);
+});
+
+test('a window is never drawn narrower than the strip can show', () => {
+  assert.ok(windowTabMetrics(9).width >= 120);
 });

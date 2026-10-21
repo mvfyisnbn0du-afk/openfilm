@@ -15,7 +15,7 @@ import { api } from '@/api';
 import { useT } from '@/i18n';
 import { studioHost, type HostTab } from '@/lib/host';
 import { tabsToClose } from '@/lib/tab-menu';
-import { withWindows } from '@/lib/project-tree';
+import { withWindows, windowTabMetrics } from '@/lib/project-tree';
 import { ContextMenu, type ContextMenuEntry } from './ContextMenu';
 import { Tooltip } from './Tooltip';
 import { useNewWindow } from './NewWindow';
@@ -77,6 +77,17 @@ export function TabStrip({ onRename, onNew, onCoverFromFrame, maxLength }: {
       return tabs.find((x) => x.projectId === parent)?.id;
     };
     return withWindows(tabs.map((tab) => ({ id: tab.id, tab, parentId: parentTabOf(tab) })));
+  }, [tabs, parents]);
+  /** the tabs a window hangs under: the boundary between such a pair is not a tab's edge, but the window's tree line */
+  const hosts = React.useMemo(() => {
+    const set = new Set<string>();
+    for (const tab of tabs) {
+      const parent = parents[tab.projectId];
+      if (!parent) continue;
+      const parentTab = tabs.find((x) => x.projectId === parent);
+      if (parentTab) set.add(parentTab.id);
+    }
+    return set;
   }, [tabs, parents]);
   /* the app's own order: the strip draws its own order, so a drop's place in the strip has to be translated
    * into the app's order before the tab is moved. */
@@ -142,8 +153,14 @@ export function TabStrip({ onRename, onNew, onCoverFromFrame, maxLength }: {
           const mine = tab.id === self;
           /* being renamed: its words are selected and edited like any text, and the tab does not move */
           const renaming = editing === tab.id;
-          /* a window: drawn under the project it is in, with a mark of its own */
-          const window = depth > 0;
+          /** a window: it belongs to a project (its host), whoever is in the strip */
+          const window = Boolean(parents[tab.projectId]);
+          /** its host is in the strip too: then the window is drawn **under** it */
+          const underHost = depth > 0;
+          /* the strip is a row, not a list: an indent alone says nothing here. A window is therefore indented a level
+           * deeper than a project, drawn narrower, and joined to the project on its left by a hairline, so the row says
+           * what belongs to what. The rule itself lives in `windowTabMetrics`, where it can be checked. */
+          const { indent, width, guide } = windowTabMetrics(depth);
           return (
             <React.Fragment key={tab.id}>
               <div
@@ -174,14 +191,19 @@ export function TabStrip({ onRename, onNew, onCoverFromFrame, maxLength }: {
                   }
                   setDragging(null); setOver(null);
                 }}
-                style={window ? { paddingLeft: 12 + depth * 16 } : undefined}
-                className={`group relative flex h-full w-[184px] min-w-[84px] shrink cursor-default items-center gap-1.5 border-r border-[var(--border)] pl-3 pr-1.5 text-[12.5px] transition-colors
+                style={{ paddingLeft: indent, width }}
+                className={`group relative flex h-full min-w-[84px] shrink cursor-default items-center gap-1.5 pr-1.5 text-[12.5px] transition-colors
+                  ${hosts.has(tab.id) ? '' : 'border-r border-[var(--border)]'}
                   ${tab.active ? 'bg-[var(--dock-pane)] text-[var(--text)]' : 'text-[var(--text-muted)] hover:bg-[var(--bg-hover)] hover:text-[var(--text)]'}
                   ${dragging === tab.id ? 'opacity-50' : ''} ${over === i && dragging && dragging !== tab.id ? 'shadow-[inset_2px_0_0_var(--text-muted)]' : ''}`}
               >
+                {/* the hairline that joins a window to the project on its left: down its gutter and along the
+                 * bottom, so the eye reads the window as hanging under that project. It is drawn in the faint
+                 * text colour, not the border colour: a border hairline is too light to say anything here. */}
+                {underHost ? <span aria-hidden className="pointer-events-none absolute bottom-0 left-0 h-full border-b border-r" style={{ width: guide, borderColor: 'var(--text-faint)' }} /> : null}
                 {tab.working ? <Loader2 size={11} className="shrink-0 animate-spin text-[var(--text-dim)]" /> : null}
                 {tab.asking ? <span className="h-[6px] w-[6px] shrink-0 rounded-full bg-[#ff9f43]" /> : null}
-                {window ? <Layers size={11} className="shrink-0 text-[var(--text-faint)]" /> : null}
+                {window ? <Layers size={12} className="shrink-0 text-[var(--text-muted)]" /> : null}
                 {renaming ? (
                   <input
                     autoFocus
@@ -202,7 +224,7 @@ export function TabStrip({ onRename, onNew, onCoverFromFrame, maxLength }: {
                     maxLength={maxLength}
                     className="min-w-0 flex-1 bg-transparent text-[12.5px] font-medium text-[var(--text)] outline-none selection:bg-[var(--text-selection)]"
                   />
-                ) : <span className="min-w-0 flex-1 truncate font-medium">{titleOf(tab)}</span>}
+                ) : <span className={`min-w-0 flex-1 truncate ${window ? 'text-[12px] font-normal' : 'font-medium'}`}>{titleOf(tab)}</span>}
                 {tab.exporting != null ? <span className="shrink-0 font-mono text-[10.5px] text-[var(--text-faint)]">{Math.round(tab.exporting * 100)}%</span> : null}
                 {/* a new window in this project, beside the tab that closes it.
                  * **Every tab carries it**, not only the one in front: the person should be able to open another

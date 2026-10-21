@@ -97,3 +97,30 @@ export function depthsOf<T extends { id: string; parentId?: string }>(items: rea
   return depths;
 }
 
+/** The tab strip's own padding: a tab's words start this far from its left edge. */
+const TAB_PADDING = 12;
+/** How much deeper a window is drawn than the project it is in, one level down. */
+const WINDOW_LEVEL = 18;
+/** A project's tab is this wide. */
+const TAB_WIDTH = 184;
+/** A window's tab is never narrower than this, however deep it is. */
+const WINDOW_MIN_WIDTH = 120;
+
+/**
+ * How a window's tab is drawn under the project it is in, so the strip **says** what belongs to what: the window is
+ * indented a level deeper than the project, drawn narrower than it, and joined to it by a hairline `guide` wide (the
+ * gutter between the tab's edge and the line).
+ *
+ * The strip is a row, not a list: an indent alone says nothing in a row, so these numbers are here to be **checked**
+ * and not only looked at — a window that is drawn like a project reads as a project, which is the mistake this rule
+ * exists to prevent.
+ */
+export function windowTabMetrics(depth: number): { indent: number; width: number; guide: number } {
+  const level = Math.max(0, Math.trunc(depth)) * WINDOW_LEVEL;
+  return {
+    indent: TAB_PADDING + level,
+    width: Math.max(WINDOW_MIN_WIDTH, TAB_WIDTH - level),
+    guide: level,
+  };
+}
+
