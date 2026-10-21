@@ -51,3 +51,33 @@ test('a window that is its own ancestor does not for ever', () => {
   const depths = depthsOf([{ id: 'a', parentId: 'b' }, { id: 'b', parentId: 'a' }]);
   assert.ok(depths.get('a') !== undefined && depths.get('b') !== undefined);
 });
+
+/* The tab strip draws the same tree: a window's tab sits right under the project it is in. */
+test("a window's tab is drawn right under the project it is in, even when the app's order is not", () => {
+  const tabs = [
+    { id: 't-window', title: 'Version 2', parentId: 't-project' },
+    { id: 't-other', title: 'Other', parentId: undefined },
+    { id: 't-project', title: 'Show', parentId: undefined },
+  ];
+  const arranged = withWindows(tabs);
+  assert.deepEqual(
+    arranged.map((i) => [i.project.title, i.depth]),
+    [['Other', 0], ['Show', 0], ['Version 2', 1]],
+    'the window is brought out to just after the project it is in',
+  );
+});
+
+test('a window of a window is drawn two deep', () => {
+  const tabs = [
+    { id: 't-inner', title: 'Inner', parentId: 't-window' },
+    { id: 't-window', title: 'Version 2', parentId: 't-project' },
+    { id: 't-project', title: 'Show', parentId: undefined },
+  ];
+  const arranged = withWindows(tabs);
+  assert.deepEqual(arranged.map((i) => [i.project.title, i.depth]), [['Show', 0], ['Version 2', 1], ['Inner', 2]]);
+});
+
+test('a tab whose project is not open stands on its own', () => {
+  const tabs = [{ id: 't-window', title: 'Version 2', parentId: 't-gone' }];
+  assert.deepEqual(withWindows(tabs).map((i) => [i.project.title, i.depth]), [['Version 2', 0]]);
+});

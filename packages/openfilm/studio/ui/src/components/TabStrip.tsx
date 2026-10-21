@@ -15,7 +15,7 @@ import { api } from '@/api';
 import { useT } from '@/i18n';
 import { studioHost, type HostTab } from '@/lib/host';
 import { tabsToClose } from '@/lib/tab-menu';
-import { depthsOf } from '@/lib/project-tree';
+import { withWindows } from '@/lib/project-tree';
 import { ContextMenu, type ContextMenuEntry } from './ContextMenu';
 import { Tooltip } from './Tooltip';
 import { useNewWindow } from './NewWindow';
@@ -60,15 +60,26 @@ export function TabStrip({ onRename, onNew, onCoverFromFrame, maxLength }: {
   React.useEffect(() => {
     void api.projects().then((list) => setParents(Object.fromEntries(list.map((p) => [p.id, p.parentId]))), () => {});
   }, []);
-  const depths = React.useMemo(() => {
+  /**
+   * The tabs **as they are drawn**: a window's tab sits **right under the project it is in**, so the project reads
+   * as the window's home. The app's own order is kept for the projects; only a window is brought out to just after
+   * the one it is in — the same rule the Projects list uses, and the same one implementation (`withWindows`).
+   *
+   * **A window cannot leave its project**: it is drawn under it however the app's order happens to be, so the
+   * strip always says what belongs to what.
+   */
+  const arranged = React.useMemo(() => {
     const parentTabOf = (tab: HostTab) => {
       const parent = parents[tab.projectId];
       if (!parent) return undefined;
       return tabs.find((x) => x.projectId === parent)?.id;
     };
-    return depthsOf(tabs.map((tab) => ({ id: tab.id, parentId: parentTabOf(tab) })));
+    return withWindows(tabs.map((tab) => ({ id: tab.id, tab, parentId: parentTabOf(tab) })));
   }, [tabs, parents]);
-  /* a new window in the project of the tab in front */
+  /* the app's own order: the strip draws its own order, so a drop's place in the strip has to be translated
+   * into the app's order before the tab is moved. */
+  const hostIndexOf = React.useCallback((tabId: string) => tabs.findIndex((t) => t.id === tabId), [tabs]);
+  /* a new window in the project of the tab it is on */
   const newWindow = useNewWindow((projectId) => { void host?.open(projectId); });
   React.useEffect(() => {
     if (!unnamed) return;
@@ -124,12 +135,12 @@ export function TabStrip({ onRename, onNew, onCoverFromFrame, maxLength }: {
   return (
     <div role="tablist" aria-label={t('tabs.label')} className="flex h-full min-w-0 flex-1 items-stretch">
       <div className="flex h-full min-w-0 items-stretch overflow-hidden border-l border-[var(--border)]">
-        {tabs.map((tab, i) => {
+        {arranged.map(({ project: item, depth }, i) => {
+          const tab = item.tab;
           const mine = tab.id === self;
           /* being renamed: its words are selected and edited like any text, and the tab does not move */
           const renaming = editing === tab.id;
           /* a window: drawn under the project it is in, with a mark of its own */
-          const depth = depths.get(tab.id) ?? 0;
           const window = depth > 0;
           return (
             <React.Fragment key={tab.id}>
@@ -150,7 +161,17 @@ export function TabStrip({ onRename, onNew, onCoverFromFrame, maxLength }: {
                 onDragStart={(e) => { e.dataTransfer.setData(TAB_TYPE, tab.id); e.dataTransfer.effectAllowed = 'move'; setDragging(tab.id); }}
                 onDragEnd={() => { setDragging(null); setOver(null); }}
                 onDragOver={(e) => { if (e.dataTransfer.types.includes(TAB_TYPE)) { e.preventDefault(); setOver(i); } }}
-                onDrop={(e) => { const id = e.dataTransfer.getData(TAB_TYPE); if (id) host.move(id, i); setDragging(null); setOver(null); }}
+                onDrop={(e) => {
+                  const id = e.dataTransfer.getData(TAB_TYPE);
+                  /* the strip draws its own order (a window under its project), so the place it was let go
+                   * has to be read in **the app's** order before the tab is moved */
+                  if (id) {
+                    const target = arranged[i]?.project.id;
+                    const at = target ? hostIndexOf(target) : -1;
+                    host.move(id, at < 0 ? tabs.length - 1 : at);
+                  }
+                  setDragging(null); setOver(null);
+                }}
                 style={window ? { paddingLeft: 12 + depth * 16 } : undefined}
                 className={`group relative flex h-full w-[184px] min-w-[84px] shrink cursor-default items-center gap-1.5 border-r border-[var(--border)] pl-3 pr-1.5 text-[12.5px] transition-colors
                   ${tab.active ? 'bg-[var(--dock-pane)] text-[var(--text)]' : 'text-[var(--text-muted)] hover:bg-[var(--bg-hover)] hover:text-[var(--text)]'}
@@ -181,19 +202,19 @@ export function TabStrip({ onRename, onNew, onCoverFromFrame, maxLength }: {
                   />
                 ) : <span className="min-w-0 flex-1 truncate font-medium">{titleOf(tab)}</span>}
                 {tab.exporting != null ? <span className="shrink-0 font-mono text-[10.5px] text-[var(--text-faint)]">{Math.round(tab.exporting * 100)}%</span> : null}
-                {/* a new window in this project, beside the tab that closes it */}
-                {tab.active ? (
-                  <Tooltip label={t('projectMenu.newWindow')} side="bottom">
-                    <button
-                      type="button"
-                      aria-label={t('projectMenu.newWindow')}
-                      onClick={(e) => { e.stopPropagation(); newWindow.ask(tab.projectId, titleOf(tab)); }}
-                      className="flex h-[18px] w-[18px] shrink-0 items-center justify-center rounded-[5px] text-[var(--text-faint)] transition hover:bg-[var(--bg-hover)] hover:text-[var(--text)]"
-                    >
-                      <Plus size={12} />
-                    </button>
-                  </Tooltip>
-                ) : null}
+                {/* a new window in this project, beside the tab that closes it.
+                 * **Every tab carries it**, not only the one in front: the person should be able to open another
+                 * window in a project without first bringing that project to the front. */}
+                <Tooltip label={t('projectMenu.newWindow')} side="bottom">
+                  <button
+                    type="button"
+                    aria-label={t('projectMenu.newWindow')}
+                    onClick={(e) => { e.stopPropagation(); newWindow.ask(tab.projectId, titleOf(tab)); }}
+                    className="flex h-[18px] w-[18px] shrink-0 items-center justify-center rounded-[5px] text-[var(--text-faint)] transition hover:bg-[var(--bg-hover)] hover:text-[var(--text)]"
+                  >
+                    <Plus size={12} />
+                  </button>
+                </Tooltip>
                 {/* no tooltip of its own, nor the tab's title over it; pointed at, a background shows what a click hits */}
                 <button
                   type="button"

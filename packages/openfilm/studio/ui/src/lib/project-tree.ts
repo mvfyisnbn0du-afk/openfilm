@@ -33,7 +33,7 @@ export function windowNameFor(projectId: string, projects: readonly TreeProject[
 }
 
 /** A project in the list, and how deep it is: a window is one level in, a window of a window two. */
-export interface TreeItem<T extends TreeProject> {
+export interface TreeItem<T> {
   project: T;
   depth: number;
 }
@@ -42,8 +42,11 @@ export interface TreeItem<T extends TreeProject> {
  * The projects with their windows right behind them: a window is shown under the project it is in, indented, so that
  * the list says what belongs to what. The order the projects come in is kept (the person's sort); only a window is
  * moved to just after the project it is in.
+ *
+ * **The same rule serves the tab strip**: there a window's tab is drawn under the project it is in, so the project
+ * reads as the window's home. Both lists say the same thing, so both use this one.
  */
-export function withWindows<T extends TreeProject>(projects: readonly T[]): TreeItem<T>[] {
+export function withWindows<T extends { id: string; parentId?: string }>(projects: readonly T[]): TreeItem<T>[] {
   const ids = new Set(projects.map((p) => p.id));
   const childrenOf = new Map<string, T[]>();
   for (const p of projects) {
