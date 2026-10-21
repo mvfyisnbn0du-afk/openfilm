@@ -15,12 +15,10 @@
  * it is, not cut again. The note is a WebVTT comment, so every other reader takes the file as it always did.
  */
 import { readdir, readFile, stat } from 'node:fs/promises';
-import { join } from 'node:path';
+import { basename, dirname, extname, join } from 'node:path';
 import { writeAtomic } from './atomic.mjs';
 import { inProject, inside, trashFile } from './files.mjs';
 import { alignTranslation, replacePiece, segmentLine } from './subtitle-segments.mjs';
-import { transcriptFiles, transcriptPath } from './transcript-paths.mjs';
-export { transcriptPath } from './transcript-paths.mjs';
 
 /** @typedef {{ token: string, startSec: number, endSec?: number }} Word */
 
@@ -34,6 +32,13 @@ export { transcriptPath } from './transcript-paths.mjs';
 /** The note at the top of a transcript whose lines are each one subtitle, as the person cut them. */
 export const CUT_NOTE = 'NOTE Each cue is one subtitle, as cut by hand in OpenFilm Studio.';
 const CUT_NOTE_RE = /^NOTE Each cue is one subtitle\b/;
+
+/** The transcript of `src` (a path in the project), in `language` when given: its translation. @param {string} src @param {string} [language] */
+export function transcriptPath(src, language) {
+  const name = basename(src, extname(src));
+  const dir = dirname(src);
+  return `${dir === '.' ? '' : `${dir}/`}${name}${language ? `.${language}` : ''}.vtt`;
+}
 
 /** `00:01.250` or `00:00:01.250` → milliseconds. @param {string} stamp */
 function msOf(stamp) {
@@ -214,10 +219,17 @@ export async function dropTranscripts(root, src) {
 
 /** The languages `src` has a translation in (`name.<language>.vtt` beside it). @param {string} root @param {string} src */
 export async function translationsOf(root, src) {
+  const name = basename(src, extname(src));
   const file = inProject(root, src);
   if (!file) return [];
-  const files = await transcriptFiles(file).catch(() => []);
-  return files.flatMap(({ language }) => language ? [language] : []);
+  const names = await readdir(dirname(file)).catch(() => /** @type {string[]} */ ([]));
+  /** @type {string[]} */
+  const out = [];
+  for (const file of names) {
+    const m = file.startsWith(`${name}.`) && /^\.([A-Za-z]{2,3}(?:-[A-Za-z0-9]{2,8})*)\.vtt$/.exec(file.slice(name.length));
+    if (m) out.push(m[1]);
+  }
+  return out;
 }
 
 /**
