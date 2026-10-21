@@ -416,7 +416,7 @@ async function moveMedia(/** @type {string} */ root, /** @type {string} */ src, 
     .map((entry) => ({
       from: inside(root, posix(relative(root, join(dirname(src), entry.name)))),
       to: inside(root, posix(relative(root, join(dirname(dst), targetStem + entry.name.slice(stem.length))))),
-    })).filter(({ from, to }) => from !== to);
+    })).filter(({ from, to }) => from !== to && !(shared && sameEntry(from, to)));
   for (const { from, to } of moves) {
     if (lstatSync(to, { throwIfNoEntry: false }) && !sameEntry(from, to)) {
       throw new FileError(`${posix(relative(root, to))} is already there`, 409);

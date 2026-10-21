@@ -113,6 +113,19 @@ test('voice.mp4 and voice.m4a keep shared subtitles when one is renamed', async 
   assert.deepEqual(await captions(root), before);
 });
 
+test('a case-only rename of one of two media sharing subtitles keeps them for both', async (t) => {
+  const from = 'assets/Voice.mp4', other = 'assets/Voice.m4a', to = 'assets/voice.mp4';
+  const root = project(t, [from, other]);
+  putTranscripts(root, from);
+
+  await moveFile(root, from, to);
+
+  assert.deepEqual(readFileSync(join(root, to)), MEDIA);
+  assertTranscripts(root, to);
+  assertTranscripts(root, other);
+  assert.deepEqual(filmSources(root), [to, other]);
+});
+
 for (const shared of [false, true]) {
   test(`page links follow moved media and ${shared ? 'keep shared' : 'follow unique'} VTT tracks`, async (t) => {
     const from = 'assets/voice.mp4', to = 'assets/cuts/interview.mp4';
