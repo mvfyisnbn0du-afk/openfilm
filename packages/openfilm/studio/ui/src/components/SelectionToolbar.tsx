@@ -111,8 +111,8 @@ export function SelectionToolbar({
       onClick={stop}
       onDoubleClick={stop}
       onContextMenu={(e) => { e.stopPropagation(); e.preventDefault(); }}
-      /* above the panes and the picture, under the menus (z-10060) and the dialogs (z-10050) */
-      className="fixed z-[10040] flex h-[28px] items-center gap-px rounded-[8px] border border-[var(--border)] bg-[var(--surface)] px-[2px] shadow-[var(--shadow-lg)]"
+      /* above the workspace, below menus and dialogs (starting at z-110) */
+      className="fixed z-[100] flex h-[28px] items-center gap-px rounded-[8px] border border-[var(--border)] bg-[var(--surface)] px-[2px] shadow-[var(--shadow-lg)]"
       style={{
         left: pos?.left ?? 0,
         top: pos?.top ?? 0,
