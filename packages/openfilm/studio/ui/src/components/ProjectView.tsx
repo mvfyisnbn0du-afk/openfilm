@@ -83,8 +83,7 @@ import { AudioMeters, METERS_W } from './AudioMeters';
 import { trackFlagStep, type SessionTimeline } from './OperationHistory';
 import { ProjectLayoutMenu } from './ProjectLayoutMenu';
 import { ProjectMenu } from './ProjectMenu';
-import { NameDialog } from './NameDialog';
-import { windowNameFor } from '@/lib/project-tree';
+import { useNewWindow } from './NewWindow';
 import { ProjectHistoryButton, ProjectHistoryControls } from './ProjectHistoryControls';
 import { useProjectHistory } from './use-project-history';
 import { ProjectsPopover } from './ProjectsLibrary';
@@ -2543,21 +2542,8 @@ export function ProjectView({ projectId, onProject, onLeave }: {
   const titleBoxRef = React.useRef<HTMLButtonElement>(null);
   const [titleEditWidth, setTitleEditWidth] = React.useState<number | null>(null);
   const title = loaded?.project.name ?? '';
-  /* a new window in this project: the name is asked for, and the window is a project of its own beside it */
-  const [namingWindow, setNamingWindow] = React.useState(false);
-  const [windowCount, setWindowCount] = React.useState(0);
-  React.useEffect(() => {
-    void api.projects().then((list) => setWindowCount(windowNameFor(projectId, list))).catch(() => {});
-  }, [projectId]);
-  const makeWindow = async (name: string) => {
-    setNamingWindow(false);
-    try {
-      const made = await api.newWindow(projectId, name);
-      onProject(made.id);
-    } catch (e) {
-      toast.showError(e instanceof Error ? e.message : t('projects.localProjectFailed'));
-    }
-  };
+  /* a new window in this project: a folder inside it, with a film of its own */
+  const newWindow = useNewWindow((projectId) => onProject(projectId));
   /* the film as a whole, for the inspector when nothing is selected, and its tracks' badges */
   const filmSummary = React.useMemo(() => {
     const tracks = film.film?.tracks ?? [];
@@ -2743,6 +2729,7 @@ export function ProjectView({ projectId, onProject, onLeave }: {
                 onTimeline={setTimelineOpen} onInspector={setInspectorOpen}
                 hostPanel={hostPanel ? { label: hostPanel.label, open: hostPanel.open, onChange: hostPanel.setOpen } : null} />
               <ProjectHistoryButton open={historyOpen} onClick={openHistory} className={TOP_BTN} />
+<<<<<<< HEAD
               <Tooltip label={t('projectMenu.export')} side="bottom">
                 <button type="button" aria-label={t('projectMenu.export')} aria-haspopup="dialog" aria-expanded={exportOpen} className={TOP_BTN}
                   onClick={() => {
@@ -2755,6 +2742,22 @@ export function ProjectView({ projectId, onProject, onLeave }: {
               </Tooltip>
               {/* in an app's tabs these are in the tab's menu */}
               {inTabs ? null : <ProjectMenu className={TOP_BTN} onCoverFromFrame={coverFromFrame} onNewWindow={() => setNamingWindow(true)} onReveal={() => reveal('')} />}
+=======
+              <ProjectMenu className={TOP_BTN}
+                /* the film at the playhead, drawn by Studio as the projects list will show it */
+                onCoverFromFrame={() => {
+                  if (previewError || totalMs <= 0) { toast.show(t('project.filmNotReady')); return; }
+                  void api.setCover(projectId, { ms: Math.max(0, Math.min(totalMs - 1, timeRef.current)) })
+                    .then(() => toast.show(t('projects.coverSet')), () => toast.showError(t('projects.coverFailed')));
+                }}
+                onNewWindow={() => newWindow.ask(projectId, title)}
+                onExport={() => {
+                  if (previewError) toast.showError(`${t('project.filmCannotExport')} ${previewError}`);
+                  else if (totalMs > 0) setExportOpen(true);
+                  else toast.show(t('project.filmNotReady'));
+                }}
+                onReveal={() => reveal('')} />
+>>>>>>> e4bd735 (Studio: a window's tab sits under the project it is in)
             </div>
             <div aria-hidden className="shrink-0 self-stretch" style={{ width: 'var(--titlebar-right-x)' }} />
           </div>
@@ -3144,6 +3147,7 @@ export function ProjectView({ projectId, onProject, onLeave }: {
       </div>
 
       <ProjectHistoryControls projectId={projectId} history={history} open={historyOpen} anchor={historyAnchor} onClose={() => setHistoryOpen(false)} />
+<<<<<<< HEAD
       <ProjectsPopover open={projectsOpen} currentProjectId={projectId} onOpen={(id) => { if (!studioHost?.tabs) setProjectsOpen(false); onProject(id); }} onCurrentRemoved={onLeave} onClose={() => setProjectsOpen(false)} />
       <NameDialog
         open={namingWindow}
@@ -3156,6 +3160,10 @@ export function ProjectView({ projectId, onProject, onLeave }: {
         onCancel={() => setNamingWindow(false)}
         onConfirm={(name) => void makeWindow(name)}
       />
+=======
+      <ProjectsPopover open={projectsOpen} currentProjectId={projectId} onOpen={(id) => { setProjectsOpen(false); onProject(id); }} onCurrentRemoved={onLeave} onClose={() => setProjectsOpen(false)} />
+      {newWindow.dialog}
+>>>>>>> e4bd735 (Studio: a window's tab sits under the project it is in)
       {examplesOpen ? (
         <ExamplesDialog projectId={projectId} open={examplesOpen === true ? undefined : examplesOpen} onClose={() => setExamplesOpen(false)}
           /* a film started from an example: in a tab of its own where there are tabs, else here */

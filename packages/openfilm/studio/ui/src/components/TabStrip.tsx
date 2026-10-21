@@ -10,13 +10,15 @@
  * others or those to its right.
  */
 import React from 'react';
-import { Loader2, Plus, X } from 'lucide-react';
+import { Layers, Loader2, Plus, X } from 'lucide-react';
 import { api } from '@/api';
 import { useT } from '@/i18n';
 import { studioHost, type HostTab } from '@/lib/host';
 import { tabsToClose } from '@/lib/tab-menu';
+import { depthsOf } from '@/lib/project-tree';
 import { ContextMenu, type ContextMenuEntry } from './ContextMenu';
 import { Tooltip } from './Tooltip';
+import { useNewWindow } from './NewWindow';
 
 const TAB_TYPE = 'application/x-openfilm-tab';
 /* a second click this soon after this page's tab came to front ends a double-click begun on it while it was behind */
@@ -53,6 +55,21 @@ export function TabStrip({ onRename, onNew, onCoverFromFrame, maxLength }: {
   /* a tab whose page has not said its title yet (one restored, or not shown since): its project's name */
   const [names, setNames] = React.useState<Record<string, string>>({});
   const unnamed = tabs.some((tab) => !tab.title && !names[tab.projectId]);
+  /* which project is a window of which: a window's tab is drawn under the project it is in */
+  const [parents, setParents] = React.useState<Record<string, string | undefined>>({});
+  React.useEffect(() => {
+    void api.projects().then((list) => setParents(Object.fromEntries(list.map((p) => [p.id, p.parentId]))), () => {});
+  }, []);
+  const depths = React.useMemo(() => {
+    const parentTabOf = (tab: HostTab) => {
+      const parent = parents[tab.projectId];
+      if (!parent) return undefined;
+      return tabs.find((x) => x.projectId === parent)?.id;
+    };
+    return depthsOf(tabs.map((tab) => ({ id: tab.id, parentId: parentTabOf(tab) })));
+  }, [tabs, parents]);
+  /* a new window in the project of the tab in front */
+  const newWindow = useNewWindow((projectId) => { void host?.open(projectId); });
   React.useEffect(() => {
     if (!unnamed) return;
     void api.projects().then((list) => setNames(Object.fromEntries(list.map((p) => [p.id, p.name]))), () => {});
@@ -111,6 +128,9 @@ export function TabStrip({ onRename, onNew, onCoverFromFrame, maxLength }: {
           const mine = tab.id === self;
           /* being renamed: its words are selected and edited like any text, and the tab does not move */
           const renaming = editing === tab.id;
+          /* a window: drawn under the project it is in, with a mark of its own */
+          const depth = depths.get(tab.id) ?? 0;
+          const window = depth > 0;
           return (
             <React.Fragment key={tab.id}>
               <div
@@ -131,12 +151,14 @@ export function TabStrip({ onRename, onNew, onCoverFromFrame, maxLength }: {
                 onDragEnd={() => { setDragging(null); setOver(null); }}
                 onDragOver={(e) => { if (e.dataTransfer.types.includes(TAB_TYPE)) { e.preventDefault(); setOver(i); } }}
                 onDrop={(e) => { const id = e.dataTransfer.getData(TAB_TYPE); if (id) host.move(id, i); setDragging(null); setOver(null); }}
+                style={window ? { paddingLeft: 12 + depth * 16 } : undefined}
                 className={`group relative flex h-full w-[184px] min-w-[84px] shrink cursor-default items-center gap-1.5 border-r border-[var(--border)] pl-3 pr-1.5 text-[12.5px] transition-colors
                   ${tab.active ? 'bg-[var(--dock-pane)] text-[var(--text)]' : 'text-[var(--text-muted)] hover:bg-[var(--bg-hover)] hover:text-[var(--text)]'}
                   ${dragging === tab.id ? 'opacity-50' : ''} ${over === i && dragging && dragging !== tab.id ? 'shadow-[inset_2px_0_0_var(--text-muted)]' : ''}`}
               >
                 {tab.working ? <Loader2 size={11} className="shrink-0 animate-spin text-[var(--text-dim)]" /> : null}
                 {tab.asking ? <span className="h-[6px] w-[6px] shrink-0 rounded-full bg-[#ff9f43]" /> : null}
+                {window ? <Layers size={11} className="shrink-0 text-[var(--text-faint)]" /> : null}
                 {renaming ? (
                   <input
                     autoFocus
@@ -159,6 +181,19 @@ export function TabStrip({ onRename, onNew, onCoverFromFrame, maxLength }: {
                   />
                 ) : <span className="min-w-0 flex-1 truncate font-medium">{titleOf(tab)}</span>}
                 {tab.exporting != null ? <span className="shrink-0 font-mono text-[10.5px] text-[var(--text-faint)]">{Math.round(tab.exporting * 100)}%</span> : null}
+                {/* a new window in this project, beside the tab that closes it */}
+                {tab.active ? (
+                  <Tooltip label={t('projectMenu.newWindow')} side="bottom">
+                    <button
+                      type="button"
+                      aria-label={t('projectMenu.newWindow')}
+                      onClick={(e) => { e.stopPropagation(); newWindow.ask(tab.projectId, titleOf(tab)); }}
+                      className="flex h-[18px] w-[18px] shrink-0 items-center justify-center rounded-[5px] text-[var(--text-faint)] transition hover:bg-[var(--bg-hover)] hover:text-[var(--text)]"
+                    >
+                      <Plus size={12} />
+                    </button>
+                  </Tooltip>
+                ) : null}
                 {/* no tooltip of its own, nor the tab's title over it; pointed at, a background shows what a click hits */}
                 <button
                   type="button"
@@ -183,6 +218,7 @@ export function TabStrip({ onRename, onNew, onCoverFromFrame, maxLength }: {
           </button>
         </Tooltip>
       ) : null}
+      {newWindow.dialog}
     </div>
   );
 }

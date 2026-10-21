@@ -16,7 +16,7 @@ import { limitTitleWidth, TITLE_MAX_WIDTH } from '@/lib/title';
 import { api, type Project } from '@/api';
 import { folderCounts, folderPosters, folderTrail, listStarts, parentOf, visibleProjects, type LibrarySort, type ProjectFolder } from '@/lib/project-folders';
 import { opensOnClick, posterRetryDelay, posterTry } from '@/lib/projects-page';
-import { parentProjectName } from '@/lib/project-tree';
+import { parentProjectName, withWindows } from '@/lib/project-tree';
 import { ContextMenu } from './ContextMenu';
 import { ProjectMenu } from './ProjectMenu';
 import { ProjectCoverContext } from './ProjectCover';
@@ -118,6 +118,8 @@ export function ProjectsView({
     () => visibleProjects(projects, { query, folderId, sort, folders, titleOf: (p) => titleOf(p, t) }),
     [projects, query, folderId, sort, folders, t],
   );
+  /* a window is shown under the project it is in, indented */
+  const tree = React.useMemo(() => withWindows(visible), [visible]);
   /* folder cards only at the top level and not while searching: inside a folder is its content, a search its results */
   /* the folders here: the top level's, or those inside the folder open (a search shows projects only) */
   const showFolders = !query.trim();
@@ -320,13 +322,13 @@ export function ProjectsView({
             <div className="grid grid-cols-2 gap-x-4 gap-y-6 sm:grid-cols-3 lg:grid-cols-4">
               {showNew ? <NewProjectCard creating={creating} onNewProject={() => onNewProject(folderId)} {...(folderId === null ? { onOpenFolder, onGetFromGitHub } : {})} /> : null}
               {showFolders ? levelFolders.map((folder) => <FolderCard key={`folder:${folder.id}`} {...folderProps(folder)} />) : null}
-              {visible.map((project) => <ProjectCard key={project.id} {...itemProps(project)} />)}
+              {tree.map(({ project, depth }) => <ProjectCard key={project.id} depth={depth} {...itemProps(project)} />)}
             </div>
           ) : (
             <div className="flex flex-col divide-y divide-[var(--border)]">
               {showNew ? <NewProjectListRow creating={creating} onNewProject={() => onNewProject(folderId)} {...(folderId === null ? { onOpenFolder, onGetFromGitHub } : {})} /> : null}
               {showFolders ? levelFolders.map((folder) => <FolderListRow key={`folder:${folder.id}`} {...folderProps(folder)} />) : null}
-              {visible.map((project) => <ProjectListRow key={project.id} {...itemProps(project)} />)}
+              {tree.map(({ project, depth }) => <ProjectListRow key={project.id} depth={depth} {...itemProps(project)} />)}
             </div>
           )}
           {starts.examples && onOpenExample ? (
@@ -417,6 +419,8 @@ interface ItemProps {
   onDelete: () => void;
   /** The project this one is a window of (a window is a folder inside a project), when it is one. */
   parentName: string | null;
+  /** How deep under the project it is in: a window is one, a window of a window two. */
+  depth?: number;
 }
 
 function SelectionCheck({ selected }: { selected: boolean }) {
@@ -662,6 +666,7 @@ function ImportMenu({ creating, onOpenFolder, onGetFromGitHub, className }: Requ
 function ProjectCard({
   project,
   title,
+  depth = 0,
   selecting,
   selected,
   renaming,
@@ -681,7 +686,8 @@ function ProjectCard({
   const language = useLanguage();
   const open = selecting ? onToggleSelect : onOpen;
   return (
-    <article className="group min-w-0">
+    /* a window is drawn under the project it is in, indented */
+    <article className="group min-w-0" style={depth ? { marginLeft: depth * 18 } : undefined}>
       <div className="relative">
         <button
           type="button"
@@ -813,12 +819,14 @@ function ProjectListRow({
   onLocate,
   onNewWindow,
   onDelete,
+  depth = 0,
 }: ItemProps) {
   const t = useT();
   const language = useLanguage();
   const open = selecting ? onToggleSelect : onOpen;
   return (
-    <article className={`group flex min-w-0 items-center gap-3 py-4 sm:gap-4 ${selected ? 'bg-[var(--bg-hover)]/40' : ''}`}>
+    /* a window is drawn under the project it is in, indented */
+    <article className={`group flex min-w-0 items-center gap-3 py-4 sm:gap-4 ${selected ? 'bg-[var(--bg-hover)]/40' : ''}`} style={depth ? { paddingLeft: depth * 18 } : undefined}>
       <div className="relative shrink-0">
         <button
           type="button"
