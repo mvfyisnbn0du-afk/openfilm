@@ -19,6 +19,6 @@ test('a window whose project is not in the list has no name to say', () => {
 });
 
 test('the name a new window is offered with: the second one, the third, and so on', () => {
-  assert.equal(windowNameFor(show, [show]), 2, 'the project itself is the first window');
-  assert.equal(windowNameFor(show, [show, window]), 3);
+  assert.equal(windowNameFor('p1', [show]), 2, 'the project itself is the first window');
+  assert.equal(windowNameFor('p1', [show, window]), 3);
 });

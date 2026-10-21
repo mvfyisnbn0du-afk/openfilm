@@ -27,7 +27,7 @@ export function parentProjectName(project: TreeProject, projects: readonly TreeP
  * The name a new window in a project is offered with: the second one is "Window 2", the next "Window 3" (the project's
  * own name is the first window). The person can type another name; this only saves the typing.
  */
-export function windowNameFor(project: TreeProject, projects: readonly TreeProject[]): number {
-  const windows = projects.filter((p) => p.parentId === project.id).length;
+export function windowNameFor(projectId: string, projects: readonly TreeProject[]): number {
+  const windows = projects.filter((p) => p.parentId === projectId).length;
   return windows + 2;
 }

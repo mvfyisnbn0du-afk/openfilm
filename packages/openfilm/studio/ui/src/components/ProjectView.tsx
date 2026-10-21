@@ -83,6 +83,8 @@ import { AudioMeters, METERS_W } from './AudioMeters';
 import { trackFlagStep, type SessionTimeline } from './OperationHistory';
 import { ProjectLayoutMenu } from './ProjectLayoutMenu';
 import { ProjectMenu } from './ProjectMenu';
+import { NameDialog } from './NameDialog';
+import { windowNameFor } from '@/lib/project-tree';
 import { ProjectHistoryButton, ProjectHistoryControls } from './ProjectHistoryControls';
 import { useProjectHistory } from './use-project-history';
 import { ProjectsPopover } from './ProjectsLibrary';
@@ -2541,6 +2543,21 @@ export function ProjectView({ projectId, onProject, onLeave }: {
   const titleBoxRef = React.useRef<HTMLButtonElement>(null);
   const [titleEditWidth, setTitleEditWidth] = React.useState<number | null>(null);
   const title = loaded?.project.name ?? '';
+  /* a new window in this project: the name is asked for, and the window is a project of its own beside it */
+  const [namingWindow, setNamingWindow] = React.useState(false);
+  const [windowCount, setWindowCount] = React.useState(0);
+  React.useEffect(() => {
+    void api.projects().then((list) => setWindowCount(windowNameFor(projectId, list))).catch(() => {});
+  }, [projectId]);
+  const makeWindow = async (name: string) => {
+    setNamingWindow(false);
+    try {
+      const made = await api.newWindow(projectId, name);
+      onProject(made.id);
+    } catch (e) {
+      toast.showError(e instanceof Error ? e.message : t('projects.localProjectFailed'));
+    }
+  };
   /* the film as a whole, for the inspector when nothing is selected, and its tracks' badges */
   const filmSummary = React.useMemo(() => {
     const tracks = film.film?.tracks ?? [];
@@ -2737,7 +2754,7 @@ export function ProjectView({ projectId, onProject, onLeave }: {
                 </button>
               </Tooltip>
               {/* in an app's tabs these are in the tab's menu */}
-              {inTabs ? null : <ProjectMenu className={TOP_BTN} onCoverFromFrame={coverFromFrame} onReveal={() => reveal('')} />}
+              {inTabs ? null : <ProjectMenu className={TOP_BTN} onCoverFromFrame={coverFromFrame} onNewWindow={() => setNamingWindow(true)} onReveal={() => reveal('')} />}
             </div>
             <div aria-hidden className="shrink-0 self-stretch" style={{ width: 'var(--titlebar-right-x)' }} />
           </div>
@@ -3128,6 +3145,17 @@ export function ProjectView({ projectId, onProject, onLeave }: {
 
       <ProjectHistoryControls projectId={projectId} history={history} open={historyOpen} anchor={historyAnchor} onClose={() => setHistoryOpen(false)} />
       <ProjectsPopover open={projectsOpen} currentProjectId={projectId} onOpen={(id) => { if (!studioHost?.tabs) setProjectsOpen(false); onProject(id); }} onCurrentRemoved={onLeave} onClose={() => setProjectsOpen(false)} />
+      <NameDialog
+        open={namingWindow}
+        title={t('projectMenu.newWindow')}
+        description={t('projects.newWindowDesc').replace('{name}', title)}
+        initialValue={`${t('projectMenu.newWindowDefault')} ${windowCount}`}
+        placeholder={t('projectMenu.newWindowName')}
+        confirmLabel={t('confirm.ok')}
+        cancelLabel={t('confirm.cancel')}
+        onCancel={() => setNamingWindow(false)}
+        onConfirm={(name) => void makeWindow(name)}
+      />
       {examplesOpen ? (
         <ExamplesDialog projectId={projectId} open={examplesOpen === true ? undefined : examplesOpen} onClose={() => setExamplesOpen(false)}
           /* a film started from an example: in a tab of its own where there are tabs, else here */

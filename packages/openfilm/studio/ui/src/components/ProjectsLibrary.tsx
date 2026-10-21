@@ -514,7 +514,7 @@ export function ProjectsPopover({
         open={!!naming}
         title={t('projectMenu.newWindow')}
         description={naming ? t('projects.newWindowDesc').replace('{name}', naming.name) : undefined}
-        initialValue={naming ? `${t('projectMenu.newWindowDefault')} ${windowNameFor(naming, lib.projects)}` : ''}
+        initialValue={naming ? `${t('projectMenu.newWindowDefault')} ${windowNameFor(naming.id, lib.projects)}` : ''}
         placeholder={t('projectMenu.newWindowName')}
         confirmLabel={t('confirm.ok')}
         cancelLabel={t('confirm.cancel')}
