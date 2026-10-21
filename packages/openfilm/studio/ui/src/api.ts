@@ -12,8 +12,11 @@ export interface StudioVersion { version: string; latest: string | null; newer: 
   /** the update Studio runs from the top bar (lib/web-update), or one that failed */
   update?: { status: 'updating' | 'failed'; version: string; error?: string } }
 
-/** `cover`: when the person set a cover of its own (studio/server/cover.mjs), absent when it has none. */
-export type Project = { id: string; path: string; name: string; openedAt: number; missing: boolean; working?: boolean; cover?: number };
+/**
+ * `cover`: when the person set a cover of its own (studio/server/cover.mjs), absent when it has none.
+ * `parentId`: the project this one is a window of (a window is a folder inside a project), absent when it is one.
+ */
+export type Project = { id: string; path: string; name: string; openedAt: number; missing: boolean; working?: boolean; cover?: number; parentId?: string };
 export type Clip = { src: string; id: string; at?: number; time?: [number] | [number, number];
   box?: { x: number; y: number; w?: number; h?: number; r?: number }; volume?: number; speed?: number; overrides?: unknown[];
   /** a page that sets no size of its own: the px it is laid out at (the stage's without it) */
@@ -135,6 +138,8 @@ export const api = {
       cancelled; throws (501) where this system has none */
   pickFolder: (title: string, at?: string) => call<{ path: string | null }>('pick-folder', { method: 'POST', json: { title, ...(at ? { at } : {}) } }).then((r) => r.path),
   newProject: (name?: string) => call<{ project: Project }>('projects', { method: 'POST', json: { name } }).then((r) => r.project),
+  /** a new window in a project: a folder inside it, with a film of its own (a project of its own) */
+  newWindow: (parent: string, name: string) => call<{ project: Project }>('projects/window', { method: 'POST', json: { parent, name } }).then((r) => r.project),
   /** open a folder (its full path) as a project: made one when it is not yet */
   openFolder: (path: string) => call<{ project: Project }>('projects', { method: 'POST', json: { path } }).then((r) => r.project),
   rename: (id: string, name: string) => call<{ project: Project }>(p(id), { method: 'PATCH', json: { name } }).then((r) => {

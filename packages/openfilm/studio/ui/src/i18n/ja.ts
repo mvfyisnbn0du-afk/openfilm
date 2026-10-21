@@ -162,6 +162,8 @@ export const ja: Words = {
     lockedHow: 'アドレスをもう一度得るには',
   },
   projects: {
+    inProject: '{n} 内',
+    newWindowDesc: '{name} の中のウィンドウ：その中のフォルダで、自分だけの作品を持ちます。',
     newProject: '新規プロジェクト',
     localProjectFailed: 'プロジェクトを作成できませんでした。もう一度お試しください。',
     loadFailed: 'プロジェクトを読み込めませんでした。',
@@ -309,6 +311,9 @@ export const ja: Words = {
   projectMenu: {
     more: 'その他',
     open: '開く',
+    newWindow: 'このプロジェクトに新しいウィンドウ',
+    newWindowName: 'ウィンドウ名',
+    newWindowDefault: 'ウィンドウ',
     rename: '名前を変更',
     export: '書き出し',
     history: 'バージョン履歴',

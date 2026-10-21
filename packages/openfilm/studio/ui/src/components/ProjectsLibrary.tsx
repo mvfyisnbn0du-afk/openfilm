@@ -22,10 +22,12 @@ import { api, ApiError, LIBRARY_EVENT } from '@/api';
 import { useT } from '@/i18n';
 import { folderApi, folderCounts, folderTrail, newProjectIn, type ProjectFolder } from '@/lib/project-folders';
 import { stillThere } from '@/lib/project-delete';
+import { windowNameFor } from '@/lib/project-tree';
 import { studioHost } from '@/lib/host';
 import { SourceError, sourcesApi } from '@/lib/project-sources';
 import { LIST_WAIT_MS, within } from '@/lib/projects-page';
 import { ConfirmDialog } from './ConfirmDialog';
+import { NameDialog } from './NameDialog';
 import { ProjectsView, type LibraryProject } from './ProjectsView';
 import { FolderBrowserDialog, GitHubDialog } from './ProjectSources';
 import { ExamplesGallery, TitleSwitch } from './ExamplesGallery';
@@ -319,6 +321,20 @@ export function ProjectsPopover({
     }
   }
 
+  /* a new window in a project: the name is asked for first, since the folder's name is the window's */
+  const [naming, setNaming] = React.useState<LibraryProject | null>(null);
+  async function newWindow(project: LibraryProject, name: string) {
+    setNaming(null);
+    setBusy('creating');
+    try {
+      const made = await api.newWindow(project.id, name);
+      go(made.id, 'creating');
+    } catch (e) {
+      setBusy(null);
+      lib.flash(e instanceof Error ? e.message : t('projects.localProjectFailed'));
+    }
+  }
+
   const message = (e: unknown) => (e instanceof Error ? e.message : String(e));
 
   /**
@@ -443,6 +459,7 @@ export function ProjectsPopover({
               /* its folder is gone: there is nothing to open, and the editor would only say so */
               onOpen={(project) => (project.missing ? lib.flash(t('projects.missingOpen')) : go(project.id, 'opening'))}
               onRename={(projectId, name) => void lib.renameProject(projectId, name)}
+              onNewWindow={(project) => setNaming(project)}
               /* an agent working in one: said at once, before asking (the server refuses it too) */
               onDelete={(ids) => void lib.workingIn(ids).then((working) => {
                 if (working) lib.flash(lib.agentRunning(working, ids.length));
@@ -493,6 +510,19 @@ export function ProjectsPopover({
           </div>
         ) : null}
       </div>
+      <NameDialog
+        open={!!naming}
+        title={t('projectMenu.newWindow')}
+        description={naming ? t('projects.newWindowDesc').replace('{name}', naming.name) : undefined}
+        initialValue={naming ? `${t('projectMenu.newWindowDefault')} ${windowNameFor(naming, lib.projects)}` : ''}
+        placeholder={t('projectMenu.newWindowName')}
+        confirmLabel={t('confirm.ok')}
+        cancelLabel={t('confirm.cancel')}
+        onCancel={() => setNaming(null)}
+        onConfirm={(name) => {
+          if (naming) void newWindow(naming, name);
+        }}
+      />
       <ConfirmDialog
         open={!!pendingDelete}
         title={deleteTitle}

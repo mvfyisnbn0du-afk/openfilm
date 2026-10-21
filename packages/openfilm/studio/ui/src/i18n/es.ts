@@ -162,6 +162,8 @@ export const es: Words = {
     lockedHow: 'Para obtenerla de nuevo, ejecuta',
   },
   projects: {
+    inProject: 'en {n}',
+    newWindowDesc: 'Una ventana en {name}: una carpeta dentro de él, con su propia película.',
     newProject: 'Nuevo proyecto',
     localProjectFailed: 'No se pudo crear el proyecto. Inténtalo de nuevo.',
     loadFailed: 'No se pudieron cargar tus proyectos.',
@@ -309,6 +311,9 @@ export const es: Words = {
   projectMenu: {
     more: 'Más',
     open: 'Abrir',
+    newWindow: 'Nueva ventana en este proyecto',
+    newWindowName: 'Nombre de la ventana',
+    newWindowDefault: 'Ventana',
     rename: 'Cambiar nombre',
     export: 'Exportar',
     history: 'Historial de versiones',

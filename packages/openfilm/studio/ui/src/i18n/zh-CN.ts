@@ -163,6 +163,8 @@ export const zhCN: Words = {
     lockedHow: '想重新拿到地址，运行',
   },
   projects: {
+    inProject: '在 {n} 下',
+    newWindowDesc: '{name} 里的一个窗口：它文件夹里的一个子目录，有自己的影片。',
     newProject: '新建项目',
     localProjectFailed: '无法创建项目，请重试。',
     loadFailed: '无法加载你的项目。',
@@ -310,6 +312,9 @@ export const zhCN: Words = {
   projectMenu: {
     more: '更多',
     open: '打开',
+    newWindow: '在此项目下新建窗口',
+    newWindowName: '窗口名',
+    newWindowDefault: '窗口',
     rename: '重命名',
     export: '导出',
     history: '版本历史',

@@ -1,5 +1,5 @@
 import React from 'react';
-import { CheckSquare, FolderInput, FolderOpen, FolderSearch, Image, ImageOff, ImagePlus, ListX, MoreHorizontal, Pencil, Trash2 } from 'lucide-react';
+import { CheckSquare, Download, FolderInput, FolderOpen, FolderSearch, Image, ImageOff, ImagePlus, Layers, ListX, MoreHorizontal, Pencil, Trash2 } from 'lucide-react';
 import { ContextMenu, type ContextMenuEntry } from './ContextMenu';
 import { Tooltip } from './Tooltip';
 import { useT } from '@/i18n';
@@ -16,6 +16,7 @@ import { useT } from '@/i18n';
  */
 export function ProjectMenu({
   onOpen,
+  onNewWindow,
   onRename,
   onSelect,
   onMoveToFolder,
@@ -31,6 +32,8 @@ export function ProjectMenu({
 }: {
   /** Open the project. Clicking the cover is quicker, but only once you know the cover can be clicked. */
   onOpen?: () => void;
+  /** A new window in this project: a folder inside it, with a film of its own. */
+  onNewWindow?: () => void;
   onRename?: () => void;
   /** Enter multi-select with this item already ticked. */
   onSelect?: () => void;
@@ -68,6 +71,7 @@ export function ProjectMenu({
     if (run) entries.push({ id, icon, label, onSelect: run });
   };
   add('open', <FolderOpen size={15} />, t('projectMenu.open'), onOpen);
+  add('newWindow', <Layers size={15} />, t('projectMenu.newWindow'), onNewWindow);
   add('rename', <Pencil size={15} />, t('projectMenu.rename'), onRename);
   add('select', <CheckSquare size={15} />, t('library.select'), onSelect);
   add('move', <FolderInput size={15} />, t('projects.moveToFolder'), onMoveToFolder);

@@ -162,6 +162,8 @@ export const ko: Words = {
     lockedHow: '주소를 다시 받으려면 실행',
   },
   projects: {
+    inProject: '{n} 안',
+    newWindowDesc: '{name} 안의 창: 그 안의 폴더로, 자기만의 영상을 가집니다.',
     newProject: '새 프로젝트',
     localProjectFailed: '프로젝트를 만들지 못했습니다. 다시 시도하세요.',
     loadFailed: '프로젝트를 불러오지 못했습니다.',
@@ -309,6 +311,9 @@ export const ko: Words = {
   projectMenu: {
     more: '더 보기',
     open: '열기',
+    newWindow: '이 프로젝트에 새 창 만들기',
+    newWindowName: '창 이름',
+    newWindowDefault: '창',
     rename: '이름 변경',
     export: '내보내기',
     history: '버전 기록',

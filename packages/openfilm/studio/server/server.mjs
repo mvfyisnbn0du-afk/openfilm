@@ -30,7 +30,7 @@ import { ownHost, startPages } from './pages.mjs';
 import { HttpError, cookie, json, readJson } from './http.mjs';
 import { acceptWebSocket } from './websocket.mjs';
 import {
-  ProjectError, createFolder, createProject, deleteFolder, deleteProject, libraryRoot, listFolders, listProjects, locateProject, markOpened, moveFolder, moveLibrary,
+  ProjectError, createFolder, createProject, createWindow, deleteFolder, deleteProject, libraryRoot, listFolders, listProjects, locateProject, markOpened, moveFolder, moveLibrary,
   moveProjectToFolder, openProject, projectById, renameFolder, renameProject, studioHome, studioKey, TOOL_DIR,
 } from './projects.mjs';
 import { FetchError, createFetches, fetchFilm, parseRepoUrl } from './fetch-repo.mjs';
@@ -511,6 +511,13 @@ export async function startStudio({ port = 4747, key, openBrowser = systemBrowse
         const body = /** @type {{ path?: string, name?: string, create?: boolean }} */ (await readJson(req));
         return json(res, 200, { project: body.path ? await openProject(body.path, { create: body.create !== false }) : await createProject(body.name) });
       }
+    }
+    /* a new window in a project: a folder inside it, with a film of its own (a project of its own) */
+    if (parts[1] === 'window' && parts.length === 2 && req.method === 'POST') {
+      const body = /** @type {{ parent?: string, name?: string }} */ (await readJson(req));
+      if (typeof body.parent !== 'string' || !body.parent) throw new HttpError(400, 'which project?');
+      if (typeof body.name !== 'string') throw new HttpError(400, 'a window needs a name');
+      return json(res, 200, { project: await createWindow(body.parent, body.name) });
     }
     /* a film from GitHub (fetch-repo.mjs): POST { url } `projects/fetch` starts it → { job }; GET `projects/fetch/:id`
        says how it goes (`project` once it is opened); DELETE stops it */

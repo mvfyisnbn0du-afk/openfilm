@@ -177,6 +177,34 @@ export async function createProject(name = 'Untitled') {
 }
 
 /**
+ * A new window in a project: a folder inside the project's, with a film of its own (so it is a project of its own, with
+ * its own conversation and its own agent working in it), and the project's folder of the list (a category) kept.
+ *
+ * The name is the folder's, cleaned as any other (folderName); two windows of one project may not share a name, since
+ * nothing would tell them apart afterwards.
+ * @param {string} parentId @param {string} name
+ */
+export async function createWindow(parentId, name) {
+  const state = await readState();
+  const parent = state.recent.find((r) => r.id === parentId);
+  if (!parent) throw new ProjectError('There is no such project.', 404, 'not-found');
+  if (!existsSync(parent.path)) throw new ProjectError("That project's folder is gone.", 404, 'not-found');
+  const clean = folderName(name);
+  const dir = join(parent.path, clean);
+  if (existsSync(dir)) throw new ProjectError('A window with that name is already in this project.');
+  const made = await openProject(dir);
+  const after = await readState();
+  const entry = after.recent.find((r) => r.id === made.id);
+  if (!entry) return made;
+  /* the window belongs to the same family as the project it is in */
+  if (parent.folderId) {
+    entry.folderId = parent.folderId;
+    await writeState(after);
+  }
+  return describe(entry, after);
+}
+
+/**
  * A project's folder name: what a person typed, less only what a file system refuses (`/ \ : * ? " < > |` and
  * control characters; a run of them, with the spaces around it, becomes one space). Spaces stay as typed, as the media
  * pane keeps them (files.mjs cleanName). Trimmed, no leading dots, at most 120 characters.
@@ -190,21 +218,41 @@ function folderName(/** @type {string} */ name) {
 /**
  * A project as the API gives it: `createdAt` is when its folder was made; `duration` (s) the film's length when Studio
  * has drawn the film since film.html last changed (its poster), else absent; `folderId` its folder in the list; `cover`
- * when the person last set a cover of its own (cover.mjs), else absent.
+ * when the person last set a cover of its own (cover.mjs), else absent; `parentId` the project it is a window of (a
+ * window is a folder inside a project), when the list is given to say so.
+ * @param {Recent} r @param {StudioState} [state]
  */
-const describe = (/** @type {Recent} */ r) => {
+const describe = (r, state) => {
   const created = statSync(r.path, { throwIfNoEntry: false });
   const duration = filmDuration(r.path);
   const cover = coverAt(r.path);
+  const parent = state ? parentProject(r, state) : null;
   return {
     /* `missing`: its folder is gone (one that only lost its film.html is still there, and still opens) */
     id: r.id, path: r.path, name: basename(r.path), openedAt: r.openedAt, missing: !created?.isDirectory(),
     createdAt: created ? Math.round(created.birthtimeMs || created.ctimeMs) : r.openedAt,
     ...(duration != null ? { duration } : {}),
     ...(r.folderId ? { folderId: r.folderId } : {}),
+    ...(parent ? { parentId: parent.id } : {}),
     ...(cover != null ? { cover } : {}),
   };
 };
+
+/**
+ * The project a window belongs to: the project whose folder holds this one's, the nearest such one (a window of a
+ * window is in the window it is in, not in the project above that). The paths are compared at a separator, so that
+ * `/a` is not the parent of `/a-b`.
+ * @param {Recent} r @param {StudioState} state
+ */
+function parentProject(/** @type {Recent} */ r, /** @type {StudioState} */ state) {
+  let best = null;
+  for (const other of state.recent) {
+    if (other.id === r.id || other.path === r.path) continue;
+    if (!r.path.startsWith(other.path + sep)) continue;
+    if (!best || other.path.length > best.path.length) best = other;
+  }
+  return best;
+}
 
 /** The film's length as Studio last learnt it (pageframes.mjs FILM_DURATION), if film.html has not changed since. */
 function filmDuration(/** @type {string} */ folder) {
@@ -252,7 +300,7 @@ export async function listProjects() {
     if (await followLibrary(state)) await writeState(state);
     const folders = new Set(state.folders.map((f) => f.id));
     /* a project in a folder that was deleted is back at the top level */
-    return state.recent.map((r) => describe(r.folderId && !folders.has(r.folderId) ? { ...r, folderId: undefined } : r));
+    return state.recent.map((r) => describe(r.folderId && !folders.has(r.folderId) ? { ...r, folderId: undefined } : r, state));
   });
 }
 

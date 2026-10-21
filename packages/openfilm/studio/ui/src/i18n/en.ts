@@ -163,6 +163,8 @@ export const en = {
     lockedHow: 'To get it again, run',
   },
   projects: {
+    inProject: 'in {n}',
+    newWindowDesc: 'A window in {name}: a folder inside it, with a film of its own.',
     newProject: 'New project',
     localProjectFailed: 'Couldn’t create the project. Please retry.',
     loadFailed: 'Couldn’t load your projects.',
@@ -310,6 +312,9 @@ export const en = {
   projectMenu: {
     more: 'More',
     open: 'Open',
+    newWindow: 'New window in this project',
+    newWindowName: 'Window name',
+    newWindowDefault: 'Window',
     rename: 'Rename',
     export: 'Export',
     history: 'Version history',

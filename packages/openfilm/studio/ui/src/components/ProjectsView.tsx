@@ -16,6 +16,7 @@ import { limitTitleWidth, TITLE_MAX_WIDTH } from '@/lib/title';
 import { api, type Project } from '@/api';
 import { folderCounts, folderPosters, folderTrail, listStarts, parentOf, visibleProjects, type LibrarySort, type ProjectFolder } from '@/lib/project-folders';
 import { opensOnClick, posterRetryDelay, posterTry } from '@/lib/projects-page';
+import { parentProjectName } from '@/lib/project-tree';
 import { ContextMenu } from './ContextMenu';
 import { ProjectMenu } from './ProjectMenu';
 import { ProjectCoverContext } from './ProjectCover';
@@ -49,6 +50,7 @@ export function ProjectsView({
   onDeleteFolder,
   onMoveToFolder,
   onMoveFolder,
+  onNewWindow,
   onClose,
   heading,
 }: {
@@ -86,6 +88,8 @@ export function ProjectsView({
   onMoveToFolder: (projectId: string, folderId: string | null) => void;
   /** a folder into another (null: the top level) */
   onMoveFolder: (folderId: string, parentId: string | null) => void;
+  /** A new window in a project: a folder inside it, with a film of its own. */
+  onNewWindow: (project: LibraryProject) => void;
   /** Missing: no close button (Studio has no project to go back to). */
   onClose?: () => void;
   /** The title row's left, in place of "Projects" (the launcher's switch between the projects and the examples). */
@@ -232,7 +236,9 @@ export function ProjectsView({
       onStartSelect: () => startSelecting(project),
       onMoveToFolder: () => setMoving({ project }),
       onLocate: () => onLocate(project),
+      onNewWindow: () => onNewWindow(project),
       onDelete: () => onDelete([project.id]),
+      parentName: parentProjectName(project, projects),
     };
   }
 
@@ -406,7 +412,11 @@ interface ItemProps {
   onStartSelect: () => void;
   onMoveToFolder: () => void;
   onLocate: () => void;
+  /** A new window in this project: a folder inside it, with a film of its own. */
+  onNewWindow: () => void;
   onDelete: () => void;
+  /** The project this one is a window of (a window is a folder inside a project), when it is one. */
+  parentName: string | null;
 }
 
 function SelectionCheck({ selected }: { selected: boolean }) {
@@ -663,7 +673,9 @@ function ProjectCard({
   onStartSelect,
   onMoveToFolder,
   onLocate,
+  onNewWindow,
   onDelete,
+  parentName,
 }: ItemProps) {
   const t = useT();
   const language = useLanguage();
@@ -713,11 +725,12 @@ function ProjectCard({
           >
             <Video size={11} />
             {formatDate(project.openedAt, language)}
+            {parentName ? <span className="truncate">· {t('projects.inProject').replace('{n}', parentName)}</span> : null}
             {project.missing ? <span className="truncate text-[var(--err)]">· {t('projects.missing')}</span> : null}
             {project.working ? <span className="truncate text-[var(--accent)]">· {t('projects.agentRunning')}</span> : null}
           </button>
         </div>
-        {!selecting ? <ItemMenu project={project} onOpen={onOpen} onStartRename={onStartRename} onStartSelect={onStartSelect} onMoveToFolder={onMoveToFolder} onLocate={onLocate} onDelete={onDelete} size={14} /> : null}
+        {!selecting ? <ItemMenu project={project} onOpen={onOpen} onNewWindow={onNewWindow} onStartRename={onStartRename} onStartSelect={onStartSelect} onMoveToFolder={onMoveToFolder} onLocate={onLocate} onDelete={onDelete} size={14} /> : null}
       </div>
     </article>
   );
@@ -757,18 +770,20 @@ function MissingActions({ onLocate, onRemove, compact = false }: { onLocate: () 
 function ItemMenu({
   project,
   onOpen,
+  onNewWindow,
   onStartRename,
   onStartSelect,
   onMoveToFolder,
   onLocate,
   onDelete,
   size,
-}: Pick<ItemProps, 'project' | 'onOpen' | 'onStartRename' | 'onStartSelect' | 'onMoveToFolder' | 'onLocate' | 'onDelete'> & { size: number }) {
+}: Pick<ItemProps, 'project' | 'onOpen' | 'onStartRename' | 'onStartSelect' | 'onMoveToFolder' | 'onLocate' | 'onNewWindow' | 'onDelete'> & { size: number }) {
   const cover = React.useContext(ProjectCoverContext);
   if (project.missing) return <ProjectMenu onLocate={onLocate} onRemove={onDelete} size={size} />;
   return (
     <ProjectMenu
       onOpen={onOpen}
+      onNewWindow={onNewWindow}
       onRename={onStartRename}
       onSelect={onStartSelect}
       onMoveToFolder={onMoveToFolder}
@@ -796,6 +811,7 @@ function ProjectListRow({
   onStartSelect,
   onMoveToFolder,
   onLocate,
+  onNewWindow,
   onDelete,
 }: ItemProps) {
   const t = useT();
@@ -837,7 +853,7 @@ function ProjectListRow({
         </button>
       </div>
       {project.missing && !selecting ? <MissingActions compact onLocate={onLocate} onRemove={onDelete} /> : null}
-      {!selecting ? <ItemMenu project={project} onOpen={onOpen} onStartRename={onStartRename} onStartSelect={onStartSelect} onMoveToFolder={onMoveToFolder} onLocate={onLocate} onDelete={onDelete} size={15} /> : null}
+      {!selecting ? <ItemMenu project={project} onOpen={onOpen} onNewWindow={onNewWindow} onStartRename={onStartRename} onStartSelect={onStartSelect} onMoveToFolder={onMoveToFolder} onLocate={onLocate} onDelete={onDelete} size={15} /> : null}
     </article>
   );
 }
