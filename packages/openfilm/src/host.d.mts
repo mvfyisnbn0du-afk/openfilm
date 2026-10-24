@@ -10,7 +10,7 @@ export declare function launch(opts?: LaunchOptions): Promise<Browser>;
 export declare const SOFTWARE_GL: RegExp;
 /** Windows: open with Vulkan once, and keep it only when its renderer is a GPU and it shows videos; otherwise the GPU another way, or Chromium's default. */
 export declare function vulkanFirst(renderer?: (browser: Browser) => Promise<string>, presents?: (browser: Browser) => Promise<boolean>): (open: (angle: string[]) => Promise<Browser>) => Promise<Browser>;
-/** Whether the browser shows a paused video's frame once sought (some Windows computers with Vulkan never do). */
+/** Whether the browser shows the frame a paused video is sought to, for H.264 and HEVC (some Windows computers with Vulkan do not). */
 export declare function presentsVideo(browser: Browser): Promise<boolean>;
 /** Close every browser launch() opened that is still open: what waits on one fails at once instead of never answering. */
 export declare function closeBrowsers(): Promise<void>;

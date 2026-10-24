@@ -289,40 +289,53 @@ async function rendererOf(browser) {
   try { return await page.evaluate(readRenderer); } finally { await page.close(); }
 }
 
-/* two seconds of video, red then blue, 640 × 360 H.264 at 4 fps: large enough to be decoded on the chip */
-const PRESENT_CHECK = 'data:video/mp4;base64,AAAAIGZ0eXBpc29tAAACAGlzb21pc28yYXZjMW1wNDEAAANkbW9vdgAAAGxtdmhkAAAAAAAAAAAAAAAAAAAD6AAAB9AAAQAAAQAAAAAAAAAAAAAAAAEAAAAAAAAAAAAAAAAAAAABAAAAAAAAAAAAAAAAAABAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAgAAArN0cmFrAAAAXHRraGQAAAADAAAAAAAAAAAAAAABAAAAAAAAB9AAAAAAAAAAAAAAAAAAAAAAAAEAAAAAAAAAAAAAAAAAAAABAAAAAAAAAAAAAAAAAABAAAAAAoAAAAFoAAAAAAAkZWR0cwAAABxlbHN0AAAAAAAAAAEAAAfQAAAgAAABAAAAAAIrbWRpYQAAACBtZGhkAAAAAAAAAAAAAAAAAABAAAAAkABVxAAAAAAALWhkbHIAAAAAAAAAAHZpZGUAAAAAAAAAAAAAAABWaWRlb0hhbmRsZXIAAAAB1m1pbmYAAAAUdm1oZAAAAAEAAAAAAAAAAAAAACRkaW5mAAAAHGRyZWYAAAAAAAAAAQAAAAx1cmwgAAAAAQAAAZZzdGJsAAAAunN0c2QAAAAAAAAAAQAAAKphdmMxAAAAAAAAAAEAAAAAAAAAAAAAAAAAAAAAAoABaABIAAAASAAAAAAAAAABAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAGP//AAAAMGF2Y0MBTUAW/+EAGGdNQBbsoFAX/LgIgAAAAwCAAAAEB4sWywEABWjr48sgAAAAEHBhc3AAAAABAAAAAQAAABRidHJ0AAAAAAAAD8QAAAUMAAAAGHN0dHMAAAAAAAAAAQAAAAgAABAAAAAAGHN0c3MAAAAAAAAAAgAAAAEAAAAFAAAAQGN0dHMAAAAAAAAABgAAAAEAACAAAAAAAQAAQAAAAAACAAAQAAAAAAEAACAAAAAAAQAAQAAAAAACAAAQAAAAABxzdHNjAAAAAAAAAAEAAAABAAAACAAAAAEAAAA0c3RzegAAAAAAAAAAAAAACAAAAGYAAAAWAAAAEwAAABMAAABlAAAAFgAAABMAAAATAAAAFHN0Y28AAAAAAAAAAQAAA5QAAAA9dWR0YQAAADVtZXRhAAAAAAAAACFoZGxyAAAAAAAAAABtZGlyYXBwbAAAAAAAAAAAAAAAAAhpbHN0AAAACGZyZWUAAAFLbWRhdAAAAGJliIQAEv/+6Mn8yysv49Q3s0Yps0mnHMI9HTDq9Ryj5DaMReURDAAAAwAAAwAAAwDAA6AsaXWRAN14AAAGSADXhLQmodQXAagd4oI6hTCAEAAAAwAAAwAAAwAAAwAAAwAW8QAAABJBmiNsQQ/+qlUAAAMAAAMAOqAAAAAPQZ5BeIIfAAADAAADACThAAAADwGeYmpBDwAAAwAAAwAk4AAAAGFliIIABX/+7M9+BTcgPIv1lAh0tW5145jTpoZ4rq/03qFxGMOPJbgAAAMAAAMAAAXj8myN92IA8GNgAAAakALcEDCABQhFRBxGhnCVELHSMkAAAAMAAAMAAAMAAAMAAEBBAAAAEkGaI2xBD/6qVQAAAwAAAwA6oQAAAA9BnkF4gj8AAAMAAAMAE3EAAAAPAZ5iakEPAAADAAADACTh';
+/* two seconds of video, red then blue, 640 × 360 at 4 fps, large enough to be decoded on the chip: H.264, and HEVC
+   Main 10 (what phones and cameras such as DJI's record) */
+const PRESENT_CHECKS = [
+  { type: 'video/mp4; codecs="avc1.4D401E"', src: 'data:video/mp4;base64,AAAAIGZ0eXBpc29tAAACAGlzb21pc28yYXZjMW1wNDEAAANkbW9vdgAAAGxtdmhkAAAAAAAAAAAAAAAAAAAD6AAAB9AAAQAAAQAAAAAAAAAAAAAAAAEAAAAAAAAAAAAAAAAAAAABAAAAAAAAAAAAAAAAAABAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAgAAArN0cmFrAAAAXHRraGQAAAADAAAAAAAAAAAAAAABAAAAAAAAB9AAAAAAAAAAAAAAAAAAAAAAAAEAAAAAAAAAAAAAAAAAAAABAAAAAAAAAAAAAAAAAABAAAAAAoAAAAFoAAAAAAAkZWR0cwAAABxlbHN0AAAAAAAAAAEAAAfQAAAgAAABAAAAAAIrbWRpYQAAACBtZGhkAAAAAAAAAAAAAAAAAABAAAAAkABVxAAAAAAALWhkbHIAAAAAAAAAAHZpZGUAAAAAAAAAAAAAAABWaWRlb0hhbmRsZXIAAAAB1m1pbmYAAAAUdm1oZAAAAAEAAAAAAAAAAAAAACRkaW5mAAAAHGRyZWYAAAAAAAAAAQAAAAx1cmwgAAAAAQAAAZZzdGJsAAAAunN0c2QAAAAAAAAAAQAAAKphdmMxAAAAAAAAAAEAAAAAAAAAAAAAAAAAAAAAAoABaABIAAAASAAAAAAAAAABAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAGP//AAAAMGF2Y0MBTUAW/+EAGGdNQBbsoFAX/LgIgAAAAwCAAAAEB4sWywEABWjr48sgAAAAEHBhc3AAAAABAAAAAQAAABRidHJ0AAAAAAAAD8QAAAUMAAAAGHN0dHMAAAAAAAAAAQAAAAgAABAAAAAAGHN0c3MAAAAAAAAAAgAAAAEAAAAFAAAAQGN0dHMAAAAAAAAABgAAAAEAACAAAAAAAQAAQAAAAAACAAAQAAAAAAEAACAAAAAAAQAAQAAAAAACAAAQAAAAABxzdHNjAAAAAAAAAAEAAAABAAAACAAAAAEAAAA0c3RzegAAAAAAAAAAAAAACAAAAGYAAAAWAAAAEwAAABMAAABlAAAAFgAAABMAAAATAAAAFHN0Y28AAAAAAAAAAQAAA5QAAAA9dWR0YQAAADVtZXRhAAAAAAAAACFoZGxyAAAAAAAAAABtZGlyYXBwbAAAAAAAAAAAAAAAAAhpbHN0AAAACGZyZWUAAAFLbWRhdAAAAGJliIQAEv/+6Mn8yysv49Q3s0Yps0mnHMI9HTDq9Ryj5DaMReURDAAAAwAAAwAAAwDAA6AsaXWRAN14AAAGSADXhLQmodQXAagd4oI6hTCAEAAAAwAAAwAAAwAAAwAAAwAW8QAAABJBmiNsQQ/+qlUAAAMAAAMAOqAAAAAPQZ5BeIIfAAADAAADACThAAAADwGeYmpBDwAAAwAAAwAk4AAAAGFliIIABX/+7M9+BTcgPIv1lAh0tW5145jTpoZ4rq/03qFxGMOPJbgAAAMAAAMAAAXj8myN92IA8GNgAAAakALcEDCABQhFRBxGhnCVELHSMkAAAAMAAAMAAAMAAAMAAEBBAAAAEkGaI2xBD/6qVQAAAwAAAwA6oQAAAA9BnkF4gj8AAAMAAAMAE3EAAAAPAZ5iakEPAAADAAADACTh' },
+  { type: 'video/mp4; codecs="hvc1.2.4.L90.90"', src: 'data:video/mp4;base64,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' },
+];
 
 /**
- * Whether this browser shows a paused video's frame once sought. On some Windows computers with Vulkan the decoder
- * has the frame and the compositor never shows it: every seek waits out its tries (showVideoAt in timeline.mjs), five
- * seconds a frame, and the video is black. A video that does not load says nothing either way (true).
+ * Whether this browser shows a paused video's frame once sought, for each kind of video it plays. On some Windows
+ * computers with Vulkan the frame sought is never the one shown (every seek waits out its tries in showVideoAt,
+ * timeline.mjs: five seconds a frame), or nothing is shown at all (a black video), for some only with HEVC. A video
+ * this browser does not play or load says nothing either way: such footage gets a copy it plays (seekable.mjs).
  * @param {import('playwright-core').Browser} browser
  */
 export async function presentsVideo(browser) {
   const page = await browser.newPage();
   try {
-    await page.setContent(`<video muted src="${PRESENT_CHECK}" style="width:320px;height:180px"></video>`);
-    return await page.evaluate(async () => {
-      const v = /** @type {HTMLVideoElement} */ (document.querySelector('video'));
-      if (typeof v.requestVideoFrameCallback !== 'function') return true;
-      const loaded = await new Promise((done) => {
-        if (v.readyState >= 2) done(true);
-        v.addEventListener('loadeddata', () => done(true), { once: true });
-        v.addEventListener('error', () => done(false), { once: true });
-        setTimeout(() => done(false), 5000);
-      });
-      if (!loaded) return true;
-      /* a seek just after the file loaded may never present (see showVideoAt): tried again, elsewhere */
-      for (const t of [1.5, 0.5, 1.2]) {
-        const shown = await new Promise((done) => {
-          v.requestVideoFrameCallback(() => done(true));
-          setTimeout(() => done(false), 1500);
-          v.currentTime = t;
+    return await page.evaluate(async (checks) => {
+      for (const { type, src } of checks) {
+        const v = document.createElement('video');
+        if (!v.canPlayType(type) || typeof v.requestVideoFrameCallback !== 'function') continue;
+        v.muted = true;
+        v.style.cssText = 'width:320px;height:180px';
+        document.body.append(v);
+        const loaded = await new Promise((done) => {
+          v.addEventListener('loadeddata', () => done(true), { once: true });
+          v.addEventListener('error', () => done(false), { once: true });
+          setTimeout(() => done(false), 5000);
+          v.src = src;
         });
-        if (shown) return true;
+        /* the frame shown must be the one sought (each is a quarter second); a seek just after the file loaded may
+           never present it (see showVideoAt), so it is tried again, elsewhere */
+        let shown = !loaded;
+        for (const t of loaded ? [1.5, 0.5, 1.25] : []) {
+          shown = await new Promise((done) => {
+            const next = () => v.requestVideoFrameCallback((now, meta) => (Math.abs(meta.mediaTime - t) < 0.125 ? done(true) : next()));
+            next();
+            setTimeout(() => done(false), 1500);
+            v.currentTime = t;
+          });
+          if (shown) break;
+        }
+        v.remove();
+        if (!shown) return false;
       }
-      return false;
-    });
+      return true;
+    }, PRESENT_CHECKS);
   } finally {
     await page.close();
   }

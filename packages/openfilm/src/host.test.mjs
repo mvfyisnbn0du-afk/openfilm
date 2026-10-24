@@ -228,6 +228,18 @@ test('a browser shows a paused video\'s frame once sought; one that never presen
       return page;
     } };
     assert.equal(await presentsVideo(/** @type {any} */ (never)), false);
+    /* one that shows a frame, never the one sought: as slow as none at all */
+    const wrong = { newPage: async () => {
+      const page = await browser.newPage();
+      await page.evaluate(() => {
+        HTMLVideoElement.prototype.requestVideoFrameCallback = function (callback) {
+          setTimeout(() => callback(performance.now(), /** @type {any} */ ({ mediaTime: this.currentTime + 1 })), 10);
+          return 0;
+        };
+      });
+      return page;
+    } };
+    assert.equal(await presentsVideo(/** @type {any} */ (wrong)), false);
   } finally {
     await browser.close();
   }
