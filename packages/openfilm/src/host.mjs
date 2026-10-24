@@ -289,14 +289,64 @@ async function rendererOf(browser) {
   try { return await page.evaluate(readRenderer); } finally { await page.close(); }
 }
 
+/* two seconds of video, red then blue, 640 × 360 H.264 at 4 fps: large enough to be decoded on the chip */
+const PRESENT_CHECK = 'data:video/mp4;base64,AAAAIGZ0eXBpc29tAAACAGlzb21pc28yYXZjMW1wNDEAAANkbW9vdgAAAGxtdmhkAAAAAAAAAAAAAAAAAAAD6AAAB9AAAQAAAQAAAAAAAAAAAAAAAAEAAAAAAAAAAAAAAAAAAAABAAAAAAAAAAAAAAAAAABAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAgAAArN0cmFrAAAAXHRraGQAAAADAAAAAAAAAAAAAAABAAAAAAAAB9AAAAAAAAAAAAAAAAAAAAAAAAEAAAAAAAAAAAAAAAAAAAABAAAAAAAAAAAAAAAAAABAAAAAAoAAAAFoAAAAAAAkZWR0cwAAABxlbHN0AAAAAAAAAAEAAAfQAAAgAAABAAAAAAIrbWRpYQAAACBtZGhkAAAAAAAAAAAAAAAAAABAAAAAkABVxAAAAAAALWhkbHIAAAAAAAAAAHZpZGUAAAAAAAAAAAAAAABWaWRlb0hhbmRsZXIAAAAB1m1pbmYAAAAUdm1oZAAAAAEAAAAAAAAAAAAAACRkaW5mAAAAHGRyZWYAAAAAAAAAAQAAAAx1cmwgAAAAAQAAAZZzdGJsAAAAunN0c2QAAAAAAAAAAQAAAKphdmMxAAAAAAAAAAEAAAAAAAAAAAAAAAAAAAAAAoABaABIAAAASAAAAAAAAAABAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAGP//AAAAMGF2Y0MBTUAW/+EAGGdNQBbsoFAX/LgIgAAAAwCAAAAEB4sWywEABWjr48sgAAAAEHBhc3AAAAABAAAAAQAAABRidHJ0AAAAAAAAD8QAAAUMAAAAGHN0dHMAAAAAAAAAAQAAAAgAABAAAAAAGHN0c3MAAAAAAAAAAgAAAAEAAAAFAAAAQGN0dHMAAAAAAAAABgAAAAEAACAAAAAAAQAAQAAAAAACAAAQAAAAAAEAACAAAAAAAQAAQAAAAAACAAAQAAAAABxzdHNjAAAAAAAAAAEAAAABAAAACAAAAAEAAAA0c3RzegAAAAAAAAAAAAAACAAAAGYAAAAWAAAAEwAAABMAAABlAAAAFgAAABMAAAATAAAAFHN0Y28AAAAAAAAAAQAAA5QAAAA9dWR0YQAAADVtZXRhAAAAAAAAACFoZGxyAAAAAAAAAABtZGlyYXBwbAAAAAAAAAAAAAAAAAhpbHN0AAAACGZyZWUAAAFLbWRhdAAAAGJliIQAEv/+6Mn8yysv49Q3s0Yps0mnHMI9HTDq9Ryj5DaMReURDAAAAwAAAwAAAwDAA6AsaXWRAN14AAAGSADXhLQmodQXAagd4oI6hTCAEAAAAwAAAwAAAwAAAwAAAwAW8QAAABJBmiNsQQ/+qlUAAAMAAAMAOqAAAAAPQZ5BeIIfAAADAAADACThAAAADwGeYmpBDwAAAwAAAwAk4AAAAGFliIIABX/+7M9+BTcgPIv1lAh0tW5145jTpoZ4rq/03qFxGMOPJbgAAAMAAAMAAAXj8myN92IA8GNgAAAakALcEDCABQhFRBxGhnCVELHSMkAAAAMAAAMAAAMAAAMAAEBBAAAAEkGaI2xBD/6qVQAAAwAAAwA6oQAAAA9BnkF4gj8AAAMAAAMAE3EAAAAPAZ5iakEPAAADAAADACTh';
+
+/**
+ * Whether this browser shows a paused video's frame once sought. On some Windows computers with Vulkan the decoder
+ * has the frame and the compositor never shows it: every seek waits out its tries (showVideoAt in timeline.mjs), five
+ * seconds a frame, and the video is black. A video that does not load says nothing either way (true).
+ * @param {import('playwright-core').Browser} browser
+ */
+export async function presentsVideo(browser) {
+  const page = await browser.newPage();
+  try {
+    await page.setContent(`<video muted src="${PRESENT_CHECK}" style="width:320px;height:180px"></video>`);
+    return await page.evaluate(async () => {
+      const v = /** @type {HTMLVideoElement} */ (document.querySelector('video'));
+      if (typeof v.requestVideoFrameCallback !== 'function') return true;
+      const loaded = await new Promise((done) => {
+        if (v.readyState >= 2) done(true);
+        v.addEventListener('loadeddata', () => done(true), { once: true });
+        v.addEventListener('error', () => done(false), { once: true });
+        setTimeout(() => done(false), 5000);
+      });
+      if (!loaded) return true;
+      /* a seek just after the file loaded may never present (see showVideoAt): tried again, elsewhere */
+      for (const t of [1.5, 0.5, 1.2]) {
+        const shown = await new Promise((done) => {
+          v.requestVideoFrameCallback(() => done(true));
+          setTimeout(() => done(false), 1500);
+          v.currentTime = t;
+        });
+        if (shown) return true;
+      }
+      return false;
+    });
+  } finally {
+    await page.close();
+  }
+}
+
+/** The device id in an ANGLE renderer string (`(0x00002489)`), the same GPU's through Vulkan and D3D11. */
+const deviceOf = (/** @type {string} */ renderer) => {
+  const id = /\(0x([0-9a-f]+)\)/i.exec(renderer);
+  return id ? parseInt(id[1], 16) : null;
+};
+
 /**
  * Windows: headless Chromium picks no ANGLE backend by itself and draws WebGL with SwiftShader, on the CPU. Vulkan
  * reaches the GPU (on a laptop with two, the discrete one: d3d11 and gl take the integrated one). A virtual machine, a
  * CI runner or a computer without a Vulkan driver has none, so the first browser reads its renderer once: when Vulkan
  * did not start, or is software too, it and every later browser take Chromium's default.
+ *
+ * Vulkan on a GPU may still never show a video's frames (presentsVideo). Then the default is taken when it reaches the
+ * same GPU (a computer with one), else Vulkan with videos decoded on the CPU; each only when it shows them. When
+ * neither does, the default.
  * @param {(browser: import('playwright-core').Browser) => Promise<string>} [renderer]
+ * @param {(browser: import('playwright-core').Browser) => Promise<boolean>} [presents]
  */
-export function vulkanFirst(renderer = rendererOf) {
+export function vulkanFirst(renderer = rendererOf, presents = presentsVideo) {
   /** @type {Promise<string[]> | null} what every browser after the first is opened with */
   let chosen = null;
   /** @param {(angle: string[]) => Promise<import('playwright-core').Browser>} open */
@@ -305,16 +355,36 @@ export function vulkanFirst(renderer = rendererOf) {
     /** @type {(angle: string[]) => void} */
     let choose = () => {};
     chosen = new Promise((r) => { choose = r; });
+    const read = (/** @type {import('playwright-core').Browser} */ b) => inTime(renderer(b), 30_000, 'no renderer').catch(() => 'none');
+    const shows = (/** @type {import('playwright-core').Browser} */ b) => inTime(presents(b), 30_000, '').catch(() => true);
     const vulkan = ['--use-angle=vulkan'];
     const browser = await open(vulkan).catch(() => null);
-    const gpu = browser ? await inTime(renderer(browser), 30_000, 'no renderer').catch(() => 'none') : 'none';
-    if (browser && gpu !== 'none' && !SOFTWARE_GL.test(gpu)) {
+    const gpu = browser ? await read(browser) : 'none';
+    if (!browser || gpu === 'none' || SOFTWARE_GL.test(gpu)) {
+      await browser?.close().catch(() => {});
+      choose([]);
+      return open([]);
+    }
+    if (await shows(browser)) {
       choose(vulkan);
       return browser;
     }
-    await browser?.close().catch(() => {});
+    await browser.close().catch(() => {});
+    const fallback = await open([]);
+    if (deviceOf(gpu) != null && deviceOf(await read(fallback)) === deviceOf(gpu) && await shows(fallback)) {
+      choose([]);
+      return fallback;
+    }
+    const decoded = [...vulkan, '--disable-accelerated-video-decode'];
+    const cpu = await open(decoded).catch(() => null);
+    if (cpu && await shows(cpu)) {
+      await fallback.close().catch(() => {});
+      choose(decoded);
+      return cpu;
+    }
+    await cpu?.close().catch(() => {});
     choose([]);
-    return open([]);
+    return fallback;
   };
 }
 const onWindows = vulkanFirst();

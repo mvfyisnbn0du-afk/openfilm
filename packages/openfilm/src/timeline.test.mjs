@@ -356,6 +356,28 @@ test('a sought frame that is decoded but never presented (a seek just after load
   }
 });
 
+test('a browser that never shows a video frame (some Windows computers with Vulkan): the frame fails after a few, saying so, not a black video', { skip: !hasFfmpeg && 'no ffmpeg', timeout: 60_000 }, async () => {
+  const dir = footage('of-never-shown-');
+  writeFileSync(join(dir, 'film.html'), filmHtml({ stage: { w: 320, h: 180 }, tracks: [{ clips: [{ id: 'v', src: 'a.mp4', time: [0, 4] }] }] }));
+  const s = await open(dir);
+  try {
+    const seen = await s.film.page.evaluate(async () => {
+      HTMLVideoElement.prototype.requestVideoFrameCallback = () => 0;
+      const drawn = [];
+      try {
+        for (const t of [0.5, 1.5, 2.5, 3.5]) { await window.film.frame(t); drawn.push(t); }
+      } catch (e) {
+        return { drawn, error: String(e?.message ?? e) };
+      }
+      return { drawn, error: null };
+    });
+    assert.deepEqual(seen.drawn, [0.5, 1.5], JSON.stringify(seen));
+    assert.match(seen.error ?? '', /clip "v" \(a\.mp4\): this browser decodes its frames but never shows them/);
+  } finally {
+    await s.close();
+  }
+});
+
 test('watched, a still moment whose video frame is decoded but never presented (Chromium) is sought again until it shows', { skip: !hasFfmpeg && 'no ffmpeg', timeout: 60_000 }, async () => {
   const dir = footage('of-unshown-watched-');
   writeFileSync(join(dir, 'film.html'), filmHtml({ stage: { w: 320, h: 180 }, tracks: [{ clips: [{ id: 'v', src: 'a.mp4', at: 1, time: [0, 4] }] }] }));
