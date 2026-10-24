@@ -120,7 +120,7 @@ export async function look(args, opts = {}) {
       const wave = await waveform(s, from, to);
       const marks = joinPieces(m.sounds).filter((c) => (c.at ?? 0) >= from && (c.at ?? 0) < to).map((c) => ({ t: c.at ?? 0, name: basename(c.src) }));
       const file = join(dir, `${Number(from.toFixed(3))}-${fmt(to)}.png`);
-      writeFileSync(file, await sheet(browser, shots, m, from, to, wave, marks));
+      writeFileSync(file, await sheet(browser, shots.map((x) => ({ ...x, png: cellPicture(x.png) })), m, from, to, wave, marks));
       files.push(file);
     }
     sounds.push(...listSounds(s, m, at != null ? [at, at] : range ?? [0, end], warnings));
@@ -273,6 +273,18 @@ async function waveform(s, from, to) {
     rmSync(wav, { force: true });
     rmSync(png, { force: true });
   }
+}
+
+/**
+ * A frame as small as its cell on the sheet (CELL_WIDTH wide, alpha kept): the sheet is one HTML string sent to the browser,
+ * and full-size frames of a 4K stage (5 to 11 MB each as PNG) make more than the 100 MB a page can be given
+ * (page.setContent: "Target page, context or browser has been closed"). The frame as it is when ffmpeg cannot.
+ * @param {Buffer} png
+ */
+function cellPicture(png) {
+  const r = spawnSync('ffmpeg', ['-v', 'error', '-f', 'png_pipe', '-i', 'pipe:0', '-vf', `scale=${CELL_WIDTH}:-1,format=rgb24|rgba`,
+    '-frames:v', '1', '-f', 'image2pipe', '-c:v', 'png', 'pipe:1'], { input: png, maxBuffer: 64 << 20, windowsHide: true });
+  return r.status === 0 && r.stdout?.length ? r.stdout : png;
 }
 
 async function sheet(browser, shots, meta, from, to, wave, marks, label = 'sound mix') {

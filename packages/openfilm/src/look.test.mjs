@@ -86,6 +86,20 @@ const run = async (name) => { const r = await look([page(name)], {}); return { o
 const SAME = /same t, same picture/;
 const DIFFERENT = /the same t drew two different pictures/;
 
+test('a film sheet embeds its frames at cell size, so a 4K stage does not pass the 100 MB a page can be given', { timeout: 90_000 }, async (t) => {
+  const { writeFileSync } = await import('node:fs');
+  const dir = mkdtempSync(join(tmpdir(), 'of-look-film-sheet-'));
+  t.after(() => rmSync(dir, { recursive: true, force: true }));
+  writeFileSync(join(dir, 'a.html'), '<!doctype html><body style="margin:0;background:#123"><script>window.film = { duration: 2, width: 1280, height: 720, frame(t) { document.body.style.opacity = String(0.5 + t / 4); } };</script>');
+  writeFileSync(join(dir, 'film.html'), filmHtml({ stage: { w: 1280, h: 720 }, tracks: [{ clips: [{ src: 'a.html' }] }] }));
+  const cells = sheetCells(t);
+  const r = await look([dir], { count: 4 });
+  assert.notEqual(r.ok, false, r.lines.join('\n'));
+  /* four frames of 1280 × 720, and the sound's waveform has none here */
+  assert.equal(cells.length, 4);
+  for (const cell of cells) assert.deepEqual({ width: cell.width, height: cell.height }, { width: 480, height: 270 });
+});
+
 test('a page timed by the clock and seeded by Math.random while loading is still pure: the host owns every clock', { timeout: 60_000 }, async () => {
   const r = await run('clock');
   assert.ok(r.ok, r.text); assert.match(r.text, SAME);
