@@ -8,7 +8,7 @@ import { filmHtml } from '../src/film-doc.mjs';
 import { openProject } from './server/projects.mjs';
 import { startStudio } from './server/server.mjs';
 
-test('with the app\'s chat, a ruler click moves the playhead and an Alt-click refers the moment', { timeout: 60_000 }, async () => {
+test('with the app\'s chat, a ruler click moves the playhead and a ⌘-click (Ctrl-click) refers the moment', { timeout: 60_000 }, async () => {
   const scratch = await mkdtemp(join(tmpdir(), 'of-ruler-refer-'));
   const names = ['HOME', 'SHARED_HOME', 'LIBRARY', 'SAVED', 'EXPORTS'];
   const saved = new Map(names.map((name) => [`OPENFILM_${name}`, process.env[`OPENFILM_${name}`]]));
@@ -38,6 +38,8 @@ test('with the app\'s chat, a ruler click moves the playhead and an Alt-click re
     const y = ruler.y + ruler.height / 2;
     const playhead = async () => Number(await slider.getAttribute('aria-valuenow'));
     const referred = () => page.evaluate(() => window.referred);
+    /* the key a box is drawn with on the picture: ⌘ on a Mac, Ctrl elsewhere */
+    const key = process.platform === 'darwin' ? 'Meta' : 'Control';
     assert.equal(await playhead(), 0);
 
     /* a plain click: the playhead goes there, nothing is referred. Just after the page opens, the preview may not take
@@ -59,22 +61,22 @@ test('with the app\'s chat, a ruler click moves the playhead and an Alt-click re
     const dragged = await playhead();
     assert.deepEqual(await referred(), []);
 
-    /* the moment a click would refer is drawn only while Alt is held */
+    /* the moment a click would refer is drawn only while the key is held, with a crosshair */
     await page.mouse.move(ruler.x + 60, y);
     assert.equal(await slider.evaluate((el) => el.style.cursor), 'col-resize');
-    await page.keyboard.down('Alt');
-    await page.waitForFunction(() => document.querySelector('[data-timeline] [role="slider"]')?.style.cursor === 'pointer');
-    await page.keyboard.up('Alt');
+    await page.keyboard.down(key);
+    await page.waitForFunction(() => document.querySelector('[data-timeline] [role="slider"]')?.style.cursor === 'crosshair');
+    await page.keyboard.up(key);
     await page.waitForFunction(() => document.querySelector('[data-timeline] [role="slider"]')?.style.cursor === 'col-resize');
 
-    /* an Alt-click refers that moment, an Alt-drag that span; the playhead stays */
-    await page.keyboard.down('Alt');
+    /* a ⌘-click refers that moment, a ⌘-drag that span; the playhead stays */
+    await page.keyboard.down(key);
     await page.mouse.click(ruler.x + 60, y);
     await page.mouse.move(ruler.x + 40, y);
     await page.mouse.down();
     await page.mouse.move(ruler.x + 120, y, { steps: 5 });
     await page.mouse.up();
-    await page.keyboard.up('Alt');
+    await page.keyboard.up(key);
     const refs = await referred();
     assert.deepEqual(refs.map((r) => r.kind), ['time', 'range']);
     assert.ok(refs[0].time > 0 && refs[0].time * 1000 < clicked);
