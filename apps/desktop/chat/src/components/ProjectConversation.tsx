@@ -271,11 +271,33 @@ const ConversationTurn = React.memo(function ConversationTurn({
   /* Finished (not live, not still running): the changes card and footer go below */
   const settled = !live && entry.status !== 'active';
   const running = entry.status === 'active';
-  /* Keep the latest turn as it was watched. Collapsing it on finish moves the reply even with scroll compensation
-     when the content is shorter than the viewport. Older turns and turns loaded from disk still start folded. */
+  /* A finished turn folds, as in Codex / Claude Code: the process becomes one line ("Worked 3m 40s · 14 steps")
+     and the answer stands out. For the turn you watched, folding must not move the answer you are reading: draw
+     one frame unfolded, note the answer's bottom edge in the viewport, then fold and restore the scroll, so the
+     answer stays put and the process above it shrinks. Turns you didn't watch (after a reload, older turns)
+     start folded. */
   const watched = React.useRef(live);
   if (live) watched.current = true;
-  const collapsed = settled && !(watched.current && isLast);
+  const [folded, setFolded] = React.useState(false);
+  const collapsed = settled && (!(watched.current && isLast) || folded);
+  const thread = React.useContext(StickToBottomContext);
+  const tailRef = React.useRef<HTMLDivElement | null>(null);
+  const foldAnchor = React.useRef<number | null>(null);
+  React.useLayoutEffect(() => {
+    if (!settled || collapsed) return;
+    const tail = tailRef.current;
+    foldAnchor.current = tail ? tail.getBoundingClientRect().top : null;
+    setFolded(true);
+  }, [settled, collapsed]);
+  React.useLayoutEffect(() => {
+    const top = foldAnchor.current;
+    foldAnchor.current = null;
+    const tail = tailRef.current;
+    const scroller = thread?.viewport ?? null;
+    if (!folded || top == null || !tail || !scroller) return;
+    const delta = tail.getBoundingClientRect().top - top;
+    if (delta !== 0) scroller.scrollTop += delta;
+  }, [folded, thread]);
   const items = React.useMemo(
     () => (live ? liveTranscript : preferTranscript(lastLive.current ?? [], storedItems ?? [])),
     // lastLive only changes while live, and live is in the deps.
@@ -355,6 +377,8 @@ const ConversationTurn = React.memo(function ConversationTurn({
       <div className="group/reply flex min-w-0 flex-col gap-2 empty:hidden">
       {/* What the agent did. Fully open while running; for turns you didn't watch, the process folds to one line and the answer stands out. */}
       <TurnBody rows={rows} collapsed={collapsed} {...(entry.durationMs ? { durationMs: entry.durationMs } : {})} />
+      {/* The answer's bottom edge, the anchor for folding (see folded above). */}
+      {rows?.length ? <div ref={tailRef} aria-hidden className="-mt-2 h-0" /> : null}
       {/* Only for older turns you didn't watch (after a reload, scrolling back). The turn you watched has its
           process in hand, even with no rows (stopped right after sending), and never says "loading": that line
           appearing and vanishing made the conversation jump on send and on finish. */}
@@ -500,8 +524,8 @@ function TurnAttachments({ items }: { items: TurnAttachment[] }) {
 /**
  * The agent's side of a turn.
  *
- * The latest watched turn stays open, including after it finishes. Older turns fold: everything before the last
- * piece of work (actions, narration, thinking, plans) becomes one line,
+ * Fully open while running: watching it work is part of the product. Once finished it folds, as in Codex /
+ * Claude Code: everything before the last piece of work (actions, narration, thinking, plans) becomes one line,
  * "Worked 3m 40s · 14 steps", opened on click; its final paragraphs are the answer and stay out as text.
  * Unfolded, a two-minute turn is thirty or forty rows with the conclusion at the bottom, and scrolling back
  * means reading each turn top to bottom to find what it said.

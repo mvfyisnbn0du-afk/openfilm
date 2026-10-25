@@ -6,7 +6,7 @@ import { createServer } from 'vite';
 import { chromium } from 'playwright-core';
 import shellConfig from '../shell/vite.config.ts';
 
-test('running tools keep their DOM, styles and position on completion, in short and scrolling conversations', { timeout: 60_000 }, async () => {
+test('running tools keep their DOM, styles and position on completion, and a finished turn folds without moving the reply', { timeout: 60_000 }, async () => {
   const server = await createServer({
     ...shellConfig, configFile: false, root: fileURLToPath(new URL('..', import.meta.url)),
     server: { host: '127.0.0.1', port: 0 }, logLevel: 'error',
@@ -93,12 +93,39 @@ test('running tools keep their DOM, styles and position on completion, in short 
       await page.getByRole('status').waitFor({ state: 'hidden' });
       await page.evaluate(() => new Promise((done) => requestAnimationFrame(() => requestAnimationFrame(done))));
       const after = await answer.boundingBox();
-      assert.ok(Math.abs(after.y - before.y) <= 1, `reply moved ${after.y - before.y}px at width ${config.width}`);
+      /* Folding keeps the reply in place by scrolling; a conversation shorter than its viewport has nothing to scroll. */
+      if (config.above) assert.ok(Math.abs(after.y - before.y) <= 1, `reply moved ${after.y - before.y}px at width ${config.width}`);
+      else assert.ok(after.y <= before.y, 'a short conversation folds upward, never pushing the reply down');
       assert.ok(await footerGap() <= 10, 'the finished reply keeps the same compact footer spacing');
-      assert.equal(await page.getByText('I will check the project first.', { exact: true }).count(), 1, 'the process just watched stays expanded');
+      assert.equal(await page.getByText('I will check the project first.', { exact: true }).count(), 0, 'the turn just watched folds as it finishes');
+      assert.equal(await page.locator('[data-activity-header]').count(), 0, 'its steps fold into the Worked line');
       await page.evaluate(() => window.activityFixture.next());
       await page.getByText('Continue.', { exact: true }).waitFor();
-      assert.equal(await page.getByText('I will check the project first.', { exact: true }).count(), 0, 'earlier turns still fold when a new turn starts');
+      assert.equal(await page.getByText('I will check the project first.', { exact: true }).count(), 0, 'earlier turns stay folded when a new turn starts');
+      assert.deepEqual(errors, []);
+      await page.close();
+    }
+    for (const locale of ['en', 'zh-CN']) {
+      const page = await browser.newPage({ viewport: { width: 800, height: 800 }, reducedMotion: 'reduce' });
+      const errors = [];
+      page.on('pageerror', (e) => errors.push(e.message));
+      await page.addInitScript(() => {
+        window.openfilmDesktop = { developer: { get: async () => ({ logs: false, changes: false }), onChange: () => () => {} } };
+      });
+      await page.goto(`http://127.0.0.1:${port}/activity-layout?${new URLSearchParams({ scenario: 'asset', width: 440, height: 620, locale })}`);
+      await page.waitForFunction(() => Boolean(window.activityFixture));
+      const row = page.locator('[data-activity-id="image"]');
+      await row.waitFor({ state: 'visible' });
+      await row.evaluate((node) => { node.dataset.probe = 'preserved'; });
+      const pictures = () => page.locator('img').evaluateAll((images) => images.filter((image) => image.getBoundingClientRect().height > 0).length);
+      const shown = await pictures();
+      await page.evaluate(() => window.activityFixture.addTool());
+      await page.locator('[data-activity-id="image"][aria-busy="true"]').waitFor();
+      assert.equal(await row.getAttribute('data-probe'), 'preserved', 'a lone act that made a picture keeps its row when another act joins it');
+      assert.equal(await pictures(), shown, `a picture shown in a live turn never disappears when another act joins: ${locale}`);
+      await row.click();
+      await page.waitForFunction(() => [...document.querySelectorAll('img')].some((image) => image.getBoundingClientRect().height > 0));
+      assert.ok(await pictures() >= 1, 'the picture is still in its row once the group is opened');
       assert.deepEqual(errors, []);
       await page.close();
     }

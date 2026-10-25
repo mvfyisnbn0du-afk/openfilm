@@ -164,7 +164,9 @@ const AgentActivityRow = React.memo(function AgentActivityRow({
   }
 
   if (item.kind === 'plan') return <PlanRow item={item} />;
-  if (items.length > 1) return <ActGroup items={items} />;
+  /* A lone act that made something folds too: its player would otherwise vanish the moment a second act
+     joins the run and the row turns into a closed group (a live row may change, never disappear). */
+  if (items.length > 1 || (item.kind === 'act' && item.asset)) return <ActGroup items={items} />;
   if (item.kind === 'thought') return <ThoughtRow item={item} />;
   return <ActRow item={item} />;
 });
