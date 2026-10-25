@@ -334,7 +334,7 @@ export function cmdTarget(cmd, depth = 0) {
      beside the shim: the shim itself, which starts that Node */
   if (named.some((rel) => /[\\/]node\.exe$/i.test(rel))) return null;
   /* an app that runs a script inside its own archive on its own runtime (DeepSeek Harness: `ELECTRON_RUN_AS_NODE=1`,
-     then its .exe on `…\\app.asar\\…\\cli.js`): neither the script nor the app starts without the rest of the shim */
+     then its .exe on `…\app.asar\…\cli.js`): neither the script nor the app starts without the rest of the shim */
   if (named.some((rel) => /\.asar(?:[\\/]|$)/i.test(rel))) return null;
   const rels = named
     .filter((rel) => !/(?:^|[\\/])node\.exe$/i.test(rel))
