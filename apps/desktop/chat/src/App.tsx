@@ -66,7 +66,7 @@ import { agentModelSummary, agentOptions, currentAgent, effectivePrefs, offeredO
 import { useLiveActivityFromStore } from '@/lib/live-activity';
 import { loadLastSession, loadSessions, newSession, saveLastSession, saveSessions } from '@/lib/local-sessions';
 import type { ProjectSessionItem } from '@/lib/project-sessions';
-import { conversationAgent, conversationPrefs } from '@/lib/conversation-agent';
+import { conversationAgent, conversationPrefs, keptPrefs } from '@/lib/conversation-agent';
 import { AGENT_DEFINITIONS, isAgentId } from '../../src/agent-definitions.mjs';
 import type { TranscriptItem } from '@/lib/agent-transcript';
 import { app, type FfmpegState, type Project, type SkillListing, type StudioRef, type StudioSelection } from './app-bridge';
@@ -185,12 +185,15 @@ function ChatPane({ project, banners, selection, assetsOpen }: { project: Projec
 
   /* ── turns: the ones kept on this Mac, and the one running now ── */
   const [turns, setTurns] = React.useState<Turn[]>([]);
+  /** the conversation `turns` are of: until the one shown has its own, its last turn says nothing of it */
+  const [turnsOf, setTurnsOf] = React.useState<string | null>(null);
   const [rev, bump] = React.useReducer((n: number) => n + 1, 0);
   React.useEffect(() => {
     const saved = loadLocalAgentTurns(projectKey, sessionId);
     for (const entry of saved) primeStoredTranscript(entry.turn.id, entry.items);
     const live = runningLocalTurns(projectKey).filter((r) => r.sessionId === sessionId).map((r) => r.turn);
     setTurns(mergeAssetLists([...saved.map((entry) => entry.turn), ...live], []));
+    setTurnsOf(sessionId);
   }, [projectKey, sessionId, rev]);
 
   /** This turn is over: the Mac keeps it, the conversation shows it as it ended. */
@@ -254,9 +257,10 @@ function ChatPane({ project, banners, selection, assetsOpen }: { project: Projec
   const la = useLocalAgents();
   React.useEffect(() => { la.hydrate(); void la.refresh(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
   /* the agent this conversation used and its options, whatever was picked since in another one; a new conversation
-     takes the one picked last (lib/conversation-agent). One kept before conversations kept it: its last turn's */
+     takes the one picked last (lib/conversation-agent). A conversation from before they kept it: its last turn's agent */
   const shownSessionItem = sessions.find((s) => s.id === sessionId);
-  const usedAgent = [shownSessionItem?.agent, asset?.localAgent?.id].find((id): id is LocalAgentId => Boolean(id) && isAgentId(id));
+  const lastTurnAgent = turnsOf === sessionId ? asset?.localAgent?.id : undefined;
+  const usedAgent = [shownSessionItem?.agent, lastTurnAgent].find((id): id is LocalAgentId => Boolean(id) && isAgentId(id));
   const { agent, was: agentWas } = conversationAgent(usedAgent, la.roster, currentAgent(la));
   const agentPrefs = conversationPrefs(la.prefs, shownSessionItem?.agentPrefs);
   /** the agent or an option changed in the menu: kept on this conversation, once it has said something (a new one
@@ -615,8 +619,12 @@ function ChatPane({ project, banners, selection, assetsOpen }: { project: Projec
     if (shown) setTurns((list) => mergeAssetLists([started], list));
     /* the conversation is named by the words: a reference reads as its name there, not as "[1: name]" */
     const title = instruction.replace(/\[\d+: ([^\]]*)\]/g, '$1').replace(/\s+/g, ' ').trim().slice(0, 80);
-    /* the agent and its options kept on the conversation: it goes on with them when opened again */
-    touchSession(sessionId, (s) => ({ title: s.title || title, turns: s.turns + 1, agent, agentPrefs: { ...s.agentPrefs, [agent]: prefs } }));
+    /* the agent and the model and effort it ran on, kept on the conversation: it goes on with them when opened again.
+       A turn the agent started by itself keeps no options: the person chose none there */
+    touchSession(sessionId, (s) => ({
+      title: s.title || title, turns: s.turns + 1, agent,
+      ...(origin ? {} : { agentPrefs: { ...s.agentPrefs, [agent]: { ...s.agentPrefs?.[agent], ...keptPrefs(options, prefs) } } }),
+    }));
     const meta: LocalAgentTurnMeta = {
       turnId: id, projectId: projectKey, projectTitle: project.name, sessionId, agent, prompt: instruction,
       turnNo: ordered.length, startedAt: Date.now(), turn: started,
