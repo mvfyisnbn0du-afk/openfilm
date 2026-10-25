@@ -45,6 +45,32 @@ test('focus publishes a fresh login before a slow full scan and ignores the scan
   } finally { r.cancelSignIn('qwen'); scan.resolve([qwen(false)]); }
 });
 
+test('only the agent being signed in is asked fresh; other signed-out agents and installs keep cached answers', async () => {
+  const agent = (id, signedIn, cli = { path: `/bin/${id}` }) => ({ id, cli, signedIn });
+  const checks = [];
+  const r = roster(mkdtempSync(join(tmpdir(), 'of-fresh-login-')), undefined, {
+    localAgents: async () => [agent('codex', false), agent('qwen', false), agent('cursor', null, null)],
+    // The install is there at its first check, so its wait ends at once.
+    localAgent: async (id, options) => { checks.push([id, options?.fresh === true]); return id === 'cursor' ? agent('cursor', null) : agent(id, false); },
+    openInstaller: async () => ({ ok: true }),
+    signInWait: { ms: 10_000, pollMs: 5000 },
+  });
+  try {
+    await r.refresh();
+    await r.refresh();
+    assert.deepEqual(checks, [], 'a shown, connected, signed-out agent is not asked fresh on every refresh');
+    await r.connect('qwen');
+    await new Promise((done) => setImmediate(done));
+    await r.refresh();
+    assert.ok(checks.length >= 1);
+    assert.ok(checks.every(([id, fresh]) => id === 'qwen' && fresh), `only the agent being signed in is asked fresh: ${JSON.stringify(checks)}`);
+    checks.length = 0;
+    await r.install('cursor');
+    await new Promise((done) => setImmediate(done));
+    assert.deepEqual(checks, [['cursor', false]], 'an install wait uses the cached sign-in answers');
+  } finally { r.cancelSignIn('qwen'); }
+});
+
 test('focus and login polling share a status check, and cancelling ignores its late answer', async () => {
   const qwen = (signedIn) => ({ id: 'qwen', cli: { path: '/bin/qwen' }, signedIn });
   const pending = Promise.withResolvers();

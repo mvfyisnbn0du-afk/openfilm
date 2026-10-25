@@ -59,11 +59,13 @@ const DEFAULT_SHOWN = { codex: true, claude: true, byok: false };
    signs in to their Claude subscription the first time */
 const DEFAULT_DISCONNECTED = Object.freeze(['claude']);
 /**
- * How long a sign-in in Terminal is waited for, asked about every few seconds: a person may first sign in to the
- * maker's site, with a code sent to them (five minutes, as it was, was too short for Cursor's). Once it is over, the
- * window coming back into focus asks again (Settings → Agents).
+ * How long a sign-in in Terminal is waited for: a person may first sign in to the maker's site, with a code sent to
+ * them (five minutes, as it was, was too short for Cursor's). Once it is over, the window coming back into focus asks
+ * again (Settings → Agents). A sign-in is asked about every second, so finishing it shows at once; an install, every
+ * few seconds.
  */
 const SIGN_IN_WAIT = { ms: 15 * 60_000, pollMs: 1000 };
+const INSTALL_WAIT = { ms: 15 * 60_000, pollMs: 3000 };
 
 /** A red 16 × 16 picture, for asking a model whether it reads pictures. */
 const PROBE_PNG = 'iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAIAAACQkWg2AAAAFklEQVR4nGN4pqFBEmIY1TCqYfhqAACM5TYQULtblwAAAABJRU5ErkJggg==';
@@ -285,14 +287,12 @@ export function createRoster(deps) {
   const save = (next) => { choices = next; writeChoices(dataDir, choices); changed(); };
 
   async function refresh() {
-    // Focus after signing in should not wait for every other agent to finish its own status command.
+    // Focus after signing in should not wait for every other agent to finish its own status command. Only the agent
+    // being signed in is asked fresh; the others keep their cached answers in the full scan.
     if (deps.localAgent) {
-      const priority = new Set([...Object.keys(live.waiting), ...(local ?? []).filter((a) => a.signedIn === false
-        && choices.shown[a.id] && !choices.disconnected.includes(a.id)).map((a) => a.id)]);
-      for (const id of priority) {
+      for (const id of Object.keys(live.waiting)) {
         const waiting = live.waiting[id];
-        void lookAgain(id, () => !choices.disconnected.includes(id)
-          && (!waiting || (live.waiting[id] === waiting && !waiting.signal.aborted)));
+        void lookAgain(id, () => !choices.disconnected.includes(id) && live.waiting[id] === waiting && !waiting.signal.aborted);
       }
     }
     if (!refreshing) {
@@ -316,7 +316,7 @@ export function createRoster(deps) {
   async function lookAgain(id, current) {
     let pending = checking.get(id);
     if (!pending) {
-      pending = (deps.localAgent ? deps.localAgent(id, { fresh: true }) : deps.localAgents()).catch(() => null);
+      pending = (deps.localAgent ? deps.localAgent(id, { fresh: Boolean(live.waiting[id]) }) : deps.localAgents()).catch(() => null);
       checking.set(id, pending);
       void pending.finally(() => { if (checking.get(id) === pending) checking.delete(id); });
     }
@@ -337,7 +337,7 @@ export function createRoster(deps) {
     const mine = new AbortController();
     live[kind][id] = mine;
     changed();
-    const wait = deps.signInWait ?? SIGN_IN_WAIT;
+    const wait = deps.signInWait ?? (kind === 'waiting' ? SIGN_IN_WAIT : INSTALL_WAIT);
     const current = () => live[kind][id] === mine && !mine.signal.aborted;
     const stopped = new Promise((resolve) => mine.signal.addEventListener('abort', resolve, { once: true }));
     const timeout = setTimeout(() => mine.abort(), wait.ms);
