@@ -1,44 +1,52 @@
 /**
  * A project's version history as the Version history panel shows it, and the calls that change it
- * (studio/server/history.mjs): git, as a person knows it from GitHub — commits on branches, uncommitted changes,
- * switching, merging — told in the film's terms. Every commit is the person's; nothing commits on its own.
+ * (studio/server/history.mjs): a list of versions, as a person knows it from Google Docs or Figma. A version is saved
+ * by the person, or on its own when Auto versions is on; restoring one goes back to it and saves what was there first.
  *
- *   GET    /api/projects/:id/history                       → { status, commits }
- *   GET    /api/projects/:id/history/files                 → { held, ignored }: the film's files, and the others
- *   GET    /api/projects/:id/history/poster/:commit        the film's picture when it was committed
- *   POST   /api/projects/:id/history/commit   { message }
- *   POST   /api/projects/:id/history/discard
- *   POST   /api/projects/:id/history/restore  { commit }   the commit's files, as uncommitted changes
- *   POST   /api/projects/:id/history/checkout { branch, create?, from?, carry? }
- *   PATCH  /api/projects/:id/history/branches/:name { name }
- *   DELETE /api/projects/:id/history/branches/:name[?force=1]
- *   POST   /api/projects/:id/history/merge    { branch, message, prefer? }
+ *   GET    /api/projects/:id/history[?limit=n]             → { status, versions, more }
+ *   GET    /api/projects/:id/history/files                 → { held, ignored }: what a version keeps, and the others
+ *   GET    /api/projects/:id/history/poster/:commit        the film's picture when the version was saved
+ *   POST   /api/projects/:id/history/save     { name? }
+ *   POST   /api/projects/:id/history/restore  { commit }
+ *   PATCH  /api/projects/:id/history/versions/:commit { name }
+ *   POST   /api/projects/:id/history/copy     { commit, name } → { project }
  *
- * While an action runs, the project's events say how far it is ({ type: 'history-progress' }: HistoryProgress).
- * A refusal comes with a `code` ('dirty', 'nothing', 'conflict', 'unmerged', 'exists', 'name', 'current', 'none'),
- * which the panel says in its own words.
+ * While an action runs, the project's events say how far it is ({ type: 'history-progress' }: HistoryProgress); when
+ * it is done, `{ type: 'history', moved? }` (`moved`: the folder's files changed). A refusal comes with a `code`
+ * ('nothing', 'name', 'none'), which the panel says in its own words.
  */
 
 export interface Counts { added: number; removed: number; edited: number }
 /** What changed, as the film tells it (see history.mjs Summary). */
 export interface Summary { scenes: Counts; sounds: Counts; stage: boolean; other: boolean }
-export interface Branch { name: string; commit: string; at: number; message: string; current: boolean; parked: boolean }
-/** The film's files now (what a commit keeps), and how many other files the folder has (never kept). */
+/** What a version keeps of the folder now, and how many other files the folder has (never kept). */
 export interface HistoryFiles { held: number; heldBytes: number; ignored: number }
 export interface HistoryStatus {
-  branch: string;
+  /** the newest version; null: none yet */
   head: string | null;
-  branches: Branch[];
+  /** what the folder holds that the newest version does not; null: nothing */
   changes: { count: number; summary: Summary } | null;
   files: HistoryFiles | null;
 }
 /** A file, by its path in the project, and its size. */
 export interface HistoryFile { path: string; size: number }
-/** How far an action is: `phase` reading the film's files, keeping media, writing files, or updating the history. */
+/** How far an action is: `phase` reading the files, keeping media, writing files, or updating the history. */
 export interface HistoryProgress { op: string; phase: 'scan' | 'store' | 'write' | 'migrate'; done: number; total: number }
-export interface Commit { commit: string; parents: string[]; at: number; message: string; body: string; tags: string[]; summary: Summary }
-export interface HistoryState { status: HistoryStatus; commits: Commit[] }
+/** What a version is (history.mjs Kind). */
+export type VersionKind = 'named' | 'saved' | 'auto' | 'agent' | 'before-restore' | 'restore' | 'upgrade' | 'parked';
+export interface Version {
+  commit: string;
+  at: number;
+  kind: VersionKind;
+  /** the person's name for it; '' when it has none and is told by its kind */
+  name: string;
+  /** the version a 'restore' brought back */
+  restored: string | null;
+  summary: Summary;
+}
+export interface HistoryState { status: HistoryStatus; versions: Version[]; more: boolean }
 
+const KINDS = new Set<VersionKind>(['named', 'saved', 'auto', 'agent', 'before-restore', 'restore', 'upgrade', 'parked']);
 const num = (v: unknown) => (typeof v === 'number' && Number.isFinite(v) ? v : 0);
 const counts = (raw: unknown): Counts => {
   const c = (raw ?? {}) as Record<string, unknown>;
@@ -52,32 +60,27 @@ const text = (v: unknown) => (typeof v === 'string' ? v : '');
 
 /** The server's answer, checked: anything unreadable is dropped rather than drawn as an empty row. */
 export function normalizeHistory(raw: unknown): HistoryState | null {
-  const body = raw as { status?: Record<string, unknown>; commits?: unknown } | null;
+  const body = raw as { status?: Record<string, unknown>; versions?: unknown; more?: unknown } | null;
   const s = body?.status;
-  if (!s || typeof s.branch !== 'string') return null;
-  const branches: Branch[] = (Array.isArray(s.branches) ? s.branches : []).flatMap((b) => {
-    const r = b as Record<string, unknown> | null;
-    return r && typeof r.name === 'string' && r.name
-      ? [{ name: r.name, commit: text(r.commit), at: num(r.at), message: text(r.message), current: r.current === true, parked: r.parked === true }]
-      : [];
-  });
+  if (!s || typeof s !== 'object' || !Array.isArray(body.versions)) return null;
   const changes = s.changes && typeof s.changes === 'object'
     ? { count: num((s.changes as Record<string, unknown>).count), summary: summaryOf((s.changes as Record<string, unknown>).summary) }
     : null;
-  const commits: Commit[] = (Array.isArray(body.commits) ? body.commits : []).flatMap((c) => {
-    const r = c as Record<string, unknown> | null;
+  const versions: Version[] = body.versions.flatMap((v) => {
+    const r = v as Record<string, unknown> | null;
     if (!r || typeof r.commit !== 'string' || !r.commit) return [];
     return [{
       commit: r.commit,
-      parents: Array.isArray(r.parents) ? r.parents.filter((p): p is string => typeof p === 'string') : [],
-      at: num(r.at), message: text(r.message), body: text(r.body),
-      tags: Array.isArray(r.tags) ? r.tags.filter((t): t is string => typeof t === 'string' && !!t) : [],
+      at: num(r.at),
+      kind: KINDS.has(r.kind as VersionKind) ? r.kind as VersionKind : 'named',
+      name: text(r.name),
+      restored: typeof r.restored === 'string' && r.restored ? r.restored : null,
       summary: summaryOf(r.summary),
     }];
   });
   const f = s.files as Record<string, unknown> | null | undefined;
   const files = f && typeof f === 'object' ? { held: num(f.held), heldBytes: num(f.heldBytes), ignored: num(f.ignored) } : null;
-  return { status: { branch: s.branch, head: typeof s.head === 'string' ? s.head : null, branches, changes, files }, commits };
+  return { status: { head: typeof s.head === 'string' ? s.head : null, changes, files }, versions, more: body.more === true };
 }
 
 /**
@@ -96,26 +99,56 @@ export function summaryParts(summary: Summary): Array<{ key: string; n: number }
   return parts;
 }
 
-export type HistoryAge =
-  | { unit: 'now' }
-  | { unit: 'minute' | 'hour' | 'day'; n: number };
-
 /**
- * How long ago, as a unit and a number (the sentence is the strings' job). An unreadable time gives null: no time is
- * better than "NaN minutes ago". A clock slightly ahead gives a future time; that counts as just now.
+ * How a version is called, as a string key and what fills it: its name when it has one; else what kind of version
+ * it is. A restore names the version it brought back, by its name, else by when it was saved (`at`), else (not in
+ * the list) says it was an earlier one.
  */
-export function historyAge(at: number, now: number): HistoryAge | null {
-  if (!Number.isFinite(at) || at <= 0) return null;
-  const minutes = Math.floor((now - at) / 60_000);
-  if (minutes < 1) return { unit: 'now' };
-  if (minutes < 60) return { unit: 'minute', n: minutes };
-  const hours = Math.floor(minutes / 60);
-  if (hours < 24) return { unit: 'hour', n: hours };
-  return { unit: 'day', n: Math.floor(hours / 24) };
+export function versionLabel(v: Version, all: readonly Version[]): { key: string; name?: string; at?: number } {
+  if (v.name && v.kind !== 'parked') return { key: '', name: v.name };
+  switch (v.kind) {
+    case 'restore': {
+      const from = all.find((x) => x.commit === v.restored);
+      if (!from) return { key: 'versions.kindRestoreOlder' };
+      return from.name && from.kind !== 'parked' ? { key: 'versions.kindRestore', name: from.name } : { key: 'versions.kindRestoreAt', at: from.at };
+    }
+    case 'parked': return { key: 'versions.kindParked', name: v.name };
+    case 'auto': return { key: 'versions.kindAuto' };
+    case 'agent': return { key: 'versions.kindAgent' };
+    case 'before-restore': return { key: 'versions.kindBeforeRestore' };
+    case 'upgrade': return { key: 'versions.kindUpgrade' };
+    default: return { key: 'versions.kindSaved' };
+  }
+}
+
+/** Saved on its own (shown quieter than what the person saved). */
+export const isAutomatic = (v: Version) => v.kind === 'auto' || v.kind === 'agent' || v.kind === 'before-restore' || v.kind === 'upgrade';
+
+/** The day a time falls on, as the list groups it: 'today', 'yesterday', or that day's midnight (local time). */
+export function dayOf(at: number, now: number): 'today' | 'yesterday' | number {
+  const midnight = (t: number) => { const d = new Date(t); d.setHours(0, 0, 0, 0); return d.getTime(); };
+  const day = midnight(at);
+  const today = midnight(now);
+  if (day >= today) return 'today';
+  const yesterday = new Date(today);
+  yesterday.setDate(yesterday.getDate() - 1);
+  return day >= yesterday.getTime() ? 'yesterday' : day;
+}
+
+/** The versions in days, newest first, as the list shows them. */
+export function byDay(versions: readonly Version[], now: number): Array<{ day: 'today' | 'yesterday' | number; versions: Version[] }> {
+  const out: Array<{ day: 'today' | 'yesterday' | number; versions: Version[] }> = [];
+  for (const v of versions) {
+    const day = dayOf(v.at, now);
+    const last = out[out.length - 1];
+    if (last && last.day === day) last.versions.push(v);
+    else out.push({ day, versions: [v] });
+  }
+  return out;
 }
 
 /** A history call's outcome: done (with what came back), or refused with the server's `code`. */
-export type HistoryResult<T = Record<string, unknown>> = { ok: true; body: T } | { ok: false; status: number; code: string | null; commits?: number };
+export type HistoryResult<T = Record<string, unknown>> = { ok: true; body: T } | { ok: false; status: number; code: string | null };
 
 async function call<T = Record<string, unknown>>(projectId: string, path: string, method = 'GET', json?: unknown): Promise<HistoryResult<T>> {
   try {
@@ -125,7 +158,7 @@ async function call<T = Record<string, unknown>>(projectId: string, path: string
     });
     const body = await res.json().catch(() => ({})) as Record<string, unknown>;
     if (res.ok) return { ok: true, body: body as T };
-    return { ok: false, status: res.status, code: typeof body.code === 'string' ? body.code : null, ...(typeof body.commits === 'number' ? { commits: body.commits } : {}) };
+    return { ok: false, status: res.status, code: typeof body.code === 'string' ? body.code : null };
   } catch {
     return { ok: false, status: 503, code: null };
   }
@@ -137,41 +170,29 @@ const fileList = (raw: unknown): HistoryFile[] => (Array.isArray(raw) ? raw : []
 });
 
 export const historyApi = {
-  load: async (id: string) => {
-    const r = await call(id, '');
+  load: async (id: string, limit = 50) => {
+    const r = await call(id, `?limit=${limit}`);
     return r.ok ? normalizeHistory(r.body) : null;
   },
   files: async (id: string): Promise<{ held: HistoryFile[]; ignored: HistoryFile[] } | null> => {
     const r = await call(id, '/files');
     return r.ok ? { held: fileList(r.body.held), ignored: fileList(r.body.ignored) } : null;
   },
-  commit: (id: string, message: string) => call(id, '/commit', 'POST', { message }),
-  discard: (id: string) => call(id, '/discard', 'POST', {}),
-  restore: (id: string, commit: string) => call(id, '/restore', 'POST', { commit }),
-  checkout: (id: string, o: { branch: string; create?: boolean; from?: string; carry?: 'leave' | 'bring' }) =>
-    call<{ parkedBack?: boolean }>(id, '/checkout', 'POST', o),
-  rename: (id: string, from: string, name: string) => call(id, `/branches/${encodeURIComponent(from)}`, 'PATCH', { name }),
-  remove: (id: string, name: string, force = false) => call(id, `/branches/${encodeURIComponent(name)}${force ? '?force=1' : ''}`, 'DELETE'),
-  merge: (id: string, o: { branch: string; message: string; prefer?: 'ours' | 'theirs' }) => call<{ merged?: boolean }>(id, '/merge', 'POST', o),
+  save: (id: string, name: string) => call<{ commit: string }>(id, '/save', 'POST', { name }),
+  restore: (id: string, commit: string) => call<{ commit: string; before: string | null; missing?: string[] }>(id, '/restore', 'POST', { commit }),
+  rename: (id: string, commit: string, name: string) => call(id, `/versions/${commit}`, 'PATCH', { name }),
+  copy: (id: string, commit: string, name: string) => call<{ project: { id: string; name: string }; missing?: string[] }>(id, '/copy', 'POST', { commit, name }),
 };
 
-/** The picture of a commit (taken when it was committed). */
-export const commitPoster = (projectId: string, commit: string) =>
+/** The picture of a version (taken when it was saved). */
+export const versionPoster = (projectId: string, commit: string) =>
   `/api/projects/${encodeURIComponent(projectId)}/history/poster/${commit}`;
 
-/**
- * Which sentence a refusal gets: always our own words, never the server's text. Codes the panel handles with a
- * question of its own ('dirty' before going back, 'conflict' on a merge, 'unmerged' on a delete) are asked, not said.
- */
+/** Which sentence a refusal gets: always our own words, never the server's text. */
 export function historyErrorKey(result: { status: number; code: string | null }): string {
   switch (result.code) {
-    case 'dirty': return 'versions.errorDirty';
     case 'nothing': return 'versions.errorNothing';
-    case 'conflict': return 'versions.errorCarry';
-    case 'exists': return 'versions.errorExists';
     case 'name': return 'versions.errorName';
-    case 'message': return 'versions.errorMessage';
-    case 'current': return 'versions.errorCurrent';
     default: break;
   }
   if (result.status === 404 || result.status === 501 || result.status === 503) return 'versions.errorUnavailable';
@@ -186,3 +207,6 @@ export function historyProgressOf(raw: unknown): HistoryProgress | null {
   if (!phase) return null;
   return { op: text(r.op), phase, done: num(r.done), total: num(r.total) };
 }
+
+/** Whether a project event says a version was restored: the folder's files changed under the editor. */
+export const historyMoved = (event: { type: string; moved?: unknown }) => event.type === 'history' && event.moved === true;

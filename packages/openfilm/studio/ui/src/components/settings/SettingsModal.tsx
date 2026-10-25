@@ -59,7 +59,7 @@ const SECTION_WORDS: Record<SettingsSection, string | string[]> = {
   models: 'settings.models',
   developer: ['settings.developer', 'settings.report'],
   shortcuts: 'settings.shortcuts',
-  advanced: ['settings.advanced', 'settings.playback'],
+  advanced: ['settings.advanced', 'settings.versions', 'settings.playback'],
 };
 
 export interface SettingsModalProps {
@@ -299,11 +299,37 @@ function PlaybackGroup() {
   );
 }
 
-/** What is already set for the best experience, for whoever wants it otherwise: how the preview plays (PlaybackGroup). */
+/**
+ * Whether open projects save versions on their own while they are worked on (studio/server/auto-versions.mjs): off
+ * unless the person turns it on; versions are theirs to save otherwise (Version history).
+ */
+function VersionsGroup() {
+  const t = useT();
+  const [on, setOn] = React.useState<boolean | null>(null);
+  React.useEffect(() => { void api.prefs().then((p) => setOn(p.autoVersions === true)).catch(() => {}); }, []);
+  if (on === null) return null;
+  const change = (next: boolean) => {
+    setOn(next);
+    void api.setPrefs({ autoVersions: next }).then((p) => setOn(p.autoVersions === true)).catch(() => setOn(!next));
+  };
+  return (
+    <SettingsGroup title={t('settings.versions.group')}>
+      <SettingsItem
+        title={t('settings.versions.auto')}
+        description={t('settings.versions.autoHint')}
+        control={<SettingsSwitch checked={on} onChange={change} label={t('settings.versions.auto')} />}
+      />
+    </SettingsGroup>
+  );
+}
+
+/** What is already set for the best experience, for whoever wants it otherwise: versions saved on their own
+ * (VersionsGroup), how the preview plays (PlaybackGroup). */
 function AdvancedSection() {
   const t = useT();
   return (
     <SettingsPage note={t('settings.advanced.intro')}>
+      <VersionsGroup />
       <PlaybackGroup />
     </SettingsPage>
   );
