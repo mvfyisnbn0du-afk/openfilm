@@ -54,8 +54,9 @@ function useProjectLibrary(open: boolean) {
     errorTimer.current = setTimeout(() => setError(null), 4000);
   }, []);
 
-  /* Read on open, while visible, and when returning from Finder. External changes need no app restart, and a slow
-     refresh never overlaps the next one or hides the list already shown. */
+  /* Read on open and when coming back to it (focus, shown again), as returning from Finder. External changes need no
+     app restart, and a slow refresh never overlaps the next one or hides the list already shown. Opening a card
+     checks that project again (openListed). */
   React.useEffect(() => {
     if (!open) return undefined;
     let alive = true;
@@ -77,10 +78,9 @@ function useProjectLibrary(open: boolean) {
     };
     const visible = () => { if (document.visibilityState === 'visible') refresh(); };
     refresh();
-    const timer = setInterval(visible, 2000);
     window.addEventListener('focus', visible);
     document.addEventListener('visibilitychange', visible);
-    return () => { alive = false; clearInterval(timer); window.removeEventListener('focus', visible); document.removeEventListener('visibilitychange', visible); };
+    return () => { alive = false; window.removeEventListener('focus', visible); document.removeEventListener('visibilitychange', visible); };
   }, [open, tries]);
   const retryLoad = React.useCallback(() => setTries((n) => n + 1), []);
 
