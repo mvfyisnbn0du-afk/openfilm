@@ -28,6 +28,7 @@ import type { Turn } from '@openfilm/shared';
 import type { Balance } from '@/lib/balance';
 import { chatTurns, putChatTurn, type SavedTurn } from '@/lib/chat-store';
 import { app } from '../app-bridge';
+import { translate } from '@/i18n';
 import { isEmptyBackgroundTurn, opensUnprompted } from '@/lib/unprompted';
 import { baseName, titleFile } from '@/lib/step-file';
 import { reduceTranscript, type TranscriptItem, type TranscriptPlanEntry } from '@/lib/agent-transcript';
@@ -878,11 +879,14 @@ export async function runLocalAgentTurn({
       // Cursor can restore a different model when reusing a session. Reassert the selection and read its parameters.
       if (option.currentValue === value && !(agent === 'cursor' && model)) return;
       if (option.options?.length && !option.options.some((choice) => choice.value === value)) {
-        if (model) throw new Error(`The agent no longer offers model ${String(value)}. Choose a model again.`);
+        if (model) throw new Error(translate('agent.modelGone').replace('{model}', () => String(value)));
         return;
       }
       const r = await bridge.setOption(live.key, configId, value);
-      if (!r.ok) throw new Error(`${option.name} (${String(value)}): ${r.error ?? 'The agent could not apply this setting.'}`);
+      if (!r.ok) {
+        throw new Error(translate('agent.settingFailed').replace('{setting}', () => option.name).replace('{value}', () => String(value))
+          .replace('{error}', () => r.error ?? translate('agent.settingRejected')));
+      }
       const answered = r.result?.configOptions;
       if (Array.isArray(answered) && answered.length) live.info.configOptions = answered;
       else option.currentValue = value;
