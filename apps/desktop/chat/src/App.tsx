@@ -185,15 +185,12 @@ function ChatPane({ project, banners, selection, assetsOpen }: { project: Projec
 
   /* ── turns: the ones kept on this Mac, and the one running now ── */
   const [turns, setTurns] = React.useState<Turn[]>([]);
-  /** the conversation `turns` are of: until the one shown has its own, its last turn says nothing of it */
-  const [turnsOf, setTurnsOf] = React.useState<string | null>(null);
   const [rev, bump] = React.useReducer((n: number) => n + 1, 0);
   React.useEffect(() => {
     const saved = loadLocalAgentTurns(projectKey, sessionId);
     for (const entry of saved) primeStoredTranscript(entry.turn.id, entry.items);
     const live = runningLocalTurns(projectKey).filter((r) => r.sessionId === sessionId).map((r) => r.turn);
     setTurns(mergeAssetLists([...saved.map((entry) => entry.turn), ...live], []));
-    setTurnsOf(sessionId);
   }, [projectKey, sessionId, rev]);
 
   /** This turn is over: the Mac keeps it, the conversation shows it as it ended. */
@@ -259,7 +256,7 @@ function ChatPane({ project, banners, selection, assetsOpen }: { project: Projec
   /* the agent this conversation used and its options, whatever was picked since in another one; a new conversation
      takes the one picked last (lib/conversation-agent). A conversation from before they kept it: its last turn's agent */
   const shownSessionItem = sessions.find((s) => s.id === sessionId);
-  const lastTurnAgent = turnsOf === sessionId ? asset?.localAgent?.id : undefined;
+  const lastTurnAgent = asset?.sessionId === sessionId ? asset.localAgent?.id : undefined;
   const usedAgent = [shownSessionItem?.agent, lastTurnAgent].find((id): id is LocalAgentId => Boolean(id) && isAgentId(id));
   const { agent, was: agentWas } = conversationAgent(usedAgent, la.roster, currentAgent(la));
   const agentPrefs = conversationPrefs(la.prefs, shownSessionItem?.agentPrefs);
@@ -601,9 +598,10 @@ function ChatPane({ project, banners, selection, assetsOpen }: { project: Projec
     const shown = conversation === shownSession.current;
     const turn = createLocalAgentTurn(id, agent, ordered.length);
     const agentStore = useLocalAgents.getState();
-    const options = agentOptions(agentStore, agent);
     const own = sessions.find((s) => s.id === sessionId)?.agentPrefs;
-    const prefs = effectivePrefs(conversationPrefs(agentStore.prefs, own), agent, agentStore.roster, options);
+    const picked = conversationPrefs(agentStore.prefs, own);
+    const options = agentOptions({ ...agentStore, prefs: picked }, agent);
+    const prefs = effectivePrefs(picked, agent, agentStore.roster, options);
     const summary = agentModelSummary(options, prefs);
     /* how hard it thinks, as the menu offers it */
     const effortOption = options?.find((o) => o.category === 'thought_level');

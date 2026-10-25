@@ -112,8 +112,9 @@ export function ModelPopover({ placement = 'bottom', align = 'start', agent: con
     });
   }, [open, refresh, ensureOptions]);
 
-  const options = agentOptions(la, agent);
-  const prefs = effectivePrefs(conversationPrefs ?? la.prefs, agent, la.roster, options);
+  const picked = conversationPrefs ?? la.prefs;
+  const options = agentOptions({ ...la, prefs: picked }, agent);
+  const prefs = effectivePrefs(picked, agent, la.roster, options);
   const rows = options ? menuOptions(options, t('composer.optionDefault')).filter((o) => offeredOption(agent, la.roster, o)) : [];
   const summary = agentModelSummary(options, prefs);
   const triggerModel = summary.model;
