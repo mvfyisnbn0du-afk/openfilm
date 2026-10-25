@@ -271,33 +271,11 @@ const ConversationTurn = React.memo(function ConversationTurn({
   /* Finished (not live, not still running): the changes card and footer go below */
   const settled = !live && entry.status !== 'active';
   const running = entry.status === 'active';
-  /* A finished turn folds, as in Codex / Claude Code: the process becomes one line ("Worked 3m 40s · 14 steps")
-     and the answer stands out. For the turn you watched, folding must not move the answer you are reading: draw
-     one frame unfolded, note the answer's bottom edge in the viewport, then fold and restore the scroll, so the
-     answer stays put and the process above it shrinks. Turns you didn't watch (after a reload, older turns)
-     start folded. */
+  /* Keep the latest turn as it was watched. Collapsing it on finish moves the reply even with scroll compensation
+     when the content is shorter than the viewport. Older turns and turns loaded from disk still start folded. */
   const watched = React.useRef(live);
   if (live) watched.current = true;
-  const [folded, setFolded] = React.useState(false);
-  const collapsed = settled && (!(watched.current && isLast) || folded);
-  const thread = React.useContext(StickToBottomContext);
-  const tailRef = React.useRef<HTMLDivElement | null>(null);
-  const foldAnchor = React.useRef<number | null>(null);
-  React.useLayoutEffect(() => {
-    if (!settled || collapsed) return;
-    const tail = tailRef.current;
-    foldAnchor.current = tail ? tail.getBoundingClientRect().top : null;
-    setFolded(true);
-  }, [settled, collapsed]);
-  React.useLayoutEffect(() => {
-    const top = foldAnchor.current;
-    foldAnchor.current = null;
-    const tail = tailRef.current;
-    const scroller = thread?.viewport ?? null;
-    if (!folded || top == null || !tail || !scroller) return;
-    const delta = tail.getBoundingClientRect().top - top;
-    if (delta !== 0) scroller.scrollTop += delta;
-  }, [folded, thread]);
+  const collapsed = settled && !(watched.current && isLast);
   const items = React.useMemo(
     () => (live ? liveTranscript : preferTranscript(lastLive.current ?? [], storedItems ?? [])),
     // lastLive only changes while live, and live is in the deps.
@@ -377,8 +355,6 @@ const ConversationTurn = React.memo(function ConversationTurn({
       <div className="group/reply flex min-w-0 flex-col gap-2 empty:hidden">
       {/* What the agent did. Fully open while running; for turns you didn't watch, the process folds to one line and the answer stands out. */}
       <TurnBody rows={rows} collapsed={collapsed} {...(entry.durationMs ? { durationMs: entry.durationMs } : {})} />
-      {/* The answer's bottom edge, the anchor for folding (see folded above). */}
-      {rows?.length ? <div ref={tailRef} aria-hidden className="-mt-2 h-0" /> : null}
       {/* Only for older turns you didn't watch (after a reload, scrolling back). The turn you watched has its
           process in hand, even with no rows (stopped right after sending), and never says "loading": that line
           appearing and vanishing made the conversation jump on send and on finish. */}
@@ -405,8 +381,8 @@ const ConversationTurn = React.memo(function ConversationTurn({
           turns it off). No "version N · switch to it" link: going back belongs to the top bar's history. */}
       {settled && showChanges && entry.fileChanges?.length ? <FileChangesList changes={entry.fileChanges} /> : null}
 
-      {/* Still running: one status line, always one line high, only its text changes (see StatusLine), and the
-          footer under it on hover (its Log is the turn so far). Done, the footer alone. Always there, in one place
+      {/* The status and hover actions occupy separate rows. An empty status takes no room; a visible status
+          stays above the complete footer, including on hover and focus. The footer stays in one place
           in the tree: a log opened from it stays open as the turn finishes. An interruption doesn't
           show Failed here: the reason and Resume appear above the composer (the last turn's, even after a
           restart); an older one's reason is on its footer's Interrupted, on hover. */}
@@ -524,8 +500,8 @@ function TurnAttachments({ items }: { items: TurnAttachment[] }) {
 /**
  * The agent's side of a turn.
  *
- * Fully open while running: watching it work is part of the product. Once finished it folds, as in Codex /
- * Claude Code: everything before the last piece of work (actions, narration, thinking, plans) becomes one line,
+ * The latest watched turn stays open, including after it finishes. Older turns fold: everything before the last
+ * piece of work (actions, narration, thinking, plans) becomes one line,
  * "Worked 3m 40s · 14 steps", opened on click; its final paragraphs are the answer and stay out as text.
  * Unfolded, a two-minute turn is thirty or forty rows with the conclusion at the bottom, and scrolling back
  * means reading each turn top to bottom to find what it said.
@@ -649,14 +625,13 @@ function CopyButton({ text }: { text: string }) {
 
 /**
  * The line under a reply: copy, who answered (icon only) · the model · how long ago, and how it stopped if it
- * didn't finish normally. While it runs, under the status line: copy what it said so far, its log so far, who.
+ * didn't finish normally. While it runs, on hover below the status: copy what it said so far, its log so far, who.
  *
  * Several agents can answer in one project and their replies look alike, so the footer says which one. A stopped
  * turn says so, or a reply cut short leaves the reader unsure whether it finished, broke or was stopped.
  *
- * As in Claude, it appears on hover over the reply and keeps its space (h-6, as tall as the status line while
- * running, so the bottom edge stays put when one replaces the other). The time is how long ago; how long it
- * worked is in the "Worked …" line.
+ * It appears on hover over the reply and keeps its space (h-6), independently of the status above it.
+ * The time is how long ago; how long it worked is in the "Worked …" line.
  */
 function TurnFooter({ entry, items, running = false }: { entry: ProjectVersion; items: TranscriptItem[] | null; running?: boolean }) {
   const t = useT();
@@ -677,8 +652,7 @@ function TurnFooter({ entry, items, running = false }: { entry: ProjectVersion; 
   const project = React.useContext(ChatProjectContext);
 
   return (
-    /* -mt-1.5: the footer belongs to the reply above it — close to it, not a row of its own */
-    <div className={`-mt-1.5 flex h-6 min-w-0 items-center gap-1.5 text-[11.5px] text-[var(--chat-hint)] group-hover/reply:opacity-100 ${HOVER_LINE}`}>
+    <div data-turn-footer="" className={`-mt-1.5 flex h-6 min-w-0 items-center gap-1.5 text-[11.5px] text-[var(--chat-hint)] group-hover/reply:opacity-100 ${HOVER_LINE}`}>
       {answer ? <CopyButton text={answer} /> : null}
       {/* developer mode (Settings → Developer): the turn as it happened, every event; while it runs, as it goes */}
       {developer && project && !isPendingAssetId(entry.assetId) ? <TurnLogButton project={project} turnId={entry.assetId} live={running} /> : null}
