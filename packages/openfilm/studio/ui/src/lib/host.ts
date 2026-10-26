@@ -91,6 +91,8 @@ export interface StudioHost {
   agents?: {
     list: () => Promise<HostAgent[]>;
     connect: (id: HostAgentId) => Promise<{ ok: boolean; error?: string }>;
+    /** Stop waiting for terminal sign-in without disconnecting the agent or changing its own sign-in. */
+    cancelSignIn?: (id: HostAgentId) => Promise<unknown>;
     disconnect: (id: HostAgentId) => Promise<unknown>;
     /** Codex: what is left of its plan, as it says for the account signed in (null: it can't say; other agents, null) */
     usage?: (id: HostAgentId, fresh?: boolean) => Promise<HostAgentUsage | null>;
@@ -105,7 +107,7 @@ export interface StudioHost {
      * One of the person's own models set up (no `id`) or changed: checked before it is kept. A key left empty keeps its
      * own, or takes the one of another model on the same address.
      */
-    saveOwnModel: (config: HostOwnModelConfig) => Promise<{ ok: true; id: string } | { ok: false; error: string; code?: string }>;
+    saveOwnModel: (config: HostOwnModelConfig) => Promise<{ ok: true; id: string } | { ok: false; error: string; code?: string; url?: string; status?: number; reason?: string }>;
     removeOwnModel: (id: string) => Promise<unknown>;
     /**
      * The MCP servers the person added to an agent themselves (its maker's not among them), each let into the app or
@@ -353,7 +355,7 @@ export interface StudioSelection {
 }
 
 /**
- * What an app can ask Studio to show: a clip selected (by its film.html id, or its place), a moment, a range marked,
+ * What an app can ask Studio to show: a clip selected (by its film.html id, or its place), a moment, a range briefly lit,
  * a box on the picture shown at its moment, a track, a file of the media pane, a subtitle line (its span marked, the
  * subtitle panel open on it).
  *

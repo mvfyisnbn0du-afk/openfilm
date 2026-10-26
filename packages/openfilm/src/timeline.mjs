@@ -171,7 +171,7 @@ const SEEK_TRIES = 3;
  * moment the new frame is presented. Knowing how long the video's frames last (`frame`, from the host), the frame for t
  * is told by its time: the old frame, shown again as its video turns visible, is not taken for it, even after the seek
  * is done. Not knowing, a frame presented before the seek is done is taken for the old one when it is nearer where the
- * video was.
+ * video was. Whether the frame was seen on screen (false: every try ran out).
  */
 async function showVideoAt(v, t, frame = null) {
   /* a seek still under way (the start a video was woken at, see wake): its `seeked` and its frame would be taken for
@@ -179,7 +179,7 @@ async function showVideoAt(v, t, frame = null) {
   if (v.seeking) await new Promise((done) => { v.addEventListener('seeked', done, { once: true }); setTimeout(done, 10000); });
   /* the same time again (to the microsecond the element keeps): no seek, nothing new to present (a seek there would
      present nothing, and the wait would run out) */
-  if (!v.seeking && Math.abs(v.currentTime - t) < SAME_TIME && v.readyState >= 2) return;
+  if (!v.seeking && Math.abs(v.currentTime - t) < SAME_TIME && v.readyState >= 2) return true;
   const before = v.currentTime;
   let sought = false;
   /* the frame a seek to t lands in starts at most a frame before t (and the seek goes a millisecond in, see host.mjs),
@@ -213,9 +213,12 @@ async function showVideoAt(v, t, frame = null) {
     const shown = presented ? await presented : true;
     clearTimeout(timer);
     if (handle) v.cancelVideoFrameCallback?.(handle);
-    if (shown || last) return;
+    if (shown || last) return shown;
   }
 }
+
+/** Exact frames of video clips seen on screen, and ones never seen (a host tells a browser that shows no video by it). */
+const videoSeen = { shown: 0, unshown: 0 };
 
 /**
  * Every video a page moved in its frame, until its new frame is on screen (SPEC §4: a host waits for pending seeks):
@@ -665,6 +668,15 @@ function wakePage(c) {
     c.drawn = false;
     /* its own size, when it says one (else its clip's size, or the stage's: see settle) */
     if (c.child.width > 0 && c.child.height > 0) c.own = { w: c.child.width, h: c.child.height };
+    /* opened for the first time after the film was up (see load): its own length and size, which the film had not
+       waited for, placed by now (it shows only once drawn) and told to the editor */
+    if (c.unread) {
+      c.unread = false;
+      const length = c.child.duration;
+      c.native = Number.isFinite(length) && length > 0 ? length : undefined;
+      if (c.own && (c.own.w !== c.nw || c.own.h !== c.nh)) { c.nw = c.own.w; c.nh = c.own.h; place(c, c.row.box); }
+      window.__filmEditor.learned?.();
+    }
     window.__filmEditor.stage.woke?.();
   });
   pagesAwake.add(c);
@@ -731,14 +743,15 @@ const CUE_MS = 5000;
 const frameLengths = new Map();
 /**
  * How long a video clip's frames last, as the host that serves the film says (host.mjs, from ffprobe); null from a
- * server that cannot tell. Asked once a file.
+ * server that cannot tell, or that does not answer within 10 s (the request or its body). Asked once a file: a null
+ * stays, so a stalled lookup cannot hold this frame or the next one of the same file. The frame is drawn without it.
  */
 function frameOf(c) {
   const src = url(c.row.src);
   /* a video from another site: not the host's to say */
   if (src.origin !== location.origin) return Promise.resolve(null);
   if (!frameLengths.has(src.pathname)) {
-    frameLengths.set(src.pathname, fetch(new URL(`__film/frame-duration?of=${encodeURIComponent(src.pathname)}`, location.href))
+    frameLengths.set(src.pathname, fetch(new URL(`__film/frame-duration?of=${encodeURIComponent(src.pathname)}`, location.href), { signal: AbortSignal.timeout(10_000) })
       .then((r) => (r.ok ? r.json() : null)).then((said) => (said?.seconds > 0 ? said.seconds : null)).catch(() => null));
   }
   return frameLengths.get(src.pathname);
@@ -843,6 +856,11 @@ async function load(row, track, ti, el) {
     /* a page that is not there: its clip keeps its time, at the stage's size */
     c.missing = true;
     c.nw = stage.w; c.nh = stage.h;
+  } else if (SKIP_MISSING && row.time?.length === 2) {
+    /* an editor's preview: a page whose #t= is its length opens when the playhead comes near (see near), its own
+       length and size learned then (see wakePage); the film is up without waiting for every page of a long film */
+    c.row = row;
+    c.unread = true;
   } else {
     /* opened to read its length (the host serves it unopened, see holdPages; filmStart gives it the stage's size) */
     c.row = row;
@@ -956,7 +974,9 @@ async function drawClip(c, t, live, play, turn, coming, going) {
        be presented, yet the picture keeps the frame it had for a second or so (Chromium, its frames sent apart from
        the page's): the same t drew two pictures */
     if (appears) await frames(2);
-    await showVideoAt(c.el, want, await frameOf(c));
+    /* one without a picture (a sound in a video clip) has no frame to show */
+    if (await showVideoAt(c.el, want, await frameOf(c))) videoSeen.shown++;
+    else if (c.el.videoWidth > 0) videoSeen.unshown++;
     return;
   }
   /* a page closed while the playhead was far (see near): opened again, then drawn; one that will not open is the
@@ -975,6 +995,8 @@ async function drawClip(c, t, live, play, turn, coming, going) {
   c.drawn = true;
   override(c, c.preview ?? c.overrides);
 }
+
+window.__filmVideos = () => ({ ...videoSeen });
 
 window.film = {
   get duration() { return Math.max(0.001, ...clips.filter((c) => !c.hidden).map((c) => c.end)); },
@@ -1214,6 +1236,8 @@ window.__filmEditor = {
     updated: null,
     woke: null,
   },
+  /** Set by a host (Studio's bridge) to hear of a page's own length and size learned as it first opens (see load). */
+  learned: null,
   /**
    * The film after an edit (`look`: its file's filmHead, when the edit came from the file; another one than this film
    * was loaded with needs the page loaded again): changed in place (see change), resolving to true, or to false when

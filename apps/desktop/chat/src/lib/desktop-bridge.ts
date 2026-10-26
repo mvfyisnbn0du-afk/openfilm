@@ -194,7 +194,7 @@ export interface DesktopBridge {
     /** Opens Terminal to run its own sign-in command, which opens Anthropic's / OpenAI's sign-in page. */
     signIn(agent: LocalAgentId): Promise<{ ok: true } | { ok: false; error: string }>;
     /** Opens a session and closes it at once, only for its options. Sends no message, so costs nothing. */
-    probe(agent: LocalAgentId): Promise<{ ok: true; info: LocalAgentSessionInfo } | { ok: false; error: string; code?: string }>;
+    probe(agent: LocalAgentId, model?: string): Promise<{ ok: true; info: LocalAgentSessionInfo } | { ok: false; error: string; code?: string }>;
     /**
      * `resume`: the agent's own id of a conversation it had (an earlier start's info.sessionId), to go on with.
      * `meta`: the turn it starts for, whose log says why when it does not start.
@@ -205,7 +205,8 @@ export interface DesktopBridge {
     >;
     /** `images`: pictures sent after the text, to an agent that takes them (the shell asks the session) */
     /** `balance`: the service the app's own agent runs on had no balance left for it */
-    prompt(key: string, text: string, meta?: LocalAgentTurnMeta, images?: PromptImage[]): Promise<{ ok: true; stopReason: string } | { ok: false; error: string; balance?: Balance }>;
+    /** `model`: the model that answered, for an agent whose session names none (GitHub Copilot's, from its record) */
+    prompt(key: string, text: string, meta?: LocalAgentTurnMeta, images?: PromptImage[]): Promise<{ ok: true; stopReason: string; model?: string } | { ok: false; error: string; balance?: Balance }>;
     /** Turns still held by the shell (a reload mid-turn). Older shells lack it. */
     running?(): Promise<LocalAgentRunningTurn[]>;
     /** The page has put this finished turn back: the shell forgets it. */

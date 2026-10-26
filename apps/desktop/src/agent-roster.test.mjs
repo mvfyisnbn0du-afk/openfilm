@@ -3,7 +3,9 @@ import assert from 'node:assert/strict';
 import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { createRoster, probeRequest, readChoices } from './agent-roster.mjs';
+import { createRoster, keyAddress, probeRequest, readChoices } from './agent-roster.mjs';
+import { LANGUAGES as STUDIO_LANGUAGES } from '../../../packages/openfilm/studio/ui/src/i18n/index.ts';
+import { ownModelError } from '../../../packages/openfilm/studio/ui/src/lib/agent-row.ts';
 
 const roster = (dataDir, fetch, extra = {}) => createRoster({
   dataDir,
@@ -15,6 +17,80 @@ const roster = (dataDir, fetch, extra = {}) => createRoster({
   onChange: () => {},
   fetch,
   ...extra,
+});
+
+test('focus publishes a fresh login before a slow full scan and ignores the scan\'s older signed-out result', async () => {
+  const qwen = (signedIn) => ({ id: 'qwen', cli: { path: '/bin/qwen' }, signedIn });
+  const scan = Promise.withResolvers();
+  let signedIn = false;
+  let slow = false;
+  const checks = [];
+  const r = roster(mkdtempSync(join(tmpdir(), 'of-fast-login-')), undefined, {
+    localAgents: async () => slow ? scan.promise : [qwen(signedIn)],
+    localAgent: async (id, options) => { checks.push([id, options]); return qwen(signedIn); },
+    signInWait: { ms: 10_000, pollMs: 5000 },
+  });
+  try {
+    await r.connect('qwen');
+    await new Promise((done) => setImmediate(done));
+    assert.equal(checks.length, 1, 'the first login check starts immediately, before the poll delay');
+    assert.equal(r.list().find((a) => a.id === 'qwen').status, 'waiting');
+    signedIn = true;
+    slow = true;
+    const refreshing = r.refresh();
+    await new Promise((done) => setImmediate(done));
+    assert.equal(r.list().find((a) => a.id === 'qwen').status, 'ready', 'focus does not wait for the full scan or the next poll');
+    assert.ok(checks.every(([id, options]) => id === 'qwen' && options.fresh === true));
+    scan.resolve([qwen(false)]);
+    await refreshing;
+    assert.equal(r.list().find((a) => a.id === 'qwen').status, 'ready', 'the old full scan cannot revert a completed login');
+  } finally { r.cancelSignIn('qwen'); scan.resolve([qwen(false)]); }
+});
+
+test('only the agent being signed in is asked fresh; other signed-out agents and installs keep cached answers', async () => {
+  const agent = (id, signedIn, cli = { path: `/bin/${id}` }) => ({ id, cli, signedIn });
+  const checks = [];
+  const r = roster(mkdtempSync(join(tmpdir(), 'of-fresh-login-')), undefined, {
+    localAgents: async () => [agent('codex', false), agent('qwen', false), agent('cursor', null, null)],
+    // The install is there at its first check, so its wait ends at once.
+    localAgent: async (id, options) => { checks.push([id, options?.fresh === true]); return id === 'cursor' ? agent('cursor', null) : agent(id, false); },
+    openInstaller: async () => ({ ok: true }),
+    signInWait: { ms: 10_000, pollMs: 5000 },
+  });
+  try {
+    await r.refresh();
+    await r.refresh();
+    assert.deepEqual(checks, [], 'a shown, connected, signed-out agent is not asked fresh on every refresh');
+    await r.connect('qwen');
+    await new Promise((done) => setImmediate(done));
+    await r.refresh();
+    assert.ok(checks.length >= 1);
+    assert.ok(checks.every(([id, fresh]) => id === 'qwen' && fresh), `only the agent being signed in is asked fresh: ${JSON.stringify(checks)}`);
+    checks.length = 0;
+    await r.install('cursor');
+    await new Promise((done) => setImmediate(done));
+    assert.deepEqual(checks, [['cursor', false]], 'an install wait uses the cached sign-in answers');
+  } finally { r.cancelSignIn('qwen'); }
+});
+
+test('focus and login polling share a status check, and cancelling ignores its late answer', async () => {
+  const qwen = (signedIn) => ({ id: 'qwen', cli: { path: '/bin/qwen' }, signedIn });
+  const pending = Promise.withResolvers();
+  let checks = 0;
+  const r = roster(mkdtempSync(join(tmpdir(), 'of-fast-login-')), undefined, {
+    localAgents: async () => [qwen(false)],
+    localAgent: async () => { checks++; return pending.promise; },
+    signInWait: { ms: 10_000, pollMs: 5000 },
+  });
+  try {
+    await r.connect('qwen');
+    await Promise.all([r.refresh(), r.refresh(), r.refresh()]);
+    assert.equal(checks, 1);
+    r.cancelSignIn('qwen');
+    pending.resolve(qwen(true));
+    await new Promise((done) => setImmediate(done));
+    assert.equal(r.list().find((a) => a.id === 'qwen').status, 'sign-in');
+  } finally { r.cancelSignIn('qwen'); pending.resolve(qwen(false)); }
 });
 
 test('each API format is asked in its own shape, with a picture', () => {
@@ -50,6 +126,84 @@ test('a model is kept only once its service took the key with a picture; one tha
   assert.equal(readChoices(dir).shown.byok, true, 'set up: shown in the chat');
   assert.deepEqual(JSON.parse(readFileSync(join(dir, 'byok-keys'), 'utf8').replace(/^sealed:/, '')), { [saved.id]: 'sk-good-9876' }, 'the key sealed, by the model');
   assert.equal(JSON.stringify(readChoices(dir)).includes('sk-good'), false, 'never in the choices file');
+});
+
+test('an address that answers with a web page is said so, not shown as its HTML, and nothing is kept', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'of-roster-'));
+  let answer = { status: 405, type: 'text/html', body: '<!doctype html><html lang="en"><head><title>Example Domain</title></head></html>' };
+  const fetch = async () => new Response(answer.body, { status: answer.status, headers: { 'content-type': answer.type } });
+  const r = roster(dir, fetch);
+  const save = () => r.saveOwnModel({ format: 'responses', baseUrl: 'https://example.com/v1', model: 'm', key: 'sk-1234' });
+  const refused = await save();
+  assert.equal(refused.ok, false);
+  assert.equal(refused.error, 'https://example.com/v1/responses answers with a web page (405), not the API: check the address and the API format.');
+  /* a page that answers 200 is not the model taking the picture, and one that mentions images is not a model refusing it */
+  answer = { status: 200, type: 'text/html; charset=utf-8', body: '<html><head><meta property="og:image" content="card.png"></head></html>' };
+  assert.match((await save()).error, /web page \(200\)/);
+  /* an HTML error page sent as text */
+  answer = { status: 502, type: 'text/plain', body: '<html><body>Bad gateway</body></html>' };
+  assert.match((await save()).error, /web page \(502\)/);
+  assert.equal(readChoices(dir).byok, null, 'nothing kept');
+});
+
+test('a key goes over https://, or over http:// only to this computer; another http:// address is refused before any request', async () => {
+  for (const ok of ['https://api.example.com/v1', 'http://localhost:11434/v1', 'http://127.0.0.1:1234', 'http://[::1]:8080/v1', 'http://models.localhost/v1']) {
+    assert.equal(keyAddress(ok), true, ok);
+  }
+  for (const no of ['http://example.com/v1', 'http://192.168.1.20:11434/v1', 'http://localhost.example.com', 'ftp://127.0.0.1', 'https://api.example.com/v 1', 'api.example.com']) {
+    assert.equal(keyAddress(no), false, no);
+  }
+  let asked = 0;
+  const r = roster(mkdtempSync(join(tmpdir(), 'of-roster-')), async () => { asked++; return new Response('{}', { status: 200 }); });
+  assert.match((await r.saveOwnModel({ format: 'responses', baseUrl: 'http://example.com/v1', model: 'test', key: 'x' })).error, /https:\/\//);
+  assert.equal(asked, 0, 'the key was not sent');
+});
+
+test('the app\'s own words for a model not set up come with a code and what they name, for Settings to say in the person\'s language; the service\'s own words with none', async () => {
+  let answer = { status: 401, type: 'application/json', body: '{}' };
+  let reached = true;
+  const fetch = async () => {
+    if (!reached) throw new TypeError('fetch failed');
+    return new Response(answer.body, { status: answer.status, headers: { 'content-type': answer.type } });
+  };
+  const r = roster(mkdtempSync(join(tmpdir(), 'of-roster-')), fetch);
+  const failures = [];
+  /** what comes with the words: the code, and the address, status or reason they name */
+  const said = async (config = {}) => {
+    const failure = await r.saveOwnModel({ format: 'responses', baseUrl: 'https://api.example.com/v1', model: 'm', key: 'sk-1', ...config });
+    failures.push(failure);
+    const { ok, error, ...rest } = failure;
+    assert.equal(ok, false);
+    assert.ok(error, 'in English too');
+    return rest;
+  };
+  assert.deepEqual(await said({ format: 'soap' }), { code: 'no-format' });
+  assert.deepEqual(await said({ baseUrl: 'http://example.com/v1' }), { code: 'address' });
+  assert.deepEqual(await said({ model: ' ' }), { code: 'no-model' });
+  assert.deepEqual(await said({ id: 'gone' }), { code: 'model-gone' });
+  assert.deepEqual(await said({ key: '' }), { code: 'no-key' });
+  assert.deepEqual(await said(), { code: 'key-refused' });
+  answer = { status: 502, type: 'text/html', body: '<html></html>' };
+  assert.deepEqual(await said(), { code: 'web-page', url: 'https://api.example.com/v1/responses', status: 502 });
+  answer = { status: 404, type: 'application/json', body: '{}' };
+  assert.deepEqual(await said(), { code: 'nothing-there', url: 'https://api.example.com/v1/responses' });
+  answer = { status: 500, type: 'text/plain', body: '' };
+  assert.deepEqual(await said(), { code: 'answered', status: 500 });
+  reached = false;
+  assert.deepEqual(await said(), { code: 'unreachable', reason: 'fetch failed' });
+  reached = true;
+  answer = { status: 400, type: 'application/json', body: JSON.stringify({ error: { message: 'Unknown parameter: max_output_tokens' } }) };
+  assert.deepEqual(await r.saveOwnModel({ format: 'responses', baseUrl: 'https://api.example.com/v1', model: 'm', key: 'sk-1' }), { ok: false, error: 'Unknown parameter: max_output_tokens' });
+  /* Studio's Settings has words for each code: in English the app's own, in every other language their own */
+  answer = { status: 400, type: 'application/json', body: JSON.stringify({ error: { message: 'image input is not supported' } }) };
+  assert.equal((await said()).code, 'no-images');
+  for (const { code, words } of STUDIO_LANGUAGES) {
+    const t = (path) => path.split('.').reduce((at, part) => at?.[part], words) ?? path;
+    for (const failure of failures) {
+      if (code === 'en') assert.equal(ownModelError(failure, t), failure.error, failure.code);
+      else assert.notEqual(ownModelError(failure, t), failure.error, `${code}: ${failure.code}`);
+    }
+  }
 });
 
 test('each model is its own service with its own key; a key left empty is the one of another model on that address', async () => {
@@ -306,6 +460,84 @@ test('Start again while a sign-in is waited for opens its sign-in again, and the
   signedIn = true;
   await after(60);
   assert.equal(status(), 'ready');
+});
+
+test('closing the login terminal restores sign-in even while an authentication probe is stuck', async () => {
+  const qwen = (signedIn) => ({ id: 'qwen', cli: { path: '/bin/qwen' }, signedIn });
+  const pending = Promise.withResolvers();
+  const started = Promise.withResolvers();
+  let open = true;
+  let probes = 0;
+  const r = roster(mkdtempSync(join(tmpdir(), 'of-roster-')), undefined, {
+    localAgents: async () => [qwen(false)],
+    localAgent: async () => { probes++; started.resolve(); return pending.promise; },
+    openSignIn: async () => ({ ok: true, isOpen: async () => open }),
+    signInWait: { ms: 2000, pollMs: 5 },
+  });
+  const status = () => r.list().find((a) => a.id === 'qwen').status;
+  try {
+    await r.connect('qwen');
+    await started.promise;
+    assert.equal(status(), 'waiting');
+    open = false;
+    for (let i = 0; i < 100 && status() === 'waiting'; i++) await new Promise((done) => setTimeout(done, 5));
+    assert.equal(status(), 'sign-in', 'closing the terminal does not wait for the authentication probe or the 15 minute timeout');
+    pending.resolve(qwen(true));
+    await new Promise((done) => setTimeout(done, 30));
+    assert.equal(status(), 'sign-in', 'a stale probe cannot overwrite the cancelled wait');
+    assert.equal(probes, 1, 'polling stops after the terminal closes');
+  } finally {
+    r.cancelSignIn('qwen');
+    pending.resolve(qwen(false));
+  }
+});
+
+test('cancelling sign-in restores the login state without disconnecting or waiting for an outstanding probe', async () => {
+  const qwen = (signedIn) => ({ id: 'qwen', cli: { path: '/bin/qwen' }, signedIn });
+  const pending = Promise.withResolvers();
+  const started = Promise.withResolvers();
+  const dir = mkdtempSync(join(tmpdir(), 'of-roster-'));
+  const r = roster(dir, undefined, {
+    localAgents: async () => [qwen(false)],
+    localAgent: async () => { started.resolve(); return pending.promise; },
+    signInWait: { ms: 2000, pollMs: 5 },
+  });
+  await r.connect('qwen');
+  await started.promise;
+  r.cancelSignIn('qwen');
+  assert.equal(r.list().find((a) => a.id === 'qwen').status, 'sign-in');
+  assert.equal(readChoices(dir).disconnected.includes('qwen'), false);
+  pending.resolve(qwen(true));
+  await new Promise((done) => setTimeout(done, 20));
+  assert.equal(r.list().find((a) => a.id === 'qwen').status, 'sign-in');
+  await r.connect('qwen');
+  for (let i = 0; i < 100 && r.list().find((a) => a.id === 'qwen').status === 'waiting'; i++) await new Promise((done) => setTimeout(done, 5));
+  assert.equal(r.list().find((a) => a.id === 'qwen').status, 'ready', 'sign-in can be started again and complete normally');
+});
+
+test('an old login terminal closing after Start again does not cancel the new login', async () => {
+  const qwen = { id: 'qwen', cli: { path: '/bin/qwen' }, signedIn: false };
+  const windows = [];
+  const r = roster(mkdtempSync(join(tmpdir(), 'of-roster-')), undefined, {
+    localAgents: async () => [qwen], localAgent: async () => qwen,
+    openSignIn: async () => {
+      const window = { open: true };
+      windows.push(window);
+      return { ok: true, isOpen: async () => window.open };
+    },
+    signInWait: { ms: 2000, pollMs: 5 },
+  });
+  const status = () => r.list().find((a) => a.id === 'qwen').status;
+  try {
+    await r.connect('qwen');
+    await r.connect('qwen');
+    windows[0].open = false;
+    await new Promise((done) => setTimeout(done, 30));
+    assert.equal(status(), 'waiting');
+    windows[1].open = false;
+    for (let i = 0; i < 100 && status() === 'waiting'; i++) await new Promise((done) => setTimeout(done, 5));
+    assert.equal(status(), 'sign-in');
+  } finally { r.cancelSignIn('qwen'); }
 });
 
 test("an agent found only as its maker's app: the app said, and its installer run in a terminal and waited for until it is there", async () => {

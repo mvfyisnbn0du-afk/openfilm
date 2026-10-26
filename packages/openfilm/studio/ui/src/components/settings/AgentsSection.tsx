@@ -23,10 +23,12 @@ import { Check, Copy, Download, KeyRound, Loader2, Plus, X } from 'lucide-react'
 import { useLanguage, useT } from '@/i18n';
 import { BYOK_EFFORTS, studioHost, type HostAgent, type HostAgentDiagnosis, type HostAgentId, type HostAgentUsage, type HostByokEffort, type HostByokEffortLevel, type HostByokFormat, type HostOwnModel } from '@/lib/host';
 import { parseContextLength } from '@/lib/context-length';
-import { missingActions } from '@/lib/agent-row';
+import { accountOrg, missingActions, ownModelError } from '@/lib/agent-row';
 
 /** What is left of the plan: what Codex can say (the app's agent-usage.mjs; Claude Code's own report is wrong for Team accounts). */
 const PLAN_AGENTS: readonly HostAgentId[] = ['codex'];
+/** The words under an agent waiting for its sign-in, for those whose sign-in needs more than the usual hint. */
+const WAITING_HINTS: Partial<Record<HostAgentId, string>> = { minimax: 'settings.agents.waitingHintMinimax', codebuddy: 'settings.agents.waitingHintCodebuddy' };
 import { ProviderMark } from './ProviderMark';
 import { agentMark } from '@/lib/provider-marks';
 import { SettingsSelect } from './SettingsSelect';
@@ -188,7 +190,7 @@ export function AgentsSection() {
     const how = a.method === 'chatgpt' ? t('settings.agents.accountChatgpt') : a.method === 'api-key' ? t('settings.agents.accountApiKey')
       : a.method === 'console' ? t('settings.agents.accountConsole') : null;
     const plan = a.plan ? a.plan.charAt(0).toUpperCase() + a.plan.slice(1) : null;
-    const parts = [a.org, a.email, plan, a.email || a.org ? null : how].filter(Boolean);
+    const parts = [accountOrg(a), a.email, plan, a.email || a.org ? null : how].filter(Boolean);
     return parts.length ? parts.join(' · ') : null;
   };
 
@@ -226,6 +228,11 @@ export function AgentsSection() {
     if (agent.status === 'key') return <SettingsButton onClick={() => setKeyOpen(true)}>{t('settings.agents.setUpKey')}</SettingsButton>;
     if (agent.status === 'unavailable') return null;
     if (agent.status === 'checking') return <Loader2 size={16} className="animate-spin text-[var(--text-muted)]" aria-hidden />;
+    if (agent.status === 'waiting') return (
+      <SettingsButton variant="quiet" disabled={working} onClick={() => act(agent.id, () => host.cancelSignIn ? host.cancelSignIn(agent.id) : host.disconnect(agent.id))}>
+        {t('settings.agents.cancel')}
+      </SettingsButton>
+    );
     /* disconnected: the program it runs can be pointed at before connecting again (a particular version, another
        install); a connected one keeps the program it found. The own key has none */
     const canLocate = agent.status === 'off' && host.locate && agent.id !== 'byok';
@@ -236,7 +243,7 @@ export function AgentsSection() {
             {t('settings.agents.locate')}
           </SettingsButton>
         ) : null}
-        <SettingsButton disabled={working || agent.status === 'waiting'} onClick={() => act(agent.id, () => host.connect(agent.id))}>
+        <SettingsButton disabled={working} onClick={() => act(agent.id, () => host.connect(agent.id))}>
           {working ? <Loader2 size={16} className="animate-spin" aria-hidden /> : null}
           {agent.status === 'sign-in' ? t('settings.agents.signIn') : t('settings.agents.connect')}
         </SettingsButton>
@@ -337,8 +344,8 @@ export function AgentsSection() {
             ) : null}
             {agent.status === 'waiting' ? (
               <p className="text-[14.5px] leading-relaxed text-[var(--text-muted)]">
-                {t('settings.agents.waitingHint')}{' '}
-                <button type="button" onClick={() => act(agent.id, () => host.connect(agent.id))} className="underline underline-offset-2 hover:text-[var(--text)]">{t('settings.agents.startAgain')}</button>
+                {t(WAITING_HINTS[agent.id] ?? 'settings.agents.waitingHint')}{' '}
+                <button type="button" disabled={busy === agent.id} onClick={() => act(agent.id, () => host.connect(agent.id))} className="underline underline-offset-2 hover:text-[var(--text)]">{t('settings.agents.startAgain')}</button>
               </p>
             ) : null}
             {open ? <OwnModels agent={agent} onDone={() => setKeyOpen(false)} /> : null}
@@ -513,7 +520,7 @@ function OwnModelForm({ model, models, onDone }: { model?: HostOwnModel; models:
     if (!host || !ready) return;
     setState({ busy: true, error: null });
     void host.saveOwnModel({ ...(model ? { id: model.id } : {}), name, format, baseUrl, model: modelId, ...(key.trim() ? { key } : {}), levels: effort.levels, effort: effort.effort, ...context })
-      .then((r) => { if (r.ok) onDone(); else setState({ busy: false, error: r.error || t('settings.agents.failed') }); })
+      .then((r) => { if (r.ok) onDone(); else setState({ busy: false, error: ownModelError(r, t) || t('settings.agents.failed') }); })
       .catch((e: unknown) => setState({ busy: false, error: e instanceof Error ? e.message : String(e) }));
   };
   const keyHint = model ? t('settings.agents.keyKept').replace('{last4}', model.last4)

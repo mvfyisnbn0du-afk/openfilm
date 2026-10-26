@@ -113,6 +113,9 @@ export const ko: Words = {
   },
   agent: {
     contextCompacted: '이전 대화를 요약으로 정리했습니다',
+    modelGone: '이 에이전트는 더 이상 {model}을(를) 제공하지 않습니다. 모델을 다시 선택하세요.',
+    settingFailed: '{setting}을(를) {value}(으)로 설정하지 못했습니다: {error}',
+    settingRejected: '에이전트가 이 설정을 적용하지 못했습니다.',
     thinking: '생각하는 중',
   },
   assets: {
@@ -139,6 +142,7 @@ export const ko: Words = {
     agentSection: '에이전트',
     agentSetUp: '설정',
     agentWaiting: '로그인하는 중…',
+    agentWas: '이 대화는 {name}을(를) 사용했지만 지금은 사용할 수 없습니다. 다음 메시지는 아래에서 선택한 에이전트로 전송됩니다.',
     effort: '추론 강도',
     filesFailed: '{names}을(를) 추가하지 못했습니다: {error} 제거한 뒤 보내세요.',
     filesPending: '파일을 추가하는 중입니다.',

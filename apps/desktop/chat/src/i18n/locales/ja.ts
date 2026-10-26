@@ -1,5 +1,9 @@
 import type { Words } from './words';
 
+/* the system's trash, by its name there */
+const TRASH = typeof navigator !== 'undefined' && /^win/i.test(navigator.platform) ? 'ごみ箱'
+  : typeof navigator !== 'undefined' && /^mac/i.test(navigator.platform) ? 'ゴミ箱' : 'ゴミ箱';
+
 export const ja: Words = {
   /* a turn of the app's own agent stopped: the service its model runs on has no balance left (BalanceNotice) */
   balance: {
@@ -113,6 +117,9 @@ export const ja: Words = {
   },
   agent: {
     contextCompacted: 'これまでの会話を要約にまとめました',
+    modelGone: 'このエージェントでは {model} を使えなくなりました。モデルを選び直してください。',
+    settingFailed: '{setting} を {value} に設定できませんでした: {error}',
+    settingRejected: 'エージェントがこの設定を適用できませんでした。',
     thinking: '考え中',
   },
   assets: {
@@ -139,6 +146,7 @@ export const ja: Words = {
     agentSection: 'エージェント',
     agentSetUp: '設定',
     agentWaiting: 'サインイン中…',
+    agentWas: 'この会話は {name} を使っていましたが、今は使えません。次のメッセージは下で選んだエージェントに送られます。',
     effort: '思考レベル',
     filesFailed: '{names} を追加できませんでした：{error} 削除してから送信してください。',
     filesPending: 'ファイルを追加しています。',
@@ -298,7 +306,7 @@ export const ja: Words = {
     cardDoes: '用途',
     next: '次へ',
     cancel: 'キャンセル',
-    replaceNote: '{names} はすでにあります。追加すると古いものはゴミ箱に移動します。',
+    replaceNote: `{names} はすでにあります。追加すると古いものは${TRASH}に移動します。`,
     replaceAndAdd: '置き換えて追加',
     scriptsCount: 'スクリプト {n} 個',
     fromLink: 'リンクから',

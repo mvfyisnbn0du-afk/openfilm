@@ -1,10 +1,11 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
-import { cpSync, mkdtempSync, writeFileSync } from 'node:fs';
+import { cpSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { createServer } from 'node:http';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { FilmPage, launch, serve } from './host.mjs';
+import { FilmPage, launch, serve, VideoNotShown } from './host.mjs';
 import { open } from './shared.mjs';
 import { filmHead, filmHtml } from './film-doc.mjs';
 
@@ -223,6 +224,45 @@ test('a missing file stops a film, said by its name; an editor\'s preview (film-
   }
 });
 
+test('an editor\'s preview is up without opening a page whose time is its length: it opens at its moment, its own length and size told then', { timeout: 60_000 }, async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'of-unread-'));
+  writeFileSync(join(dir, 'a.html'), page('a', 2));
+  writeFileSync(join(dir, 'b.html'), page('b', 3));
+  writeFileSync(join(dir, 'film.html'), filmHtml({ stage: { w: 640, h: 360 }, tracks: [{ clips: [
+    { src: 'a.html', id: 'a' },
+    { src: 'b.html', id: 'b', at: 2, time: [0, 3] },
+  ] }] }));
+  const site = await serve(dir);
+  const browser = await launch();
+  const opened = (p) => p.evaluate(() => [...document.querySelectorAll('iframe')].map((el) => Boolean(el.contentWindow?.film)));
+  try {
+    /* an export, a check: every page opened before the film is up, as before */
+    const strict = await browser.newPage();
+    await strict.goto(`${site.url}/film.html`);
+    await strict.waitForFunction(() => Boolean(window.film));
+    await strict.evaluate(() => window.film.ready);
+    assert.deepEqual(await opened(strict), [true, true]);
+    const preview = await browser.newPage();
+    await preview.goto(`${site.url}/film.html?film-missing=skip`);
+    await preview.waitForFunction(() => Boolean(window.film));
+    await preview.evaluate(() => { window.learned = 0; window.__filmEditor.learned = () => { window.learned += 1; }; return window.film.ready; });
+    /* `a` has no time: opened for its length. `b`'s time is its length: its place known, the page not opened */
+    assert.deepEqual(await opened(preview), [true, false]);
+    assert.equal(await preview.evaluate(() => window.film.duration), 5);
+    assert.deepEqual(await preview.evaluate(() => window.__filmSpans().map((c) => [c.id, c.at, c.end, c.native, c.w, c.h, Boolean(c.reflows)])),
+      [['a', 0, 2, 2, 320, 180, false], ['b', 2, 5, null, 640, 360, true]]);
+    await preview.evaluate(() => window.__filmEditor.watch(3));
+    assert.deepEqual(await opened(preview), [true, true]);
+    assert.deepEqual(await preview.evaluate(() => window.__filmSpans().map((c) => [c.id, c.at, c.end, c.native, c.w, c.h, Boolean(c.reflows)])),
+      [['a', 0, 2, 2, 320, 180, false], ['b', 2, 5, 3, 320, 180, false]], 'opened: its own length and size');
+    assert.equal(await preview.evaluate(() => window.learned), 1, 'the editor told once');
+    assert.equal(await preview.evaluate(() => document.querySelectorAll('iframe')[1].style.visibility), 'visible');
+  } finally {
+    await browser.close();
+    await site.close();
+  }
+});
+
 const hasFfmpeg = (() => { try { execFileSync('ffmpeg', ['-version'], { stdio: 'ignore' }); return true; } catch { return false; } })();
 
 /** A folder with two short videos (a numbered test picture, `seconds` long at 10 fps) and a sound. */
@@ -352,6 +392,32 @@ test('a sought frame that is decoded but never presented (a seek just after load
     assert.ok(seen.ms < 2500, `${Math.round(seen.ms)} ms`);
   } finally {
     await s.close();
+  }
+});
+
+test('a browser that never shows a film\'s video frames: after a few, the film is drawn again where video is shown another way, when there is one', { skip: !hasFfmpeg && 'no ffmpeg', timeout: 120_000 }, async () => {
+  const dir = footage('of-never-shown-');
+  writeFileSync(join(dir, 'film.html'), filmHtml({ stage: { w: 320, h: 180 }, tracks: [{ clips: [{ id: 'v', src: 'a.mp4', time: [0, 4] }] }] }));
+  const site = await serve(dir);
+  const browser = await launch();
+  try {
+    let asked = 0;
+    const film = await FilmPage.open(browser, site.url, 'film.html', { onVideoNotShown: async () => { asked++; return true; } });
+    await film.page.evaluate(() => { HTMLVideoElement.prototype.requestVideoFrameCallback = () => 0; });
+    await film.seek(0.5);
+    await film.seek(1.5);
+    await assert.rejects(film.seek(2.5), (e) => e instanceof VideoNotShown && /never showed the film's video frames \(3 sought\)/.test(e.message));
+    assert.equal(asked, 1);
+    assert.deepEqual(await film.page.evaluate(() => window.__filmVideos()), { shown: 0, unshown: 3 });
+    await film.close();
+    /* with no other way (not Windows, or moved already) it goes on as before */
+    const as = await FilmPage.open(browser, site.url, 'film.html', { onVideoNotShown: async () => false });
+    await as.page.evaluate(() => { HTMLVideoElement.prototype.requestVideoFrameCallback = () => 0; });
+    for (const t of [0.5, 1.5, 2.5]) await as.seek(t);
+    await as.close();
+  } finally {
+    await browser.close();
+    await site.close();
   }
 });
 
@@ -595,6 +661,43 @@ test('a film of many pages keeps only a few open: one far from the playhead is c
     assert.equal((await now())[11], 'p11 0.75|tweaked', 'closed and opened again: the same page');
   } finally {
     await s.close();
+  }
+});
+
+test('a page Windows had no network buffer for (net::ERR_NO_BUFFER_SPACE) is loaded again; another failure is not', { timeout: 60_000 }, async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'of-no-buffer-'));
+  writeFileSync(join(dir, 'p.html'), page('hello', 1));
+  const site = await serve(dir);
+  const browser = await launch();
+  /** The browser, its pages' first `n` loads failing with `why` as Chromium says it. */
+  const failing = (/** @type {number} */ n, /** @type {string} */ why) => {
+    const loads = { count: 0 };
+    return { loads, browser: /** @type {any} */ ({ newContext: async (/** @type {any} */ o) => {
+      const context = await browser.newContext(o);
+      const newPage = context.newPage.bind(context);
+      context.newPage = async () => {
+        const p = await newPage();
+        const goto = p.goto.bind(p);
+        p.goto = async (url, opts) => (++loads.count <= n ? Promise.reject(new Error(`page.goto: ${why} at ${url}`)) : goto(url, opts));
+        return p;
+      };
+      return context;
+    } }) };
+  };
+  try {
+    let f = failing(2, 'net::ERR_NO_BUFFER_SPACE');
+    const film = await FilmPage.open(f.browser, site.url, 'p.html');
+    assert.equal(film.meta.duration, 1);
+    assert.equal(f.loads.count, 3);
+    await film.close();
+    f = failing(3, 'net::ERR_NO_BUFFER_SPACE');
+    await assert.rejects(FilmPage.open(f.browser, site.url, 'p.html'), /ERR_NO_BUFFER_SPACE/);
+    f = failing(1, 'net::ERR_CONNECTION_REFUSED');
+    await assert.rejects(FilmPage.open(f.browser, site.url, 'p.html'), /ERR_CONNECTION_REFUSED/);
+    assert.equal(f.loads.count, 1);
+  } finally {
+    await browser.close();
+    await site.close();
   }
 });
 
@@ -1023,5 +1126,48 @@ window.film = { duration: 4, width: 320, height: 180,
     assert.equal(seen.more, 0, `still seeking on its own: ${JSON.stringify(seen)}`);
   } finally {
     await s.close();
+  }
+});
+
+test('an exact frame is drawn when the frame duration never answers', { skip: !hasFfmpeg && 'no ffmpeg', timeout: 40_000 }, async () => {
+  const dir = footage('of-duration-stall-');
+  writeFileSync(join(dir, 'film.html'), filmHtml({ stage: { w: 320, h: 180 }, tracks: [{ clips: [{ id: 'v', src: 'a.mp4', time: [0, 4] }] }] }));
+  const stall = createServer(() => {});
+  await new Promise((done) => stall.listen(0, '127.0.0.1', done));
+  const s = await open(dir);
+  try {
+    const port = stall.address().port;
+    await s.film.page.route('**/__film/frame-duration?*', (route) => route.continue({ url: `http://127.0.0.1:${port}/stall` }));
+    const cancelled = s.film.page.waitForEvent('requestfailed', {
+      predicate: (request) => request.url() === `http://127.0.0.1:${port}/stall`, timeout: 25_000,
+    });
+    await Promise.all([s.film.seek(0.4), cancelled]);
+    const [video] = await videosNow(s.film);
+    assert.ok(video.shown && video.ready && Math.abs(video.time - 0.4) < 0.01, JSON.stringify(video));
+  } finally {
+    await s.close();
+    stall.closeAllConnections();
+    await new Promise((done) => stall.close(done));
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('a frame-duration lookup given up on is not a problem: the frame is drawn from the guess', { skip: !hasFfmpeg && 'no ffmpeg', timeout: 40_000 }, async () => {
+  const dir = footage('of-duration-held-');
+  writeFileSync(join(dir, 'film.html'), filmHtml({ stage: { w: 320, h: 180 }, tracks: [{ clips: [{ id: 'v', src: 'a.mp4', time: [0, 4] }] }] }));
+  const s = await open(dir);
+  try {
+    /* held, never answered: frameOf gives it up after 10 s */
+    await s.film.page.route('**/__film/frame-duration?*', () => {});
+    const given = s.film.page.waitForEvent('requestfailed', {
+      predicate: (request) => new URL(request.url()).pathname.endsWith('/__film/frame-duration'), timeout: 25_000,
+    });
+    await Promise.all([s.film.seek(0.4), given]);
+    const [video] = await videosNow(s.film);
+    assert.ok(video.shown && video.ready && Math.abs(video.time - 0.4) < 0.01, JSON.stringify(video));
+    assert.deepEqual(s.film.problems, []);
+  } finally {
+    await s.close();
+    rmSync(dir, { recursive: true, force: true });
   }
 });

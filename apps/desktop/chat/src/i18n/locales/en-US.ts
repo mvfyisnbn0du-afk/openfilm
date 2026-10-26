@@ -1,4 +1,9 @@
 /** The chat's words (English): the paths its components look up with useT(). */
+
+/* the system's trash, by its name there */
+const TRASH = typeof navigator !== 'undefined' && /^win/i.test(navigator.platform) ? 'the Recycle Bin'
+  : typeof navigator !== 'undefined' && /^mac/i.test(navigator.platform) ? 'the Trash' : 'the trash';
+
 export const enUS = {
   /* a turn of the app's own agent stopped: the service its model runs on has no balance left (BalanceNotice) */
   balance: {
@@ -112,6 +117,9 @@ export const enUS = {
   },
   agent: {
     contextCompacted: 'Earlier conversation folded into a summary',
+    modelGone: 'This agent no longer offers {model}. Choose a model again.',
+    settingFailed: 'Couldn’t set {setting} to {value}: {error}',
+    settingRejected: 'The agent couldn’t apply this setting.',
     thinking: 'Thinking',
   },
   assets: {
@@ -138,6 +146,7 @@ export const enUS = {
     agentSection: 'Agent',
     agentSetUp: 'Set up',
     agentWaiting: 'Signing in…',
+    agentWas: 'This conversation used {name}, which isn’t available now. The next message goes to the agent below.',
     effort: 'Effort',
     filesFailed: 'Couldn\'t attach {names}: {error} Remove it to send.',
     filesPending: 'The files are still being attached.',
@@ -298,7 +307,7 @@ export const enUS = {
     cardDoes: 'What it does',
     next: 'Next',
     cancel: 'Cancel',
-    replaceNote: 'You have {names} already: adding it moves the old one to the trash.',
+    replaceNote: `You have {names} already: adding it moves the old one to ${TRASH}.`,
     replaceAndAdd: 'Replace and add',
     scriptsCount: '{n} scripts',
     fromLink: 'From a link',

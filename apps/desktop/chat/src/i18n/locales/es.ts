@@ -1,5 +1,9 @@
 import type { Words } from './words';
 
+/* the system's trash, by its name there */
+const TRASH = typeof navigator !== 'undefined' && /^win/i.test(navigator.platform) ? 'la Papelera de reciclaje'
+  : typeof navigator !== 'undefined' && /^mac/i.test(navigator.platform) ? 'la Papelera' : 'la papelera';
+
 export const es: Words = {
   /* a turn of the app's own agent stopped: the service its model runs on has no balance left (BalanceNotice) */
   balance: {
@@ -113,6 +117,9 @@ export const es: Words = {
   },
   agent: {
     contextCompacted: 'La conversación anterior se resumió',
+    modelGone: 'Este agente ya no ofrece {model}. Vuelve a elegir un modelo.',
+    settingFailed: 'No se pudo poner {setting} en {value}: {error}',
+    settingRejected: 'El agente no pudo aplicar este ajuste.',
     thinking: 'Pensando',
   },
   assets: {
@@ -139,6 +146,7 @@ export const es: Words = {
     agentSection: 'Agente',
     agentSetUp: 'Configurar',
     agentWaiting: 'Iniciando sesión…',
+    agentWas: 'Esta conversación usaba {name}, que ahora no está disponible. El siguiente mensaje irá al agente de abajo.',
     effort: 'Esfuerzo',
     filesFailed: 'No se pudo adjuntar {names}: {error} Quítalo para enviar.',
     filesPending: 'Los archivos aún se están adjuntando.',
@@ -298,7 +306,7 @@ export const es: Words = {
     cardDoes: 'Para qué sirve',
     next: 'Siguiente',
     cancel: 'Cancelar',
-    replaceNote: 'Ya tienes {names}: al añadirla, la anterior va a la papelera.',
+    replaceNote: `Ya tienes {names}: al añadirla, la anterior va a ${TRASH}.`,
     replaceAndAdd: 'Reemplazar y añadir',
     scriptsCount: '{n} scripts',
     fromLink: 'Desde un enlace',

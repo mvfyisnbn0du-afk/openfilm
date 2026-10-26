@@ -70,11 +70,14 @@ import { agentModelSummary, agentOptions, currentAgent, effectivePrefs, offeredO
 import { useLiveActivityFromStore } from '@/lib/live-activity';
 import { loadLastSession, loadSessions, newSession, saveLastSession, saveSessions } from '@/lib/local-sessions';
 import type { ProjectSessionItem } from '@/lib/project-sessions';
+import { conversationAgent, conversationPrefs, keptPrefs } from '@/lib/conversation-agent';
+import { AGENT_DEFINITIONS, isAgentId } from '../../src/agent-definitions.mjs';
 import type { TranscriptItem } from '@/lib/agent-transcript';
 import { app, type FfmpegState, type Project, type SkillListing, type StudioRef, type StudioSelection } from './app-bridge';
 import { Divider } from './components/Divider';
 import { draftRefs, pillCard, refFromPill, refPill, sameStudioThing, selectionMoment, selectionRange, selectionRefs, studioReferencesText } from './studio-refs';
 import { inChat } from './lib/chat-layer';
+import { escStopper } from './lib/esc-stop';
 import { useProjectChat } from './lib/chat-store';
 import { givenAfter, pagesToSend } from './lib/skill-pages';
 import { ChatProjectContext, WaitingContext } from './lib/developer';
@@ -238,6 +241,8 @@ function ChatPane({ project, banners, selection, assetsOpen }: { project: Projec
   function settleLocalTurn(meta: LocalAgentTurnMeta, turn: LocalAgentTurn, patch: Partial<Turn & TurnBalance>): Turn {
     const id = meta.turnId;
     finishRunningLocalTurn(id);
+    /* the model that answered, for an agent whose session names none (GitHub Copilot's): its footer says it */
+    if (turn.model) patch = { ...patch, localAgent: { id: meta.agent, model: turn.model } };
     const done: Turn = { ...(meta.turn as Turn), ...patch, updatedAt: new Date().toISOString() };
     primeStoredTranscript(id, turn.items);
     saveLocalAgentTurn(meta.projectId, done, turn.items);
@@ -293,7 +298,23 @@ function ChatPane({ project, banners, selection, assetsOpen }: { project: Projec
   /* ── the agent ── */
   const la = useLocalAgents();
   React.useEffect(() => { la.hydrate(); void la.refresh(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
-  const agent = currentAgent(la);
+  /* the agent this conversation used and its options, whatever was picked since in another one; a new conversation
+     takes the one picked last (lib/conversation-agent). A conversation from before they kept it: its last turn's agent */
+  const shownSessionItem = sessions.find((s) => s.id === sessionId);
+  const lastTurnAgent = asset?.sessionId === sessionId ? asset.localAgent?.id : undefined;
+  const usedAgent = [shownSessionItem?.agent, lastTurnAgent].find((id): id is LocalAgentId => Boolean(id) && isAgentId(id));
+  const { agent, was: agentWas } = conversationAgent(usedAgent, la.roster, currentAgent(la));
+  const agentPrefs = conversationPrefs(la.prefs, shownSessionItem?.agentPrefs);
+  /** the agent or an option changed in the menu: kept on this conversation, once it has said something (a new one
+      takes the pick); not a use of it, so it keeps its place in the list */
+  const keepOnSession = React.useCallback((patch: (s: ProjectSessionItem) => Partial<ProjectSessionItem>) => {
+    setSessions((list) => {
+      if (!list.some((s) => s.id === sessionId && s.turns > 0)) return list;
+      const out = list.map((s) => (s.id === sessionId ? { ...s, ...patch(s) } : s));
+      saveSessions(projectKey, out);
+      return out;
+    });
+  }, [projectKey, sessionId]);
 
   /* what an agent's command asks before it spends: above the composer, as the agent's own questions are */
   const spendAsks = React.useSyncExternalStore((change) => app.asks.onChange(change), app.asks.get);
@@ -635,8 +656,10 @@ function ChatPane({ project, banners, selection, assetsOpen }: { project: Projec
     const shown = conversation === shownSession.current;
     const turn = preparedTurn ?? createLocalAgentTurn(id, agent, ordered.length);
     const agentStore = useLocalAgents.getState();
-    const options = agentOptions(agentStore, agent);
-    const prefs = chosenPrefs ?? effectivePrefs(agentStore.prefs, agent, agentStore.roster, options);
+    const own = sessions.find((s) => s.id === sessionId)?.agentPrefs;
+    const picked = conversationPrefs(agentStore.prefs, own);
+    const options = agentOptions({ ...agentStore, prefs: chosenPrefs ? { ...picked, [agent]: chosenPrefs } : picked }, agent);
+    const prefs = chosenPrefs ?? effectivePrefs(picked, agent, agentStore.roster, options);
     const summary = agentModelSummary(options, prefs);
     /* how hard it thinks, as the menu offers it */
     const effortOption = options?.find((o) => o.category === 'thought_level');
@@ -652,7 +675,12 @@ function ChatPane({ project, banners, selection, assetsOpen }: { project: Projec
     if (shown) setTurns((list) => mergeAssetLists([started], list));
     /* the conversation is named by the words: a reference reads as its name there, not as "[1: name]" */
     const title = instruction.replace(/\[\d+: ([^\]]*)\]/g, '$1').replace(/\s+/g, ' ').trim().slice(0, 80);
-    touchSession(sessionId, (s) => ({ title: s.title || title, turns: s.turns + 1 }));
+    /* the agent and the model and effort it ran on, kept on the conversation: it goes on with them when opened again.
+       A turn the agent started by itself keeps no options: the person chose none there */
+    touchSession(sessionId, (s) => ({
+      title: s.title || title, turns: s.turns + 1, agent,
+      ...(origin ? {} : { agentPrefs: { ...s.agentPrefs, [agent]: { ...s.agentPrefs?.[agent], ...keptPrefs(options, prefs) } } }),
+    }));
     const meta: LocalAgentTurnMeta = {
       turnId: id, projectId: projectKey, projectTitle: project.name, sessionId, agent, prompt: instruction,
       turnNo: ordered.length, startedAt: Date.now(), turn: started,
@@ -711,8 +739,8 @@ function ChatPane({ project, banners, selection, assetsOpen }: { project: Projec
       turn,
       options: prefs,
       meta,
+      onOptions: (options) => useLocalAgents.getState().noteOptions(agent, options),
       onSessionInfo: (info) => {
-        useLocalAgents.getState().noteOptions(agent, info.configOptions);
         /* a session it could not take up again has none of the skills' pages from before: those of this message only */
         const fresh = !info.resumed || info.sessionId !== resume;
         if (info.sessionId && fresh) {
@@ -869,9 +897,9 @@ function ChatPane({ project, banners, selection, assetsOpen }: { project: Projec
       skillNames: activatedSkillIds(followUpRefs),
       draft: { text: followUp, references: followUpRefs, studioRefs: [...studioRefs], fileRefs, skillRefs },
     };
-    const options = agentOptions(la, agent);
+    const options = agentOptions({ ...la, prefs: agentPrefs }, agent);
     const defaults = Object.fromEntries((options ?? []).map((option) => [option.id, option.currentValue]));
-    const pickedPrefs = effectivePrefs(la.prefs, agent, la.roster, options);
+    const pickedPrefs = effectivePrefs(agentPrefs, agent, la.roster, options);
     const prefs = effectivePrefs({ [agent]: { ...defaults, ...pickedPrefs } }, agent, la.roster, options);
     const summary = agentModelSummary(options, prefs);
     const effortOption = options?.find((option) => option.category === 'thought_level');
@@ -918,6 +946,7 @@ function ChatPane({ project, banners, selection, assetsOpen }: { project: Projec
   );
 
   const agentName = agent === 'byok' ? t('composer.agentOwnKey') : la.roster?.find((a) => a.id === agent)?.name ?? agent;
+  const wasName = agentWas === 'byok' ? t('composer.agentOwnKey') : agentWas ? la.roster?.find((a) => a.id === agentWas)?.name ?? AGENT_DEFINITIONS[agentWas]?.name ?? agentWas : '';
 
   const keyHint = useKeyHint();
   const sendHint = keyHint('chat-send');
@@ -925,6 +954,12 @@ function ChatPane({ project, banners, selection, assetsOpen }: { project: Projec
   const sendLabel = stopping ? t('project.stop') : t('project.sendFollowUp');
   const editComposerCard = (
     <div className="flex flex-col gap-1">
+      {/* the agent this conversation used cannot be used now: the next message goes to the one picked below */}
+      {agentWas ? (
+        <div className="flex items-center gap-2 rounded-[10px] border border-[var(--border)] bg-[var(--surface-2)] px-3 py-1.5 text-[12px] text-[var(--text-muted)]">
+          <span className="min-w-0 flex-1">{t('composer.agentWas').replace('{name}', wasName)}</span>
+        </div>
+      ) : null}
       {contextFull ? (
         <div className="flex items-center gap-2 rounded-[10px] border border-[var(--border)] bg-[var(--surface-2)] py-1.5 pl-3 pr-1.5 text-[12px] text-[var(--text-muted)]">
           <span className="min-w-0 flex-1">{t('composer.contextFull')}</span>
@@ -1062,7 +1097,14 @@ function ChatPane({ project, banners, selection, assetsOpen }: { project: Projec
         </div>
       </div>
       <div className="flex items-center gap-0.5 px-0.5">
-        <ModelPopover placement="top" align="start" />
+        <ModelPopover
+          placement="top"
+          align="start"
+          agent={agent}
+          prefs={agentPrefs}
+          onPick={(id) => keepOnSession(() => ({ agent: id }))}
+          onPref={(id, configId, value) => keepOnSession((s) => ({ agentPrefs: { ...s.agentPrefs, [id]: { ...s.agentPrefs?.[id], [configId]: value } } }))}
+        />
         <div className="min-w-0 flex-1" />
         <input
           ref={attachInputRef}
@@ -1093,12 +1135,13 @@ function ChatPane({ project, banners, selection, assetsOpen }: { project: Projec
     </div>
   );
 
-  /* Esc stops the turn while it runs (the send button's other half) */
+  /* Esc stops the turn while it runs (the send button's other half): only one pressed in the chat, not held, and not
+     just after one in Studio (lib/esc-stop.ts) */
+  const escStops = React.useRef(escStopper());
   React.useEffect(() => {
     if (!active || !asset) return undefined;
-    /* only an Esc pressed in the chat: one in Studio closes Studio's menu or dialog, it does not stop the agent */
     const onKey = (event: KeyboardEvent) => {
-      if (event.key !== 'Escape' || event.defaultPrevented || !inChat(event.target)) return;
+      if (!escStops.current(event, inChat(event.target))) return;
       queue.pause(t('composer.queuePaused')); void cancelLocalAgentTurn(asset.id);
     };
     window.addEventListener('keydown', onKey);

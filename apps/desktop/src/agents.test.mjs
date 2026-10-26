@@ -1,6 +1,76 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { AgentSession, CLIENT_CAPABILITIES, agentDefaults, closeEverySession, planProblem, probeFolder, CODEX_UTF8_CMD, agentShell, allowOption, codexDeveloperInstructions, codexLaunchEnv, distinctOptions, errorCause, legacyOptions, powerShellScript, powerShellLine, powerShellWindowLaunch, terminalScript, checkAgentProgram, readAgentStatus, setChosenPaths, signInScript, turnError, signInError, codexTooOld, AGENTS, ownSignIn, codexServiceError, codexRefusal, codexNotice, explainFailure, stderrReason } from './agents.mjs';
+import { AgentSession, CLIENT_CAPABILITIES, agentDefaults, closeEverySession, planProblem, probeFolder, CODEX_UTF8_CMD, agentShell, allowOption, codexDeveloperInstructions, codexLaunchEnv, distinctOptions, errorCause, legacyOptions, optionsForModel, powerShellScript, powerShellLine, powerShellWindowLaunch, terminalScript, checkAgentProgram, readAgentStatus, setChosenPaths, signInScript, turnError, signInError, codexTooOld, AGENTS, ownSignIn, codexServiceError, codexRefusal, codexNotice, explainFailure, stderrReason, withToolKind, OWN_GROUP, stopTree, winArg } from './agents.mjs';
+import { spawn } from 'node:child_process';
+import { acpSignedIn } from './agents.mjs';
+
+test('a fresh sign-in check bypasses a cached signed-out result and shares the pending probe', async () => {
+  const { mkdtempSync, readFileSync, writeFileSync, rmSync } = await import('node:fs');
+  const { tmpdir } = await import('node:os');
+  const { join } = await import('node:path');
+  const dir = mkdtempSync(join(tmpdir(), 'of-auth-cache-'));
+  const signedIn = join(dir, 'signed-in');
+  const calls = join(dir, 'calls');
+  const program = join(dir, 'qwen.mjs');
+  writeFileSync(program, `
+    import { createInterface } from 'node:readline';
+    import { appendFileSync, existsSync } from 'node:fs';
+    const send = (message) => process.stdout.write(JSON.stringify(message) + '\\n');
+    createInterface({ input: process.stdin }).on('line', (line) => {
+      const request = JSON.parse(line);
+      if (request.method === 'initialize') send({ jsonrpc: '2.0', id: request.id, result: { protocolVersion: 1, agentCapabilities: {}, authMethods: [] } });
+      if (request.method === 'session/new') {
+        appendFileSync(${JSON.stringify(calls)}, 'check\\n');
+        setTimeout(() => send({ jsonrpc: '2.0', id: request.id, ...(existsSync(${JSON.stringify(signedIn)})
+          ? { result: { sessionId: 'auth-test' } } : { error: { code: -32000, message: 'Authentication required' } }) }), 30);
+      }
+    });
+  `);
+  setChosenPaths({ qwen: program });
+  try {
+    assert.equal(await acpSignedIn('qwen'), false);
+    writeFileSync(signedIn, 'yes');
+    assert.equal(await acpSignedIn('qwen'), false, 'normal background scans may reuse a cached negative');
+    const first = acpSignedIn('qwen', { fresh: true });
+    const second = acpSignedIn('qwen', { fresh: true });
+    assert.equal(first, second, 'focus and the login poll share the same running status check');
+    assert.equal(await first, true, 'the just-completed login is seen without waiting 15 seconds');
+    assert.equal(await acpSignedIn('qwen', { fresh: true }), true);
+    assert.equal(readFileSync(calls, 'utf8').trim().split('\n').length, 2, 'signed-in results remain cached');
+  } finally { setChosenPaths({}); rmSync(dir, { recursive: true, force: true }); }
+});
+
+test('an invalid parameter keeps the reason the agent supplied', () => {
+  const error = Object.assign(new Error('Invalid params'), { code: -32602, data: { details: 'This model does not support fast.' } });
+  const explained = errorCause(error);
+  assert.equal(explained.message, 'This model does not support fast.');
+  assert.equal(explained.cause, error);
+  assert.equal(errorCause(Object.assign(new Error('Invalid params'), { code: -32602 })).message, 'Invalid params');
+});
+
+test('the model picker opts into Cursor model parameters while retaining recommended values', () => {
+  assert.equal(CLIENT_CAPABILITIES._meta.parameterizedModelPicker, true);
+  assert.deepEqual(CLIENT_CAPABILITIES._meta.jetbrains.air.capabilities, ['recommendedValue']);
+});
+
+test('a menu probe selects the requested model before returning its effort options, without a prompt', async () => {
+  const info = { sessionId: 'probe', configOptions: [{ id: 'model', category: 'model', currentValue: 'plain', options: [{ value: 'plain' }, { value: 'reasoning' }] }] };
+  const calls = [];
+  const effort = { id: 'effort', category: 'thought_level', options: [{ value: 'default' }, { value: 'high' }] };
+  const session = { setConfigOption: async (...args) => {
+    calls.push(args);
+    return { configOptions: [{ ...info.configOptions[0], currentValue: args[1] }, effort] };
+  } };
+  assert.equal(await optionsForModel(session, info), info);
+  assert.equal(await optionsForModel(session, info, 'plain'), info);
+  assert.deepEqual(calls, []);
+  const selected = await optionsForModel(session, info, 'reasoning');
+  assert.deepEqual(calls, [['model', 'reasoning']]);
+  assert.equal(selected.configOptions[1], effort);
+  await assert.rejects(optionsForModel(session, info, 'missing'), /does not offer/);
+  assert.equal(calls.length, 1, 'an unavailable model is never sent to the agent');
+  await assert.rejects(optionsForModel({ setConfigOption: async () => ({ configOptions: info.configOptions }) }, info, 'reasoning'), /did not accept/);
+});
 
 test('an agent that asks: yes for good where it offers that, else yes this once; nothing to say yes with is null', () => {
   const options = [
@@ -35,7 +105,7 @@ test('a choice an agent lists twice shows once in the menu', () => {
   assert.equal(distinctOptions(null), null);
 });
 
-test("choices an agent lists in groups show one after another, each with its group's name", () => {
+test("choices an agent lists in groups show one after another, each named by itself, then its group's name: the model first", () => {
   /* DeepSeek Harness 0.2.0 groups its models by where they run */
   const [model, effort] = distinctOptions([
     { id: 'model', currentValue: '["deepseek-official","deepseek-v4-flash"]', options: [
@@ -45,8 +115,8 @@ test("choices an agent lists in groups show one after another, each with its gro
     { id: 'reasoning_effort', currentValue: 'high', options: [{ value: 'high', name: 'High' }] },
   ]);
   assert.deepEqual(model.options, [
-    { value: '["deepseek-official","deepseek-v4-flash"]', name: 'DeepSeek · deepseek-v4-flash' },
-    { value: '["deepseek-account","deepseek-flash"]', name: 'DeepSeek Account · DeepSeek-V41-Flash', description: 'Fast' },
+    { value: '["deepseek-official","deepseek-v4-flash"]', name: 'deepseek-v4-flash · DeepSeek' },
+    { value: '["deepseek-account","deepseek-flash"]', name: 'DeepSeek-V41-Flash · DeepSeek Account', description: 'Fast' },
   ]);
   assert.deepEqual(effort.options, [{ value: 'high', name: 'High' }]);
 });
@@ -126,7 +196,7 @@ test('a turn the agent ends with just "Internal error" says the reason in its da
   assert.equal(errorCause(said), said);
   const bare = Object.assign(new Error('Internal error'), { code: -32603, data: { errorKind: 'transport_lost' } });
   assert.equal(errorCause(bare), bare);
-  const other = Object.assign(new Error('Invalid params'), { code: -32602, data: { message: 'x' } });
+  const other = Object.assign(new Error('Method not found'), { code: -32601, data: { message: 'x' } });
   assert.equal(errorCause(other), other);
 });
 
@@ -339,6 +409,52 @@ test('a turn whose agent waits on its model with nothing coming is stopped, and 
   }
 });
 
+test('DeepSeek Harness: each step reaches the chat as it happens, with the kind its tool is, not as one "Working"', async () => {
+  /* dsh's ACP profile, as 0.0.1 sends a turn: its words as each message is done, every tool as kind `other` titled
+     by its name, and the turn's answer a while after */
+  const { dir, program } = await fakeAcpAgent('dsh', (m, send) => {
+    if (m.method !== 'session/prompt') return;
+    const update = (u) => send({ jsonrpc: '2.0', method: 'session/update', params: { sessionId: 's1', update: u } });
+    update({ sessionUpdate: 'agent_message_chunk', messageId: 'm1', content: { type: 'text', text: 'Reading the manual first.' } });
+    const tools = [['bash', { command: 'openfilm' }], ['read', { file_path: 'film.html' }], ['write', { file_path: 'a.html', content: '' }],
+      ['grep', { pattern: 'fill' }], ['web_search', { query: 'Alibaba 1999' }], ['todo_write', { todos: [] }]];
+    tools.forEach(([title, rawInput], i) => {
+      update({ sessionUpdate: 'tool_call', toolCallId: `c${i}`, title, kind: 'other', status: 'in_progress', rawInput });
+      update({ sessionUpdate: 'tool_call_update', toolCallId: `c${i}`, status: 'completed', content: [] });
+    });
+    setTimeout(() => send({ jsonrpc: '2.0', id: m.id, result: { stopReason: 'end_turn' } }), 300);
+  });
+  setChosenPaths({ deepseek: program });
+  let ended = false;
+  const heard = [];
+  const session = new AgentSession({ agent: 'deepseek', cwd: dir, onUpdate: (u) => heard.push({ ...u, ended }) });
+  try {
+    await session.start();
+    await session.prompt([{ type: 'text', text: 'Make a video about Alibaba' }]);
+    ended = true;
+    assert.ok(heard.length > 0 && heard.every((u) => !u.ended), 'all heard while the turn ran');
+    assert.equal(heard[0].content.text, 'Reading the manual first.');
+    const kinds = heard.filter((u) => u.sessionUpdate === 'tool_call').map((u) => [u.title, u.kind]);
+    assert.deepEqual(kinds, [['bash', 'execute'], ['read', 'read'], ['write', 'edit'], ['grep', 'search'], ['web_search', 'fetch'], ['todo_write', 'other']]);
+    assert.deepEqual(heard.find((u) => u.toolCallId === 'c0' && u.sessionUpdate === 'tool_call').rawInput, { command: 'openfilm' }, 'otherwise as it came');
+  } finally {
+    session.close();
+    setChosenPaths({});
+  }
+});
+
+test('a tool call keeps its kind unless the agent names its tools (toolKinds) and said `other`', () => {
+  const kinds = AGENTS.deepseek.toolKinds;
+  const call = { sessionUpdate: 'tool_call', toolCallId: 'c', title: 'bash', kind: 'other' };
+  assert.equal(withToolKind(call, kinds).kind, 'execute');
+  assert.equal(withToolKind({ ...call, kind: undefined }, kinds).kind, 'execute');
+  assert.equal(withToolKind({ ...call, kind: 'read' }, kinds).kind, 'read', 'a kind it gave is its own');
+  assert.equal(withToolKind(call, undefined), call, 'other agents: untouched');
+  assert.equal(withToolKind({ ...call, title: 'constructor' }, kinds).kind, 'other');
+  const update = { sessionUpdate: 'tool_call_update', toolCallId: 'c', title: 'bash', status: 'completed' };
+  assert.equal(withToolKind(update, kinds), update);
+});
+
 test('quitting closes every agent process, one opened only to ask included; asking runs in one empty folder of the app', async () => {
   assert.equal(probeFolder(), probeFolder());
   const { dir, program } = await fakeAcpAgent('opencode', () => {});
@@ -396,6 +512,21 @@ test('a failure keeps what the agent said; one that says nothing says where it s
 
   const ended = explainFailure(new Error('Rate limit reached.'), { label: 'Kimi', exited: { code: null } });
   assert.equal(ended.message, 'Rate limit reached. Its process ended.');
+});
+
+test('a process that ends without a word names the command it ran, not the network', () => {
+  const command = ['C:\\Programs\\DeepSeek Harness\\resources\\app.asar\\dsh\\lib\\cli.js', '--profile', 'acp'];
+  const silent = explainFailure(new Error('ACP connection closed'), { label: 'DeepSeek Harness', step: 'initialize', exited: { code: 0 }, command });
+  assert.equal(silent.message, 'DeepSeek Harness stopped as it started without saying why. '
+    + 'Its process ("C:\\Programs\\DeepSeek Harness\\resources\\app.asar\\dsh\\lib\\cli.js" --profile acp) ended with code 0.');
+  assert.doesNotMatch(silent.message, /network/);
+
+  const wrote = explainFailure(new Error('ACP connection closed'), { label: 'Kimi', step: 'initialize', exited: { code: 1 }, stderr: 'Error: bad config', command: ['/usr/local/bin/kimi', 'acp'] });
+  assert.equal(wrote.message, 'Kimi stopped as it started without saying why. Its process (/usr/local/bin/kimi acp) ended with code 1. It last wrote: Error: bad config');
+
+  const running = explainFailure(new Error('Internal error'), { label: 'Kimi', step: 'session/prompt', command: ['/usr/local/bin/kimi', 'acp'] });
+  assert.match(running.message, /check the network or proxy/, 'a process still running may be waiting on its service');
+  assert.doesNotMatch(running.message, /kimi acp/);
 });
 
 test('"Internal error" with its reason in data: the reason is what the turn says, and the error as sent stays under it', () => {
@@ -507,4 +638,38 @@ test('a steering reply without a known outcome is uncertain; explicit outcomes a
   assert.equal(await AgentSession.prototype.steer.call(session, []), 'failed');
   session.info.steering = true; session.sessionId = null;
   assert.equal(await AgentSession.prototype.steer.call(session, []), 'failed');
+});
+
+test("closing an agent stops what it started too: its own program under the adapter, its MCP servers", async () => {
+  /* an adapter (the child) that starts the agent's program (the grandchild) and says its pid */
+  const adapter = `const c = require('node:child_process').spawn(process.execPath, ['-e', 'setInterval(() => {}, 1000)'], { stdio: 'ignore' });
+    console.log(c.pid); setInterval(() => {}, 1000);`;
+  const child = spawn(process.execPath, ['-e', adapter], { ...OWN_GROUP, stdio: ['ignore', 'pipe', 'ignore'], windowsHide: true });
+  const grandchild = Number(await new Promise((done) => child.stdout.once('data', (d) => done(String(d).trim()))));
+  const alive = (pid) => { try { process.kill(pid, 0); return true; } catch { return false; } };
+  assert.ok(alive(grandchild));
+  const exited = new Promise((done) => child.once('exit', done));
+  stopTree(child);
+  await exited;
+  for (let i = 0; i < 50 && alive(grandchild); i += 1) await new Promise((done) => setTimeout(done, 100));
+  assert.equal(alive(grandchild), false, 'the program under the adapter is stopped with it');
+  stopTree(child);
+});
+
+test("a word for cmd.exe keeps its % as it is: no variable's value is put in its place", async () => {
+  assert.equal(winArg('C:\\Users\\someone\\codex.cmd'), 'C:\\Users\\someone\\codex.cmd');
+  assert.equal(winArg('open film'), '"open film"');
+  assert.equal(winArg('say "hi"'), '"say ""hi"""');
+  assert.equal(winArg('50% of %PATH%'), '"50"^%" of "^%"PATH"^%""');
+  if (process.platform !== 'win32') return;
+  const { spawnSync } = await import('node:child_process');
+  const { mkdtempSync, writeFileSync } = await import('node:fs');
+  const { tmpdir } = await import('node:os');
+  const { join } = await import('node:path');
+  /* a shim as npm writes one: it hands its words on to a program, which says what it was given */
+  const shim = join(mkdtempSync(join(tmpdir(), 'of shim ')), 'echo.cmd');
+  writeFileSync(shim, `@"${process.execPath}" -e "console.log(JSON.stringify(process.argv.slice(1)))" %*\r\n`);
+  const words = ['50% of %PATH%', 'open "film"', '%USERNAME%'];
+  const r = spawnSync(process.env.ComSpec || 'cmd.exe', ['/d', '/s', '/c', `"${[shim, ...words].map(winArg).join(' ')}"`], { encoding: 'utf8', windowsVerbatimArguments: true, windowsHide: true });
+  assert.deepEqual(JSON.parse(r.stdout.trim()), words);
 });

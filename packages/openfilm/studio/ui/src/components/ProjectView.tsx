@@ -47,7 +47,7 @@ import { clipThumbId, overridesToken } from '@/lib/thumb-frame';
 import { useLoadedThumbs } from '@/lib/use-loaded-thumbs';
 import { droppedOverrides, overrideTarget, undoneFields, type DroppedEdits, type PersonEdit } from '@/lib/dropped-overrides';
 import { filmFrameBox, type FilmFrameId } from '@/lib/film-frame';
-import { canvasFor, fitToCanvas } from '@/lib/canvas-fit';
+import { canvasFor, firstPictureSize, fitToCanvas } from '@/lib/canvas-fit';
 import { factsOfProbe, mediaListingOf, resourceKindOf, srcHitsAsset, warmProjectMedia, type MediaListing, type MediaProxy, type MediaResult, type MediaSources, type WorkspaceResource } from '@/lib/workspace-resources';
 import { BrandLoadingScreen } from './BrandLoadingScreen';
 import { BrandLogo } from './BrandLogo';
@@ -219,7 +219,7 @@ export function ProjectView({ projectId, onProject, onLeave }: {
   /* ── the project, its film and its files ── */
   React.useEffect(() => {
     /* a project the list no longer has (deleted meanwhile, a tab of it opened again): gone, so this page leaves it */
-    api.film(projectId).then(setLoaded, (e: Error) => { if (e instanceof ApiError && e.status === 404) leaveRef.current(); else setFailure(e.message); });
+    api.film(projectId).then(setLoaded, (e: Error) => { if (e instanceof ApiError && (e.status === 404 || e.status === 410)) leaveRef.current(); else setFailure(e.message); });
     void api.opened(projectId).catch(() => {});
     const loadFiles = () => api.files(projectId).then(setRawListing, () => {});
     void loadFiles();
@@ -562,13 +562,6 @@ export function ProjectView({ projectId, onProject, onLeave }: {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [pause]);
   const scrubCommit = React.useCallback((ms: number) => { pause(); seek(ms); }, [pause, seek]);
-  /* the timeline's preview axis: the picture at the moment under the pointer, the clock and the playhead staying; null:
-     back to the playhead's picture. Not while playing (the picture is the film's then) */
-  const hoverPreview = React.useCallback((ms: number | null) => {
-    if (player.current.playing) return;
-    preview.current?.seek(pictureAt(ms == null ? player.current.time() : Math.max(0, ms / 1000)));
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
 
   /* a seek asked for past the film's end as it was (the end of a clip just put on): made once the film is that long */
   const seekWhenLonger = React.useRef<number | null>(null);
@@ -606,7 +599,12 @@ export function ProjectView({ projectId, onProject, onLeave }: {
   /* the film's length: the preview's, unless it could not draw the film; that length is then of the film before
      (a clip that lost its length still counted at its old one), and the timeline's own reading of film.html stands,
      less the clips that have no length (drawn at a stand-in one) */
-  const totalMs = previewError ? blocksRef.current.reduce((end, b) => (b.noLength ? end : Math.max(end, Math.round(b.endMs))), 0) : drawnMs;
+  const totalMs = previewError || !info ? blocksRef.current.reduce((end, b) => (b.noLength ? end : Math.max(end, Math.round(b.endMs))), 0) : drawnMs;
+  /* before the preview is up (a long film still loading), that reading is the film's length too: the playhead moves
+     and plays at once, the picture and the sound join it as they come (see onInfo) */
+  React.useEffect(() => {
+    if (!info && totalMs > 0) player.current.duration = totalMs / 1000;
+  }, [info, totalMs]);
 
   /* ── the project's editor settings (`.film/settings.json`): its frame rate, its tracks' names ── */
   const [settings, setSettings] = React.useState<ProjectSettings | null>(null);
@@ -1318,6 +1316,13 @@ export function ProjectView({ projectId, onProject, onLeave }: {
   ));
   /* the range marked on the timeline (⇧-drag on the ruler, I and O): Studio's, told to the app with the selection */
   const [markedRange, setMarkedRange] = React.useState<FilmRange | null>(null);
+  /* Clicking a range in chat briefly points it out, separately from the editing selection. */
+  const [flashRange, setFlashRange] = React.useState<FilmRange | null>(null);
+  React.useEffect(() => {
+    if (!flashRange) return;
+    const timer = setTimeout(() => setFlashRange(null), 1200);
+    return () => clearTimeout(timer);
+  }, [flashRange]);
   rangeNowRef.current = markedRange;
   /* the film's stage, for boxes in stage px (film.html's, set below with the picture) */
   const stageRef = React.useRef({ w: 1920, h: 1080 });
@@ -1425,6 +1430,12 @@ export function ProjectView({ projectId, onProject, onLeave }: {
       if (command.type === 'show-subtitle') { setInspectorContent('subtitles'); setInspectorOpen(true); }
       const startMs = Math.max(0, Math.min(command.start, command.end) * 1000);
       const endMs = Math.max(command.start, command.end) * 1000;
+      if (command.type === 'show-range') {
+        if (endMs > startMs) setFlashRange({ startMs, endMs });
+        pause();
+        seek(startMs);
+        return;
+      }
       if (endMs > startMs) setMarkedRange({ startMs, endMs });
       pause();
       seek(startMs);
@@ -1823,16 +1834,7 @@ export function ProjectView({ projectId, onProject, onLeave }: {
   /* clips dragged out of the timeline onto the app's chat */
   const referBlocks = React.useCallback((blocks: TimelineBlock[]) => { for (const b of blocks) studioHost?.refer?.(refOfBlock(b)); }, []); // eslint-disable-line react-hooks/exhaustive-deps
   const markedRangeRef = React.useCallback((range: FilmRange) => rangeRef(projectId, range, blocksRef.current), [projectId]);
-  /* the selection bar's "Add to chat" (components/SelectionToolbar): on the timeline the clips and the range, or the
-     moment of a point picked on the ruler; on the picture what is in hand there */
-  const referFromTimeline = React.useCallback((what: { blocks: readonly TimelineBlock[]; range: FilmRange | null; atMs: number | null }) => {
-    const refer = studioHost?.refer;
-    if (!refer) return;
-    if (what.atMs != null) { refer(momentRef(projectId, what.atMs)); return; }
-    for (const b of what.blocks) refer(refOfBlock(b));
-    if (what.range) refer(rangeRef(projectId, what.range, blocksRef.current));
-  }, [projectId]); // eslint-disable-line react-hooks/exhaustive-deps
-  /* the ruler points at time for the chat: a click, that moment; a drag, that span */
+  /* the ruler points at time for the chat: a ⌘-click, that moment; a ⌘-drag, that span */
   const referRuler = React.useCallback((what: { atMs: number } | { range: FilmRange }) => {
     const refer = studioHost?.refer;
     if (!refer) return;
@@ -2244,14 +2246,8 @@ export function ProjectView({ projectId, onProject, onLeave }: {
      keeps the canvas's short side (canvasFor; a typed size is that size), and every picture on it is scaled by one
      factor into the new canvas, centered, in the same edit (one undo). Laying the film out again for the new canvas
      is the agent's (the inspector gives the words) */
-  /* "Fit (original)": the shape of the film's first picture (the earliest on the film whose size the preview knows) */
-  const originalSize = React.useMemo(() => {
-    const sized = new Map(spans.filter((span) => span.w && span.h).map((span) => [span.id, { w: span.w!, h: span.h! }]));
-    const first = (film.film?.tracks ?? []).flatMap((track) => track.clips)
-      .filter((clip) => !clip.sound && filmSrcKind(clip.src) !== 'sound' && sized.has(clip.id))
-      .sort((a, b) => (a.at ?? 0) - (b.at ?? 0))[0];
-    return first ? sized.get(first.id) ?? null : null;
-  }, [spans, film.film]);
+  /* "Fit (original)": the shape of the film's first picture (canvas-fit's firstPictureSize) */
+  const originalSize = React.useMemo(() => firstPictureSize((film.film?.tracks ?? []).flatMap((track) => track.clips), spans), [spans, film.film]);
   /** The edit that makes the canvas `size`, the film fitted into it (see canvas-fit). */
   const canvasOps = React.useCallback((size: { w: number; h: number }): Op[] => {
     const own = new Map(spans.map((span) => [span.id, span.w && span.h ? { w: span.w, h: span.h } : null]));
@@ -2510,15 +2506,14 @@ export function ProjectView({ projectId, onProject, onLeave }: {
       case 'select-left': case 'select-right': take(); if (once) commands.selectSide(cmd === 'select-left' ? -1 : 1); return;
       case 'ripple-start': take(); if (once) commands.rippleTrimStart(); return;
       case 'ripple-end': take(); if (once) commands.rippleTrimEnd(); return;
-      case 'toggle-snap': case 'toggle-magnet': case 'toggle-linkage': case 'toggle-preview-axis': {
+      case 'toggle-snap': case 'toggle-magnet': case 'toggle-linkage': {
         take();
         if (!once) return;
-        const pref = cmd === 'toggle-snap' ? 'snap' : cmd === 'toggle-magnet' ? 'magnet' : cmd === 'toggle-linkage' ? 'linkage' : 'previewAxis';
+        const pref = cmd === 'toggle-snap' ? 'snap' : cmd === 'toggle-magnet' ? 'magnet' : 'linkage';
         const on = !readTimelinePrefs()[pref];
         if (pref === 'snap') commands.toggleSnap();
         else if (pref === 'magnet') commands.toggleMagnet();
-        else if (pref === 'linkage') commands.toggleLinkage();
-        else commands.togglePreviewAxis();
+        else commands.toggleLinkage();
         toast.show(`${t(`timeline.${pref}`)} · ${t(`timeline.${pref}${on ? 'On' : 'Off'}`)}`);
         return;
       }
@@ -2868,7 +2863,8 @@ export function ProjectView({ projectId, onProject, onLeave }: {
                           height: `${(frameBox.inner.h / frameBox.h) * 100}%`,
                         }}>
                           <Preview ref={preview} folder={folder} stage={shownStage} time={() => player.current.time()} fps={exactRate(projectFps)}
-                            onInfo={onInfo} onKey={previewKey} onError={setPreviewError} onPlayed={onPlayed}>
+                            onInfo={onInfo} onKey={previewKey} onError={setPreviewError} onPlayed={onPlayed}
+                            onSpans={(next) => setInfo((had) => (had ? { ...had, spans: next } : had))}>
                             {!fullscreen ? (
                               <FilmStageSelect
                                 previewRef={preview}
@@ -3064,10 +3060,11 @@ export function ProjectView({ projectId, onProject, onLeave }: {
                     {...(hostHover ? { onHoverBlock: hoverBlock } : {})}
                     /* the range (I / O, ⇧-drag on the ruler, Play range) is Studio's own; referring it is the app's */
                     range={markedRange}
+                    flashRange={flashRange}
                     onRangeChange={setMarkedRange}
                     trackMenuExtra={trackMenuExtra}
                     {...(studioHost?.refer ? {
-                      onReferBlocks: referBlocks, rangeRef: markedRangeRef, onReferSelection: referFromTimeline, onReferRuler: referRuler,
+                      onReferBlocks: referBlocks, rangeRef: markedRangeRef, onReferRuler: referRuler,
                     } : {})}
                     commandsRef={timelineCommands}
                     trackNames={trackNames}
@@ -3086,11 +3083,9 @@ export function ProjectView({ projectId, onProject, onLeave }: {
                     timeMs={timeMs}
                     clock={playing ? clock : null}
                     playing={playing}
-                    previewBar={previewRenders.bar}
                     onSeek={(ms) => seek(ms)}
                     onScrubPreview={scrubPreview}
                     onScrubCommit={scrubCommit}
-                    onHoverPreview={hoverPreview}
                     onRemove={removeBlock}
                     onRemoveMany={removeBlocks}
                     onSplit={splitBlocks}

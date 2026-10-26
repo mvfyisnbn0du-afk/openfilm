@@ -25,7 +25,8 @@
  * Reads no Electron module, so `node --test` can use it.
  */
 import { execFile, spawn } from 'node:child_process';
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { randomUUID } from 'node:crypto';
+import { existsSync, mkdirSync, readFileSync, unlinkSync, writeFileSync } from 'node:fs';
 import { arch, homedir, release, tmpdir } from 'node:os';
 import { createRequire } from 'node:module';
 import { dirname, isAbsolute, join, win32 } from 'node:path';
@@ -86,9 +87,28 @@ export const AGENTS = Object.freeze({
   kimi: { label: AGENT_DEFINITIONS.kimi.name, args: ['acp'], login: ['login'], approve: true },
   minimax: { label: AGENT_DEFINITIONS.minimax.name, args: ['acp'], login: ['login'], approve: true },
   /* DeepSeek Harness (`dsh`) speaks ACP as its `acp` profile. It has no sign-in command: the person signs in to their
-     DeepSeek account in its desktop app, or sets DEEPSEEK_API_KEY, so one found is connected */
-  deepseek: { label: AGENT_DEFINITIONS.deepseek.name, args: ['--profile', 'acp'], login: null, approve: true },
+     DeepSeek account in its desktop app, or sets DEEPSEEK_API_KEY, so one found is connected. It reports every tool
+     as kind `other`, titled by its name: `toolKinds` gives each the kind it is (see withToolKind) */
+  deepseek: { label: AGENT_DEFINITIONS.deepseek.name, args: ['--profile', 'acp'], login: null, approve: true,
+    toolKinds: {
+      bash: 'execute', pwsh: 'execute',
+      read: 'read', read_image: 'read',
+      write: 'edit', edit: 'edit', str_replace_editor: 'edit',
+      grep: 'search', glob: 'search',
+      web_search: 'fetch', web_fetch: 'fetch',
+    } },
 });
+
+/**
+ * A tool call with the kind its name says (`toolKinds`), for an agent that reports every tool as `other`. The chat
+ * draws an `other` call as the passing "Working" status, not a step: without its kind, a turn shows no step until
+ * it ends.
+ */
+export function withToolKind(update, toolKinds) {
+  if (!toolKinds || update?.sessionUpdate !== 'tool_call' || (update.kind ?? 'other') !== 'other') return update;
+  const kind = Object.hasOwn(toolKinds, update.title) ? toolKinds[update.title] : null;
+  return kind ? { ...update, kind } : update;
+}
 
 export const isAgentId = (id) => typeof id === 'string' && Object.hasOwn(AGENTS, id);
 
@@ -245,8 +265,12 @@ function run(cmd, args, timeoutMs = 10_000, { cwd, env, options } = {}) {
   });
 }
 
-/* one word of a cmd.exe command line: quoted when it has to be */
-const winArg = (a) => (/^[\w.:\\/=+@-]+$/.test(a) ? a : `"${String(a).replace(/"/g, '""')}"`);
+/**
+ * One word of a cmd.exe command line: quoted when it has to be. cmd.exe expands `%NAME%` inside quotes too, so each `%`
+ * is closed out of the quotes and escaped (`"^%"`): the program is given the word as it was, with no variable's value
+ * in it.
+ */
+export const winArg = (a) => (/^[\w.:\\/=+@-]+$/.test(a) ? a : `"${String(a).replace(/"/g, '""').replace(/%/g, '"^%"')}"`);
 
 /** The app's own Node running a script, through as-node.mjs: what the script starts does not run Electron as Node. */
 const AS_NODE = fileURLToPath(new URL('./as-node.mjs', import.meta.url));
@@ -350,10 +374,10 @@ export async function agentSignedIn(id, cliPath) {
  * organization, plan; Codex: how, ChatGPT or an API key), never a key or a token.
  * @returns {Promise<{ signedIn: boolean | null, account: AgentAccount | null, problem?: string }>}
  */
-export async function agentStatus(id, cliPath) {
+export async function agentStatus(id, cliPath, { fresh = false } = {}) {
   const spec = AGENTS[id];
   if (!spec || !cliPath) return { signedIn: null, account: null };
-  if (!spec.auth) return { signedIn: await acpSignedIn(id), account: null };
+  if (!spec.auth) return { signedIn: await acpSignedIn(id, { fresh }), account: null };
   const how = starting(cliPath, spec.auth);
   const r = await run(how.cmd, how.args, 10_000, { env: childEnvironment({ shell: agentShell(id, await loginShellVariables()), extra: how.env }), options: how.options });
   return readAgentStatus(id, r.stdout, r.out);
@@ -411,13 +435,16 @@ export function probeFolder() {
  * Signed in, for an agent with no command that says: a session opened (in an empty folder of the app's) and closed.
  * One it refuses for its sign-in (ACP's auth_required) is signed out; one that opens, signed in; anything else, null.
  */
-export function acpSignedIn(id) {
+export function acpSignedIn(id, { fresh = false } = {}) {
   const kept = asked.get(id);
-  if (kept && Date.now() - kept.at < (kept.signedIn ? SIGNED_IN_FOR_MS : ASKED_FOR_MS)) return kept.answer;
+  // A sign-in just completed in Terminal: bypass a cached negative result, but share an in-flight probe.
+  if (kept && (kept.pending || ((!fresh || kept.signedIn) && Date.now() - kept.at < (kept.signedIn ? SIGNED_IN_FOR_MS : ASKED_FOR_MS)))) return kept.answer;
   const answer = (async () => {
     const session = new AgentSession({ agent: id, cwd: probeFolder() });
     try {
-      await Promise.race([session.start(), new Promise((_, fail) => setTimeout(() => fail(new Error('timed out')), 30_000))]);
+      let timeout;
+      try { await Promise.race([session.start(), new Promise((_, fail) => { timeout = setTimeout(() => fail(new Error('timed out')), 30_000); })]); }
+      finally { clearTimeout(timeout); }
       return true;
     } catch (e) {
       return e?.code === 'sign-in' ? false : null;
@@ -425,9 +452,9 @@ export function acpSignedIn(id) {
       session.close();
     }
   })();
-  const entry = { at: Date.now(), answer, signedIn: false };
+  const entry = { at: Date.now(), answer, signedIn: false, pending: true };
   asked.set(id, entry);
-  void answer.then((yes) => { entry.signedIn = yes === true; });
+  void answer.then((yes) => { entry.signedIn = yes === true; entry.pending = false; entry.at = Date.now(); });
   return answer;
 }
 
@@ -445,13 +472,27 @@ const shq = (s) => `'${String(s).replace(/'/g, `'\\''`)}'`;
  * The AppleScript that has Terminal run one command in a new window, in `cwd` when given (SIGN_IN_DIR: not the home
  * folder a new window opens in).
  */
-export function signInScript(cliPath, args, { cwd } = {}) {
-  return terminalScript(`${cwd ? `cd ${shq(cwd)} && ` : ''}${[cliPath, ...args].map(shq).join(' ')}`);
+export function signInScript(cliPath, args, { cwd, track = false } = {}) {
+  return terminalScript(`${cwd ? `cd ${shq(cwd)} && ` : ''}${[cliPath, ...args].map(shq).join(' ')}`, { track });
 }
 
 /** The AppleScript that has Terminal run a command line, as it is, in a new window. */
-export function terminalScript(command) {
-  return `tell application "Terminal"\nactivate\ndo script "${command.replace(/\\/g, '\\\\').replace(/"/g, '\\"')}"\nend tell`;
+export function terminalScript(command, { track = false } = {}) {
+  return `tell application "Terminal"\nactivate\n${track ? 'set loginTab to ' : ''}do script "${command.replace(/\\/g, '\\\\').replace(/"/g, '\\"')}"\n${track ? 'return tty of loginTab\n' : ''}end tell`;
+}
+
+/** Check the exact login tab, including when other Terminal windows remain open. Never launch Terminal to check. */
+export function terminalTabOpenScript(tty) {
+  if (!/^\/dev\/tty[\w]+$/.test(tty)) throw new Error('Invalid terminal tty');
+  return `if application "Terminal" is not running then return "closed"
+tell application "Terminal"
+repeat with terminalWindow in windows
+repeat with terminalTab in tabs of terminalWindow
+if tty of terminalTab is "${tty}" then return "open"
+end repeat
+end repeat
+end tell
+return "closed"`;
 }
 
 /**
@@ -473,10 +514,10 @@ const psq = (s) => `'${String(s).replace(/'/g, "''")}'`;
  * it a console. Started straight from the app, `detached` makes it a DETACHED_PROCESS with no console at all, and
  * PowerShell quits at once without running the script.
  */
-export function powerShellWindowLaunch(file, { comSpec = process.env.ComSpec || 'cmd.exe', systemRoot = process.env.SystemRoot ?? 'C:\\Windows' } = {}) {
+export function powerShellWindowLaunch(file, { comSpec = process.env.ComSpec || 'cmd.exe', systemRoot = process.env.SystemRoot ?? 'C:\\Windows', wait = false } = {}) {
   /* a Windows path wherever it is worked out (the tests run on every system) */
   const powershell = win32.join(systemRoot, 'System32', 'WindowsPowerShell', 'v1.0', 'powershell.exe');
-  const line = ['start', '""', ...[powershell, '-NoLogo', '-NoExit', '-ExecutionPolicy', 'Bypass', '-File', file].map(winArg)].join(' ');
+  const line = ['start', '""', ...(wait ? ['/wait'] : []), ...[powershell, '-NoLogo', '-NoExit', '-ExecutionPolicy', 'Bypass', '-File', file].map(winArg)].join(' ');
   return { cmd: comSpec, args: ['/d', '/s', '/c', `"${line}"`], options: { windowsVerbatimArguments: true, windowsHide: true } };
 }
 
@@ -484,15 +525,17 @@ export function powerShellWindowLaunch(file, { comSpec = process.env.ComSpec || 
  * A PowerShell window of its own running a script (a sign-in, an installer), left open so what it says can be read
  * and answered.
  */
-async function powerShellWindow(name, script, env) {
+async function powerShellWindow(name, script, env, { track = false } = {}) {
   const dir = SIGN_IN_DIR();
   mkdirSync(dir, { recursive: true });
-  const file = join(dir, name);
+  const file = join(dir, track ? `${randomUUID()}-${name}` : name);
   writeFileSync(file, script, 'utf8');
-  const how = powerShellWindowLaunch(file);
+  const how = powerShellWindowLaunch(file, { wait: track });
   const child = spawn(how.cmd, how.args, { cwd: dir, detached: true, stdio: 'ignore', env, ...how.options });
   await new Promise((done, fail) => { child.once('spawn', done); child.once('error', fail); });
+  if (track) child.once('exit', () => { try { unlinkSync(file); } catch { /* already removed */ } });
   child.unref();
+  return child;
 }
 
 /** The person's shell variables as this agent is given them (`fromShell`; all of them, for most). */
@@ -512,7 +555,7 @@ export async function agentSignInMethods(id) {
   const cli = resolveAgentCli(id, { pathDirs: shell.PATH.split(PATH_SEP) });
   if (!cli) return [];
   const launch = adapterLaunch(id, cli.path);
-  const child = spawn(launch.cmd, launch.args, { env: childEnvironment({ shell, extra: launch.env }), stdio: ['pipe', 'pipe', 'ignore'], windowsHide: true });
+  const child = spawn(launch.cmd, launch.args, { ...OWN_GROUP, env: childEnvironment({ shell, extra: launch.env }), stdio: ['pipe', 'pipe', 'ignore'], windowsHide: true });
   child.once('error', () => {});
   try {
     const conn = acp.client({ name: 'openfilm-desktop' }).connect(acp.ndJsonStream(Writable.toWeb(child.stdin), Readable.toWeb(child.stdout)));
@@ -527,7 +570,7 @@ export async function agentSignInMethods(id) {
   } catch {
     return [];
   } finally {
-    child.kill();
+    stopTree(child);
   }
 }
 
@@ -541,9 +584,9 @@ const SIGN_IN_DIR = () => join(tmpdir(), 'openfilm-sign-in');
 /**
  * Sign in: Terminal runs the program's own sign-in, which opens the maker's own page. The app touches nothing. One
  * signed in the way its adapter offers (`acpSignIn`, that way's id) runs the adapter with that way's arguments, as ACP
- * has a client do it.
+ * has a client do it. `track` adds an `isOpen` check for the roster, kept inside the main process.
  */
-export async function openAgentSignIn(id) {
+export async function openAgentSignIn(id, { track = false } = {}) {
   const spec = AGENTS[id];
   const pathDirs = (await loginShellEnvironment()).PATH.split(PATH_SEP);
   const cli = spec ? resolveAgentCli(id, { pathDirs }) : null;
@@ -566,19 +609,28 @@ export async function openAgentSignIn(id) {
     how ??= /\.(?:cmd|bat)$/i.test(cli.path) ? { cmd: cli.path, args: spec.login, env: {} } : starting(cli.path, spec.login);
     how = { ...how, env: { ...defaults, ...how.env } };
     try {
-      await powerShellWindow(`${id}.ps1`, powerShellScript(`${spec.label} sign-in`, how.cmd, how.args),
-        childEnvironment({ shell: agentShell(id, await loginShellVariables()), extra: how.env }));
-      return { ok: true };
+      const child = await powerShellWindow(`${id}.ps1`, powerShellScript(`${spec.label} sign-in`, how.cmd, how.args),
+        childEnvironment({ shell: agentShell(id, await loginShellVariables()), extra: how.env }), { track });
+      return { ok: true, ...(track ? { isOpen: async () => child.exitCode === null && child.signalCode === null } : {}) };
     } catch (e) { return { ok: false, error: e instanceof Error ? e.message : String(e) }; }
   }
   const cwd = SIGN_IN_DIR();
   try { mkdirSync(cwd, { recursive: true }); } catch { /* signed in from the home folder, as before */ }
-  const where = existsSync(cwd) ? { cwd } : {};
+  const where = { ...(existsSync(cwd) ? { cwd } : {}), track };
   const script = how
     ? signInScript('/usr/bin/env', [...Object.entries(how.env).map(([k, v]) => `${k}=${v}`), how.cmd, ...how.args], where)
     : signInScript(cli.path, spec.login, where);
   const r = await run('/usr/bin/osascript', ['-e', script], 15_000);
-  return r.ok ? { ok: true } : { ok: false, error: r.out.trim() || 'Terminal did not open.' };
+  if (!r.ok) return { ok: false, error: r.out.trim() || 'Terminal did not open.' };
+  const tty = r.stdout.trim();
+  return { ok: true, ...(track && /^\/dev\/tty[\w]+$/.test(tty) ? {
+    isOpen: async () => {
+      const checked = await run('/usr/bin/osascript', ['-e', terminalTabOpenScript(tty)], 5000);
+      if (!checked.ok) return null;
+      const state = checked.stdout.trim();
+      return state === 'open' ? true : state === 'closed' ? false : null;
+    },
+  } : {}) };
 }
 
 /**
@@ -620,12 +672,12 @@ export async function listAgents() {
 }
 
 /** One agent as listAgents has it, asked alone: while the person signs in to it, only it is asked again. */
-export async function localAgent(id) {
+export async function localAgent(id, { fresh = false } = {}) {
   if (!isAgentId(id)) throw new Error(`No agent ${id}`);
-  return agentOnComputer(id, (await loginShellEnvironment({ maxAgeMs: 10_000 })).PATH.split(PATH_SEP));
+  return agentOnComputer(id, (await loginShellEnvironment({ maxAgeMs: 10_000 })).PATH.split(PATH_SEP), { fresh });
 }
 
-async function agentOnComputer(id, pathDirs) {
+async function agentOnComputer(id, pathDirs, { fresh = false } = {}) {
   const cli = resolveAgentCli(id, { pathDirs });
   const { install } = detectAgentInstallation(id);
   const app = cli ? null : desktopApp(id);
@@ -635,7 +687,7 @@ async function agentOnComputer(id, pathDirs) {
     label: AGENTS[id].label,
     cli: cli ? { path: cli.path, source: cli.source } : null,
     chosen: chosenPaths[id] ?? null,
-    ...(cli ? ownSignIn(AGENTS[id], await agentStatus(id, cli.path)) : { signedIn: null, account: null }),
+    ...(cli ? ownSignIn(AGENTS[id], await agentStatus(id, cli.path, { fresh })) : { signedIn: null, account: null }),
     install,
     setupRequired: claudeApp ? 'code-tab' : null,
     ...(cli ? {} : { app: claudeApp ? null : app, installer: installCommand(id) }),
@@ -742,9 +794,9 @@ export const CLIENT_CAPABILITIES = {
   auth: { terminal: true },
   /* the agent's own warnings (Codex: "Falling back from WebSockets…") come as notices, not as words in its reply */
   session: { notices: {} },
-  /* Claude Code's "recommended value" extension: its model and effort lists come without a "Default" row, the
-     current value named for what it is */
-  _meta: { jetbrains: { air: { version: 1, capabilities: ['recommendedValue'] } } },
+  /* Cursor exposes model parameters (effort, speed, context) only to clients with its advanced picker.
+     Claude Code's recommended-value extension names the current model and effort without a Default row. */
+  _meta: { parameterizedModelPicker: true, jetbrains: { air: { version: 1, capabilities: ['recommendedValue'] } } },
 };
 
 const CLIENT_INFO = { name: 'openfilm-desktop', title: 'OpenFilm', version: '0.1.0' };
@@ -806,12 +858,13 @@ export function signInError(label, e, { own = false } = {}) {
 }
 
 /**
- * An error the agent sends as just "Internal error" with its reason: the reason is in its `data`, as a string or its
+ * An error the agent sends as just "Internal error" or "Invalid params" with its reason: the reason is in its `data`, as a string or its
  * `message` or `details` (the ACP SDK puts a thrown Error's text there; Codex its settings it cannot read). The error
  * it came as stays its `cause`.
  */
 export function errorCause(e) {
-  if (e?.code !== INTERNAL_ERROR || String(e.message ?? '').trim() !== 'Internal error') return e;
+  if (!((e?.code === INTERNAL_ERROR && String(e.message ?? '').trim() === 'Internal error')
+    || (e?.code === -32602 && String(e.message ?? '').trim() === 'Invalid params'))) return e;
   const data = e.data;
   const why = typeof data === 'string' ? data : [data?.message, data?.details].find((v) => typeof v === 'string') ?? '';
   return why.trim() ? Object.assign(new Error(why.trim(), { cause: e }), { code: e.code }) : e;
@@ -881,22 +934,27 @@ export function stderrReason(stderr = '') {
   return [...new Set((reasons.length ? reasons : lines).slice(-3))].join(' | ').slice(-600);
 }
 
+/* one word of a command as the chat shows it: quoted when it has a space */
+const shownArg = (/** @type {string} */ a) => (a && !/[\s"]/.test(a) ? a : `"${a}"`);
+
 /**
- * An agent's failure as it is: what it said when it said why; else the step it stopped at, how its process ended and
- * the last it wrote to stderr; with neither, that an agent which cannot reach its service stops like this.
- * @param {any} e @param {{ label: string, step?: string | null, stderr?: string, exited?: { code: number | null } | null }} at
+ * An agent's failure as it is: what it said when it said why; else the step it stopped at, how its process ended (the
+ * command it ran and its code) and the last it wrote to stderr; with neither, while its process still runs, that an
+ * agent which cannot reach its service stops like this. A process that ended is not the network.
+ * @param {any} e @param {{ label: string, step?: string | null, stderr?: string, exited?: { code: number | null } | null, command?: string[] | null }} at
  */
-export function explainFailure(e, { label, step = null, stderr = '', exited = null }) {
+export function explainFailure(e, { label, step = null, stderr = '', exited = null, command = null }) {
   const said = (e instanceof Error ? e.message : String(e ?? '')).trim();
   const bare = !said || SAYS_NOTHING.test(said);
   if (!bare && !exited) return e;
   const tail = stderrReason(stderr);
   const where = step && STEP_WORDS[step] ? ` ${STEP_WORDS[step]}` : '';
-  const ended = exited ? ` Its process ended${exited.code == null ? '' : ` with code ${exited.code}`}.` : '';
+  const ran = command?.length ? ` (${command.map(shownArg).join(' ')})` : '';
+  const ended = exited ? ` Its process${ran} ended${exited.code == null ? '' : ` with code ${exited.code}`}.` : '';
   const message = [
     bare ? `${label} stopped${where} without saying why.` : said,
     ended.trim(),
-    tail ? `It last wrote: ${tail}` : bare ? 'If it cannot reach its service, check the network or proxy, then try again.' : '',
+    tail ? `It last wrote: ${tail}` : bare && !exited ? 'If it cannot reach its service, check the network or proxy, then try again.' : '',
   ].filter(Boolean).join(' ');
   return Object.assign(new Error(message, { cause: e }), { ...(e?.code !== undefined ? { code: e.code } : {}), ...(step ? { step } : {}) });
 }
@@ -945,7 +1003,8 @@ export function legacyOptions(session) {
  * Config options with each choice once: an agent may list the same value twice (GitHub Copilot's model list has
  * "Auto" twice), which the menu would show twice, both ticked. The first of each is kept; anything else as it was.
  * Choices in groups (DeepSeek Harness groups its models by where they run: its API, the person's DeepSeek account)
- * are listed one after another, each named with its group's name.
+ * are listed one after another, each named by itself, then its group's name ("DeepSeek-V4-Pro · DeepSeek Account"):
+ * the menu's button shows the part before the dot, the model.
  */
 export function distinctOptions(configOptions) {
   if (!Array.isArray(configOptions)) return configOptions;
@@ -953,10 +1012,22 @@ export function distinctOptions(configOptions) {
     if (!Array.isArray(o?.options)) return o;
     const seen = new Set();
     const choices = o.options.flatMap((c) => (Array.isArray(c?.options) && !('value' in c)
-      ? c.options.map((g) => (g && typeof c.name === 'string' && c.name ? { ...g, name: `${c.name} · ${g.name}` } : g))
+      ? c.options.map((g) => (g && typeof c.name === 'string' && c.name ? { ...g, name: `${g.name} · ${c.name}` } : g))
       : [c]));
     return { ...o, options: choices.filter((c) => !c || !('value' in c) || (!seen.has(c.value) && seen.add(c.value))) };
   });
+}
+
+/** A menu probe asks the selected model for its own dependent options, without sending a prompt. */
+export async function optionsForModel(session, info, model) {
+  if (model == null) return info;
+  const option = info.configOptions?.find((o) => o.category === 'model');
+  if (!option?.options?.some((choice) => choice.value === model)) throw new Error('The agent does not offer this model.');
+  if (option.currentValue === model) return info;
+  const result = await session.setConfigOption(option.id, model);
+  const options = result?.configOptions ?? info.configOptions.map((o) => o.id === option.id ? { ...o, currentValue: model } : o);
+  if (options.find((o) => o.category === 'model')?.currentValue !== model) throw new Error('The agent did not accept the selected model.');
+  return { ...info, configOptions: options };
 }
 
 /**
@@ -1021,7 +1092,7 @@ export class AgentSession {
     if (this.child && !this.exited && this.child.exitCode === null && this.child.signalCode === null) {
       await new Promise((done) => { this.child.once('exit', done); setTimeout(done, 1000).unref?.(); });
     }
-    return explainFailure(e, { label: this.spec.label, step: this.step, stderr: this.stderr, exited: this.exited ?? null });
+    return explainFailure(e, { label: this.spec.label, step: this.step, stderr: this.stderr, exited: this.exited ?? null, command: this.command ?? null });
   }
 
   /**
@@ -1070,6 +1141,8 @@ export class AgentSession {
       ? await logSwitches(this.opts.agent, { base: this.opts.logDir, shell, cwd: this.opts.cwd }).catch(() => null) : null;
     /* an agent that speaks ACP itself: its own program, started as the registry starts it */
     const native = cli && !this.spec.adapter ? starting(cli.path, [...this.spec.args, ...(this.logging?.args ?? []), ...(skills?.args ?? [])]) : null;
+    /* what a failure names: the agent's program and its own words, as the person would run it (not our logging or skills) */
+    this.command = native ? [cli.path, ...this.spec.args] : null;
     const extra = { ...agentDefaults(this.opts.agent, shell), ...this.opts.env, ...(native ? native.env : node.env), ...(cli && this.spec.env ? this.spec.env(cli.path) : {}), ...own, ...skills?.env, ...this.logging?.env };
     /* OpenCode's inline configuration carries both its skills and, in Developer mode, its logging */
     if (skills?.env?.OPENCODE_CONFIG_CONTENT && this.logging?.env?.OPENCODE_CONFIG_CONTENT) {
@@ -1087,8 +1160,8 @@ export class AgentSession {
 
     const script = harness ? fileURLToPath(new URL('./pi-agent.mjs', import.meta.url)) : native ? null : adapterScript(this.spec.adapter);
     this.child = native
-      ? spawn(native.cmd, native.args, { ...native.options, cwd: this.opts.cwd, env, stdio: ['pipe', 'pipe', 'pipe'], windowsHide: true })
-      : spawn(node.command, node.env.ELECTRON_RUN_AS_NODE ? asNode(script) : [script], { cwd: this.opts.cwd, env, stdio: ['pipe', 'pipe', 'pipe'], windowsHide: true });
+      ? spawn(native.cmd, native.args, { ...native.options, ...OWN_GROUP, cwd: this.opts.cwd, env, stdio: ['pipe', 'pipe', 'pipe'], windowsHide: true })
+      : spawn(node.command, node.env.ELECTRON_RUN_AS_NODE ? asNode(script) : [script], { ...OWN_GROUP, cwd: this.opts.cwd, env, stdio: ['pipe', 'pipe', 'pipe'], windowsHide: true });
     this.child.stderr.on('data', (d) => { this.stderr = (this.stderr + String(d)).slice(-16_000); });
     LIVE.add(this);
     this.child.once('exit', (code) => { LIVE.delete(this); this.exited = { code }; this.opts.onExit?.({ code, stderr: this.stderr }); });
@@ -1108,7 +1181,7 @@ export class AgentSession {
         return answers ? { action: 'accept', content: formContent(questions, answers) } : { action: 'decline' };
       })
       .onNotification(acp.methods.client.session.update, (ctx) => {
-        const update = ctx.params.update;
+        const update = withToolKind(ctx.params.update, this.spec.toolKinds);
         if (SPOKE.has(update?.sessionUpdate)) this.spoke = true;
         this.heard = Date.now();
         const phase = agentPhase(update);
@@ -1277,7 +1350,7 @@ export class AgentSession {
   async setConfigOption(configId, value) {
     if (this.legacy && configId === 'mode') return this.setMode(value);
     if (this.legacy && configId === 'model') return this.conn.agent.request('session/set_model', { sessionId: this.sessionId, modelId: value });
-    const r = await this.conn.agent.request(acp.methods.agent.session.setConfigOption, { sessionId: this.sessionId, configId, value });
+    const r = await this.conn.agent.request(acp.methods.agent.session.setConfigOption, { sessionId: this.sessionId, configId, value }).catch((e) => { throw errorCause(e); });
     this.noteModel(r?.configOptions);
     return r?.configOptions ? { ...r, configOptions: distinctOptions(r.configOptions) } : r;
   }
@@ -1295,9 +1368,33 @@ export class AgentSession {
   close() {
     LIVE.delete(this);
     try { this.conn?.close(); } catch { /* gone already */ }
-    if (this.child && this.child.exitCode === null) this.child.kill('SIGTERM');
+    stopTree(this.child);
     this.logging?.close();
   }
+}
+
+/**
+ * An agent's process and what it starts (the program under its adapter, its MCP servers, a command it runs) as one:
+ * a process group of its own on macOS and Linux. On Windows taskkill follows the tree instead.
+ */
+export const OWN_GROUP = windows ? {} : { detached: true };
+
+/**
+ * Stop a process started with OWN_GROUP and everything it started. Stopping it alone (the adapter, or cmd.exe in front
+ * of a .cmd) left the agent's own program and its MCP servers running, on Windows always.
+ */
+export function stopTree(child, { win = windows } = {}) {
+  if (!child?.pid || child.exitCode !== null || child.signalCode !== null) return;
+  if (win) {
+    try {
+      const taskkill = join(process.env.SystemRoot ?? 'C:\\Windows', 'System32', 'taskkill.exe');
+      spawn(taskkill, ['/pid', String(child.pid), '/T', '/F'], { stdio: 'ignore', windowsHide: true }).once('error', () => child.kill());
+      return;
+    } catch { /* taskkill could not start: the process alone, below */ }
+  } else {
+    try { process.kill(-child.pid, 'SIGTERM'); return; } catch { /* not a group of its own: the process alone, below */ }
+  }
+  try { child.kill('SIGTERM'); } catch { /* gone already */ }
 }
 
 /** Every agent process this app started and has not closed: a chat's, or one opened only to ask. */
