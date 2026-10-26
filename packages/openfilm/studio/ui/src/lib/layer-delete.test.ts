@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { isDeleted, pointersOf, propsWithoutDeleted, withDeleted } from './layer-delete.ts';
+import { pointersOf, propsWithoutDeleted, withDeleted } from './layer-delete.ts';
 import type { ComponentProp } from './component-props.ts';
 import type { FilmOverride } from './film.ts';
 
@@ -18,8 +18,7 @@ test('a deleted layer keeps one entry: display none, where its first was', () =>
   ]);
   /* one of several matches: its own entry, the others' left alone */
   assert.deepEqual(withDeleted(all, [{ at: '.card', n: 1 }]), [...all, { at: '.card', n: 1, style: { display: 'none' } }]);
-  assert.ok(isDeleted(withDeleted(undefined, [{ at: '#x' }])![0]));
-  assert.ok(!isDeleted({ style: { visibility: 'hidden' } }));
+  assert.deepEqual(withDeleted(undefined, [{ at: '#x' }]), [{ at: '#x', style: { display: 'none' } }]);
 });
 
 test('what points only at deleted layers goes with them; the clip\'s own entry stays', () => {

@@ -3,10 +3,10 @@
  * a row; a page clip opens into its layers, each level in the order the page draws it. A row selects its layer on
  * the picture (and the picture's selection opens the rows down to it); its eye hides it, its lock keeps it from
  * being moved and its bin deletes it (lib/layer-delete; Delete or Backspace does too, for the layer in hand on the
- * picture, which a row's click makes it); dragged up or down its own level, or into the level of a row around it (which then moves, with all
- * it holds: CSS restacks only within a level), it is restacked (z-index overrides, studio/server/stage.js
- * `restack`). Nothing is kept here: the tree is read from the pages each time they may have changed, and every
- * change is an override of the page clip in film.html.
+ * picture, which a row's click makes it); dragged up or down its own level, or into the level of a row around it
+ * (which then moves, with all it holds: CSS restacks only within a level), it is restacked (z-index overrides,
+ * studio/server/stage.js `restack`). Nothing is kept here: the tree is read from the pages each time they may have
+ * changed, and every change is an override of the page clip in film.html.
  */
 import React from 'react';
 import {

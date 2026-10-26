@@ -14,10 +14,7 @@ import type { ComponentProp } from './component-props.ts';
 import type { OverrideTarget } from './film-overrides.ts';
 
 /** The style that deletes a layer. */
-export const DELETED_STYLE = { display: 'none' } as const;
-
-/** Whether an override deletes its layer. */
-export const isDeleted = (o: Pick<FilmOverride, 'style'> | null | undefined): boolean => o?.style?.display === 'none';
+const DELETED_STYLE = { display: 'none' } as const;
 
 const same = (o: { at?: string; n?: number }, t: OverrideTarget) => o.at === t.at && (o.n ?? null) === (t.n ?? null);
 
@@ -32,7 +29,9 @@ export function withDeleted(
   const list = all ?? [];
   const out: FilmOverride[] = [];
   const placed = new Set<OverrideTarget>();
-  const entry = (t: OverrideTarget): FilmOverride => ({ at: t.at, ...(t.n != null ? { n: t.n } : {}), style: { ...DELETED_STYLE } });
+  const entry = (t: OverrideTarget): FilmOverride => (
+    { at: t.at, ...(t.n != null ? { n: t.n } : {}), style: { ...DELETED_STYLE } }
+  );
   list.forEach((o, i) => {
     const t = o.at === undefined ? undefined : targets.find((x) => same(o, x));
     if (t) {

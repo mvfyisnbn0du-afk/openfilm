@@ -216,6 +216,8 @@ export interface FilmStageControl {
   picked(): StagePick[];
   /** Write now what the arrow keys moved and is not written yet: before an undo, or any other edit. */
   flushPending(): void;
+  /** These layers deleted: let go of them if they are in hand, so no frame stays on what is gone. */
+  letGo(elements: readonly StageElement[]): void;
   /**
    * Several layers in hand: their bounds put at `x` / `y` (all moved alike), or made `w` / `h` wide (all scaled alike,
    * in proportion, about the bounds' top left), as the inspector's fields move and scale a selection. Stage px.
@@ -1355,6 +1357,11 @@ function FilmStageSelectImpl({
     return () => { lookPreviewRef.current = null; };
   }, [ask, lookPreviewRef]);
 
+  const letGoRef = React.useRef<(elements: readonly StageElement[]) => void>(() => {});
+  letGoRef.current = (elements) => {
+    const held = [...(multiRef.current ?? []).map((item) => item.element), pickedRef.current?.element];
+    if (held.some((h) => h && elements.some((e) => e.loc === h.loc && e.clipId === h.clipId))) dropPick();
+  };
   /* the inspector's live layer previews */
   React.useEffect(() => {
     if (!controlRef) return undefined;
@@ -1364,6 +1371,7 @@ function FilmStageSelectImpl({
       return target && element.clipId ? { clip: element.clipId, ...target } : null;
     };
     controlRef.current = {
+      letGo: (elements) => letGoRef.current(elements),
       previewStyle(element, patch) {
         const at = named(element);
         if (at) void ask('tweak', { ...at, patch: { style: clean(patch as Record<string, string | number | null | undefined>) } }).then(syncGeomSoon);

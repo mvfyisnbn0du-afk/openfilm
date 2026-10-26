@@ -1554,32 +1554,53 @@ export function ProjectView({ projectId, onProject, onLeave }: {
   /* layers deleted (lib/layer-delete): in each clip a `display: none` entry for each, and every change or property
      that pointed only at them, or inside them, gone too (the stage tells which); one write, one undo step */
   const deleteLayers = React.useCallback(async (elements: readonly StageElement[]): Promise<string | null> => {
-    const doc = filmRef.current as unknown as FilmDoc | null;
-    if (!doc || !elements.length) return t('timeline.editFail');
-    const byClip = new Map<string, { clip: NonNullable<ReturnType<typeof pageClipOf>>['clip']; targets: OverrideTarget[] }>();
-    for (const element of elements) {
-      const found = pageClipOf(doc, element);
-      const target = layerTarget(element);
-      if (!found || !target) continue;
-      const entry = byClip.get(found.loc) ?? { clip: found.clip, targets: [] };
-      entry.targets.push(target);
-      byClip.set(found.loc, entry);
+    type Clip = NonNullable<ReturnType<typeof pageClipOf>>['clip'];
+    /* the layers by the clip they are in (its place in film.html) */
+    const byClip = (doc: FilmDoc) => {
+      const out = new Map<string, { clip: Clip; targets: OverrideTarget[] }>();
+      for (const element of elements) {
+        const found = pageClipOf(doc, element);
+        const target = layerTarget(element);
+        if (!found || !target) continue;
+        const entry = out.get(found.loc) ?? { clip: found.clip, targets: [] };
+        entry.targets.push(target);
+        out.set(found.loc, entry);
+      }
+      return out;
+    };
+    const keyOf = (at: OverrideTarget) => JSON.stringify([at.at, at.n ?? null]);
+    const asked = filmRef.current ? byClip(filmRef.current as unknown as FilmDoc) : null;
+    if (!asked?.size) return t('timeline.editFail');
+    /* per clip, where its changes and properties point that is only at the deleted layers or inside them */
+    const gone = new Map<string, Set<string>>();
+    for (const { clip, targets } of asked.values()) {
+      const pointers = pointersOf(clip.overrides, propsOf(clip));
+      const all = [...pointers.overrides, ...pointers.props].filter((at): at is OverrideTarget => at != null);
+      const answer = await preview.current?.stage?.<boolean[]>('within', { clip: clip.id, of: targets, targets: all }) ?? [];
+      gone.set(clip.id, new Set(all.filter((_, i) => answer[i] === true).map(keyOf)));
     }
-    if (!byClip.size) return t('timeline.editFail');
+    /* the film read again after asking: an edit kept meanwhile is not written over */
+    const doc = filmRef.current as unknown as FilmDoc | null;
+    const now = doc ? byClip(doc) : null;
+    if (!now?.size) return t('timeline.editFail');
     const edits: ClipEdit[] = [];
-    for (const [loc, { clip, targets }] of byClip) {
+    for (const [loc, { clip, targets }] of now) {
+      const out = gone.get(clip.id) ?? new Set<string>();
+      const isGone = (at: OverrideTarget | null) => Boolean(at && out.has(keyOf(at)));
       const props = propsOf(clip);
       const pointers = pointersOf(clip.overrides, props);
-      const all = [...pointers.overrides, ...pointers.props];
-      const answer = await preview.current?.stage?.<boolean[]>('within', { clip: clip.id, of: targets, targets: all.map((at) => at ?? {}) }) ?? [];
-      const gone = all.map((at, i) => Boolean(at && answer[i]));
-      const overrides = withDeleted(clip.overrides, targets, gone.slice(0, pointers.overrides.length));
+      const overrides = withDeleted(clip.overrides, targets, pointers.overrides.map(isGone));
       edits.push({ loc, prop: 'overrides', value: overrides as unknown as Record<string, unknown> | null });
-      const kept = propsWithoutDeleted(props, gone.slice(pointers.overrides.length));
+      const kept = propsWithoutDeleted(props, pointers.props.map(isGone));
       if (kept.length !== props.length) edits.push({ loc, prop: 'props', value: propsAttr(kept) });
     }
-    setStageElement((el) => (el && elements.some((x) => x.loc === el.loc && x.clipId === el.clipId) ? null : el));
-    return editBlocks(edits);
+    const failed = await editBlocks(edits);
+    /* refused (a locked track), what is in hand stays in hand */
+    if (!failed) {
+      setStageElement((el) => (el && elements.some((x) => x.loc === el.loc && x.clipId === el.clipId) ? null : el));
+      stageControl.current?.letGo(elements);
+    }
+    return failed;
   }, [editBlocks, t]);
   const editStageStyle = React.useCallback(async (loc: string, patch: StageElementStyle): Promise<string | null> => {
     const held = stageElementRef.current;
