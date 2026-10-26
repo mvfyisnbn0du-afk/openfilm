@@ -78,6 +78,7 @@ export const es: Words = {
   update: {
     restart: 'Reiniciar para actualizar',
     ready: 'OpenFilm {version} está listo. Reinicia para actualizar ahora, o se instalará al salir y la próxima vez se abrirá la nueva versión.',
+    pendingMessages: 'Hay mensajes pendientes. Envíalos o elimínalos antes de reiniciar.',
     agentBusy: 'Un agente sigue trabajando. Reinicia cuando termine.',
     exporting: 'Hay una exportación en curso. Reinicia cuando termine.',
     installFailed: 'No se pudo instalar OpenFilm {version}. Sal de OpenFilm y vuelve a abrirlo para instalarlo.',
@@ -1770,6 +1771,8 @@ export const es: Words = {
       tabs: { timeline: "Línea de tiempo", player: "Reproductor", basic: "Básico", other: "Otros" },
       /* the editor's actions (lib/keymap ACTIONS) */
       actions: {
+        'chat-send': 'Enviar / dirigir mensaje de chat',
+        'chat-queue': 'Poner mensaje de chat en cola',
         "split": "Dividir en el cabezal",
         "split-all": "Dividir todas las pistas",
         "select-mode": "Herramienta de selección",

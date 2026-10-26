@@ -13,7 +13,7 @@ import { studioHost, useHostUpdate } from '../lib/host';
 import { refusedUpdate, webUpdateOf, type WebUpdate } from '../lib/web-update';
 import { Tooltip } from './Tooltip';
 
-const WAITING = { 'agent-busy': 'update.agentBusy', exporting: 'update.exporting', 'install-failed': 'update.installFailed' } as const;
+const WAITING = { 'pending-messages': 'update.pendingMessages', 'agent-busy': 'update.agentBusy', exporting: 'update.exporting', 'install-failed': 'update.installFailed' } as const;
 
 export function UpdateButton() {
   const t = useT();

@@ -87,7 +87,7 @@ export function ShortcutsSection() {
   React.useEffect(() => {
     if (!recording) return;
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Tab') return;
+      if (e.key === 'Tab' && !recording.startsWith('chat-')) return;
       e.preventDefault();
       e.stopImmediatePropagation();
       if (e.key === 'Escape' && !e.metaKey && !e.ctrlKey && !e.altKey && !e.shiftKey) { setRecording(null); return; }
@@ -165,7 +165,7 @@ export function ShortcutsSection() {
   };
 
   const actionRows: Row[] = ACTIONS
-    .filter((a) => a.tab === tab && (a.id !== 'refer' || studioHost?.refer))
+    .filter((a) => a.tab === tab && (a.id !== 'refer' || studioHost?.refer) && (!a.id.startsWith('chat-') || studioHost?.panel))
     .map((a) => ({ id: a.id, label: actionName(a.id), keys: keymap[a.id], action: a.id }));
   /* Other: the keys that are always the same, after the actions */
   const fixedRows: Row[] = tab !== 'other' ? [] : [

@@ -7,7 +7,7 @@
  *
  * `error` is a code, never the updater's own message (it carries feed URLs, response bodies, local paths):
  *   offline | unavailable | failed            a check or download did not work
- *   agent-busy | exporting | install-failed   Restart was refused or did not work (the update stays ready)
+ *   pending-messages | agent-busy | exporting | install-failed   Restart was refused or did not work (the update stays ready)
  */
 
 const NETWORK_CODES = ['ENOTFOUND', 'EAI_AGAIN', 'ECONNREFUSED', 'ECONNRESET', 'ETIMEDOUT', 'ERR_INTERNET_DISCONNECTED', 'ERR_NETWORK_CHANGED'];

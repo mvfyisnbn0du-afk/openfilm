@@ -79,6 +79,7 @@ export const zhCN: Words = {
   update: {
     restart: '重启以更新',
     ready: 'OpenFilm {version} 已准备好。现在重启即可更新；或者退出时自动安装，下次打开就是新版本。',
+    pendingMessages: '还有待发消息，请发送或删除后再重启。',
     agentBusy: '智能体还在工作，等它完成后再重启。',
     exporting: '正在导出，导出完成后再重启。',
     installFailed: 'OpenFilm {version} 暂时无法安装。退出 OpenFilm 后重新打开即可安装。',
@@ -1771,6 +1772,8 @@ export const zhCN: Words = {
       tabs: { timeline: "时间线", player: "播放器", basic: "基础", other: "其他" },
       /* the editor's actions (lib/keymap ACTIONS) */
       actions: {
+        'chat-send': '发送／立即引导聊天消息',
+        'chat-queue': '排队发送聊天消息',
         "split": "在播放头处分割",
         "split-all": "分割所有轨道",
         "select-mode": "选择工具",

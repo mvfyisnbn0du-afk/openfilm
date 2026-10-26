@@ -267,3 +267,19 @@ test('what is kept: the scheme and the custom ones, checked when read', () => {
   assert.deepEqual(keymapOf(odd, true).split, ['mod+e']);
   assert.deepEqual(keymapOf(odd, true)['split-all'], ['mod+shift+b', 'mod+k'], 'the rest from its base');
 });
+
+test('chat sends by default, queues explicitly, and persists a custom Tab binding', () => {
+  for (const isMac of [true, false]) {
+    const original = schemeKeymap('openfilm', isMac);
+    assert.equal(actionOf(press('Enter'), original, isMac), 'chat-send');
+    assert.equal(actionOf(press('Enter', { altKey: true }), original, isMac), 'chat-queue');
+    assert.equal(actionOf(press('Enter', { shiftKey: true }), original, isMac), null);
+    const copied = editable(DEFAULT_KEY_PREFS, isMac)!;
+    const changed = withKey(copied.prefs, copied.slot, 'chat-queue', 'Tab', isMac);
+    const restored = keyPrefsOf(JSON.parse(JSON.stringify(changed)));
+    const keys = keymapOf(restored, isMac);
+    assert.equal(actionOf(press('Tab'), keys, isMac), 'chat-queue');
+    assert.equal(hintOf(keys, 'chat-queue', isMac), 'Tab');
+    assert.equal(actionOf(press('Enter', { altKey: true }), keys, isMac), null);
+  }
+});

@@ -78,6 +78,7 @@ export const ja: Words = {
   update: {
     restart: '再起動してアップデート',
     ready: 'OpenFilm {version} の準備ができました。今すぐ再起動して更新するか、終了時に自動でインストールされ、次に開くと新しいバージョンになります。',
+    pendingMessages: '送信待ちのメッセージがあります。送信または削除してから再起動してください。',
     agentBusy: 'エージェントがまだ作業中です。終わってから再起動してください。',
     exporting: '書き出し中です。終わってから再起動してください。',
     installFailed: 'OpenFilm {version} をインストールできませんでした。OpenFilm を終了してもう一度開くとインストールされます。',
@@ -1770,6 +1771,8 @@ export const ja: Words = {
       tabs: { timeline: "タイムライン", player: "プレーヤー", basic: "基本", other: "その他" },
       /* the editor's actions (lib/keymap ACTIONS) */
       actions: {
+        'chat-send': 'チャットを送信／追加指示',
+        'chat-queue': 'チャットをキューに追加',
         "split": "再生ヘッドで分割",
         "split-all": "すべてのトラックを分割",
         "select-mode": "選択ツール",

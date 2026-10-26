@@ -78,6 +78,7 @@ export const ko: Words = {
   update: {
     restart: '재시작하여 업데이트',
     ready: 'OpenFilm {version} 준비가 끝났습니다. 지금 재시작해 업데이트하거나, 종료할 때 자동으로 설치되어 다음에 열면 새 버전이 됩니다.',
+    pendingMessages: '대기 메시지를 전송하거나 삭제한 뒤 재시작하세요.',
     agentBusy: '에이전트가 아직 작업 중입니다. 끝난 뒤 재시작하세요.',
     exporting: '내보내는 중입니다. 끝난 뒤 재시작하세요.',
     installFailed: 'OpenFilm {version}을(를) 설치하지 못했습니다. OpenFilm을 종료했다가 다시 열면 설치됩니다.',
@@ -1769,6 +1770,8 @@ export const ko: Words = {
       tabs: { timeline: "타임라인", player: "플레이어", basic: "기본", other: "기타" },
       /* the editor's actions (lib/keymap ACTIONS) */
       actions: {
+        'chat-send': '채팅 전송 / 즉시 지시',
+        'chat-queue': '채팅 메시지 대기열에 추가',
         "split": "재생 헤드에서 분할",
         "split-all": "모든 트랙 분할",
         "select-mode": "선택 도구",

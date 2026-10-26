@@ -73,13 +73,15 @@ test('a cached download of this version or an older one is not offered', () => {
   }
 });
 
-test('a restart refused (an agent working, an export running) installs nothing and leaves the update ready with the reason', async () => {
-  const f = fixture({ prepareRestart: async () => ({ ok: false, error: 'agent-busy' }) });
-  f.downloaded();
-  assert.deepEqual(await f.controller.restart(), { ok: false, error: 'agent-busy' });
-  assert.equal(f.calls.install, 0);
-  assert.deepEqual([f.controller.snapshot().status, f.controller.snapshot().error], ['ready', 'agent-busy']);
-});
+for (const error of ['agent-busy', 'pending-messages', 'exporting']) {
+  test(`a restart refused for ${error} installs nothing and leaves the update ready with the reason`, async () => {
+    const f = fixture({ prepareRestart: async () => ({ ok: false, error }) });
+    f.downloaded();
+    assert.deepEqual(await f.controller.restart(), { ok: false, error });
+    assert.equal(f.calls.install, 0);
+    assert.deepEqual([f.controller.snapshot().status, f.controller.snapshot().error], ['ready', error]);
+  });
+}
 
 test('Restart clicked twice prepares and installs once', async () => {
   let release;

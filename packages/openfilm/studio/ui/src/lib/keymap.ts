@@ -79,6 +79,8 @@ export const ACTIONS = [
   { id: 'paste-attrs', tab: 'basic', keys: ['mod+shift+v'] },
   /* the rest */
   { id: 'refer', tab: 'other', keys: ['mod+l'] },
+  { id: 'chat-send', tab: 'other', keys: ['Enter'] },
+  { id: 'chat-queue', tab: 'other', keys: ['alt+Enter'] },
 ] as const satisfies readonly { id: string; tab: KeyTab; keys: readonly string[] }[];
 
 export type ActionId = (typeof ACTIONS)[number]['id'];

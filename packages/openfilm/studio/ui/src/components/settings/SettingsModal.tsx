@@ -416,7 +416,7 @@ function AppAboutGroup() {
   const s = state;
   const next = s?.availableVersion ?? '';
   const waiting = refused ?? (s?.status === 'ready' ? s.error : null);
-  const why = waiting === 'agent-busy' ? t('update.agentBusy') : waiting === 'exporting' ? t('update.exporting')
+  const why = waiting === 'pending-messages' ? t('update.pendingMessages') : waiting === 'agent-busy' ? t('update.agentBusy') : waiting === 'exporting' ? t('update.exporting')
     : waiting === 'install-failed' ? t('update.installFailed').replace('{version}', next) : null;
   const errorText = s?.error === 'offline' ? t('settings.about.appOffline') : s?.error === 'unavailable' ? t('settings.about.appUnavailable') : t('settings.about.appFailed');
   const busy = (text: string) => <span className="inline-flex items-center gap-1.5"><Loader2 size={13} className="animate-spin" aria-hidden />{text}</span>;

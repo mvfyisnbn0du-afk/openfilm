@@ -79,6 +79,7 @@ export const en = {
   update: {
     restart: 'Restart to update',
     ready: 'OpenFilm {version} is ready. Restart to update now, or it installs when you quit and opens as the new version next time.',
+    pendingMessages: 'There are pending messages. Send or remove them before restarting.',
     agentBusy: 'An agent is still working. Restart when it has finished.',
     exporting: 'An export is running. Restart when it has finished.',
     installFailed: 'OpenFilm {version} could not install. Quit OpenFilm and open it again to install it.',
@@ -1771,6 +1772,8 @@ export const en = {
       tabs: { timeline: "Timeline", player: "Player", basic: "Basic", other: "Other" },
       /* the editor's actions (lib/keymap ACTIONS) */
       actions: {
+        'chat-send': 'Send / steer chat message',
+        'chat-queue': 'Queue chat message',
         "split": "Split at playhead",
         "split-all": "Split all tracks",
         "select-mode": "Select tool",

@@ -23,10 +23,14 @@ import {
   COMMAND_PRIORITY_HIGH,
   DROP_COMMAND,
   KEY_ENTER_COMMAND,
+  KEY_TAB_COMMAND,
+  KEY_DOWN_COMMAND,
   PASTE_COMMAND,
   type EditorState,
   type LexicalEditor,
 } from 'lexical';
+import { actionOf } from 'openfilm/studio-ui/lib/keymap.ts';
+import { MAC, useKeymap } from 'openfilm/studio-ui/lib/keymap-store.ts';
 import { filesFromTransfer } from '@/lib/composer-attachments';
 import {
   $createPromptReferenceNode,
@@ -63,7 +67,7 @@ export interface PromptEditorHandle {
   /** Inserts ready-made text at the caret, or at the end if the editor was never focused. */
   insertText: (text: string) => void;
   /** Replaces everything with this text (with markers); pass an empty string to clear. */
-  setText: (text: string) => void;
+  setText: (text: string, references?: PromptReference[]) => void;
   clear: () => void;
 }
 
@@ -79,6 +83,7 @@ export interface PromptEditorProps {
   references: PromptReference[];
   onChange: (state: PromptEditorState) => void;
   onSubmit?: () => void;
+  onQueue?: () => void;
   /**
    * Receives pasted files (a screenshot, a file copied in Finder); without it, a paste is
    * handled as usual.
@@ -128,6 +133,7 @@ export const PromptEditor = React.forwardRef<PromptEditorHandle, PromptEditorPro
       references,
       onChange,
       onSubmit,
+      onQueue,
       onPasteFiles,
       onTransferReferences,
       describe,
@@ -207,7 +213,7 @@ export const PromptEditor = React.forwardRef<PromptEditorHandle, PromptEditorPro
             />
           </div>
           <HistoryPlugin />
-          <SubmitPlugin onSubmit={onSubmit} />
+          <SubmitPlugin onSubmit={onSubmit} onQueue={onQueue} />
           <TransferReferencesPlugin onTransferReferences={onTransferReferences} />
           <PasteFilesPlugin onPasteFiles={onPasteFiles} />
           <EditablePlugin editable={!disabled} />
@@ -293,23 +299,28 @@ function ChangePlugin({
   return null;
 }
 
-/** Enter sends, Shift+Enter breaks the line; during IME composition Enter is left alone, since it picks a candidate. */
-function SubmitPlugin({ onSubmit }: { onSubmit?: () => void }) {
+/** Completion menus get Enter/Tab first; IME keeps its candidate selection. */
+function SubmitPlugin({ onSubmit, onQueue }: { onSubmit?: () => void; onQueue?: () => void }) {
   const [editor] = useLexicalComposerContext();
+  const keymap = useKeymap();
 
   React.useEffect(() => {
-    if (!onSubmit) return;
-    return editor.registerCommand(
-      KEY_ENTER_COMMAND,
-      (event) => {
-        if (!event || event.shiftKey || event.isComposing || editor.isComposing()) return false;
-        event.preventDefault();
-        onSubmit();
-        return true;
-      },
-      COMMAND_PRIORITY_HIGH,
-    );
-  }, [editor, onSubmit]);
+    const submit = (event: KeyboardEvent | null) => {
+      if (!event || event.isComposing || editor.isComposing()) return false;
+      const action = actionOf(event, keymap, MAC);
+      const send = action === 'chat-queue' ? onQueue : action === 'chat-send' ? onSubmit : undefined;
+      if (!send) return false;
+      event.preventDefault();
+      send();
+      return true;
+    };
+    const cleanups = [
+      editor.registerCommand(KEY_ENTER_COMMAND, submit, COMMAND_PRIORITY_HIGH),
+      editor.registerCommand(KEY_TAB_COMMAND, submit, COMMAND_PRIORITY_HIGH),
+      editor.registerCommand(KEY_DOWN_COMMAND, (event) => event.key !== 'Enter' && event.key !== 'Tab' && submit(event), COMMAND_PRIORITY_HIGH),
+    ];
+    return () => { for (const cleanup of cleanups) cleanup(); };
+  }, [editor, keymap, onSubmit, onQueue]);
 
   return null;
 }
@@ -429,8 +440,9 @@ const HandlePlugin = React.forwardRef<
 
     React.useImperativeHandle(ref, () => ({
       focus: () => editor.focus(),
-      setText: (text) => {
-        editor.update(() => $renderValue(text, lookupRef.current, true));
+      setText: (text, references) => {
+        const lookup = references ? (id: string) => references.find((reference) => reference.id === id) : lookupRef.current;
+        editor.update(() => $renderValue(text, lookup, true));
       },
       clear: () => {
         editor.update(() => $renderValue('', lookupRef.current, true));

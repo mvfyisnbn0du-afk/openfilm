@@ -196,7 +196,7 @@ export interface HostAsk { id: string; title: string; body: string | null; allow
  * Where the app's update is: `off` (this build never updates) · idle · checking · current · available · downloading
  * (`progress` 0–100) · staging (macOS unpacks it) · ready · installing · error. `availableVersion`: the newer version
  * found; `checkedAt`: when a check last answered (ms); `error`: offline · unavailable · failed (a check or download),
- * agent-busy · exporting · install-failed (a Restart not done).
+ * pending-messages · agent-busy · exporting · install-failed (a Restart not done).
  */
 export interface HostUpdateState {
   status: 'off' | 'idle' | 'checking' | 'current' | 'available' | 'downloading' | 'staging' | 'ready' | 'installing' | 'error';
@@ -209,7 +209,7 @@ export interface HostUpdateState {
 }
 
 /** An update of the app, ready to install or installing; `waiting`: why the last Restart did not go ahead. */
-export type HostUpdate = { status: 'ready' | 'installing'; version: string; waiting?: 'agent-busy' | 'exporting' | 'install-failed' | null };
+export type HostUpdate = { status: 'ready' | 'installing'; version: string; waiting?: 'pending-messages' | 'agent-busy' | 'exporting' | 'install-failed' | null };
 
 export type HostAgentId = 'codex' | 'claude' | 'copilot' | 'cursor' | 'opencode' | 'codebuddy' | 'qwen' | 'kimi' | 'minimax' | 'deepseek' | 'byok';
 /**

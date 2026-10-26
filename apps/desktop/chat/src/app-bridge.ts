@@ -14,7 +14,7 @@ export interface Project { id: string; name: string; path: string }
 export type FfmpegState = boolean | null | { state: 'downloading'; progress?: number } | { state: 'failed'; message?: string };
 /**
  * Where an update is (src/update-controller.mjs). The chat shows only a ready one, and why Restart had to wait
- * (`error`: 'agent-busy' | 'exporting' | 'install-failed'); a failed check is the menu's to say.
+ * (`error`: 'pending-messages' | 'agent-busy' | 'exporting' | 'install-failed'); a failed check is the menu's to say.
  */
 interface AppBridge {
   hello(): Promise<{ platform: string; flavor: string; theme: Theme; language: string; chatOpen: boolean; project: Project | null; selection: StudioSelection | null; ffmpeg: FfmpegState; version: string; chatMin: number }>;
@@ -63,6 +63,9 @@ interface AppBridge {
   setMenuOpen(open: boolean): void;
   /** the project's chat record, in its folder: conversations and finished turns (.film/chat), each turn's log (.film/logs) */
   chat: {
+    /** Pending messages keep their page alive; closing it or quitting asks before discarding them. */
+    pending?(count: number): Promise<void>;
+    onSuspend?(listener: (suspended: boolean) => void): () => void;
     load(project: string): Promise<{ sessions: unknown[]; last: string | null; turns: unknown[] }>;
     saveSessions(project: string, sessions: unknown[], last: string | null): Promise<unknown>;
     saveTurn(project: string, turn: unknown, items: unknown[]): Promise<unknown>;
