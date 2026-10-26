@@ -1262,8 +1262,10 @@ export class AgentSession {
    */
   async steer(blocks) {
     if (!this.sessionId || !this.info?.steering) return 'failed';
-    const r = await this.conn.agent.request('_session/steering', { sessionId: this.sessionId, prompt: blocks }).catch(() => null);
-    return typeof r?.outcome === 'string' ? r.outcome : 'failed';
+    /* A lost acknowledgement does not mean the message was rejected: the chat must not resend it. */
+    const r = await this.conn.agent.request('_session/steering', { sessionId: this.sessionId, prompt: blocks });
+    if (!['injected', 'startedNewTurn', 'promptRequired', 'failed'].includes(r?.outcome)) throw new Error('The agent did not confirm the steering outcome.');
+    return r.outcome;
   }
 
   /** Stop this turn (it ends with stopReason 'cancelled'). */

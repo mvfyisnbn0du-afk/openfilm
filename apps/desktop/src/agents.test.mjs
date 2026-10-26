@@ -475,3 +475,36 @@ test("a script the app's own Node starts runs as the main module, without ELECTR
   writeFileSync(bin, "if (import.meta.main) console.log(`0.2.1 ${process.env.ELECTRON_RUN_AS_NODE ?? 'clean'} ${process.argv.slice(2).join(' ')}`);\n");
   assert.deepEqual(await checkAgentProgram('deepseek', bin), { ok: true, path: bin, version: '0.2.1 clean --version' });
 });
+
+test('a lost steering acknowledgement remains an error, even if the agent already accepted the message', async () => {
+  const failure = new Error('Connection lost after acceptance');
+  let accepted = 0;
+  const session = {
+    sessionId: 'synthetic-session', info: { steering: true },
+    conn: { agent: { request: async (method, params) => {
+      assert.equal(method, '_session/steering');
+      assert.equal(params.sessionId, 'synthetic-session');
+      accepted++;
+      throw failure;
+    } } },
+  };
+  await assert.rejects(AgentSession.prototype.steer.call(session, [{ type: 'text', text: 'One message' }]), error => error === failure);
+  assert.equal(accepted, 1);
+});
+
+test('a steering reply without a known outcome is uncertain; explicit outcomes and unsupported sessions stay unchanged', async () => {
+  const session = { sessionId: 'synthetic-session', info: { steering: true }, conn: { agent: {} } };
+  for (const reply of [null, {}, { outcome: 42 }, { outcome: '' }, { outcome: 'unknown' }]) {
+    session.conn.agent.request = async () => reply;
+    await assert.rejects(AgentSession.prototype.steer.call(session, []), /did not confirm/);
+  }
+  for (const outcome of ['injected', 'promptRequired', 'failed', 'startedNewTurn']) {
+    session.conn.agent.request = async () => ({ outcome });
+    assert.equal(await AgentSession.prototype.steer.call(session, []), outcome);
+  }
+  session.conn.agent.request = () => assert.fail('unsupported steering must not send a request');
+  session.info.steering = false;
+  assert.equal(await AgentSession.prototype.steer.call(session, []), 'failed');
+  session.info.steering = true; session.sessionId = null;
+  assert.equal(await AgentSession.prototype.steer.call(session, []), 'failed');
+});
