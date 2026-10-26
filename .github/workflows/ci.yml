@@ -31,9 +31,41 @@ jobs:
           cache: pnpm
       - run: pnpm install --frozen-lockfile
       - run: pnpm typecheck
-      - run: pnpm --filter openfilm exec playwright-core install --with-deps chromium-headless-shell
-      - run: sudo apt-get update && sudo apt-get install -y ffmpeg
+      # apt on Ubuntu (Playwright's system packages): a mirror that stalls is left for the next one after 30 s, not 120,
+      # and a download that fails is tried again
+      - run: printf 'Acquire::Retries "3";\nAcquire::http::Timeout "30";\nAcquire::https::Timeout "30";\n' | sudo tee /etc/apt/apt.conf.d/80-ci
         if: runner.os == 'Linux'
+      # a slow apt mirror ends the job here, not at its limit with the tests unrun
+      - run: pnpm --filter openfilm exec playwright-core install --with-deps chromium-headless-shell
+        timeout-minutes: 15
+      # ffmpeg on Linux: the static build the desktop app takes on a Mac (the Shaka project's, src/ffmpeg-runtime.mjs),
+      # from GitHub in seconds, each program checked against its sha256. Ubuntu's package came through apt's mirror,
+      # which at times took 20 to 40 minutes for its 99 packages
+      - name: ffmpeg (Linux)
+        if: runner.os == 'Linux'
+        timeout-minutes: 5
+        env:
+          FFMPEG: https://github.com/shaka-project/static-ffmpeg-binaries/releases/download/n8.1.2-1
+        run: |
+          dir="$RUNNER_TEMP/ffmpeg"
+          mkdir -p "$dir"
+          for bin in ffmpeg ffprobe; do
+            curl -fsSL --retry 3 --retry-all-errors --connect-timeout 20 --max-time 120 -o "$dir/$bin" "$FFMPEG/$bin-linux-x64"
+          done
+          (cd "$dir" && sha256sum -c - <<'SUMS'
+          9eac5b2b5076db5ff853a6fa0dcd6b8de7d0cac8481eadda6c47cd935825f1ee  ffmpeg
+          065d3c56926052a76e884c4e4b51b7d95248da9391ab7effdcca6b94ceab98cf  ffprobe
+          SUMS
+          )
+          chmod +x "$dir/ffmpeg" "$dir/ffprobe"
+          echo "$dir" >> "$GITHUB_PATH"
+          "$dir/ffmpeg" -hide_banner -version | head -n 1
+          # what the tests use
+          "$dir/ffmpeg" -hide_banner -encoders | grep -E ' (libx264|libx265|libvpx-vp9|prores_ks|aac|libopus|libmp3lame) '
+          for enc in libx264 libx265 libvpx-vp9 prores_ks aac libopus libmp3lame; do
+            "$dir/ffmpeg" -hide_banner -encoders | grep -q " $enc " || { echo "::error::ffmpeg has no $enc"; exit 1; }
+          done
+          "$dir/ffmpeg" -hide_banner -v error -f lavfi -i testsrc2=size=64x64:rate=30 -f lavfi -i sine -t 0.2 -c:v libx264 -c:a aac -f null -
       - run: brew install ffmpeg
         if: runner.os == 'macOS'
       # Chocolatey reports success when its feed times out and nothing is installed: tried three times, then the step
