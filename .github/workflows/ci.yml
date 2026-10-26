@@ -31,41 +31,45 @@ jobs:
           cache: pnpm
       - run: pnpm install --frozen-lockfile
       - run: pnpm typecheck
-      # apt on Ubuntu (Playwright's system packages): a mirror that stalls is left for the next one after 30 s, not 120,
-      # and a download that fails is tried again
-      - run: printf 'Acquire::Retries "3";\nAcquire::http::Timeout "30";\nAcquire::https::Timeout "30";\n' | sudo tee /etc/apt/apt.conf.d/80-ci
+      # Ubuntu's packages (Playwright's system libraries and fonts, ffmpeg) come through apt, whose mirror at times took
+      # 20 to 40 minutes for them. The .deb files are kept in the Actions cache, by runner image: apt fetches only what
+      # changed since. A stalled mirror is left for the next one after 30 s (not 120), a failed download is tried
+      # again, and a step that is still slow ends the job there, not at its limit with the tests unrun
+      - id: apt
         if: runner.os == 'Linux'
-      # a slow apt mirror ends the job here, not at its limit with the tests unrun
+        run: |
+          printf 'Acquire::Retries "3";\nAcquire::http::Timeout "30";\nAcquire::https::Timeout "30";\nAPT::Keep-Downloaded-Packages "true";\n' | sudo tee /etc/apt/apt.conf.d/80-ci
+          echo "prefix=apt-$ImageOS-" >> "$GITHUB_OUTPUT"
+          echo "key=apt-$ImageOS-$ImageVersion" >> "$GITHUB_OUTPUT"
+      - id: apt-cache
+        if: runner.os == 'Linux'
+        uses: actions/cache/restore@v4
+        with:
+          path: ~/apt-archives
+          key: ${{ steps.apt.outputs.key }}
+          restore-keys: ${{ steps.apt.outputs.prefix }}
+      - if: runner.os == 'Linux'
+        run: |
+          mkdir -p ~/apt-archives
+          sudo cp ~/apt-archives/*.deb /var/cache/apt/archives/ 2>/dev/null || true
+          echo "$(ls ~/apt-archives | wc -l) packages from the cache"
+      # on Ubuntu its apt-get update is the only one: ffmpeg's install below uses it
       - run: pnpm --filter openfilm exec playwright-core install --with-deps chromium-headless-shell
         timeout-minutes: 15
-      # ffmpeg on Linux: the static build the desktop app takes on a Mac (the Shaka project's, src/ffmpeg-runtime.mjs),
-      # from GitHub in seconds, each program checked against its sha256. Ubuntu's package came through apt's mirror,
-      # which at times took 20 to 40 minutes for its 99 packages
-      - name: ffmpeg (Linux)
-        if: runner.os == 'Linux'
-        timeout-minutes: 5
-        env:
-          FFMPEG: https://github.com/shaka-project/static-ffmpeg-binaries/releases/download/n8.1.2-1
+      - if: runner.os == 'Linux'
+        timeout-minutes: 10
         run: |
-          dir="$RUNNER_TEMP/ffmpeg"
-          mkdir -p "$dir"
-          for bin in ffmpeg ffprobe; do
-            curl -fsSL --retry 3 --retry-all-errors --connect-timeout 20 --max-time 120 -o "$dir/$bin" "$FFMPEG/$bin-linux-x64"
-          done
-          (cd "$dir" && sha256sum -c - <<'SUMS'
-          9eac5b2b5076db5ff853a6fa0dcd6b8de7d0cac8481eadda6c47cd935825f1ee  ffmpeg
-          065d3c56926052a76e884c4e4b51b7d95248da9391ab7effdcca6b94ceab98cf  ffprobe
-          SUMS
-          )
-          chmod +x "$dir/ffmpeg" "$dir/ffprobe"
-          echo "$dir" >> "$GITHUB_PATH"
-          "$dir/ffmpeg" -hide_banner -version | head -n 1
-          # what the tests use
-          "$dir/ffmpeg" -hide_banner -encoders | grep -E ' (libx264|libx265|libvpx-vp9|prores_ks|aac|libopus|libmp3lame) '
-          for enc in libx264 libx265 libvpx-vp9 prores_ks aac libopus libmp3lame; do
-            "$dir/ffmpeg" -hide_banner -encoders | grep -q " $enc " || { echo "::error::ffmpeg has no $enc"; exit 1; }
-          done
-          "$dir/ffmpeg" -hide_banner -v error -f lavfi -i testsrc2=size=64x64:rate=30 -f lavfi -i sine -t 0.2 -c:v libx264 -c:a aac -f null -
+          sudo apt-get install -y --no-install-recommends ffmpeg
+          ffmpeg -hide_banner -version | head -n 1
+          # what the cache keeps: the packages as they are now, none an update replaced
+          sudo apt-get autoclean -y > /dev/null
+          rm -f ~/apt-archives/*.deb
+          cp /var/cache/apt/archives/*.deb ~/apt-archives/
+      - if: runner.os == 'Linux' && steps.apt-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: ~/apt-archives
+          key: ${{ steps.apt.outputs.key }}
       - run: brew install ffmpeg
         if: runner.os == 'macOS'
       # Chocolatey reports success when its feed times out and nothing is installed: tried three times, then the step
