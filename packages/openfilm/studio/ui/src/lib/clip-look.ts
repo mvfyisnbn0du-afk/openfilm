@@ -157,10 +157,14 @@ export function filterParts(v: string | undefined): { name: string; args: string
 
 const joinFilter = (parts: { name: string; args: string }[]) => (parts.length ? parts.map((p) => `${p.name}(${p.args})`).join(' ') : null);
 
-/** The id of the SVG filter that draws a mask's stroke (lib/clip-mask): `url("data:image/svg+xml,…#mask-stroke")`. */
-export const MASK_STROKE_ID = 'mask-stroke';
-/** Whether a filter function is a mask's stroke: the panel's own, kept last so no adjustment tints it. */
-export const isMaskStroke = (p: { name: string; args: string }) => p.name === 'url' && new RegExp(`#${MASK_STROKE_ID}["']?$`).test(p.args);
+/** The id of the SVG filter that draws a mask's stroke (lib/clip-mask): `url("data:…#openfilm-mask-stroke")`. */
+export const MASK_STROKE_ID = 'openfilm-mask-stroke';
+/**
+ * Whether a filter function is a mask's stroke: the panel's own (an SVG in a data URL, with its id), kept last so no
+ * adjustment tints it. A filter of the page's own, `url(#…)`, is not.
+ */
+export const isMaskStroke = (p: { name: string; args: string }) => p.name === 'url'
+  && /^["']?data:image\/svg\+xml,/.test(p.args) && new RegExp(`#${MASK_STROKE_ID}["']?$`).test(p.args);
 
 /** A number or a percentage as a factor (`1.1`, `110%`). */
 const factorOf = (args: string) => (/^-?\d*\.?\d+%$/.test(args) ? Number(args.slice(0, -1)) / 100 : /^-?\d*\.?\d+$/.test(args) ? Number(args) : NaN);

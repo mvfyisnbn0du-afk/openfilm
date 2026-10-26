@@ -2,11 +2,17 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
   MASK_SHAPES, MASK_STROKE_POSITIONS, clampMask, fadeIn, maskCss, maskDefault, maskLayersOf, maskOf, maskOwned, maskStackCss,
-  maskStackOf, maskStrokeOf, shapeLayers, withFade, withMask, type Mask, type MaskStroke,
+  maskStackOf, maskStrokeOf, shapeLayers, withFade, type Mask, type MaskBox, type MaskStroke,
 } from './clip-mask.ts';
 import { adjustOf, cropCss, fadeCss, ownedDeclaration, shadowOf, withAdjust, withDeclarations, withShadow, declared } from './clip-look.ts';
 
 const BOX = { w: 1920, h: 1080 };
+
+/** The two mask properties with the shape set, as the panel writes them (maskCss), with no filter. */
+const withMask = (maskImage: string | undefined, maskComposite: string | undefined, mask: Mask | null, box?: MaskBox | null) => {
+  const css = maskCss((p) => (p === 'mask-image' ? maskImage : p === 'mask-composite' ? maskComposite : undefined), mask, box);
+  return css && { 'mask-image': css['mask-image'], 'mask-composite': css['mask-composite'] };
+};
 
 const css = (m: Mask, box = BOX) => maskStackCss([], shapeLayers(m, box));
 const near = (a: Mask, b: Mask, tol = 0.06) => {
@@ -179,9 +185,9 @@ const STROKE: MaskStroke = { width: 0.5, color: '#ff3b30', position: 'center' };
 test('a stroke is a filter drawn over the picture, and a mask layer for what is past the edge', () => {
   const m = { ...maskDefault('ellipse', BOX), w: 40, h: 60 };
   const css = maskCss(reader({}), m, BOX, STROKE)!;
-  assert.match(css.filter!, /^url\("data:image\/svg\+xml,%3Csvg xmlns='http:\/\/www.w3.org\/2000\/svg'%3E%3Cfilter id='mask-stroke' x='0' y='0' width='1' height='1' primitiveUnits='objectBoundingBox'/);
+  assert.match(css.filter!, /^url\("data:image\/svg\+xml,%3Csvg xmlns='http:\/\/www.w3.org\/2000\/svg'%3E%3Cfilter id='openfilm-mask-stroke' x='0' y='0' width='1' height='1' primitiveUnits='objectBoundingBox'/);
   assert.match(css.filter!, /feImage href='data:image\/svg\+xml;base64,[A-Za-z0-9+/=]+'/);
-  assert.ok(css.filter!.endsWith(`#mask-stroke")`));
+  assert.ok(css.filter!.endsWith(`#openfilm-mask-stroke")`));
   assert.deepEqual(maskStrokeOf(css.filter!), STROKE);
   /* across the edge: one more layer, added above the shape */
   const layers = maskLayersOf(css['mask-image']!);
@@ -229,8 +235,6 @@ test('the shape changed, its stroke goes with it; the mask taken off, the stroke
   assert.equal('filter' in maskCss(reader({}), m, BOX)!, false);
   /* the stroke taken away alone */
   assert.equal(maskCss(reader(first), m, BOX, null)!.filter, 'brightness(1.2)');
-  /* withMask knows no filter: it writes the shape alone */
-  assert.equal(maskLayersOf(withMask(first['mask-image']!, first['mask-composite']!, m, BOX)!['mask-image']!).length, 1);
 });
 
 test('the filter controls keep a mask stroke last, and say it is theirs', () => {
@@ -263,7 +267,11 @@ test('faded edges and a stroked shape share mask-image: the stroke stays with th
 });
 
 test('a stroke filter that is not readable, or a filter written by hand, takes no stroke', () => {
-  assert.equal(maskStrokeOf('url("data:image/svg+xml,%3Csvg/%3E#mask-stroke")'), null);
+  assert.equal(maskStrokeOf('url("data:image/svg+xml,%3Csvg/%3E#openfilm-mask-stroke")'), null);
+  /* a filter of the page's own with that id is the page's: kept as written */
+  const own = 'url(#openfilm-mask-stroke)';
+  assert.equal(maskStrokeOf(own), undefined);
+  assert.equal(maskCss(reader({ filter: own }), maskDefault('ellipse', BOX), BOX, STROKE)!.filter!.startsWith(`${own} url("data:`), true);
   assert.equal(maskStrokeOf('blur(2px)'), undefined);
   const css = maskCss(reader({ filter: 'blur(2px' }), maskDefault('ellipse', BOX), BOX, STROKE)!;
   assert.equal('filter' in css, false);

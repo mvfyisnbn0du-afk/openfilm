@@ -518,17 +518,6 @@ export function fadeIn(maskImage: string | undefined, maskComposite: string | un
   return maskStackOf(maskImage, maskComposite).fade;
 }
 
-/**
- * The properties with the shape set (null: taken off), the faded edges kept as written; null when it is a custom mask.
- * Without the filter a stroke is not known, and not written (maskCss writes the two together).
- */
-export function withMask(
-  maskImage: string | undefined, maskComposite: string | undefined, mask: Mask | null, box?: MaskBox | null,
-): { 'mask-image': string | null; 'mask-composite': string | null } | null {
-  const css = maskCss((p) => (p === 'mask-image' ? maskImage : p === 'mask-composite' ? maskComposite : undefined), mask, box);
-  return css && { 'mask-image': css['mask-image'], 'mask-composite': css['mask-composite'] };
-}
-
 /** The properties with the faded edges set (null: taken off), the shape kept as written; null when it is a custom mask. */
 export function withFade(
   maskImage: string | undefined, maskComposite: string | undefined, fade: Fade | null,
@@ -552,11 +541,13 @@ export function maskOwned(prop: string, value: string, all: (p: string) => strin
  * feather): inside it, across it or outside it — the side the picture shows on being the inside, so an inverted
  * shape's inside is around it.
  *
- * A mask only hides, and nothing else in a box's own CSS paints over its picture, so the stroke is an SVG filter:
- * `url("data:image/svg+xml,…#mask-stroke")`, last in `filter`, laying an image of the stroke over the picture. The
- * image is an SVG in the box's proportions, as the mask's own (its viewBox in units, `preserveAspectRatio='none'`),
- * placed over the whole box (`primitiveUnits='objectBoundingBox'`), so the stroke scales with the box as the mask
- * does. It is base64: the only way Chromium loads an image inside a filter that is itself a data URL.
+ * A mask only hides, and nothing else in a box's own CSS paints over its picture, so the stroke is an SVG filter,
+ * `url("data:image/svg+xml,…#openfilm-mask-stroke")`, last in `filter`, laying an image of the stroke over the
+ * picture. The image is an SVG in the box's proportions, as the mask's own (its viewBox in units,
+ * `preserveAspectRatio='none'`), placed over the whole box (`primitiveUnits='objectBoundingBox'`), so the stroke
+ * scales with the box as the mask does. It is base64: the only way Chromium loads an image inside a filter that is
+ * itself a data URL. WebKit loads no such filter: there no stroke is drawn, and the mask layer below lets the picture
+ * show past the edge as far as the stroke would reach.
  *
  * A filter is drawn before the mask, which then hides what is past the edge: the stroke's outer part is let through
  * by one more mask layer, added right above the shape's layers (`mask-composite: add`). The filter draws that part
