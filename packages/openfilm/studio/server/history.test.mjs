@@ -26,7 +26,9 @@ const project = () => {
   writeFileSync(join(root, 'title.html'), 'title');
   return root;
 };
-const gitEnv = (root) => ({ ...process.env, GIT_DIR: join(root, '.film', 'history'), GIT_WORK_TREE: root, GIT_CONFIG_NOSYSTEM: '1' });
+/* who writes the versions an earlier edition made, as Studio does (history-store.mjs): a CI runner has no git identity */
+const gitEnv = (root) => ({ ...process.env, GIT_DIR: join(root, '.film', 'history'), GIT_WORK_TREE: root, GIT_CONFIG_NOSYSTEM: '1',
+  GIT_AUTHOR_NAME: 'OpenFilm Studio', GIT_AUTHOR_EMAIL: 'studio@openfilm.local', GIT_COMMITTER_NAME: 'OpenFilm Studio', GIT_COMMITTER_EMAIL: 'studio@openfilm.local' });
 const gitOut = (root, args, input) => execFileSync('git', args, { cwd: root, env: gitEnv(root), ...(input ? { input } : {}) }).toString();
 /** What a version holds. */
 const tracked = (root, rev = 'HEAD') => gitOut(root, ['ls-tree', '-r', '--name-only', rev]).trim().split('\n').filter(Boolean).sort();
@@ -364,7 +366,7 @@ test('progress is told while an action runs', async () => {
 
 /** A history as an earlier Studio kept it: everything but .film/ and video, committed with `git add --all`. */
 function oldHistory(root) {
-  const git = (...args) => execFileSync('git', args, { cwd: root, env: { ...gitEnv(root), GIT_AUTHOR_NAME: 'OpenFilm Studio', GIT_AUTHOR_EMAIL: 'studio@openfilm.local', GIT_COMMITTER_NAME: 'OpenFilm Studio', GIT_COMMITTER_EMAIL: 'studio@openfilm.local' } }).toString();
+  const git = (...args) => execFileSync('git', args, { cwd: root, env: gitEnv(root) }).toString();
   mkdirSync(join(root, '.film', 'history', 'info'), { recursive: true });
   git('init', '--quiet', '--template=', '--initial-branch=main');
   git('config', 'core.autocrlf', 'false');
