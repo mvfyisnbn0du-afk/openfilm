@@ -1144,15 +1144,17 @@ function FilmStageSelectImpl({
         if (!nudgeClip(e)) nudgeLayer(e);
         return;
       }
-      /* the shortcuts are the menu's items: ⇧⌘H hide, ⇧⌘L lock, ] / [ to the front / back; grayed ones
-         do nothing. A whole clip's delete / copy / paste are the timeline's keys. */
+      /* the shortcuts are the menu's items: ⇧⌘H hide, ⇧⌘L lock, ] / [ to the front / back, Delete (the timeline's
+         keys for it) deletes; grayed ones do nothing. A whole clip's delete / copy / paste are the timeline's keys. */
       const mod = e.metaKey || e.ctrlKey;
       const k = e.key.toLowerCase();
+      const action = keyAction(e);
       const menuId = mod && e.shiftKey && k === 'h' ? 'hide'
         : mod && e.shiftKey && k === 'l' ? 'lock'
           : !mod && !e.altKey && e.key === ']' ? 'front'
             : !mod && !e.altKey && e.key === '[' ? 'back'
-              : null;
+              : action === 'remove' || action === 'ripple-delete' ? 'delete'
+                : null;
       /* C crops the video or still in hand */
       if (!mod && !e.altKey && !e.shiftKey && k === 'c' && !textEdit.current && !typingNow()) {
         if (startCrop()) e.preventDefault();
@@ -1173,8 +1175,12 @@ function FilmStageSelectImpl({
             e.preventDefault();
             e.stopPropagation();
             item.onSelect();
+            /* a delete leaves no frame behind (the layer is gone) */
+            if (menuId === 'delete') dropPick();
             return;
           }
+          /* a locked layer's Delete deletes nothing, not its clip on the timeline either */
+          if (item && menuId === 'delete') { e.preventDefault(); e.stopPropagation(); return; }
         }
       }
       if (e.key === 'Enter' && !e.metaKey && !e.ctrlKey && !e.altKey && !e.shiftKey) {
