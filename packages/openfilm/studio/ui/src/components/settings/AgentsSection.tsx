@@ -51,7 +51,7 @@ function useHostAgents(): HostAgent[] | null {
     const stop = host.onChange((list) => { revision++; if (live) setAgents(list); });
     read(() => host.list());
     /* a sign-in finished in Terminal: coming back is the moment to look again */
-    const onFocus = () => read(() => host.refresh ? host.refresh() : host.list());
+    const onFocus = () => read(() => host.list());
     window.addEventListener('focus', onFocus);
     return () => { live = false; stop(); window.removeEventListener('focus', onFocus); };
   }, []);
@@ -329,7 +329,7 @@ export function AgentsSection() {
         {agent.status === 'waiting' || open || said || asking || switchHow || agent.chosen || meter || notice?.id === agent.id || (chosen && agent.status === 'ready' && (host.mcp || host.skills)) ? (
           <div className="flex flex-col gap-1.5 pl-[34px]">
             {notice?.id === agent.id ? <p role="status" className="text-[13.5px] leading-relaxed text-[var(--text-muted)]">{notice.text}</p> : null}
-            {said ? <p role="alert" className={settingsError}>{agent.id === 'byok' ? said : t('settings.agents.actionFailed')}</p> : null}
+            {said ? <p role="alert" className={settingsError}>{said}</p> : null}
             {meter ? (
               <div className="flex flex-col gap-1.5" aria-label={t('settings.agents.usage')}>
                 {plan === undefined ? (

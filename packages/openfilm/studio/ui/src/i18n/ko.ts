@@ -1759,7 +1759,6 @@ export const ko: Words = {
       programLocation: "사용 중인 연결 프로그램:",
       recheck: "다시 검색",
       technicalDetails: "기술 세부 정보",
-      actionFailed: "이 작업을 완료하지 못했습니다. 도움말에서 원인을 확인하거나 다른 설치 폴더를 선택하세요.",
       missing: "연결 구성 요소를 찾지 못했습니다",
       claudeSetup: "Claude의 Code 탭을 열어 연결 구성 요소를 초기화하세요.",
       locate: '직접 선택…',

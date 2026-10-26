@@ -1763,7 +1763,6 @@ export const ja: Words = {
       programLocation: "使用中の接続プログラム：",
       recheck: "再検出",
       technicalDetails: "技術的な詳細",
-      actionFailed: "この操作を完了できませんでした。ヘルプで原因を確認するか、別のインストール先を選択してください。",
       missing: "接続コンポーネントが見つかりません",
       claudeSetup: "Claude の Code タブを開き、接続コンポーネントを初期化してください。",
       locate: '手動で選択…',

@@ -1764,7 +1764,6 @@ export const en = {
       programLocation: "Connection program in use:",
       recheck: "Check again",
       technicalDetails: "Technical details",
-      actionFailed: "This step could not be completed. Use the help icon for details, or choose another installation folder.",
       missing: "Connection component not found",
       claudeSetup: "Open the Code tab in Claude to initialize its connection component.",
       locate: 'Locate…',

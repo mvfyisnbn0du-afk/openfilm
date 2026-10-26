@@ -1763,7 +1763,6 @@ export const es: Words = {
       programLocation: "Programa de conexión en uso:",
       recheck: "Volver a detectar",
       technicalDetails: "Detalles técnicos",
-      actionFailed: "No se pudo completar este paso. Consulta la ayuda o elige otra carpeta de instalación.",
       missing: "No se encontró el componente de conexión",
       claudeSetup: "Abre la pestaña Code de Claude para inicializar su componente de conexión.",
       locate: 'Elegir ubicación…',

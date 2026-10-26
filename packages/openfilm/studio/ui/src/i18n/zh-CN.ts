@@ -1764,7 +1764,6 @@ export const zhCN: Words = {
       programLocation: "正在使用的连接程序：",
       recheck: "重新检测",
       technicalDetails: "技术详情",
-      actionFailed: "这一步未完成。可点击问号查看原因，或重新选择安装文件夹。",
       missing: "尚未找到连接组件",
       claudeSetup: "打开 Claude 的 Code 页面，完成连接组件初始化。",
       locate: '手动选择…',
