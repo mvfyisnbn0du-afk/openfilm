@@ -53,6 +53,35 @@ test('a picture opens in a light viewer: dimmed window, picture centered at its 
     await page.keyboard.press('Escape');
     await dialog.waitFor({ state: 'hidden' });
 
+    /* from the keyboard: the menu key on the picture, its Download focused; Tab stays inside */
+    await open('picture');
+    await picture.waitFor();
+    assert.equal(await picture.evaluate((el) => el === document.activeElement), true, 'the picture has the keys');
+    await page.keyboard.press('Shift+F10');
+    await download.waitFor();
+    assert.equal(await download.evaluate((el) => el === document.activeElement), true, 'its Download focused');
+    await page.keyboard.press('Escape');
+    await download.waitFor({ state: 'hidden' });
+    for (let i = 0; i < 4; i++) {
+      await page.keyboard.press(i % 2 ? 'Shift+Tab' : 'Tab');
+      assert.equal(await dialog.evaluate((el) => el.contains(document.activeElement)), true, 'Tab stays in the viewer');
+    }
+    /* right-clicked by the window's edge: the menu stays inside it */
+    await page.mouse.click(1195, 795, { button: 'right' });
+    await page.mouse.click(895, 595, { button: 'right' });
+    const menuBox = await page.getByRole('menu').boundingBox();
+    assert.ok(menuBox.x + menuBox.width <= 1200 && menuBox.y + menuBox.height <= 800, 'the menu inside the window');
+    await page.keyboard.press('Escape');
+    /* a press begun on the picture and let go beside it does not close it */
+    const at = await picture.boundingBox();
+    await page.mouse.move(at.x + 20, at.y + 20);
+    await page.mouse.down();
+    await page.mouse.move(20, 780);
+    await page.mouse.up();
+    assert.equal(await dialog.isVisible(), true, 'a drag out of the picture keeps it open');
+    await page.keyboard.press('Escape');
+    await dialog.waitFor({ state: 'hidden' });
+
     await open('picture');
     await picture.click();
     assert.equal(await dialog.isVisible(), true, 'a click on the picture keeps it open');

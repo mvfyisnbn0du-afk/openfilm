@@ -170,28 +170,43 @@ export function AttachmentPreview({
 /**
  * A picture opened to look at it: the window dimmed, the picture at its own size in the middle (at most nine tenths of
  * the window, never enlarged), a × to close; Esc and a click beside it close it too. Downloading it is in its
- * right-click menu. A thumbnail kept with a sent message says so under it, and has no Download: a 320px copy under the
- * original's name would be taken for the original.
+ * right-click menu, which the keyboard opens too (the menu key, Shift+F10). A thumbnail kept with a sent message says
+ * so under it, and has no Download: a 320px copy under the original's name would be taken for the original.
  */
 function ImageViewer({ item, onClose }: { item: AttachmentPreviewItem; onClose: () => void }) {
   const t = useT();
   /** where its right-click menu is open, or null */
   const [menu, setMenu] = React.useState<{ x: number; y: number } | null>(null);
   const box = React.useRef<HTMLDivElement>(null);
+  const picture = React.useRef<HTMLImageElement>(null);
+  const menuBox = React.useRef<HTMLDivElement>(null);
+  /** a press that began on the backdrop: only such a click closes it, not one dragged out of the picture */
+  const pressedBeside = React.useRef(false);
   const closeRef = React.useRef(onClose);
   closeRef.current = onClose;
   const menuRef = React.useRef(menu);
   menuRef.current = menu;
+  const top = previewTop(navigator.platform);
   React.useEffect(() => {
     const previous = document.activeElement instanceof HTMLElement ? document.activeElement : null;
-    box.current?.focus({ preventScroll: true });
-    /* Esc closes the menu first, then the picture; nothing under it takes the key */
+    /* the picture takes the keys, so its menu key opens its menu */
+    (picture.current ?? box.current)?.focus({ preventScroll: true });
     const onKey = (event: KeyboardEvent) => {
-      if (event.key !== 'Escape') return;
-      event.preventDefault();
-      event.stopPropagation();
-      if (menuRef.current) setMenu(null);
-      else closeRef.current();
+      /* Esc closes the menu first, then the picture; nothing under it takes the key */
+      if (event.key === 'Escape') {
+        event.preventDefault();
+        event.stopPropagation();
+        if (menuRef.current) { setMenu(null); picture.current?.focus({ preventScroll: true }); } else closeRef.current();
+        return;
+      }
+      /* Tab goes round what is here, never to the chat behind it (as PreviewFrame's) */
+      if (event.key !== 'Tab') return;
+      const targets = Array.from(box.current?.querySelectorAll<HTMLElement>('button, a[href], [tabindex="0"]') ?? []).filter((el) => el.getClientRects().length > 0);
+      const first = targets[0];
+      const last = targets.at(-1);
+      if (!first) { event.preventDefault(); return; }
+      if (event.shiftKey && (document.activeElement === first || document.activeElement === box.current)) { event.preventDefault(); last?.focus(); }
+      else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first.focus(); }
     };
     window.addEventListener('keydown', onKey, true);
     return () => {
@@ -199,35 +214,64 @@ function ImageViewer({ item, onClose }: { item: AttachmentPreviewItem; onClose: 
       if (previous?.isConnected) previous.focus({ preventScroll: true });
     };
   }, []);
+  /* the menu inside the window, however near its edge it was opened; its item focused, for the keyboard */
+  React.useLayoutEffect(() => {
+    const el = menuBox.current;
+    if (!menu || !el) return;
+    const { width, height } = el.getBoundingClientRect();
+    const x = Math.max(8, Math.min(menu.x, window.innerWidth - width - 8));
+    const y = Math.max(8, Math.min(menu.y, window.innerHeight - height - 8));
+    if (x !== menu.x || y !== menu.y) setMenu({ x, y });
+    el.querySelector<HTMLElement>('[role="menuitem"]')?.focus({ preventScroll: true });
+  }, [menu]);
+  /** the menu where it was asked for: at the pointer, or, from the keyboard, the picture's middle */
+  const openMenu = (event: React.MouseEvent) => {
+    event.preventDefault();
+    event.stopPropagation();
+    if (item.thumbOnly) return;
+    const rect = picture.current?.getBoundingClientRect();
+    const onPicture = rect && event.clientX >= rect.left && event.clientX <= rect.right && event.clientY >= rect.top && event.clientY <= rect.bottom;
+    if (onPicture) setMenu({ x: event.clientX, y: event.clientY });
+    else if (rect) setMenu({ x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 });
+  };
 
   if (typeof document === 'undefined') return null;
   return createPortal(
     <div ref={box} tabIndex={-1} role="dialog" aria-modal="true" aria-label={item.name}
       className="fixed inset-0 z-[10100] flex flex-col items-center justify-center gap-3 bg-black/75 outline-none"
-      style={{ paddingTop: previewTop(navigator.platform), WebkitAppRegion: 'no-drag' } as React.CSSProperties}
-      onClick={() => (menu ? setMenu(null) : onClose())}
+      style={{ paddingTop: top, WebkitAppRegion: 'no-drag' } as React.CSSProperties}
+      onPointerDown={(event) => { pressedBeside.current = event.target === event.currentTarget; }}
+      onClick={(event) => {
+        if (menu) { setMenu(null); return; }
+        if (event.target === event.currentTarget && pressedBeside.current) onClose();
+      }}
       onContextMenu={(event) => { event.preventDefault(); setMenu(null); }}>
       <button type="button" onClick={onClose} aria-label={t('assets.close')}
-        className="absolute right-4 flex h-8 w-8 items-center justify-center rounded-full bg-black/40 text-white/80 transition hover:bg-black/60 hover:text-white"
+        className="absolute right-4 z-10 flex h-8 w-8 items-center justify-center rounded-full bg-black/40 text-white/80 transition hover:bg-black/60 hover:text-white"
         /* below the window's own buttons, which Windows draws over the top right (preview-top) */
-        style={{ top: previewTop(navigator.platform) }}>
+        style={{ top }}>
         <X size={16} />
       </button>
       {/* eslint-disable-next-line @next/next/no-img-element */}
-      <img src={item.url} alt={item.name} draggable={false}
-        className="block max-h-[90vh] max-w-[90vw] object-contain shadow-2xl"
+      <img ref={picture} src={item.url} alt={item.name} draggable={false} tabIndex={0}
+        className="block max-w-[90vw] object-contain shadow-2xl outline-none focus-visible:ring-2 focus-visible:ring-white/60"
+        /* nine tenths of the window, less the room above it and the thumbnail's note under it */
+        style={{ maxHeight: `calc(90vh - ${top}${item.thumbOnly ? ' - 3rem' : ''})` }}
         onClick={(event) => { event.stopPropagation(); setMenu(null); }}
-        onContextMenu={(event) => {
+        onContextMenu={openMenu}
+        /* the menu key and Shift+F10 open it on every system: macOS's browser makes no right-click of them */
+        onKeyDown={(event) => {
+          if (event.key !== 'ContextMenu' && !(event.key === 'F10' && event.shiftKey)) return;
           event.preventDefault();
-          event.stopPropagation();
-          setMenu(item.thumbOnly ? null : { x: event.clientX, y: event.clientY });
+          const rect = picture.current?.getBoundingClientRect();
+          if (rect && !item.thumbOnly) setMenu({ x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 });
         }} />
       {item.thumbOnly ? <p className="max-w-[90vw] text-center text-[11.5px] text-white/60">{t('composer.thumbOnly')}</p> : null}
       {menu ? (
-        <div role="menu" className="fixed min-w-[140px] p-1" style={{ ...POPOVER_CHROME, left: menu.x, top: menu.y }}
+        <div ref={menuBox} role="menu" className="fixed min-w-[140px] p-1" style={{ ...POPOVER_CHROME, left: menu.x, top: menu.y }}
           onClick={(event) => event.stopPropagation()}>
           <a role="menuitem" href={item.url} download={item.name} onClick={() => setMenu(null)}
-            className="flex h-7 items-center gap-2 rounded-[6px] px-2 text-[13px] text-[var(--text)] hover:bg-[var(--bg-hover)]">
+            className="flex h-7 items-center gap-2 rounded-[6px] px-2 text-[13px] text-[var(--text)] outline-none hover:bg-[var(--bg-hover)] focus-visible:bg-[var(--bg-hover)]">
             <Download size={13} />{t('assets.download')}
           </a>
         </div>
