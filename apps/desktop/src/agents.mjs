@@ -869,9 +869,11 @@ export const CODEX_TESTED = '0.132.0';
 
 /**
  * The oldest Claude Code the chat was tried with. An older one lists only the models it knows: 2.1.288 has no Haiku
- * 5.5, which 2.1.310 has (#230), and the person takes that for OpenFilm's or the service's doing.
+ * 5.5, which 2.1.308 has (#230), and the person takes that for OpenFilm's or the service's doing. Never above npm's
+ * `stable`, which the Claude app, the Homebrew cask and `claude update` follow: else most are told to update with
+ * nothing to update to.
  */
-export const CLAUDE_TESTED = '2.1.310';
+export const CLAUDE_TESTED = '2.1.308';
 
 /**
  * A Claude Code older than CLAUDE_TESTED, for Settings › Agents to say so: its version, the one tried, the command that

@@ -545,7 +545,7 @@ test("Codex found but unable to read its own settings says so, with what it said
 test('a connected Claude Code older than the chat was tried with says so, with its version and how to update it', async () => {
   const dir = mkdtempSync(join(tmpdir(), 'of-roster-'));
   writeFileSync(join(dir, 'agents.json'), JSON.stringify({ disconnected: [], shown: { claude: true } }));
-  const outdated = { version: '2.1.288', tested: '2.1.310', update: 'npm i -g @anthropic-ai/claude-code@latest' };
+  const outdated = { version: '2.1.288', tested: '2.1.308', update: 'npm i -g @anthropic-ai/claude-code@latest' };
   const r = roster(dir, undefined, {
     localAgents: async () => [{ id: 'claude', cli: { path: '/bin/claude' }, signedIn: true, account: null, outdated, install: null, setupRequired: null }],
   });
