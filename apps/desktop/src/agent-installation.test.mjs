@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { mkdirSync, mkdtempSync, symlinkSync, utimesSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { AGENT_INSTALLERS, chosenProgram, claudeAppCli, codexAppCopies, claudeVersion, cmdTarget, codexVersion, consoleProgram, desktopApp, detectAgentInstallation, findExecutable, installCommand, laterVersion, notTheAgent, opencodeVersion, searchReport, windowsBinDirs } from './agent-installation.mjs';
+import { AGENT_INSTALLERS, chosenProgram, claudeAppCli, claudeUpdateCommand, codexAppCopies, claudeVersion, cmdTarget, codexVersion, consoleProgram, desktopApp, detectAgentInstallation, findExecutable, installCommand, laterVersion, notTheAgent, opencodeVersion, searchReport, windowsBinDirs } from './agent-installation.mjs';
 
 test("an npm .cmd shim (Windows) runs its package's script: that is what gets started", () => {
   const npm = mkdtempSync(join(tmpdir(), 'of-npm-'));
@@ -209,6 +209,20 @@ test('the report: every folder searched, each file with the name, what a shim ru
     { file: join(npm, 'qwen.cmd'), runs: script, usable: true },
     { file: join(npm, 'qwen.ps1'), runs: null, usable: false },
   ]);
+});
+
+test('Claude Code is updated the way it was installed: npm, Homebrew, its own installer; the Claude app updates its own', () => {
+  if (process.platform === 'win32') return;
+  const home = mkdtempSync(join(tmpdir(), 'of-home-'));
+  const exe = (file) => { mkdirSync(join(file, '..'), { recursive: true }); writeFileSync(file, '', { mode: 0o755 }); return file; };
+  const npm = join(home, 'lib/node_modules/@anthropic-ai/claude-code');
+  exe(join(npm, 'cli.js'));
+  writeFileSync(join(npm, 'package.json'), JSON.stringify({ name: '@anthropic-ai/claude-code', version: '2.1.288' }));
+  assert.equal(claudeUpdateCommand(join(npm, 'cli.js')), 'npm i -g @anthropic-ai/claude-code@latest');
+  assert.equal(claudeUpdateCommand(exe(join(home, 'homebrew/Caskroom/claude-code/2.1.288/claude'))), 'brew upgrade --cask claude-code');
+  assert.equal(claudeUpdateCommand(exe(join(home, '.local/share/claude/versions/2.1.288'))), 'claude update');
+  assert.equal(claudeUpdateCommand(exe(join(home, 'Library/Application Support/Claude/claude-code/2.1.288/abc/claude'))), null);
+  assert.equal(claudeUpdateCommand(join(home, 'not-there')), null);
 });
 
 test('Claude Code on the PATH and in the Claude app: the later one is used, told from where each is installed', () => {

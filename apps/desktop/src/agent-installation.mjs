@@ -183,6 +183,25 @@ export function claudeVersion(file) {
   return real.split(/[\\/]/).reverse().find((part) => /^\d+\.\d+\.\d+$/.test(part)) ?? null;
 }
 
+/**
+ * How a Claude Code is updated, told from where it is installed, as claudeVersion tells its version: npm's with npm,
+ * Homebrew's with brew, the official installer's with `claude update`. Null for the Claude app's own copy, which the
+ * app keeps up to date, and for one whose way can't be told.
+ */
+export function claudeUpdateCommand(file) {
+  let real;
+  try { real = realpathSync(file); } catch { return null; }
+  for (let dir = dirname(real), up = 0; up < 3; dir = dirname(dir), up += 1) {
+    try {
+      if (JSON.parse(readFileSync(join(dir, 'package.json'), 'utf8')).name === '@anthropic-ai/claude-code') return 'npm i -g @anthropic-ai/claude-code@latest';
+    } catch { /* not here */ }
+  }
+  const parts = real.split(/[\\/]/);
+  if (parts.includes('Caskroom')) return 'brew upgrade --cask claude-code';
+  if (parts.some((part, i) => part === 'claude' && parts[i + 1] === 'versions')) return 'claude update';
+  return null;
+}
+
 /** What programs said of their version (`--version`), by program and its time: each asked once. */
 const versionsAsked = new Map();
 
