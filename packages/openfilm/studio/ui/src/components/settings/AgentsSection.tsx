@@ -335,7 +335,7 @@ export function AgentsSection() {
             {outdated ? (
               <div className="flex flex-col gap-1.5">
                 <p role="status" className="text-[13.5px] leading-relaxed text-[var(--text-muted)]">
-                  {t(outdated.update ? 'settings.agents.outdated' : 'settings.agents.outdatedApp')
+                  {t(outdated.update ? 'settings.agents.outdated' : outdated.app ? 'settings.agents.outdatedApp' : 'settings.agents.outdatedOther')
                     .replace('{name}', agent.name).replace('{version}', outdated.version).replace('{tested}', outdated.tested)}
                 </p>
                 {outdated.update ? <code className="block break-all rounded-[6px] bg-[var(--fill-tsp)] px-2.5 py-2 font-mono text-[12.5px] text-[var(--text)]">{outdated.update}</code> : null}

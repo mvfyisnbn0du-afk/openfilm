@@ -1782,6 +1782,7 @@ export const es: Words = {
       unreadable: 'No puede leer su propia configuración, así que no puede iniciarse. Corrige lo que indica en su archivo de configuración o actualízalo:',
       outdated: '{name} {version} es anterior a la {tested} con la que se probó OpenFilm, así que el menú de modelos puede no tener los más nuevos. Actualízalo y vuelve a abrir el chat:',
       outdatedApp: '{name} {version} es anterior a la {tested} con la que se probó OpenFilm, así que el menú de modelos puede no tener los más nuevos. Actualiza la app de Claude, que mantiene su copia al día.',
+      outdatedOther: '{name} {version} es anterior a la {tested} con la que se probó OpenFilm, así que el menú de modelos puede no tener los más nuevos. Actualízalo de la misma forma en que lo instalaste y vuelve a abrir el chat.',
       whyMissing: '¿Por qué no se encuentra?',
       searching: 'Buscando…',
       hintChosenMissing: "La ubicación seleccionada o su programa de conexión ya no está disponible. Vuelve a elegirla o usa la detección automática.",

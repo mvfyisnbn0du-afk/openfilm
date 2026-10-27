@@ -36,7 +36,7 @@ import { Readable, Writable } from 'node:stream';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import * as acp from '@agentclientprotocol/sdk';
 import { PATH_SEP, childEnvironment, lastPathSource, loginShellEnvironment, loginShellVariables, shellSubset } from './environment.mjs';
-import { AGENT_PROGRAMS, HOME_BIN_CANDIDATES, chosenProgram, claudeUpdateCommand, claudeVersion, codexAppCopies, codexVersion, desktopApp, detectAgentInstallation, installCommand, laterVersion, notTheAgent, searchReport } from './agent-installation.mjs';
+import { AGENT_PROGRAMS, HOME_BIN_CANDIDATES, chosenProgram, claudeUpdate, claudeVersion, codexAppCopies, codexVersion, desktopApp, detectAgentInstallation, installCommand, laterVersion, notTheAgent, searchReport } from './agent-installation.mjs';
 import { logSwitches } from './agent-logs.mjs';
 import { mergeConfig, sessionSkills } from './agent-skills.mjs';
 import { nodeBinary } from './node-runtime.mjs';
@@ -874,15 +874,16 @@ export const CODEX_TESTED = '0.132.0';
 export const CLAUDE_TESTED = '2.1.310';
 
 /**
- * A Claude Code older than CLAUDE_TESTED, for Settings › Agents to say so: its version, the one tried, and the command
- * that updates it (null: the Claude app's own copy, which the app updates). Null when it is not older, or its version
- * can't be told.
- * @param {string} path @param {{ versionOf?: (file: string) => string | null, updateOf?: (file: string) => string | null }} [o]
+ * A Claude Code older than CLAUDE_TESTED, for Settings › Agents to say so: its version, the one tried, the command that
+ * updates it (null when it has none), and `app` for the Claude app's own copy, which the app updates. Null when it is not
+ * older, or its version can't be told.
+ * @param {string} path @param {{ versionOf?: (file: string) => string | null, updateOf?: (file: string) => { command: string } | { app: true } | null }} [o]
  */
-export function claudeOutdated(path, { versionOf = claudeVersion, updateOf = claudeUpdateCommand } = {}) {
+export function claudeOutdated(path, { versionOf = claudeVersion, updateOf = claudeUpdate } = {}) {
   const version = versionOf(path);
   if (!version || !laterVersion(CLAUDE_TESTED, version)) return null;
-  return { version, tested: CLAUDE_TESTED, update: updateOf(path) };
+  const how = updateOf(path);
+  return { version, tested: CLAUDE_TESTED, update: how && 'command' in how ? how.command : null, ...(how && 'app' in how ? { app: true } : {}) };
 }
 
 /**

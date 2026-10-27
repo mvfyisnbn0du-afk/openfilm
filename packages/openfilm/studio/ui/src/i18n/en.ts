@@ -1783,6 +1783,7 @@ export const en = {
       unreadable: 'It can’t read its own settings, so it can’t start. Fix what it names in its config file, or update it:',
       outdated: '{name} {version} is older than the {tested} OpenFilm was tested with, so the model menu may not have its newest models. Update it, then reopen the chat:',
       outdatedApp: '{name} {version} is older than the {tested} OpenFilm was tested with, so the model menu may not have its newest models. Update the Claude app, which keeps its copy up to date.',
+      outdatedOther: '{name} {version} is older than the {tested} OpenFilm was tested with, so the model menu may not have its newest models. Update it the way you installed it, then reopen the chat.',
       whyMissing: 'Why isn’t it found?',
       searching: 'Searching…',
       hintChosenMissing: "The selected installation location or its connection program is no longer there. Choose it again or return to automatic detection.",
