@@ -13,6 +13,7 @@ import { Download, X } from 'lucide-react';
 import { PREVIEW_BTN, PreviewFrame, previewMediaFit } from './PreviewFrame';
 import { POPOVER_CHROME } from './ComposerCard';
 import { chatLayer } from '@/lib/chat-layer';
+import { escTaken } from '@/lib/esc-stop';
 import { previewTop } from '@/lib/preview-top';
 import { Tooltip } from './Tooltip';
 import { attachmentIcon, attachmentKind } from '@/lib/project-resources';
@@ -196,6 +197,7 @@ function ImageViewer({ item, onClose }: { item: AttachmentPreviewItem; onClose: 
       if (event.key === 'Escape') {
         event.preventDefault();
         event.stopPropagation();
+        escTaken(event);
         if (menuRef.current) { setMenu(null); picture.current?.focus({ preventScroll: true }); } else closeRef.current();
         return;
       }
