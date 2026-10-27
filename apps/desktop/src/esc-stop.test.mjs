@@ -32,6 +32,7 @@ test('an Esc held down, or one already handled in the chat, does not stop the tu
   assert.equal(stops(esc(10000), true), true);
 });
 
+/* last: what a viewer took is kept for the whole module, so it comes after the times the tests above use */
 test('an Esc in the chat just after one that closed a picture or file viewer does not stop the turn; one a while later does', () => {
   const stops = escStopper();
   /* the viewer took the first, so the chat never heard it */

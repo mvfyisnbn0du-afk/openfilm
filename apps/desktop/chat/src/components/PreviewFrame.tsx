@@ -72,7 +72,8 @@ export function PreviewFrame({
     box.current?.focus({ preventScroll: true });
     const onKey = (event: KeyboardEvent) => {
       if (event.key === 'Escape') {
-        if (document.fullscreenElement) return;
+        /* it leaves the video's full screen, and is the viewer's all the same */
+        if (document.fullscreenElement) { escTaken(event); return; }
         event.preventDefault();
         event.stopPropagation();
         escTaken(event);
