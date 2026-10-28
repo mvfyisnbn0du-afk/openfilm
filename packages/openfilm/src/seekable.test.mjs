@@ -7,7 +7,7 @@ import { join, relative, sep } from 'node:path';
 import { filmHtml } from './film-doc.mjs';
 import { launch, serve } from './host.mjs';
 import { render } from './render.mjs';
-import { copyNeed, firstFrame, madeCopy, seekableCopies, slowSeeking } from './seekable.mjs';
+import { copyNeed, firstFrame, hasAlpha, madeCopy, seekableCopies, slowSeeking } from './seekable.mjs';
 import { look } from './look.mjs';
 
 const hasFfmpeg = (() => { try { execFileSync('ffmpeg', ['-version'], { stdio: 'ignore' }); return true; } catch { return false; } })();
@@ -39,6 +39,16 @@ test('a video with key frames far apart gets a copy with the same frames at the 
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
+});
+
+test('an alpha is seen in a pixel format, beside a VP9\'s picture, and as an HEVC\'s second layer', () => {
+  /* as ffprobe 8.1 tells them */
+  assert.equal(hasAlpha({ pix_fmt: 'yuva444p12le' }), true, 'ProRes 4444');
+  assert.equal(hasAlpha({ pix_fmt: 'argb' }), true, 'QuickTime Animation');
+  assert.equal(hasAlpha({ pix_fmt: 'yuv420p', tags: { alpha_mode: '1' } }), true, 'VP9 with its alpha');
+  assert.equal(hasAlpha({ pix_fmt: 'yuv420p', view_ids_available: '0,0', tags: {} }), true, "Apple's HEVC with alpha");
+  assert.equal(hasAlpha({ pix_fmt: 'yuv420p', view_ids_available: '', tags: {} }), false, 'HEVC without');
+  assert.equal(hasAlpha({ pix_fmt: 'yuv420p' }), false, 'an older ffprobe, H.264');
 });
 
 test('a VP9 with an alpha and key frames far apart keeps its alpha: it gets no copy, which would be H.264, without it', ffmpeg, async () => {
