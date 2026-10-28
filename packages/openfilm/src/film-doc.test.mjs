@@ -353,3 +353,10 @@ test('an attribute holding JSON (Studio\'s data-props) is written in single quot
   assert.deepEqual(back.problems, []);
   assert.equal(back.value.tracks[0].clips[0].attrs['data-props'], list);
 });
+
+test('an override\'s copy is a whole number from 1, one of its own in the clip, written after n', () => {
+  const doc = parseFilm(film({ src: 'a.html', overrides: [{ t: [24, 24], copy: 1, at: '#t' }, { at: '[data-film-copy="1"] b', text: 'Hi' }] }));
+  assert.deepEqual(Object.keys(doc.tracks[0].clips[0].overrides[0]), ['at', 'copy', 't']);
+  assert.match(problems(film({ src: 'a.html', overrides: [{ at: '#t', copy: 0 }] })), /copy has to be a whole number from 1/);
+  assert.match(problems(film({ src: 'a.html', overrides: [{ at: '#t', copy: 1 }, { at: '#u', copy: 1 }] })), /each copy .* has a number of its own/);
+});

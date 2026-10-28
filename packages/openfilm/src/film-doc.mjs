@@ -120,7 +120,7 @@ const CLIP_FIELDS = {
 const KEPT_ATTRIBUTE = /^(alt|title|lang|dir|data-[a-z0-9-]+|aria-[a-z]+)$/;
 /** What a track keeps of its element that says nothing to the film: a name, a class, a description. */
 const KEPT_TRACK_ATTRIBUTE = /^(id|class|title|lang|dir|data-[a-z0-9-]+|aria-[a-z]+)$/;
-const OVERRIDE_FIELDS = ['at', 'n', 't', 's', 'r', 'style', 'lock', 'text', 'fade'];
+const OVERRIDE_FIELDS = ['at', 'n', 'copy', 't', 's', 'r', 'style', 'lock', 'text', 'fade'];
 /** A key of an override's style: a CSS property in camelCase, or a custom property as CSS writes it (`--accent`). */
 const STYLE_KEY = /^(?:[a-zA-Z]{1,40}|--[A-Za-z0-9_-]{1,60})$/;
 const BOX_FIELDS = ['x', 'y', 'w', 'h', 'r'];
@@ -164,6 +164,7 @@ function checkOverride(o, where, problems, kind) {
   unknownKeys(o, OVERRIDE_FIELDS.filter((k) => k !== 'fade'), where, problems);
   if (typeof o.at !== 'string' || !o.at || o.at.length > 512) problems.push(`${where}at has to be a CSS selector of the element.`);
   if (o.n !== undefined && !(Number.isInteger(o.n) && o.n > 0)) problems.push(`${where}n has to be a whole number from 1.`);
+  if (o.copy !== undefined && !(Number.isInteger(o.copy) && o.copy > 0)) problems.push(`${where}copy has to be a whole number from 1.`);
   if (o.t !== undefined && !pair(o.t, isFinite)) problems.push(`${where}t has to be [x, y] in px.`);
   if (o.s !== undefined && !isPositive(o.s) && !pair(o.s, isPositive)) problems.push(`${where}s has to be a multiplier above 0, or [x, y].`);
   if (o.r !== undefined && !isFinite(o.r)) problems.push(`${where}r has to be a number of degrees.`);
@@ -232,6 +233,8 @@ function readClip(raw, where, problems) {
       raw.overrides.forEach((o, i) => checkOverride(o, `${at}overrides[${i}]: `, problems, kind));
       const own = raw.overrides.filter((o) => isObject(o) && o.at === undefined);
       if (own.length > 1) problems.push(`${at}overrides has one entry of the clip's own (without at), not ${own.length}.`);
+      const copies = raw.overrides.filter((o) => isObject(o) && o.copy !== undefined).map((o) => o.copy);
+      if (new Set(copies).size < copies.length) problems.push(`${at}each copy (an override's copy) has a number of its own in the clip.`);
       /* both fades fit in the clip, when its length is written (a still's, or a fragment's end) */
       const fade = own[0]?.fade;
       const length = Array.isArray(raw.time) && raw.time.length === 2 && raw.time.every(isFinite) ? (raw.time[1] - raw.time[0]) / (CLIP_FIELDS[kind].includes('speed') && isFinite(raw.speed) && raw.speed > 0 ? raw.speed : 1) : null;

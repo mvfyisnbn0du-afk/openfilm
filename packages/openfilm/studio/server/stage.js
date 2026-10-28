@@ -335,17 +335,43 @@
     const typed = siblings.filter((c) => c.tagName === el.tagName);
     return `${named}:nth-of-type(${typed.indexOf(el) + 1})`;
   };
+  /* a copy of an element (an override's `copy`, src/overrides.mjs) is named by its number, what is in it from there */
+  const COPY_ATTR = 'data-film-copy';
   const selectorOf = (el) => {
     const doc = el.ownerDocument;
-    if (el.id && doc.querySelectorAll(`#${CSS.escape(el.id)}`).length === 1) return `#${CSS.escape(el.id)}`;
+    if (el.hasAttribute(COPY_ATTR)) return `[${COPY_ATTR}="${el.getAttribute(COPY_ATTR)}"]`;
+    if (el.id && !el.closest(`[${COPY_ATTR}]`)) {
+      const at = `#${CSS.escape(el.id)}`;
+      const found = matches(doc, { at });
+      if (found.length === 1 && found[0] === el) return at;
+    }
     const parentEl = el.parentElement;
     if (!parentEl || el === doc.body) return el.localName;
     return `${parentEl === doc.body ? 'body' : selectorOf(parentEl)} > ${stepOf(el)}`;
   };
+  /** The elements an override is about, as the film finds them (src/overrides.mjs entryNodes). */
   const matches = (doc, o) => {
+    if (o.copy != null) return [...doc.querySelectorAll(`[${COPY_ATTR}="${Number(o.copy)}"]`)];
     let nodes = [];
     try { nodes = [...doc.querySelectorAll(o.at)]; } catch { return []; }
+    if (!String(o.at).includes(COPY_ATTR)) nodes = nodes.filter((el) => !el.closest(`[${COPY_ATTR}]`));
     return o.n ? nodes.slice(o.n - 1, o.n) : nodes;
+  };
+  /**
+   * The page's own element a layer is, or is drawn from: a layer of a copy is the one in the same place in what the
+   * copy copies (a copy of a copy: what that one copies).
+   */
+  const ownOf = (c, el) => {
+    const root = el.closest(`[${COPY_ATTR}]`);
+    if (!root) return el;
+    const entry = (c.overrides ?? []).find((o) => String(o.copy) === root.getAttribute(COPY_ATTR));
+    const from = entry ? matches(el.ownerDocument, { at: entry.at, n: entry.n })[0] : null;
+    if (!from) return null;
+    const path = [];
+    for (let n = el; n !== root; n = n.parentElement) path.unshift([...n.parentElement.children].indexOf(n));
+    let at = ownOf(c, from);
+    for (const i of path) at = at?.children[i] ?? null;
+    return at;
   };
   /** Its selector, and which match it is when the selector finds several. */
   const locOf = (el) => {
@@ -1497,14 +1523,25 @@
       const doc = c?.kind === 'page' ? c.win?.document : null;
       if (!doc) return null;
       const layers = (of ?? []).map((o) => matches(doc, o)[0] ?? null);
-      const keep = layers.map((el) => {
+      const named = (el) => {
         if (!el) return null;
         const at = selectorOf(el);
         return matches(doc, { at }).length === 1 ? at : null;
-      });
+      };
+      const keep = layers.map(named);
+      /* the page's own element each is drawn from, the one a copy of it copies */
+      const own = layers.map((el) => named(el && ownOf(c, el)));
       const held = layers.filter(Boolean);
-      const near = (targets ?? []).map((o) => (o?.at ? matches(doc, o) : []).some((el) => held.some((h) => h.contains(el) || el.contains(h))));
-      return { keep, near };
+      const found = (targets ?? []).map((o) => (o?.at ? matches(doc, o) : []));
+      const near = found.map((list) => list.some((el) => held.some((h) => h.contains(el) || el.contains(h))));
+      /* per target, the layers it finds in each copied one, from there (`''` the layer itself): how it is said of a copy */
+      const inside = found.map((list) => list.flatMap((el) => layers.flatMap((h, layer) => {
+        if (!h || !h.contains(el)) return [];
+        const steps = [];
+        for (let n = el; n !== h; n = n.parentElement) steps.unshift(stepOf(n));
+        return [{ layer, rel: steps.map((step) => ` > ${step}`).join('') }];
+      })));
+      return { keep, near, own, inside };
     },
     /** Stop showing what was not kept on a clip (a refused edit, a cancelled drag). */
     release({ clip }) { release(clip); return true; },

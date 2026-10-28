@@ -106,8 +106,14 @@ import { pictureStyle, relativeTo, type TemplateControls } from '@/lib/template-
 import { propsAttr, propsOf, type ComponentProp } from '@/lib/component-props';
 import { pointersOf, propsWithoutDeleted, withDeleted } from '@/lib/layer-delete';
 import {
-  copiedClip, isLayerClipboardKey, pastePlan, propTargets, readLayerClipboard, writeLayerClipboard, type CopiedClip, type LayerClipboard,
+  copiedClip, copiedTweaks, inPagePlan, isLayerClipboardKey, pastePlan, propTargets, readLayerClipboard, writeLayerClipboard,
+  type CopiedClip, type LayerClipboard,
 } from '@/lib/layer-clipboard';
+
+/** What the stage says of layers being copied (studio/server/stage.js `copying`). */
+type StageCopying = {
+  keep: (string | null)[]; near: boolean[]; own: (string | null)[]; inside: { layer: number; rel: string }[][];
+};
 import type { PropsHost } from './PropertiesSection';
 import type { LayerPropsActions } from './FilmInspector';
 import { SAVED, refreshSaved, savedActions, savedSources, useSavedListing } from '@/lib/saved';
@@ -1048,16 +1054,18 @@ export function ProjectView({ projectId, onProject, onLeave }: {
     const clips: CopiedClip[] = [];
     for (const { clip, targets } of byClip.values()) {
       const block = blocksRef.current.find((b) => b.clipId === clip.id);
-      const own = (clip.overrides ?? []).map((o) => (o.at ? { at: o.at, ...(o.n != null ? { n: o.n } : {}) } : null));
+      const own = (clip.overrides ?? []).map((o) => (o.at ? { at: o.at, ...(o.n != null ? { n: o.n } : {}), ...(o.copy != null ? { copy: o.copy } : {}) } : null));
       const props = propTargets(clip);
-      const answer = await preview.current?.stage?.<{ keep: (string | null)[]; near: boolean[] }>('copying', { clip: clip.id, of: targets, targets: [...own, ...props] });
+      const answer = await preview.current?.stage?.<StageCopying>('copying', { clip: clip.id, of: targets, targets: [...own, ...props] });
       const keep = (answer?.keep ?? []).filter((at): at is string => Boolean(at));
-      if (!block || !answer || !keep.length) continue;
+      if (!block || !answer || !keep.length || keep.length !== targets.length) continue;
       const span = spans.find((x) => x.id === clip.id);
       clips.push({
         from: clip.id, startMs: block.startMs, endMs: block.endMs, layers: keep,
         own: span?.w && span.h ? { w: span.w, h: span.h } : null,
         clip: copiedClip(clip, keep, answer.near.slice(0, own.length), answer.near.slice(own.length)),
+        bases: answer.own,
+        tweaks: copiedTweaks(clip.overrides, answer.inside.slice(0, own.length), targets.length),
       });
     }
     if (!clips.length) return t('layers.copyFail');
@@ -1074,6 +1082,20 @@ export function ProjectView({ projectId, onProject, onLeave }: {
     let board = layerBoardRef.current;
     const doc = filmRef.current as unknown as FilmDoc | null;
     if (!board || !doc) return t('timeline.menuPasteEmpty');
+    /* into a clip of the same page: a layer of it */
+    const heldLoc = intoLoc ?? stageElementRef.current?.clipLoc ?? null;
+    const heldAt = heldLoc ? parseFilmDocLoc(heldLoc) : null;
+    const inPage = inPagePlan(board, {
+      project: projectId, atMs: timeRef.current, film: doc, model: editModel(),
+      held: heldAt ? doc.tracks[heldAt.track]?.clips[heldAt.clip]?.id ?? null : null,
+    });
+    if (inPage) {
+      const failed = await edit([{ op: 'props', edits: [{ clip: inPage.clip, prop: 'overrides', value: inPage.overrides as never }] }], 'history.stepPaste');
+      if (failed) return failed;
+      keepLayerBoard(inPage.board);
+      await selectPasted(inPage.clip, inPage.layer);
+      return null;
+    }
     if (board.project !== projectId) {
       const from = board.project;
       try {
@@ -1096,17 +1118,18 @@ export function ProjectView({ projectId, onProject, onLeave }: {
     /* the same board, its pastes counted (its files are this project's now only when it is this project's) */
     keepLayerBoard({ ...layerBoardRef.current!, pasted: plan.board.pasted! });
     const first = plan.made[0];
-    if (first?.layer) {
-      /* the new page loads in the picture: its layer is selected once it is there */
-      for (let tries = 0; tries < 20; tries++) {
-        const loc = (filmRef.current as unknown as FilmDoc | null)?.tracks.flatMap((tr, ti) => tr.clips.map((c, ci) => (c.id === first.id ? filmDocLoc(ti, ci) : null))).find(Boolean);
-        const there = loc ? await preview.current?.stage?.<object>('layer', { clip: first.id, loc: first.layer, any: true }) : null;
-        if (loc && there) { selectStageParent(first.layer, loc); break; }
-        await new Promise((done) => window.setTimeout(done, 150));
-      }
-    }
+    if (first?.layer) await selectPasted(first.id, first.layer);
     return null;
   }, [edit, editModel, keepLayerBoard, projectId, t]); // eslint-disable-line react-hooks/exhaustive-deps
+  /* what was pasted is selected once the picture draws it (a new page loads first) */
+  const selectPasted = async (clipId: string, layer: string) => {
+    for (let tries = 0; tries < 20; tries++) {
+      const loc = (filmRef.current as unknown as FilmDoc | null)?.tracks.flatMap((tr, ti) => tr.clips.map((c, ci) => (c.id === clipId ? filmDocLoc(ti, ci) : null))).find(Boolean);
+      const there = loc ? await preview.current?.stage?.<object>('layer', { clip: clipId, loc: layer, any: true }) : null;
+      if (loc && there) { selectStageParent(layer, loc); return; }
+      await new Promise((done) => window.setTimeout(done, 150));
+    }
+  };
   /**
    * A paste (⌘V, the menu) at a time: onto the track pointed at (`lane`) or each copy's own, never cutting what is
    * there: a taken spot opens a track beside it, and with the magnet a copy for the main track goes right above it

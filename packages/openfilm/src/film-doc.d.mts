@@ -27,6 +27,8 @@ export type FilmOverride = {
   at?: string;
   /** Which match, from 1 (every match when not written). */
   n?: number;
+  /** A copy of the element (its number in the clip), drawn after each frame; the entry's tweaks are the copy's. */
+  copy?: number;
   t?: [number, number];
   s?: number | [number, number];
   r?: number;

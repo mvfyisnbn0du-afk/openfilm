@@ -526,3 +526,67 @@ test('pasted layers (a clip of their page showing them alone) are the clip\'s on
     await stage.close();
   }
 });
+
+test('a copy of a layer (an override\'s copy) is drawn in its page, after its siblings, where the layer is laid out; it is a layer of its own, named by its number', { timeout: 60_000 }, async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'of-stage-copy-in-page-'));
+  writeFileSync(join(dir, 'card.html'), `<!doctype html><body style="margin:0">
+<div id="col" style="position:absolute;left:10px;top:10px;width:200px">
+  <h1 id="title" style="margin:0 0 4px;font:700 20px sans-serif">Every <b>parcel</b></h1>
+  <p class="note" style="margin:0;font:14px sans-serif">On time</p>
+</div>
+<script>window.film={duration:2,frame(){}}</script></body>`);
+  const overrides = [
+    { at: '#title', text: 'Changed' },
+    { at: '#title', copy: 1, t: [0, 60] },
+    { at: '[data-film-copy="1"] > b', style: { color: 'red' } },
+  ];
+  writeFileSync(join(dir, 'film.html'), filmHtml({ stage: { w: 320, h: 180 }, tracks: [{ clips: [{ id: 'card', src: 'card.html', overrides }] }] }));
+  const stage = await stageOf(dir);
+  try {
+    const seen = await stage.page.evaluate(() => {
+      const doc = document.querySelector('iframe').contentDocument;
+      const [title, copy] = [doc.querySelector('#title:not([data-film-copy])'), doc.querySelector('[data-film-copy="1"]')];
+      const note = doc.querySelector('.note');
+      return {
+        last: copy?.parentElement.lastElementChild === copy,
+        title: title.textContent, copy: copy?.textContent,
+        bold: [getComputedStyle(title.querySelector('b')).color, getComputedStyle(copy.querySelector('b')).color],
+        dy: copy.getBoundingClientRect().top - title.getBoundingClientRect().top,
+        dx: copy.getBoundingClientRect().left - title.getBoundingClientRect().left,
+        note: note.getBoundingClientRect().top,
+      };
+    });
+    assert.ok(seen.last, 'after its siblings');
+    assert.equal(seen.title, 'Changedparcel', 'the layer\'s own change is its own');
+    assert.equal(seen.copy, 'Every parcel', 'the copy is drawn from the page\'s own element');
+    assert.deepEqual(seen.bold, ['rgb(0, 0, 0)', 'rgb(255, 0, 0)'], 'what names the copy changes it alone');
+    assert.deepEqual([Math.round(seen.dx), Math.round(seen.dy)], [0, 60], 'where the layer is laid out, moved by its entry');
+    assert.ok(Math.abs(seen.note - 38) < 2, `nothing else moves (the note at ${seen.note})`);
+    /* the next frames: the same copy, still drawn from the page's own element, not from the tweaked one */
+    const again = await stage.page.evaluate(async () => {
+      const doc = document.querySelector('iframe').contentDocument;
+      const was = doc.querySelector('[data-film-copy="1"]');
+      await window.film.frame(1);
+      await window.film.frame(1.5);
+      const copy = doc.querySelector('[data-film-copy="1"]');
+      return { same: copy === was, count: doc.querySelectorAll('[data-film-copy]').length, text: copy.textContent, dy: copy.getBoundingClientRect().top - doc.querySelector('#title').getBoundingClientRect().top };
+    });
+    assert.deepEqual(again, { same: true, count: 1, text: 'Every parcel', dy: 60 });
+    const tree = await stage.ask('tree');
+    const rows = (list) => list.flatMap((r) => [r.loc, ...rows(r.children)]);
+    const locs = rows(tree[0].layers);
+    assert.ok(locs.includes('[data-film-copy="1"]') && locs.includes('#title'), `a row for each (${locs.join(' · ')})`);
+    const hit = await stage.ask('hit', { x: 20, y: 80, detail: true });
+    assert.equal(hit?.loc, '[data-film-copy="1"]');
+    /* copied again: the page's own element it is drawn from, and what is said of it and in it, from it */
+    const copying = await stage.ask('copying', {
+      clip: 'card',
+      of: [{ at: '[data-film-copy="1"]' }],
+      targets: overrides.map((o) => ({ at: o.at, ...(o.copy ? { copy: o.copy } : {}) })),
+    });
+    assert.deepEqual(copying.own, ['#title']);
+    assert.deepEqual(copying.inside, [[], [{ layer: 0, rel: '' }], [{ layer: 0, rel: ' > b' }]]);
+  } finally {
+    await stage.close();
+  }
+});
