@@ -505,10 +505,11 @@ test('a layer to be written into its page or another: where it is laid out, its 
     assert.match(title.snapshot.html, /^<h1 id="title" style="[^"]*position: absolute; left: 10px; top: 10px;[^"]*">Every <b style="[^"]*color: rgb\(0, 0, 255\)/);
     assert.ok(!/ class=|onclick/.test(title.snapshot.html), 'no class (another page\'s CSS does not reach it), no handler');
     assert.match(logo.snapshot.html, /id="g"/, 'its ids kept, to be made new ones where it goes');
-    /* copies of both notes: the first's comes last (beside it, the page's :nth-child(3) would color the other), and
-       nothing the clip points at is another element then */
+    /* copies of both notes: the first's goes after the second (right after it, the page's :nth-child(3) would color
+       the other), and nothing the clip points at is another element then */
     const after = await stage.ask('afterCopy', { clip: 'card', of: [{ at: '#col > p:nth-of-type(1)' }, { at: '#col > p:nth-of-type(2)' }] });
-    assert.deepEqual(after, { where: ['end', 'after'], moved: [null, null, null] });
+    const kids = ['h1', 'p', 'p', 'svg'];
+    assert.deepEqual(after, { places: [{ after: 2, siblings: kids }, { after: 2, siblings: kids }], moved: [null, null, null] });
   } finally {
     await stage.close();
   }
@@ -538,7 +539,34 @@ test('a copy written right after a layer: what the clip counted after it points 
   const stage = await stageOf(dir);
   try {
     const after = await stage.ask('afterCopy', { clip: 'card', of: [{ at: '#a' }, { at: '#b' }] });
-    assert.deepEqual(after, { where: ['after', 'after'], moved: ['#col > p:nth-of-type(5)', '#b'] }, 'both copies counted at once');
+    assert.deepEqual(after, { places: [{ after: 0, siblings: ['p', 'p', 'p'] }, { after: 1, siblings: ['p', 'p', 'p'] }], moved: ['#col > p:nth-of-type(5)', '#b'] }, 'both copies counted at once');
+  } finally {
+    await stage.close();
+  }
+});
+
+test('a copy goes where the page\'s CSS draws nothing beside it otherwise: not where a :last-child or :nth-child would move', { timeout: 60_000 }, async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'of-stage-place-'));
+  writeFileSync(join(dir, 'card.html'), `<!doctype html><head><style>#col p:nth-child(2) { color: rgb(255, 0, 0) } #col p:last-child { color: rgb(0, 128, 0) }</style></head>
+<body style="margin:0"><div id="col"><p id="a">A</p><p id="b">B</p><p id="c">C</p></div><script>window.film={duration:2,frame(){}}</script></body>`);
+  writeFileSync(join(dir, 'film.html'), filmHtml({ stage: { w: 320, h: 180 }, tracks: [{ clips: [{ id: 'card', src: 'card.html' }] }] }));
+  const stage = await stageOf(dir);
+  try {
+    const siblings = ['p', 'p', 'p'];
+    assert.deepEqual((await stage.ask('afterCopy', { clip: 'card', of: [{ at: '#a' }] })).places, [{ after: 1, siblings }], 'A: after B');
+    assert.deepEqual((await stage.ask('afterCopy', { clip: 'card', of: [{ at: '#c' }] })).places, [{ after: 1, siblings }], 'C: before it');
+    assert.deepEqual((await stage.ask('afterCopy', { clip: 'card', of: [{ at: '#b' }] })).places, [{ after: 1, siblings }], 'B: right after it');
+    /* and so drawn: B red, C green, with a copy of A written there */
+    const colors = await stage.page.evaluate(() => {
+      const doc = document.querySelector('iframe').contentDocument;
+      const copy = doc.getElementById('a').cloneNode(true);
+      copy.id = 'a-copy';
+      doc.getElementById('b').after(copy);
+      const out = ['b', 'c'].map((id) => getComputedStyle(doc.getElementById(id)).color);
+      copy.remove();
+      return out;
+    });
+    assert.deepEqual(colors, ['rgb(255, 0, 0)', 'rgb(0, 128, 0)']);
   } finally {
     await stage.close();
   }

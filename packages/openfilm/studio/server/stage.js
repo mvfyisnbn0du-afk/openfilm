@@ -1706,10 +1706,12 @@
       });
     },
     /**
-     * Copies of the layers `of` of clip `clip` written right after each (as lib/layer-paste writes them), tried in its
-     * page and taken away again: per layer, whether its copy goes after it, or last in its parent because the page's
-     * CSS draws what is beside it otherwise there (a `:nth-child`, a `+`), and per override of the clip, the selector
-     * naming what it finds now when it would find other elements once they are there (null: the same).
+     * Copies of the layers `of` of clip `clip` written into its page as lib/layer-paste writes them, tried there and
+     * taken away again. Per layer, where its copy goes among the elements beside it (`after`: the index of the one it
+     * goes after, -1 first; `siblings`: their tags): right after it, unless the page's CSS would then draw what is
+     * beside it otherwise (`:nth-child`, `:last-child`, `+` …), else the nearest place where it draws nothing
+     * otherwise (after it first, then before it). Per override of the clip, the selector naming what it finds now
+     * when it would find other elements once they are there (null: the same).
      */
     afterCopy({ clip, of }) {
       const c = clipById(clip);
@@ -1719,27 +1721,42 @@
       const list = c.overrides ?? [];
       const before = list.map((o) => (o.at === undefined ? null : matches(doc, o)));
       const view = doc.defaultView;
-      const LOOKED = ['color', 'background-color', 'display', 'position', 'width', 'height', 'margin', 'font-size', 'opacity', 'transform', 'visibility', 'order'];
-      const looks = (el) => [...el.parentElement.children].filter((x) => !x.hasAttribute('data-openfilm-copy'))
-        .map((x) => LOOKED.map((p) => view.getComputedStyle(x).getPropertyValue(p)).join('|'));
+      const LOOKED = ['color', 'background-color', 'display', 'position', 'width', 'height', 'margin', 'font-size', 'opacity', 'transform', 'visibility', 'order', 'border-color'];
+      const COPY = 'data-openfilm-copy';
+      const looks = (parent) => [...parent.querySelectorAll(`:scope > :not([${COPY}]), :scope > :not([${COPY}]) *`)]
+        .filter((x) => !x.closest(`[${COPY}]`))
+        .map((x) => LOOKED.map((p) => view.getComputedStyle(x).getPropertyValue(p)).join('|')).join('\n');
       const copyOf = (el) => {
         const copy = el.cloneNode(true);
-        copy.setAttribute('data-openfilm-copy', '');
+        copy.setAttribute(COPY, '');
         for (const n of [copy, ...copy.querySelectorAll('[id]')]) if (n.id) n.id = `${n.id}-openfilm-copy`;
         return copy;
       };
-      /* where each goes: after it, unless what is beside it would look otherwise then */
-      const where = els.map((el) => {
-        const was = looks(el);
+      const put = (copy, parent, after) => {
+        const kids = [...parent.children].filter((x) => !x.hasAttribute(COPY));
+        if (after < 0) parent.prepend(copy); else kids[after].after(copy);
+      };
+      const places = els.map((el) => {
+        const parent = el.parentElement;
+        const kids = [...parent.children].filter((x) => !x.hasAttribute(COPY));
+        const own = kids.indexOf(el);
+        const was = looks(parent);
+        const tries = [own];
+        for (let k = own + 1; k < kids.length && tries.length < 40; k++) tries.push(k);
+        for (let k = own - 1; k >= -1 && tries.length < 80; k--) tries.push(k);
         const copy = copyOf(el);
-        el.after(copy);
-        const same = looks(el).join('\n') === was.join('\n');
-        copy.remove();
-        return same ? 'after' : 'end';
+        let after = own;
+        for (const k of tries) {
+          put(copy, parent, k);
+          const same = looks(parent) === was;
+          copy.remove();
+          if (same) { after = k; break; }
+        }
+        return { after, siblings: kids.map((x) => x.localName) };
       });
       const copies = els.map((el, i) => {
         const copy = copyOf(el);
-        if (where[i] === 'end') el.parentElement.append(copy); else el.after(copy);
+        put(copy, el.parentElement, places[i].after);
         return copy;
       });
       try {
@@ -1751,7 +1768,7 @@
           if (now.length === was.length && now.every((n, k) => n === was[k])) return null;
           return was.length ? was.map((n) => selectorOf(n)).join(', ') : null;
         });
-        return { where, moved };
+        return { places, moved };
       } finally {
         for (const copy of copies) copy.remove();
       }

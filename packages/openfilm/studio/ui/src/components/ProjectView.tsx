@@ -106,9 +106,10 @@ import { pictureStyle, relativeTo, type TemplateControls } from '@/lib/template-
 import { propsAttr, propsOf, type ComponentProp } from '@/lib/component-props';
 import { pointersOf, propsWithoutDeleted, withDeleted } from '@/lib/layer-delete';
 import {
-  isLayerClipboardKey, PASTE_OFFSET, pasteGoals, pasteOffset, readLayerClipboard, writeLayerClipboard, type CopiedLayers, type LayerClipboard,
+  isLayerClipboardKey, PASTE_OFFSET, pasteGoals, pasteOffset, readLayerClipboard, whyNowhere, writeLayerClipboard, type CopiedLayers,
+  type LayerClipboard,
 } from '@/lib/layer-clipboard';
-import { pastedElsewhere, pastedPage, withoutPaste, type PasteLayer, type PastedPage } from '@/lib/layer-paste';
+import { pastedElsewhere, pastedPage, withoutPaste, withPaste, type PasteLayer, type PastedPage } from '@/lib/layer-paste';
 import { pasteTargets, targetById } from '@/lib/layer-paste-target';
 import type { PropsHost } from './PropertiesSection';
 import type { LayerPropsActions } from './FilmInspector';
@@ -1089,16 +1090,19 @@ export function ProjectView({ projectId, onProject, onLeave }: {
       return !c.hidden && b && now >= b.startMs && now < b.endMs;
     });
     const goals = pasteGoals(board, projectId, pageClips.find((c) => c.id === heldId) ?? null, under, pageClips);
-    if (!goals.length) return t(board.project === projectId ? 'timeline.trackLocked' : 'layers.pasteNoPage');
+    if (!goals.length) return t(whyNowhere(board, projectId, pageClips) === 'locked' ? 'timeline.trackLocked' : 'layers.pasteNoPage');
     const { spot, n } = pasteOffset(board, goals);
     /* from another project: the files it loads brought in first (none: nothing to bring) */
     let moved = (path: string) => path;
     const loads = board.clips.some((c) => c.layers.some((l) => l.snapshot && [l.snapshot.html, ...l.snapshot.fonts].some((x) => x.includes(l.snapshot!.base))));
     if (board.project !== projectId && loads) {
       try {
-        const src = board.clips[0]!.src;
-        const brought = (await api.bringClip(projectId, board.project, { src })).src;
-        const prefix = brought.slice(0, brought.length - src.length);
+        /* each page's files (copied from several clips: each one's), all under the same place here */
+        let prefix = '';
+        for (const src of new Set(board.clips.map((c) => c.src))) {
+          const brought = (await api.bringClip(projectId, board.project, { src })).src;
+          prefix = brought.slice(0, brought.length - src.length);
+        }
         moved = (path) => `${prefix}${path}`;
       } catch (e) {
         return e instanceof Error ? e.message : String(e);
@@ -1117,12 +1121,12 @@ export function ProjectView({ projectId, onProject, onLeave }: {
       let out: PastedPage | null = null;
       if (goal.kind === 'own') {
         const targets = pasteTargets(page.text, goal.layers);
-        const after = targets ? await preview.current?.stage?.<{ where: ('after' | 'end')[]; moved: (string | null)[] }>('afterCopy', { clip: into.id, of: goal.layers.map((l) => ({ at: l.at })) }) : null;
+        const after = targets ? await preview.current?.stage?.<{ places: { after: number; siblings: string[] }[]; moved: (string | null)[] }>('afterCopy', { clip: into.id, of: goal.layers.map((l) => ({ at: l.at })) }) : null;
         /* pasted at this spot before: over the last copy */
         const lastAts = board.pasted?.spot === spot ? board.pasted.ats ?? [] : [];
         out = targets && after ? pastedPage(page.text, goal.layers.map((layer, i) => {
           const last = lastAts[i] ? targetById(page.text, lastAts[i]!.slice(1)) : null;
-          return { layer, target: targets[i]!, where: after.where[i], ...(last ? { after: last } : {}) };
+          return { layer, target: targets[i]!, place: after.places[i], ...(last ? { over: last } : {}) };
         }), PASTE_OFFSET * n) : null;
         /* the clip's changes that would find others once the copies are there point at what they found */
         if (out && after && into.overrides) {
@@ -1191,26 +1195,29 @@ export function ProjectView({ projectId, onProject, onLeave }: {
         };
       }
       const path = into.src;
-      let made = await api.writePage(projectId, path, text, page.rev);
+      const made = await api.writePage(projectId, path, text, page.rev);
+      /* an undo of a page written since takes out what the paste wrote, and says where it was, for the redo */
+      let undone: { rev: string | null; at: number[]; text: string } | null = null;
       return {
         src: path,
         step: {
           undo: async () => {
             try {
               await api.writePage(projectId, path, page.text, made);
+              undone = null;
               return null;
             } catch (e) {
               if (!(e instanceof ApiError && e.status === 409)) throw e;
-              /* written since: what the paste wrote taken out of it */
               const now = await api.readPage(projectId, path);
               const back = withoutPaste(now.text, out.inserted);
               if (back == null) return t('layers.pasteChanged');
-              await api.writePage(projectId, path, back, now.rev);
+              undone = { rev: await api.writePage(projectId, path, back.text, now.rev), at: back.at, text: back.text };
               return null;
             }
           },
           redo: async () => {
-            made = await api.writePage(projectId, path, text, page.rev);
+            if (!undone) await api.writePage(projectId, path, text, page.rev);
+            else await api.writePage(projectId, path, withPaste(undone.text, out.inserted, undone.at), undone.rev);
             return null;
           },
         },

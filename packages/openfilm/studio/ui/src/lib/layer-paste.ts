@@ -3,7 +3,7 @@
  * copied from then on. Every other character of the page stays as it was.
  *
  * Into its own page (pastedPage), a copy is the copied element's markup as the file has it (lib/html-source finds it
- * there), right after it, or last in its parent when the page's CSS would draw what is beside it otherwise
+ * there), right after it, or at the nearest place beside it where the page's CSS draws nothing beside it otherwise
  * (studio/server/stage.js `afterCopy`), with:
  *   - new ids (`<id>-copy`), and what in it names them (`url(#…)`, `href="#…"`, `for`, `aria-*`);
  *   - the page's CSS rules of the old ids said again of the new ones, only the parts naming them, in the page's head;
@@ -46,10 +46,17 @@ export interface PasteTarget {
 }
 
 /**
- * One layer to write: where it is, and whether its copy goes after it or last in its parent; `after`, the copy pasted
- * before at this spot (each paste goes over the one before).
+ * One layer to write: where it is; `place`, where among the elements beside it its copy goes (studio/server/stage.js
+ * `afterCopy`: the index of the one it goes after, -1 first, and their tags, as the page draws them: taken when the
+ * file has the same ones), else right after it; `over`, the copy pasted before at this spot (each paste goes over the
+ * one before).
  */
-export interface PasteItem { layer: PasteLayer; target: PasteTarget; where?: 'after' | 'end'; after?: PasteTarget }
+export interface PasteItem {
+  layer: PasteLayer;
+  target: PasteTarget;
+  place?: { after: number; siblings: string[] };
+  over?: PasteTarget;
+}
 
 export interface PastedPage {
   text: string;
@@ -251,7 +258,7 @@ export function pastedPage(text: string, items: readonly PasteItem[], offset: nu
   const writes: Array<{ at: number; text: string }> = [];
   const rules: string[] = [];
   const ats: string[] = [];
-  items.forEach(({ layer, target, where, after }, i) => {
+  items.forEach(({ layer, target, place, over }, i) => {
     const el = els[i]!;
     /* inside another one copied (or the same twice): copied with it */
     if (els.some((o, k) => k !== i && o!.start <= el.start && o!.end >= el.end && (o!.start < el.start || o!.end > el.end || k < i))) {
@@ -285,10 +292,14 @@ export function pastedPage(text: string, items: readonly PasteItem[], offset: nu
     }
     const copy = copyMarkup(text, el, { renamed, rootId, css, words });
     rules.push(...rulesFor(layer.idRules, renamed));
-    const parent = where === 'end' ? elementAt(body, target.path.slice(0, -1), target.tags.slice(0, -1)) : null;
-    /* last in its parent: right after its last element (what is after that, the end tag's line, stays) */
-    const before = after ? elementAt(body, after.path, after.tags) : null;
-    const into = parent && !parent.implied ? (elementsOf(parent).at(-1)?.end ?? parent.closeStart) : (before?.end ?? el.end);
+    /* where it goes: over the copy before; else at its place among the elements beside it, when the file has them
+       as the page draws them; else right after it */
+    const parent = target.path.length > 1 ? elementAt(body, target.path.slice(0, -1), target.tags.slice(0, -1)) : body;
+    const kids = parent ? elementsOf(parent) : [];
+    const placed = Boolean(place && parent && !parent.implied && kids.length === place.siblings.length
+      && kids.every((k, n) => k.tag === place.siblings[n]!.toLowerCase()));
+    const previous = over ? elementAt(body, over.path, over.tags) : null;
+    const into = previous?.end ?? (placed && place && parent ? (place.after < 0 ? parent.openEnd : kids[place.after]!.end) : el.end);
     writes.push({ at: into, text: `${nl}${indentAt(text, el.start)}${copy}` });
     ats.push(`#${rootId}`);
   });
@@ -353,14 +364,24 @@ export function pastedElsewhere(
 
 /**
  * The page `text` without what a paste wrote in (`inserted`, as pastedPage says it), for an undo of a page written
- * since (by the agent): each piece taken out where it is, once. Null when one is not there as it was written.
+ * since (by the agent): each piece taken out where it is, once; with where each was (in the text as it was then,
+ * piece after piece), for a redo (withPaste). Null when one is not there as it was written.
  */
-export function withoutPaste(text: string, inserted: readonly string[]): string | null {
+export function withoutPaste(text: string, inserted: readonly string[]): { text: string; at: number[] } | null {
   let out = text;
+  const at: number[] = [];
   for (const piece of inserted) {
     const i = out.indexOf(piece);
     if (i < 0 || out.indexOf(piece, i + 1) >= 0) return null;
     out = out.slice(0, i) + out.slice(i + piece.length);
+    at.push(i);
   }
+  return { text: out, at };
+}
+
+/** `text` with the pieces withoutPaste took out of it put back where they were (a redo of that undo). */
+export function withPaste(text: string, inserted: readonly string[], at: readonly number[]): string {
+  let out = text;
+  for (let k = inserted.length - 1; k >= 0; k--) out = out.slice(0, at[k]) + inserted[k] + out.slice(at[k]);
   return out;
 }

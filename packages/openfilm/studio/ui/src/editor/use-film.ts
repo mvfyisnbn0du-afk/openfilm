@@ -24,8 +24,8 @@ export type FilmState = { value: Film; rev: string };
  * One edit a person made here, undoable: what undoes it, what makes it again, and what to call it in the history.
  * `outside`: an edit of another file than film.html (a subtitle's times, in its transcript), undone and made again by
  * its own calls, which resolve to null or why they could not; its `undo` and `redo` are empty, unless the edit changed
- * film.html too (a layer pasted into a page of its own): then both are undone, film.html first, and made again, the
- * other file first.
+ * film.html too (a layer pasted into a page of its own): then the other file is undone or made again first, and
+ * film.html only once it is.
  */
 export type Step = { undo: Op[]; redo: Op[]; label: string; at: number; outside?: OutsideStep };
 export type OutsideStep = { undo: () => Promise<string | null>; redo: () => Promise<string | null> };
@@ -164,8 +164,9 @@ export function useFilm(projectId: string, initial: FilmState | null, onChange: 
   }, [projectId, fromServer, setSteps]);
 
   /* a step of another file: moved between the lists at once, its call made in turn with the film's writes; one that
-     cannot be undone (the file changed since, elsewhere) leaves both lists, and says why */
-  const runOutside = useCallback((step: Step, kind: 'undo' | 'redo') => {
+     cannot be undone (the file changed since, elsewhere) leaves both lists, and says why. Resolves once made: true,
+     or false when it could not be */
+  const runOutside = useCallback((step: Step, kind: 'undo' | 'redo'): Promise<boolean> => {
     setSteps((s) => moveStep(s, step, kind));
     const written = queue.current.then(async () => {
       const why = await step.outside![kind]().catch((e: unknown) => String(e instanceof Error ? e.message : e));
@@ -173,33 +174,26 @@ export function useFilm(projectId: string, initial: FilmState | null, onChange: 
         setError(why);
         setSteps((s) => dropStep(s, step));
       }
+      return !why;
     });
-    queue.current = written;
+    queue.current = written.then(() => {});
+    return written;
   }, [setSteps]);
   /* a step of the film: one whose ops cannot be applied or written now (the agent removed its clip since) leaves both
-     lists, as one of another file does, so the next undo takes the step before it and the history ends at the oldest */
-  const step = useCallback((one: Step, kind: 'undo' | 'redo') => {
+     lists, as one of another file does, so the next undo takes the step before it and the history ends at the oldest.
+     Resolves once the next step can be taken: at once for film.html alone, once written for another file. */
+  const step = useCallback((one: Step, kind: 'undo' | 'redo'): Promise<void> => {
     const ops = kind === 'undo' ? one.undo : one.redo;
-    if (one.outside && !ops.length) { runOutside(one, kind); return; }
-    if (one.outside) {
-      /* film.html and another file: moved at once (a second press takes the step before it), both writes queued now,
-         in the order they go (film.html undone first, the other file made again first), so steps taken one after
-         another (the history's rows) are written in their order */
-      setSteps((s) => moveStep(s, one, kind));
-      const drop = (why: string | null) => { if (why) setSteps((s) => dropStep(s, one)); };
-      const other = () => {
-        queue.current = queue.current.then(async () => {
-          const why = await one.outside![kind]().catch((e: unknown) => String(e instanceof Error ? e.message : e));
-          if (why) setError(why);
-          drop(why);
-        });
-      };
-      if (kind === 'undo') { void run(ops, kind).then(drop); other(); } else { other(); void run(ops, kind).then(drop); }
-      return;
-    }
+    const drop = (why: string | null) => { if (why) setSteps((s) => dropStep(s, one)); };
+    if (one.outside && !ops.length) return runOutside(one, kind).then(() => {});
+    /* film.html and another file: the other file first, both ways (it can be refused: written since), film.html only
+       once it is written, so the two never disagree */
+    if (one.outside) return runOutside(one, kind).then((ok) => (ok ? run(ops, kind).then(drop) : undefined));
     /* nothing to apply (an edit that changed nothing): it only moves */
-    if (!ops.length) { setSteps((s) => moveStep(s, one, kind)); return; }
-    void run(ops, kind, undefined, false, one).then((why) => { if (why) setSteps((s) => dropStep(s, one)); });
+    if (!ops.length) { setSteps((s) => moveStep(s, one, kind)); return Promise.resolve(); }
+    /* applied here at once: the next step can be taken now, its write queued after this one's */
+    void run(ops, kind, undefined, false, one).then(drop);
+    return Promise.resolve();
   }, [run, runOutside, setSteps]);
   const undo = useCallback(() => {
     const one = nextStep(stepsRef.current, 'undo');
@@ -209,11 +203,14 @@ export function useFilm(projectId: string, initial: FilmState | null, onChange: 
     const one = nextStep(stepsRef.current, 'redo');
     if (one) step(one, 'redo');
   }, [step]);
-  /** Undo or redo until `done` steps are done (the edit history's rows: click one to go back or forward to it). */
+  /** Undo or redo until `done` steps are done (the edit history's rows: click one to go back or forward to it), one
+      step after another, each once the one before is taken (a step of another file waits for its write) */
   const rollbackTo = useCallback((done: number) => {
     let { done: d, undone: u } = stepsRef.current;
-    while (d.length > done && d.length) { const one = d[d.length - 1]; step(one, 'undo'); u = [...u, one]; d = d.slice(0, -1); }
-    while (d.length < done && u.length) { const one = u[u.length - 1]; step(one, 'redo'); d = [...d, one]; u = u.slice(0, -1); }
+    const order: Array<[Step, 'undo' | 'redo']> = [];
+    while (d.length > done && d.length) { const one = d[d.length - 1]!; order.push([one, 'undo']); u = [...u, one]; d = d.slice(0, -1); }
+    while (d.length < done && u.length) { const one = u[u.length - 1]!; order.push([one, 'redo']); d = [...d, one]; u = u.slice(0, -1); }
+    void order.reduce((at, [one, kind]) => at.then(() => step(one, kind)), Promise.resolve());
   }, [step]);
   /** `outside`: another file this edit changed too, made already; one undo takes both back (see Step). */
   const edit = useCallback((ops: Op[], label?: string, quiet?: boolean, outside?: OutsideStep) => run(ops, 'do', label, quiet, undefined, outside), [run]);

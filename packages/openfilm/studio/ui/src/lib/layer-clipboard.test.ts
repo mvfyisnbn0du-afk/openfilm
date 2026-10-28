@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { pasteGoals, pasteOffset, type LayerClipboard, type PageClip } from './layer-clipboard.ts';
+import { pasteGoals, pasteOffset, whyNowhere, type LayerClipboard, type PageClip } from './layer-clipboard.ts';
 import type { PasteLayer } from './layer-paste.ts';
 
 const L = (at: string): PasteLayer => ({ at, tag: 'h1', id: null, classes: [], text: '', place: null, idRules: [], tweaks: [] });
@@ -39,4 +39,10 @@ test('each paste at the same spot goes further; into its own page it starts off 
   assert.equal(first.n, 1);
   assert.equal(pasteOffset(board({ pasted: first }), own).n, 2);
   assert.equal(pasteOffset(board({ pasted: first }), pasteGoals(board(), 'p1', c, [], [a, c])).n, 0, 'another spot, another page: where it was');
+});
+
+test('nowhere to paste: said as a locked track only when its own page is on one', () => {
+  assert.equal(whyNowhere(board(), 'p1', [{ ...a, locked: true }]), 'locked');
+  assert.equal(whyNowhere(board(), 'p1', [c]), 'no-page', 'the clip copied from removed, no page under the playhead');
+  assert.equal(whyNowhere(board({ project: 'p0' }), 'p1', [{ ...a, locked: true }]), 'no-page');
 });

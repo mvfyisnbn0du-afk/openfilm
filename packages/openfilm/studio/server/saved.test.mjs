@@ -154,3 +154,13 @@ test('a clip brought from another project: its page and what it loads copied in 
   assert.equal(readFileSync(join(root, 'pasted/Launch-v2/pages/title.css'), 'utf8'), 'h1 { color: red }');
   await assert.rejects(bringClip(root, from, { src: 'pages/gone.html' }, 'Launch'), /not in its project/);
 });
+
+test('the clips of two pages brought from one project: the files of each, under one place for that project', async () => {
+  const from = project();
+  writeFileSync(join(from, 'pages', 'other.html'), '<!doctype html><img src="../assets/v.mp4"><p>Another clip</p>');
+  const root = mkdtempSync(join(tmpdir(), 'of-saved-two-'));
+  const one = await bringClip(root, from, { src: 'pages/title.html' }, 'Launch');
+  const two = await bringClip(root, from, { src: 'pages/other.html' }, 'Launch');
+  assert.deepEqual([one.clip.src, two.clip.src], ['pasted/Launch/pages/title.html', 'pasted/Launch/pages/other.html']);
+  for (const f of ['assets/logo.png', 'assets/v.mp4', 'pages/other.html']) assert.ok(existsSync(join(root, 'pasted/Launch', f)), f);
+});

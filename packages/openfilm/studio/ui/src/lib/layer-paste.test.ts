@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { elementAt, elementsOf, readSource, sourceBody } from './html-source.ts';
-import { copyId, pastedElsewhere, pastedPage, relativeTo, withoutPaste, type PasteItem, type PasteLayer, type PasteTarget } from './layer-paste.ts';
+import { copyId, pastedElsewhere, pastedPage, relativeTo, withoutPaste, withPaste, type PasteItem, type PasteLayer, type PasteTarget } from './layer-paste.ts';
 
 const PAGE = `<!doctype html>
 <html><head><style>#card{background:#c33} #title{color:#ff0}</style></head>
@@ -66,7 +66,7 @@ test('a copy written right after the layer: new ids and what names them, its id 
   assert.ok(added.includes('<h1 id="title-copy" style="font-size: 48px">Hi &amp; bye</h1>'), added);
   assert.ok(added.includes('<linearGradient id="g-copy"/><rect fill="url(#g-copy)"/><use href="#g-copy"/><use xlink:href="#g-copy"/>'), added);
   assert.ok(added.includes('<p class=sub>world<br>again</p>'), 'what was not changed is written as it was');
-  assert.equal(withoutPaste(out.text, out.inserted), PAGE, 'and taken out again, the page as it was');
+  assert.equal(withoutPaste(out.text, out.inserted)?.text, PAGE, 'and taken out again, the page as it was');
 });
 
 test('several layers of one page: each found before any is written, so a selector counting them finds the right one', () => {
@@ -81,10 +81,14 @@ test('several layers of one page: each found before any is written, so a selecto
     + '\n  <h1 class="line">Two</h1>\n  <h1 id="line-copy-2" class="line" style="translate: 24px 24px">Two</h1>\n</div>\n</body>');
   const card: PasteItem = { layer: layer({ idRules: [] }), target: { path: [0], tags: ['div'], shape: { tag: 'div', children: [{ tag: 'h1', children: [] }, { tag: 'h1', children: [] }] } } };
   assert.deepEqual(pastedPage(page, [card, line('One', 0)], 24)!.ats, ['#card-copy', ''], 'one inside another copied: with it');
-  const over = pastedPage(out.text, [{ ...line('One', 0), after: { path: [0, 1], tags: ['div', 'h1'], shape: { tag: 'h1', children: [] } } }], 48)!;
+  const over = pastedPage(out.text, [{ ...line('One', 0), over: { path: [0, 1], tags: ['div', 'h1'], shape: { tag: 'h1', children: [] } } }], 48)!;
   assert.ok(over.text.includes('<h1 id="line-copy" class="line" style="translate: 24px 24px">One</h1>\n  <h1 id="line-copy-3"'), 'pasted again: over the copy before');
-  const last = pastedPage(page, [{ ...line('One', 0), where: 'end' }], 0)!;
-  assert.ok(last.text.includes('<h1 class="line">Two</h1>\n  <h1 id="line-copy" class="line">One</h1>\n</div>'), 'last in its parent when asked');
+  const last = pastedPage(page, [{ ...line('One', 0), place: { after: 1, siblings: ['h1', 'h1'] } }], 0)!;
+  assert.ok(last.text.includes('<h1 class="line">Two</h1>\n  <h1 id="line-copy" class="line">One</h1>\n</div>'), 'at its place when asked');
+  const first = pastedPage(page, [{ ...line('Two', 1), place: { after: -1, siblings: ['h1', 'h1'] } }], 0)!;
+  assert.ok(first.text.startsWith('<body>\n<div id="card">\n  <h1 id="line-copy" class="line">Two</h1>'), first.text);
+  const other = pastedPage(page, [{ ...line('One', 0), place: { after: 1, siblings: ['p', 'h1', 'h1'] } }], 0)!;
+  assert.ok(other.text.includes('<h1 class="line">One</h1>\n  <h1 id="line-copy"'), 'the file has other elements beside it than the page as drawn: right after it');
 });
 
 test('a copy runs no code: its scripts and handlers go; only the parts of a rule naming its ids are said again', () => {
@@ -144,8 +148,12 @@ test('into another page: the layer as it looks, last in its body, with new ids, 
   assert.equal(pastedElsewhere(page, 'two.html', [layer()], 0), null, 'copied before its look was known');
 });
 
-test('an undo of a page written since: what the paste wrote taken out, where it is, once', () => {
-  assert.equal(withoutPaste('<a>x</a><b>COPY</b><i>agent</i>', ['<b>COPY</b>']), '<a>x</a><i>agent</i>');
+test('an undo of a page written since: what the paste wrote taken out, where it is, once; and put back for a redo', () => {
+  const pieces = ['<b>COPY</b>', '<style>x</style>'];
+  const page = '<style>x</style><a>x</a><b>COPY</b><i>agent</i>';
+  const out = withoutPaste(page, pieces)!;
+  assert.equal(out.text, '<a>x</a><i>agent</i>');
+  assert.equal(withPaste(out.text, pieces, out.at), page);
   assert.equal(withoutPaste('<b>COPY</b><b>COPY</b>', ['<b>COPY</b>']), null, 'twice: not known which');
   assert.equal(withoutPaste('<a>x</a>', ['<b>COPY</b>']), null, 'gone');
 });

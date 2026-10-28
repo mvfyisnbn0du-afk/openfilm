@@ -72,6 +72,11 @@ export function pasteGoals(
   return open(own) ? [{ kind: 'own', clip: own.id, layers: c.layers }] : [];
 }
 
+/** Why a paste of `board` goes nowhere (pasteGoals said so): its own page is on a locked track, or there is no page. */
+export function whyNowhere(board: LayerClipboard, project: string, clips: readonly PageClip[]): 'locked' | 'no-page' {
+  return board.project === project && board.clips.some((c) => clips.find((x) => x.id === c.from)?.locked) ? 'locked' : 'no-page';
+}
+
 /** How far a paste into these goals goes: further each time at the same spot; into its own page, off from the start. */
 export function pasteOffset(board: LayerClipboard, goals: readonly PasteGoal[]): { spot: string; n: number } {
   const spot = goals.map((g) => `${g.kind}:${g.clip}:${g.layers.map((l) => l.at).join('|')}`).join(';');
