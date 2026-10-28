@@ -34,3 +34,10 @@ export function pageScaleFor(k: number, dpr: number): number {
   const shown = Math.max(0.25, k * dpr);
   return Math.min(dpr, Math.ceil(shown * 4 - 1e-9) / 4);
 }
+
+/**
+ * The page scale of a picture zoomed `zoom` times its fitted size (`k`: what the viewer shows now) whose pages are drawn
+ * for `drawn` times it, the zoom it last settled at (components/ViewerZoom): a zoom on the move never loads the film
+ * again, and once it settles the film is drawn as sharp as it is seen.
+ */
+export const zoomedPageScale = (k: number, zoom: number, drawn: number, dpr: number) => pageScaleFor((k / zoom) * drawn, dpr);

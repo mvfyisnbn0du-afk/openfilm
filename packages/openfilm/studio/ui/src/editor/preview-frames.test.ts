@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { pageScaleFor, reloaded, shownAfter, updateKeys } from './preview-frames.ts';
+import { pageScaleFor, reloaded, shownAfter, updateKeys, zoomedPageScale } from './preview-frames.ts';
 
 test('a load behind the picture: the frame shown stays until the new one has drawn, and only then goes', () => {
   const first = [{ key: 1, ready: true }];
@@ -30,4 +30,20 @@ test('a page draws at what the viewer shows of the film: in quarter steps up, ne
   assert.equal(pageScaleFor(1.5, 2), 2, 'shown larger than the film: no more than the screen has');
   assert.equal(pageScaleFor(0.5, 1), 0.5);
   assert.equal(pageScaleFor(0.05, 1), 0.25, 'a tiny viewer: a quarter at least');
+});
+
+test('a zoom on the move keeps the film as it was drawn; settled, the film is drawn as sharp as it is seen', () => {
+  /* a 1920-wide film fitted at 480 px on a 2× screen: drawn at 0.5 */
+  const fitted = 480 / 1920;
+  assert.equal(zoomedPageScale(fitted, 1, 1, 2), 0.5);
+  /* pinched to 1.5× and 3×: still drawn for the fitted picture */
+  assert.equal(zoomedPageScale(fitted * 1.5, 1.5, 1, 2), 0.5);
+  assert.equal(zoomedPageScale(fitted * 3, 3, 1, 2), 0.5);
+  /* settled at 3×: 0.75 px per film px on screen, 1.5 device px */
+  assert.equal(zoomedPageScale(fitted * 3, 3, 3, 2), 1.5);
+  /* settled far in: never more than the screen's pixels */
+  assert.equal(zoomedPageScale(fitted * 10, 10, 10, 2), 2);
+  /* back to fitted: drawn for it again once that settles */
+  assert.equal(zoomedPageScale(fitted, 1, 10, 2), 2);
+  assert.equal(zoomedPageScale(fitted, 1, 1, 2), 0.5);
 });

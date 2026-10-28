@@ -100,10 +100,13 @@ export function shownRect(view: ViewerView, viewer: Size, fitted: Size): Point &
 }
 
 /**
- * How many times its fitted size the picture is drawn (1: fitted), for the film's frames inside it: a page is drawn for
- * the fitted size whatever the zoom, so a zoom never loads the film again (editor/Preview, pageScale).
+ * For the film's frames inside the picture (editor/Preview, pageScale): how many times its fitted size the picture is
+ * shown (`z`, 1: fitted), and the zoom its pages are drawn for (`drawn`), which follows `z` once a zoom has settled.
  */
-export const PictureZoom = createContext(1);
+export const PictureZoom = createContext({ z: 1, drawn: 1 });
+
+/** How long a zoom is still before the film is drawn for it, ms: a pinch's pauses do not load the film again. */
+export const ZOOM_SETTLE_MS = 700;
 
 /** The viewer's zoom, shared by the picture and the button that fits it again (only they re-render as it changes). */
 export interface ViewerZoomStore {

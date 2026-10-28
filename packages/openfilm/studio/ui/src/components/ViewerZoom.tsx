@@ -4,11 +4,13 @@
  * picture is laid out at its zoomed size, not scaled by a transform, so the stage's handles, outlines and snapping,
  * all measured on screen, keep their size and feel at any zoom. ViewerZoomButton, in the viewer's bar, fits it again.
  * Nothing zooms or pans while a button is held: a drag on the stage keeps the places it measured at the press.
+ * The film is drawn for the zoom once it settles (ZOOM_SETTLE_MS still, nothing held, no words typed in): loaded again
+ * behind the picture, as for a resized viewer, so a page's canvas is as sharp as it is seen.
  */
 import React from 'react';
 import { useT } from '@/i18n';
 import {
-  FIT_VIEW, PictureZoom, fittedSize, isFit, panBy, shownRect, wheelPx, wheelZoomFactor, zoomAt, zoomLayout, zoomMax,
+  FIT_VIEW, PictureZoom, ZOOM_SETTLE_MS, fittedSize, isFit, panBy, shownRect, wheelPx, wheelZoomFactor, zoomAt, zoomLayout, zoomMax,
   type ViewerView, type ViewerZoomStore,
 } from '@/lib/viewer-zoom';
 import { PANE_BTN } from './dock-pane-bar';
@@ -57,6 +59,41 @@ export function ViewerZoom({ store, frame, off, className, notices, children }: 
     el.scrollLeft = layout.scroll.x;
     el.scrollTop = layout.scroll.y;
   });
+
+  /* a button held anywhere (a drag on the stage, a pan): no zoom, and the film is not drawn again under it */
+  const held = React.useRef(false);
+  React.useEffect(() => {
+    const onPress = (e: PointerEvent) => { held.current = e.buttons !== 0; };
+    const onLetGo = () => { held.current = false; };
+    window.addEventListener('pointerdown', onPress, true);
+    window.addEventListener('pointerup', onPress, true);
+    window.addEventListener('pointercancel', onLetGo, true);
+    window.addEventListener('blur', onLetGo);
+    return () => {
+      window.removeEventListener('pointerdown', onPress, true);
+      window.removeEventListener('pointerup', onPress, true);
+      window.removeEventListener('pointercancel', onLetGo, true);
+      window.removeEventListener('blur', onLetGo);
+    };
+  }, []);
+
+  /* the zoom the film is drawn for: the shown one once it has been still a while, with nothing held or typed in */
+  const z = layout ? view.z : 1;
+  const [drawn, setDrawn] = React.useState(1);
+  React.useEffect(() => {
+    if (z === drawn) return undefined;
+    let timer = 0;
+    const settle = () => {
+      timer = window.setTimeout(() => {
+        const typing = scroller.current?.querySelector('[data-film-select][data-editing-text]');
+        if (held.current || typing) settle();
+        else setDrawn(z);
+      }, ZOOM_SETTLE_MS);
+    };
+    settle();
+    return () => window.clearTimeout(timer);
+  }, [z, drawn]);
+  const zoom = React.useMemo(() => ({ z, drawn }), [z, drawn]);
 
   const now = React.useRef({ viewer, fitted, off });
   now.current = { viewer, fitted, off };
@@ -122,13 +159,11 @@ export function ViewerZoom({ store, frame, off, className, notices, children }: 
     };
     /* Safari sends a pinch as gesture events, its scale since the pinch began, rather than as Ctrl + wheel */
     let pinched = 1;
-    let held = false;
-    const onPress = (e: PointerEvent) => { held = e.buttons !== 0; };
     const onGesture = (e: Event) => {
       const g = e as Event & { scale: number; clientX: number; clientY: number };
       e.preventDefault();
       if (e.type === 'gesturestart') pinched = 1;
-      if (now.current.off || held || !(g.scale > 0)) return;
+      if (now.current.off || held.current || !(g.scale > 0)) return;
       factor *= g.scale / pinched;
       pinched = g.scale;
       const r = el.getBoundingClientRect();
@@ -139,15 +174,11 @@ export function ViewerZoom({ store, frame, off, className, notices, children }: 
     area.addEventListener('pointerdown', onDown, true);
     area.addEventListener('gesturestart', onGesture);
     area.addEventListener('gesturechange', onGesture);
-    window.addEventListener('pointerdown', onPress, true);
-    window.addEventListener('pointerup', onPress, true);
     return () => {
       area.removeEventListener('wheel', onWheel);
       area.removeEventListener('pointerdown', onDown, true);
       area.removeEventListener('gesturestart', onGesture);
       area.removeEventListener('gesturechange', onGesture);
-      window.removeEventListener('pointerdown', onPress, true);
-      window.removeEventListener('pointerup', onPress, true);
       if (raf) cancelAnimationFrame(raf);
     };
   }, [store, frame.w]);
@@ -167,7 +198,7 @@ export function ViewerZoom({ store, frame, off, className, notices, children }: 
               : fitBox(frame.w, frame.h)),
             containerType: 'size',
           }}>
-          <PictureZoom.Provider value={layout ? view.z : 1}>{children}</PictureZoom.Provider>
+          <PictureZoom.Provider value={zoom}>{children}</PictureZoom.Provider>
         </div>
       </div>
     </div>

@@ -2827,6 +2827,7 @@ function FilmStageSelectImpl({
     <div
       ref={host}
       data-film-select
+      data-editing-text={editingText != null ? '' : undefined}
       /* below the subtitles (z-5): they must get the pointer in their own box to be dragged */
       /* the cursor stays an arrow: text cursors over the size label would read as "this can be typed in" */
       className="absolute inset-0 z-[4] cursor-default overflow-visible"

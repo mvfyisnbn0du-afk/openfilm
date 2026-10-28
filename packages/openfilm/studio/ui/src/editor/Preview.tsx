@@ -16,7 +16,7 @@ import type { Film } from '../api';
 import { useT } from '@/i18n';
 import type { ClipSpan } from '@/lib/film-shape';
 import type { Anchor, Sound } from './player';
-import { pageScaleFor, reloaded, shownAfter, updateKeys, type Frame } from './preview-frames';
+import { reloaded, shownAfter, updateKeys, zoomedPageScale, type Frame } from './preview-frames';
 import { usePreviewPrefs } from '@/lib/preview-prefs';
 import { chromiumBased } from '@/lib/browser';
 import { PictureZoom } from '@/lib/viewer-zoom';
@@ -127,9 +127,9 @@ export const Preview = forwardRef<PreviewHandle, Props>(function Preview({ folde
    * the film again behind the picture.
    */
   const { fitPages } = usePreviewPrefs();
-  /* for the picture fitted in the viewer: a zoom only scales it (components/ViewerZoom) */
+  /* for the zoom the picture settled at: one on the move only scales it (components/ViewerZoom) */
   const zoom = useContext(PictureZoom);
-  const pageScale = fitPages && fit.w > 0 ? pageScaleFor(fit.k / zoom, window.devicePixelRatio || 1) : null;
+  const pageScale = fitPages && fit.w > 0 ? zoomedPageScale(fit.k, zoom.z, zoom.drawn, window.devicePixelRatio || 1) : null;
   const scaleOf = useRef(new Map<number, number | null>());
   const framesRef = useRef(frames);
   framesRef.current = frames;
@@ -386,11 +386,15 @@ export const Preview = forwardRef<PreviewHandle, Props>(function Preview({ folde
 
   /* a load keeps the scale it was made with */
   if (measured) for (const f of frames) if (!scaleOf.current.has(f.key)) scaleOf.current.set(f.key, pageScale);
-  /* the viewer kept another size (fullscreen, a pane resized), or the switch changed: the film loads again behind */
+  /* the viewer kept another size (fullscreen, a pane resized), or the switch changed: the film loads again behind; at
+     once for a zoom that has settled (it waited already) */
   const shownScale = shown ? scaleOf.current.get(shown.key) : undefined;
+  const drawnFor = useRef(zoom.drawn);
+  const zoomSettled = drawnFor.current !== zoom.drawn;
+  useEffect(() => { drawnFor.current = zoom.drawn; }, [zoom.drawn]);
   useEffect(() => {
     if (!shown || shownScale === undefined || shownScale === pageScale || frames.some((f) => !f.ready)) return undefined;
-    const timer = setTimeout(reload, RESCALE_MS);
+    const timer = setTimeout(reload, zoomSettled ? 0 : RESCALE_MS);
     return () => clearTimeout(timer);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [pageScale, shownScale, shown?.key, frames.length]);
@@ -414,13 +418,14 @@ export const Preview = forwardRef<PreviewHandle, Props>(function Preview({ folde
             allow="autoplay"
             scrolling="no"
             title="film"
-            /* the one loading is transparent, not hidden: the film is on another site, in a process of its own, and a
-               frame hidden from there is not drawn at all, so a page that waits to draw (an image's decode()) would
-               never be ready */
+            /* the one loading is all but transparent, not hidden: the film is on another site, in a process of its own,
+               and a frame hidden from there is not drawn at all, so a page that waits to draw (an image's decode()) would
+               never be ready; nor quite 0, or it is not put on screen at all, and is blank for a moment when it is shown */
+            data-loading={f === shown ? undefined : ''}
             style={{
               width: stage.w, height: stage.h,
               transform: `translate(${-BLEED}px, ${-BLEED}px) scale(${(fit.w + 2 * BLEED) / stage.w}, ${(fit.h + 2 * BLEED) / stage.h})`,
-              ...(f === shown ? {} : { opacity: 0, pointerEvents: 'none' }),
+              ...(f === shown ? {} : { opacity: 0.001, pointerEvents: 'none' }),
             }}
           />
         ))}
