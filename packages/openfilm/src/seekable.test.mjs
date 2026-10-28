@@ -41,6 +41,25 @@ test('a video with key frames far apart gets a copy with the same frames at the 
   }
 });
 
+test('a VP9 with an alpha and key frames far apart keeps its alpha: it gets no copy, which would be H.264, without it', ffmpeg, async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'of-seekable-alpha-'));
+  try {
+    /* 4 s, one key frame: as an animation exported with its alpha (WebM, libvpx-vp9) usually is */
+    const webm = (name, format) => execFileSync('ffmpeg', ['-v', 'error', '-y', '-f', 'lavfi', '-i', `color=c=red@0.5:size=320x180:rate=30,format=${format}`, '-t', '4',
+      '-c:v', 'libvpx-vp9', '-pix_fmt', format === 'rgba' ? 'yuva420p' : 'yuv420p', '-g', '120', '-deadline', 'realtime', '-cpu-used', '8', join(dir, name)]);
+    webm('alpha.webm', 'rgba');
+    webm('opaque.webm', 'yuv420p');
+    assert.equal(await slowSeeking(join(dir, 'alpha.webm')), null);
+    assert.ok(await slowSeeking(join(dir, 'opaque.webm')), 'the same without an alpha seeks slowly');
+    assert.equal(await copyNeed(join(dir, 'alpha.webm'), { plays: async () => true }), null);
+    const copies = await seekableCopies([join(dir, 'alpha.webm'), join(dir, 'opaque.webm')], dir, { plays: async () => true });
+    assert.deepEqual([...copies.keys()], [join(dir, 'opaque.webm')]);
+    assert.equal(madeCopy(join(dir, 'alpha.webm'), dir), null, 'a page asking for it is served it as it is');
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 test('a render serves the film\'s slow-seeking videos as their copies', ffmpeg, async () => {
   const dir = mkdtempSync(join(tmpdir(), 'of-seekable-render-'));
   try {

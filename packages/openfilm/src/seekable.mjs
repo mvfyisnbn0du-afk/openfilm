@@ -21,8 +21,8 @@ const MAX_SECONDS = 10 * 60;
 /** Bigger than this is not copied at its size (H.264 stops at 4096 on a side in most decoders): left as it is when it
     plays, else copied scaled down to fit. */
 const MAX_SIDE = 4096;
-/** Changing how copies are made makes new ones. */
-const VERSION = 2;
+/** Changing how copies are made makes new ones (3: a VP9 with an alpha got an H.264 copy, without it). */
+const VERSION = 3;
 /** A copy on the graphics chip that writes nothing for this long has hung (VideoToolbox does on some virtual Macs):
     stopped, and made on the processor. */
 const STALL_MS = 15_000;
@@ -40,11 +40,12 @@ const probe = (file, args) => new Promise((done, fail) => {
 export async function slowSeeking(file) {
   let info;
   try {
-    info = JSON.parse(await probe(file, ['-select_streams', 'v:0', '-show_entries', 'stream=width,height,pix_fmt,avg_frame_rate:format=duration', '-of', 'json']));
+    info = JSON.parse(await probe(file, ['-select_streams', 'v:0', '-show_entries', 'stream=width,height,pix_fmt,avg_frame_rate:stream_tags=alpha_mode:format=duration', '-of', 'json']));
   } catch { return null; }
   const stream = info.streams?.[0];
   const seconds = Number(info.format?.duration);
-  if (!stream || !['yuv420p', 'yuvj420p'].includes(stream.pix_fmt)) return null;
+  /* a VP9's alpha is beside its picture, not in its pixel format: its tag says so */
+  if (!stream || !['yuv420p', 'yuvj420p'].includes(stream.pix_fmt) || stream.tags?.alpha_mode === '1') return null;
   if (!(seconds > 0) || seconds > MAX_SECONDS || stream.width > MAX_SIDE || stream.height > MAX_SIDE) return null;
   const [n, d] = String(stream.avg_frame_rate).split('/').map(Number);
   const fps = n > 0 && d > 0 ? n / d : 30;
