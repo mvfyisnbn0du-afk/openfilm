@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { elementAt, elementsOf, readSource, sourceBody } from './html-source.ts';
-import { pastedElsewhere, pastedPage, relativeTo, type PasteLayer, type PasteTarget } from './layer-paste.ts';
+import { copyId, pastedElsewhere, pastedPage, relativeTo, withoutPaste, type PasteItem, type PasteLayer, type PasteTarget } from './layer-paste.ts';
 
 const PAGE = `<!doctype html>
 <html><head><style>#card{background:#c33} #title{color:#ff0}</style></head>
@@ -10,7 +10,7 @@ const PAGE = `<!doctype html>
   <div id="card" class="card">
     <h1 id="title">Hello</h1>
     <p class=sub>world<br>again</p>
-    <svg><linearGradient id="g"/><rect fill="url(#g)"/></svg>
+    <svg><linearGradient id="g"/><rect fill="url(#g)"/><use href="#g"/><use xlink:href="#g"/></svg>
   </div>
   <p>Open paragraph
   <div id="dot"></div>
@@ -29,42 +29,97 @@ test('a page\'s file read as it is written: comments, raw text, end tags left ou
   assert.equal(elementAt(body, [0, 0], ['div', 'div']), null, 'a step of another tag: not it');
 });
 
+test('as the browser reads it: rows in a <tbody>, <div/> left open, <noscript> and <template> as it has them', () => {
+  const body = sourceBody(readSource('<body><table id="t"><tr><td><span id="cell">X</span></td></tr></table><div id="x"/></div><noscript><p>n</p></noscript><template><p>t</p></template><h1 class="t">Hi</h1></body>'));
+  const tags = (e: ReturnType<typeof sourceBody>): unknown => [e.tag, elementsOf(e).map(tags)];
+  assert.deepEqual(tags(body), ['body', [
+    ['table', [['tbody', [['tr', [['td', [['span', []]]]]]]]]],
+    ['div', []],
+    ['noscript', [['p', []]]],
+    ['template', []],
+    ['h1', []],
+  ]]);
+  assert.ok(elementAt(body, [0, 0], ['table', 'tbody'])!.implied, 'the <tbody> is not in the file');
+});
+
 const layer = (over: Partial<PasteLayer> = {}): PasteLayer => ({
   at: '#card', tag: 'div', id: 'card', classes: ['card'], text: 'Hello worldagain',
   place: { position: 'static', left: 200, top: 100, width: 900, height: 500 },
-  idRules: ['#card { background: rgb(204, 51, 51); }', '#title { color: rgb(255, 255, 0); }'],
+  idRules: [
+    { selectors: ['#card'], body: 'background: rgb(204, 51, 51);', within: [] },
+    { selectors: ['#title'], body: 'color: rgb(255, 255, 0);', within: ['@supports (display: grid)', '@layer base'] },
+  ],
   tweaks: [], ...over,
 });
-const target = (): PasteTarget => ({
+const CARD: PasteTarget = {
   path: [0], tags: ['div'],
-  shape: { tag: 'div', children: [{ tag: 'h1', children: [] }, { tag: 'p', children: [{ tag: 'br', children: [] }] }, { tag: 'svg', children: [{ tag: 'linearGradient', children: [] }, { tag: 'rect', children: [] }] }] },
-  ids: new Set(['card', 'title', 'g', 'dot']),
+  shape: { tag: 'div', children: [{ tag: 'h1', children: [] }, { tag: 'p', children: [{ tag: 'br', children: [] }] }, { tag: 'svg', children: [{ tag: 'linearGradient', children: [] }, { tag: 'rect', children: [] }, { tag: 'use', children: [] }, { tag: 'use', children: [] }] }] },
+};
+
+test('a copy written right after the layer: new ids and what names them, its id rules in the head, held in place and moved', () => {
+  const out = pastedPage(PAGE, [{ layer: layer({ tweaks: [{ path: [0], tag: 'h1', text: 'Hi & bye', style: { fontSize: 48 } }, { path: [], tag: 'div', t: [10, 0] }] }), target: CARD }], 24)!;
+  assert.deepEqual(out.ats, ['#card-copy']);
+  assert.ok(out.text.includes('<style>#card-copy { background: rgb(204, 51, 51); } @supports (display: grid) { @layer base { #title-copy { color: rgb(255, 255, 0); } } }</style>\n</head>'), 'in the head, its at-rules kept');
+  const at = out.text.indexOf('<div id="card-copy"');
+  const added = out.text.slice(at, out.text.indexOf('</div>', at) + 6);
+  assert.ok(added.startsWith('<div id="card-copy" class="card" style="position: absolute; left: 200px; top: 100px; width: 900px; height: 500px; margin: 0; box-sizing: border-box; translate: 34px 24px">'), added);
+  assert.ok(added.includes('<h1 id="title-copy" style="font-size: 48px">Hi &amp; bye</h1>'), added);
+  assert.ok(added.includes('<linearGradient id="g-copy"/><rect fill="url(#g-copy)"/><use href="#g-copy"/><use xlink:href="#g-copy"/>'), added);
+  assert.ok(added.includes('<p class=sub>world<br>again</p>'), 'what was not changed is written as it was');
+  assert.equal(withoutPaste(out.text, out.inserted), PAGE, 'and taken out again, the page as it was');
 });
 
-test('a copy written right after the layer: new ids and what names them, its id rules, held in place and moved', () => {
-  const out = pastedPage(PAGE, layer({ tweaks: [{ path: [0], tag: 'h1', text: 'Hi & bye', style: { fontSize: 48 } }, { path: [], tag: 'div', t: [10, 0] }] }), target(), 24)!;
-  assert.equal(out.at, '#card-2');
-  const added = out.text.slice(out.text.indexOf('</div>') + '</div>'.length, out.text.indexOf('<p>Open'));
-  assert.ok(added.includes('<style>#card-2 { background: rgb(204, 51, 51); } #title-2 { color: rgb(255, 255, 0); }</style>'), added);
-  assert.ok(added.includes('<div id="card-2" class="card" style="position: absolute; left: 200px; top: 100px; width: 900px; height: 500px; margin: 0; box-sizing: border-box; translate: 34px 24px">'), added);
-  assert.ok(added.includes('<h1 id="title-2" style="font-size: 48px">Hi &amp; bye</h1>'), added);
-  assert.ok(added.includes('<linearGradient id="g-2"/><rect fill="url(#g-2)"/>'), added);
-  assert.ok(added.includes('<p class=sub>world<br>again</p>'), 'what was not changed is written as it was');
-  const cardEnd = PAGE.indexOf('</div>') + '</div>'.length;
-  assert.ok(out.text.startsWith(PAGE.slice(0, cardEnd)) && out.text.endsWith(PAGE.slice(cardEnd)), 'the rest of the page as it was');
+test('several layers of one page: each found before any is written, so a selector counting them finds the right one', () => {
+  const page = '<body>\n<div id="card">\n  <h1 class="line">One</h1>\n  <h1 class="line">Two</h1>\n</div>\n</body>';
+  const line = (text: string, i: number): PasteItem => ({
+    layer: layer({ at: `#card > h1.line:nth-of-type(${i + 1})`, tag: 'h1', id: null, classes: ['line'], text, place: { position: 'absolute', left: 0, top: 0, width: 10, height: 10 }, idRules: [] }),
+    target: { path: [0, i], tags: ['div', 'h1'], shape: { tag: 'h1', children: [] } },
+  });
+  const out = pastedPage(page, [line('One', 0), line('Two', 1)], 24)!;
+  assert.deepEqual(out.ats, ['#line-copy', '#line-copy-2']);
+  assert.equal(out.text, '<body>\n<div id="card">\n  <h1 class="line">One</h1>\n  <h1 id="line-copy" class="line" style="translate: 24px 24px">One</h1>'
+    + '\n  <h1 class="line">Two</h1>\n  <h1 id="line-copy-2" class="line" style="translate: 24px 24px">Two</h1>\n</div>\n</body>');
+  const card: PasteItem = { layer: layer({ idRules: [] }), target: { path: [0], tags: ['div'], shape: { tag: 'div', children: [{ tag: 'h1', children: [] }, { tag: 'h1', children: [] }] } } };
+  assert.deepEqual(pastedPage(page, [card, line('One', 0)], 24)!.ats, ['#card-copy', ''], 'one inside another copied: with it');
+  const over = pastedPage(out.text, [{ ...line('One', 0), after: { path: [0, 1], tags: ['div', 'h1'], shape: { tag: 'h1', children: [] } } }], 48)!;
+  assert.ok(over.text.includes('<h1 id="line-copy" class="line" style="translate: 24px 24px">One</h1>\n  <h1 id="line-copy-3"'), 'pasted again: over the copy before');
+  const last = pastedPage(page, [{ ...line('One', 0), where: 'end' }], 0)!;
+  assert.ok(last.text.includes('<h1 class="line">Two</h1>\n  <h1 id="line-copy" class="line">One</h1>\n</div>'), 'last in its parent when asked');
+});
+
+test('a copy runs no code: its scripts and handlers go; only the parts of a rule naming its ids are said again', () => {
+  const page = '<head><style>#w, p { color: red }</style></head><body><div id="w" onclick="go()"><canvas id="c"></canvas><script>const ctx = 1;</script></div></body>';
+  const out = pastedPage(page, [{
+    layer: layer({ at: '#w', id: 'w', classes: [], place: { position: 'absolute', left: 0, top: 0, width: 1, height: 1 }, idRules: [{ selectors: ['#w'], body: 'color: red;', within: [] }] }),
+    target: { path: [0], tags: ['div'], shape: { tag: 'div', children: [{ tag: 'canvas', children: [] }, { tag: 'script', children: [] }] } },
+  }], 0)!;
+  assert.equal(out.text, '<head><style>#w, p { color: red }</style><style>#w-copy { color: red; }</style>\n</head><body><div id="w" onclick="go()"><canvas id="c"></canvas><script>const ctx = 1;</script></div>\n<div id="w-copy"><canvas id="c-copy"></canvas></div></body>');
+});
+
+test('words written as the film writes them; a file\'s own line breaks; ids keep their numbers', () => {
+  const page = '<body>\r\n<h1 id="h">Quiet<br><em>you</em> now</h1>\r\n</body>';
+  const out = pastedPage(page, [{
+    layer: layer({ at: '#h', tag: 'h1', id: 'h', classes: [], place: { position: 'absolute', left: 0, top: 0, width: 1, height: 1 }, idRules: [], tweaks: [{ path: [], tag: 'h1', text: 'Hello' }] }),
+    target: { path: [0], tags: ['h1'], shape: { tag: 'h1', children: [{ tag: 'br', children: [] }, { tag: 'em', children: [] }] } },
+  }], 0)!;
+  assert.equal(out.text, '<body>\r\n<h1 id="h">Quiet<br><em>you</em> now</h1>\r\n<h1 id="h-copy">Hello<br><em>you</em></h1>\r\n</body>', 'its first run of words, the others taken away');
+  assert.equal(copyId('step-1', new Set(['step-2'])), 'step-1-copy');
+  assert.equal(copyId('step-1-copy', new Set(['step-1-copy'])), 'step-1-copy-2', 'a copy\'s copy named from the first');
 });
 
 test('a layer the file does not hold as the browser reads it (made by the page\'s code): no copy', () => {
-  assert.equal(pastedPage(PAGE, layer(), { ...target(), path: [5] }, 24), null);
-  assert.equal(pastedPage(PAGE, layer(), { ...target(), shape: { tag: 'div', children: [] } }, 24), null);
+  assert.equal(pastedPage(PAGE, [{ layer: layer(), target: { ...CARD, path: [5] } }], 24), null);
+  assert.equal(pastedPage(PAGE, [{ layer: layer(), target: { ...CARD, shape: { tag: 'div', children: [] } } }], 24), null);
 });
 
-test('an element placed by the page already keeps its place; one without an id gets one', () => {
-  const page = '<body><span class="tag" style="position:absolute;left:5px">New</span></body>';
-  const out = pastedPage(page, layer({ at: 'body > span', tag: 'span', id: null, classes: ['tag'], place: { position: 'absolute', left: 5, top: 0, width: 30, height: 10 }, idRules: [] }),
-    { path: [0], tags: ['span'], shape: { tag: 'span', children: [] }, ids: new Set() }, 24)!;
-  assert.equal(out.at, '#tag-2');
-  assert.equal(out.text, '<body><span class="tag" style="position:absolute;left:5px">New</span>\n<span id="tag-2" class="tag" style="position:absolute;left:5px; translate: 24px 24px">New</span></body>');
+test('an element placed by the page already keeps its place and its own move; one without an id gets one', () => {
+  const page = '<body><span class="tag" style="position:absolute;left:5px;translate:10px 0px">New</span></body>';
+  const out = pastedPage(page, [{
+    layer: layer({ at: 'body > span', tag: 'span', id: null, classes: ['tag'], place: { position: 'absolute', left: 5, top: 0, width: 30, height: 10 }, idRules: [] }),
+    target: { path: [0], tags: ['span'], shape: { tag: 'span', children: [] } },
+  }], 24)!;
+  assert.equal(out.ats[0], '#tag-copy');
+  assert.equal(out.text, '<body><span class="tag" style="position:absolute;left:5px;translate:10px 0px">New</span>\n<span id="tag-copy" class="tag" style="position:absolute;left:5px;translate:10px 0px; translate: 34px 24px">New</span></body>');
 });
 
 test('a path named from a page: up and down from its folder', () => {
@@ -73,19 +128,24 @@ test('a path named from a page: up and down from its folder', () => {
   assert.equal(relativeTo('scenes/scene.html', 'scenes/img/a.png'), 'img/a.png');
 });
 
-test('into another page: the layer as it looks, last in its body, what it loads named from there', () => {
-  const page = '<html><body>\n<h2>Two</h2>\n</body></html>';
+test('into another page: the layer as it looks, last in its body, with new ids, its move kept, what it loads named from there', () => {
+  const page = '<html><head></head><body>\n<h2 id="g-copy">Two</h2>\n</body></html>';
   const base = 'http://127.0.0.1:1/p1/';
   const shot = {
-    html: `<div style="position: absolute; left: 10px; top: 20px; background-image: url(&quot;${base}assets/a%20b.png&quot;)"><img src="${base}assets/logo.png"><a href="https://openfilm.dev">x</a></div>`,
+    html: `<div id="card" style="position: absolute; left: 10px; top: 20px; translate: 100px 0px; background-image: url(&quot;${base}assets/a%20b.png&quot;)"><img src="${base}assets/logo.png"><svg><linearGradient id="g"></linearGradient><rect fill="url(&quot;#g&quot;)"></rect></svg><a href="https://openfilm.dev">x</a></div>`,
     fonts: [`@font-face { font-family: Brand; src: url("${base}fonts/b.woff2"); }`],
     base,
   };
-  const out = pastedElsewhere(page, 'scenes/two.html', layer({ snapshot: shot }), new Set(['card-2']), 24, (p) => `pasted/p1/${p}`)!;
-  assert.equal(out.at, '#card-3');
-  assert.equal(out.text, '<html><body>\n<h2>Two</h2>\n'
-    + '<style>@font-face { font-family: Brand; src: url("../pasted/p1/fonts/b.woff2"); }</style>\n'
-    + '<div id="card-3" style="position: absolute; left: 10px; top: 20px; background-image: url(&quot;../pasted/p1/assets/a b.png&quot;); translate: 24px 24px">'
-    + '<img src="../pasted/p1/assets/logo.png"><a href="https://openfilm.dev">x</a></div>\n</body></html>');
-  assert.equal(pastedElsewhere(page, 'two.html', layer(), new Set(), 0), null, 'copied before its look was known');
+  const out = pastedElsewhere(page, 'scenes/two.html', [layer({ snapshot: shot })], 24, (p) => `pasted/p1/${p}`)!;
+  assert.deepEqual(out.ats, ['#card-copy']);
+  assert.equal(out.text, '<html><head><style>@font-face { font-family: Brand; src: url("../pasted/p1/fonts/b.woff2"); }</style>\n</head><body>\n<h2 id="g-copy">Two</h2>\n'
+    + '<div id="card-copy" style="position: absolute; left: 10px; top: 20px; translate: 100px 0px; background-image: url(&quot;../pasted/p1/assets/a b.png&quot;); translate: 124px 24px">'
+    + '<img src="../pasted/p1/assets/logo.png"><svg><linearGradient id="g-copy-2"></linearGradient><rect fill="url(&quot;#g-copy-2&quot;)"></rect></svg><a href="https://openfilm.dev">x</a></div>\n</body></html>');
+  assert.equal(pastedElsewhere(page, 'two.html', [layer()], 0), null, 'copied before its look was known');
+});
+
+test('an undo of a page written since: what the paste wrote taken out, where it is, once', () => {
+  assert.equal(withoutPaste('<a>x</a><b>COPY</b><i>agent</i>', ['<b>COPY</b>']), '<a>x</a><i>agent</i>');
+  assert.equal(withoutPaste('<b>COPY</b><b>COPY</b>', ['<b>COPY</b>']), null, 'twice: not known which');
+  assert.equal(withoutPaste('<a>x</a>', ['<b>COPY</b>']), null, 'gone');
 });

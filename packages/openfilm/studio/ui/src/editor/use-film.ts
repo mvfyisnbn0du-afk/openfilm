@@ -182,18 +182,19 @@ export function useFilm(projectId: string, initial: FilmState | null, onChange: 
     const ops = kind === 'undo' ? one.undo : one.redo;
     if (one.outside && !ops.length) { runOutside(one, kind); return; }
     if (one.outside) {
-      /* film.html and another file: film.html undone first, the other file made again first */
+      /* film.html and another file: moved at once (a second press takes the step before it), both writes queued now,
+         in the order they go (film.html undone first, the other file made again first), so steps taken one after
+         another (the history's rows) are written in their order */
+      setSteps((s) => moveStep(s, one, kind));
+      const drop = (why: string | null) => { if (why) setSteps((s) => dropStep(s, one)); };
       const other = () => {
-        const done = queue.current.then(async () => {
+        queue.current = queue.current.then(async () => {
           const why = await one.outside![kind]().catch((e: unknown) => String(e instanceof Error ? e.message : e));
-          if (why) { setError(why); setSteps((s) => dropStep(s, one)); }
-          return why;
+          if (why) setError(why);
+          drop(why);
         });
-        queue.current = done.then(() => {});
-        return done;
       };
-      if (kind === 'undo') void run(ops, kind, undefined, false, one).then((why) => { if (why) setSteps((s) => dropStep(s, one)); else void other(); });
-      else void other().then((why) => { if (!why) void run(ops, kind, undefined, false, one).then((w) => { if (w) setSteps((s) => dropStep(s, one)); }); });
+      if (kind === 'undo') { void run(ops, kind).then(drop); other(); } else { other(); void run(ops, kind).then(drop); }
       return;
     }
     /* nothing to apply (an edit that changed nothing): it only moves */

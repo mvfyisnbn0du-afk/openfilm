@@ -5,7 +5,7 @@
  * cannot run stay, grayed, with the reason.
  *
  * Layer changes are overrides (the editor writes film.html), a delete too (lib/layer-delete); a copy of layers is
- * pasted as a clip of its own (lib/layer-clipboard); the clip's actions are the editor's, passed in.
+ * pasted as new elements of a page (lib/layer-clipboard); the clip's actions are the editor's, passed in.
  */
 import type * as React from 'react';
 import {

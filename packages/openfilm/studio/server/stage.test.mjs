@@ -475,81 +475,70 @@ test('a deleted layer has no row in the Layers tree; what points only at it or i
   }
 });
 
-test('a copy of layers is told a selector naming each alone, and which changes are of them, inside them or around them', { timeout: 60_000 }, async () => {
-  const dir = mkdtempSync(join(tmpdir(), 'of-stage-copy-'));
-  writeFileSync(join(dir, 'card.html'), `<!doctype html><body style="margin:0">
-<div id="card" style="position:absolute;left:20px;top:20px;width:200px;height:120px;background:#f60">
-  <h1 class="line" style="margin:0;font:700 24px sans-serif">Every <b>parcel</b></h1>
-  <h1 class="line" style="margin:0;font:700 24px sans-serif">On time</h1>
-</div>
-<p class="note" style="position:absolute;left:240px;top:20px;margin:0;font:14px sans-serif">Elsewhere</p>
-<script>window.film={duration:2,frame(){}}</script></body>`);
-  writeFileSync(join(dir, 'film.html'), filmHtml({ stage: { w: 320, h: 180 }, tracks: [{ clips: [{ id: 'card', src: 'card.html' }] }] }));
-  const stage = await stageOf(dir);
-  try {
-    const copying = await stage.ask('copying', {
-      clip: 'card',
-      of: [{ at: '.line', n: 1 }, { at: '#nothing' }],
-      targets: [{ at: '#card' }, { at: '.line', n: 1 }, { at: '.line b' }, { at: '.line', n: 2 }, { at: '.note' }, { at: 'h1' }, {}],
-    });
-    assert.deepEqual(copying.keep, ['#card > h1.line:nth-of-type(1)', null]);
-    assert.deepEqual(copying.near, [true, true, true, false, false, true, false]);
-  } finally {
-    await stage.close();
-  }
-});
-
-test('pasted layers (a clip of their page showing them alone) are the clip\'s only where they are drawn: elsewhere a click is about the clips under it', { timeout: 60_000 }, async () => {
-  const dir = mkdtempSync(join(tmpdir(), 'of-stage-pasted-'));
-  writeFileSync(join(dir, 'card.html'), `<!doctype html><body style="margin:0;background:#123">
-<h1 id="title" style="position:absolute;left:20px;top:20px;margin:0;font:700 24px sans-serif">Every parcel</h1>
-<div id="dot" style="position:absolute;left:200px;top:100px;width:50px;height:50px;background:#3c3"></div>
-<script>window.film={duration:2,frame(){}}</script></body>`);
-  const pasted = [
-    { at: 'body *:not(#title, #title *)', style: { visibility: 'hidden' } },
-    { at: ':root, body', style: { background: 'none' } },
-    { at: '#title', style: { visibility: 'visible' } },
-  ];
-  writeFileSync(join(dir, 'film.html'), filmHtml({ stage: { w: 320, h: 180 }, tracks: [
-    { clips: [{ id: 'card-copy', src: 'card.html', box: { x: 0, y: 40 }, overrides: pasted }] },
-    { clips: [{ id: 'card', src: 'card.html' }] },
-  ] }));
-  const stage = await stageOf(dir);
-  try {
-    assert.equal((await stage.ask('hit', { x: 40, y: 70, detail: true }))?.clip, 'card-copy', 'the pasted title');
-    assert.equal(await stage.ask('clipAt', { x: 40, y: 70 }), 'card-copy');
-    const dot = await stage.ask('hit', { x: 225, y: 125, detail: true });
-    assert.deepEqual([dot?.clip, dot?.kind], ['card', 'box'], 'the dot under it, though the copy\'s box is there');
-    assert.equal(await stage.ask('clipAt', { x: 150, y: 170 }), 'card', 'its empty part: the clip under it');
-    assert.equal((await stage.ask('hit', { x: 225, y: 125, from: (await stage.ask('hit', { x: 40, y: 70, detail: true })).handle, detail: true }))?.clip, 'card', 'with its title in hand too');
-  } finally {
-    await stage.close();
-  }
-});
-
 test('a layer to be written into its page or another: where it is laid out, its id rules, the changes in it, and how it looks', { timeout: 60_000 }, async () => {
   const dir = mkdtempSync(join(tmpdir(), 'of-stage-source-'));
-  writeFileSync(join(dir, 'card.html'), `<!doctype html><head><style>#title { color: rgb(255, 0, 0) } .note { font: 14px sans-serif }</style></head><body style="margin:0">
+  writeFileSync(join(dir, 'card.html'), `<!doctype html><head><style>
+#title, p { letter-spacing: 1px } @supports (display: grid) { @layer base { #title b { color: rgb(255, 0, 0) } } }
+#col > p:nth-child(3) { color: rgb(0, 128, 0) }
+</style></head><body style="margin:0">
 <div id="col" style="position:absolute;left:10px;top:10px;width:200px">
-  <h1 id="title" style="margin:0 0 4px;font:700 20px sans-serif">Every <b>parcel</b></h1>
+  <h1 id="title" style="margin:0 0 4px;font:700 20px sans-serif" onclick="go()">Every <b>parcel</b></h1>
   <p class="note" style="margin:0">On time</p>
   <p class="note" style="margin:0">Late</p>
+  <svg id="logo" width="20" height="10"><linearGradient id="g"/><rect fill="url(#g)" width="20" height="10"/></svg>
 </div>
 <script>window.film={duration:2,frame(){}}</script></body>`);
   const overrides = [{ at: '#title b', style: { color: 'blue' } }, { at: '#col > p:nth-of-type(2)', t: [4, 0] }, { at: '.note', n: 2, text: 'Very late' }];
   writeFileSync(join(dir, 'film.html'), filmHtml({ stage: { w: 320, h: 180 }, tracks: [{ clips: [{ id: 'card', src: 'card.html', overrides }] }] }));
   const stage = await stageOf(dir);
   try {
-    const [title] = await stage.ask('layerSource', { clip: 'card', of: [{ at: '#title' }] });
+    const [title, late, logo] = await stage.ask('layerSource', { clip: 'card', of: [{ at: '#title' }, { at: '.note', n: 2 }, { at: '#logo' }] });
     assert.deepEqual([title.at, title.tag, title.id, title.text], ['#title', 'h1', 'title', 'Every parcel']);
     assert.deepEqual([title.place.position, title.place.left, title.place.top], ['static', 0, 0]);
-    assert.deepEqual(title.idRules, ['#title { color: rgb(255, 0, 0); }']);
+    assert.deepEqual(title.idRules, [
+      { selectors: ['#title'], body: 'letter-spacing: 1px;', within: [] },
+      { selectors: ['#title b'], body: 'color: rgb(255, 0, 0);', within: ['@supports (display: grid)', '@layer base'] },
+    ], 'the parts of a list naming its ids, in their at-rules');
     assert.deepEqual(title.tweaks, [{ path: [0], tag: 'b', style: { color: 'blue' } }]);
-    assert.match(title.snapshot.html, /^<h1 style="[^"]*position: absolute; left: 10px; top: 10px;[^"]*">Every <b style="[^"]*color: rgb\(0, 0, 255\)/);
-    assert.ok(!/ id=| class=/.test(title.snapshot.html), 'no id or class: another page\'s CSS does not reach it');
-    /* a copy of the first note right after it: what counted the second as the second points at it again */
-    const moved = await stage.ask('afterCopy', { clip: 'card', of: { at: '#col > p:nth-of-type(1)' } });
-    assert.deepEqual(moved, [null, '#col > p.note:nth-of-type(3)', '#col > p.note:nth-of-type(3)']);
+    assert.equal(late.text, 'Late', 'its words as the page has them, not as the clip changed them');
+    assert.ok(logo.place && logo.place.width === 20 && logo.place.height === 10 && Number.isFinite(logo.place.left), `an <svg> is measured too (${JSON.stringify(logo.place)})`);
+    assert.match(title.snapshot.html, /^<h1 id="title" style="[^"]*position: absolute; left: 10px; top: 10px;[^"]*">Every <b style="[^"]*color: rgb\(0, 0, 255\)/);
+    assert.ok(!/ class=|onclick/.test(title.snapshot.html), 'no class (another page\'s CSS does not reach it), no handler');
+    assert.match(logo.snapshot.html, /id="g"/, 'its ids kept, to be made new ones where it goes');
+    /* copies of both notes: the first's comes last (beside it, the page's :nth-child(3) would color the other), and
+       nothing the clip points at is another element then */
+    const after = await stage.ask('afterCopy', { clip: 'card', of: [{ at: '#col > p:nth-of-type(1)' }, { at: '#col > p:nth-of-type(2)' }] });
+    assert.deepEqual(after, { where: ['end', 'after'], moved: [null, null, null] });
+  } finally {
+    await stage.close();
+  }
+});
+
+test('a layer the page\'s code moved in it: known by its words as the page has them', { timeout: 60_000 }, async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'of-stage-moved-'));
+  writeFileSync(join(dir, 'card.html'), `<!doctype html><body style="margin:0"><div id="col"><p class="note">First in file</p><p class="note">Second in file</p></div>
+<script>document.getElementById('col').prepend(Object.assign(document.createElement('p'), { className: 'note', textContent: 'made by script' }));
+window.film={duration:2,frame(){}}</script></body>`);
+  writeFileSync(join(dir, 'film.html'), filmHtml({ stage: { w: 320, h: 180 }, tracks: [{ clips: [{ id: 'card', src: 'card.html' }] }] }));
+  const stage = await stageOf(dir);
+  try {
+    const [layer] = await stage.ask('layerSource', { clip: 'card', of: [{ at: '#col > p.note:nth-of-type(2)' }] });
+    assert.equal(layer.text, 'First in file');
+  } finally {
+    await stage.close();
+  }
+});
+
+test('a copy written right after a layer: what the clip counted after it points at what it found', { timeout: 60_000 }, async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'of-stage-after-'));
+  writeFileSync(join(dir, 'card.html'), `<!doctype html><body style="margin:0"><div id="col"><p id="a">A</p><p id="b">B</p><p>C</p></div>
+<script>window.film={duration:2,frame(){}}</script></body>`);
+  const overrides = [{ at: '#col > p:nth-of-type(3)', style: { color: 'red' } }, { at: 'p', n: 2, t: [4, 0] }];
+  writeFileSync(join(dir, 'film.html'), filmHtml({ stage: { w: 320, h: 180 }, tracks: [{ clips: [{ id: 'card', src: 'card.html', overrides }] }] }));
+  const stage = await stageOf(dir);
+  try {
+    const after = await stage.ask('afterCopy', { clip: 'card', of: [{ at: '#a' }, { at: '#b' }] });
+    assert.deepEqual(after, { where: ['after', 'after'], moved: ['#col > p:nth-of-type(5)', '#b'] }, 'both copies counted at once');
   } finally {
     await stage.close();
   }

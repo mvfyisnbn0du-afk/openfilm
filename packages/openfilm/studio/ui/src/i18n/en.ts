@@ -998,6 +998,8 @@ export const en = {
     unlock: 'Unlock',
     delete: 'Delete',
     copyFail: "That layer couldn't be copied. Move the playhead to where it shows and try again.",
+    pasteNoPage: "There's no page under the playhead to paste into. Move the playhead onto one.",
+    pasteChanged: "The page was changed since the paste, so the pasted layer couldn't be taken out of it.",
     notNow: 'Not on the picture at this moment',
     restackFailed: 'That layer couldn\'t be restacked. The picture may have changed; try again.',
   },

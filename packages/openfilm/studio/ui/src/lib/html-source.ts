@@ -4,9 +4,9 @@
  * browser's own reading (DOMParser) says which element is which; this says where it is.
  *
  * It reads what people and agents write: elements, attributes quoted or not, comments, raw text (`<script>`,
- * `<style>`, `<textarea>`, `<title>`), elements that hold nothing (`<br>`, `<img>` …, or `/>`), and the end tags a page
- * may leave out (`</p>` before a block, `</li>`, `</td>` …). What it cannot tell apart is caught by comparing its tree
- * with the browser's (sameShape).
+ * `<style>`, `<textarea>`, `<title>`), elements that hold nothing (`<br>`, `<img>` …, or `/>` in SVG), the end tags a
+ * page may leave out (`</p>` before a block, `</li>`, `</td>` …) and the `<tbody>` rows written in a table are read in.
+ * What it cannot tell apart is caught by comparing its tree with the browser's (sameShape).
  *
  * Pure: no DOM, so `node --test` runs it.
  */
@@ -28,6 +28,8 @@ export interface SourceElement {
   tag: string;
   /** Its `<`. */
   start: number;
+  /** Not in the file: a `<tbody>` the browser reads around rows written without one. */
+  implied?: true;
   /** Just after its start tag's name: where an attribute can be added. */
   nameEnd: number;
   /** Just after its start tag's `>`. */
@@ -41,7 +43,11 @@ export interface SourceElement {
 }
 
 const VOID = new Set(['area', 'base', 'br', 'col', 'embed', 'hr', 'img', 'input', 'link', 'meta', 'param', 'source', 'track', 'wbr']);
-const RAW = new Set(['script', 'style', 'textarea', 'title', 'xmp', 'noscript']);
+/* not `<noscript>`: a page read without its scripts (DOMParser, a render) reads what is in it as elements. A
+   `<template>`'s are not its elements either (they are its content): held as text, as the browser has none */
+const RAW = new Set(['script', 'style', 'textarea', 'title', 'xmp', 'template']);
+/** Where `/>` ends an element: inside SVG and MathML. In HTML it is ignored (`<div/>` is an open `<div>`). */
+const FOREIGN = new Set(['svg', 'math']);
 /** Elements a `<p>` left open ends before. */
 const ENDS_P = new Set([
   'address', 'article', 'aside', 'blockquote', 'details', 'div', 'dl', 'fieldset', 'figcaption', 'figure', 'footer', 'form',
@@ -100,10 +106,17 @@ export function readSource(text: string): SourceElement {
     if (ENDS_P.has(tag) && top().tag === 'p') { close(top(), lt, lt); open.pop(); }
     const ends = ENDS_SELF[top().tag];
     if (ends?.includes(tag)) { close(top(), lt, lt); open.pop(); }
+    /* rows written straight in a table are read inside a <tbody> */
+    if (tag === 'tr' && top().tag === 'table') {
+      const body: SourceElement = { kind: 'element', tag: 'tbody', implied: true, start: lt, nameEnd: lt, openEnd: lt, closeStart: lt, end: lt, attrs: [], children: [] };
+      top().children.push(body);
+      open.push(body);
+    }
     const el: SourceElement = { kind: 'element', tag, start: lt, nameEnd, openEnd, closeStart: openEnd, end: openEnd, attrs, children: [] };
     top().children.push(el);
     i = textFrom = openEnd;
-    if (VOID.has(tag) || selfClosed) continue;
+    const foreign = FOREIGN.has(tag) || open.some((o) => FOREIGN.has(o.tag));
+    if (VOID.has(tag) || (selfClosed && foreign)) continue;
     if (RAW.has(tag)) {
       const m = new RegExp(`</${tag}[^>]*>`, 'i').exec(text.slice(openEnd));
       const at = m ? openEnd + m.index : text.length;
