@@ -1189,7 +1189,7 @@ export function ProjectView({ projectId, onProject, onLeave }: {
           src: path,
           step: {
             /* written since (the agent): kept, the clip goes back to the page it showed */
-            undo: () => api.writePage(projectId, path, null, made).then(() => null, () => null),
+            undo: () => api.writePage(projectId, path, null, made, true).then(() => null, () => null),
             redo: () => api.writePage(projectId, path, text, null).then(() => null),
           },
         };
@@ -1203,7 +1203,7 @@ export function ProjectView({ projectId, onProject, onLeave }: {
         step: {
           undo: async () => {
             try {
-              await api.writePage(projectId, path, page.text, made);
+              await api.writePage(projectId, path, page.text, made, true);
               undone = null;
               return null;
             } catch (e) {
@@ -1211,7 +1211,7 @@ export function ProjectView({ projectId, onProject, onLeave }: {
               const now = await api.readPage(projectId, path);
               const back = withoutPaste(now.text, out.inserted);
               if (back == null) return t('layers.pasteChanged');
-              undone = { rev: await api.writePage(projectId, path, back.text, now.rev), at: back.at, text: back.text };
+              undone = { rev: await api.writePage(projectId, path, back.text, now.rev, true), at: back.at, text: back.text };
               return null;
             }
           },

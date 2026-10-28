@@ -56,10 +56,12 @@ export async function readPage(root, rel) {
 
 /**
  * The page `rel` written as `text` (null: taken away), when it is still the page of rev `expect` (null: when there is
- * no page there yet), in the encoding it has. Its new rev (null once taken away).
+ * no page there yet), in the encoding it has. Its new rev (null once taken away). `undo`: the write takes back one of
+ * Studio's own (a paste undone), for what keeps track of Studio's writes.
  * @param {string} root @param {unknown} rel @param {string | null} text @param {string | null} expect
+ * @param {{ undo?: boolean }} [_how]
  */
-export async function writePage(root, rel, text, expect) {
+export async function writePage(root, rel, text, expect, _how = {}) {
   const abs = pagePath(root, rel);
   const bytes = existsSync(abs) ? await readFile(abs) : null;
   const now = bytes ? revOf(bytes) : null;

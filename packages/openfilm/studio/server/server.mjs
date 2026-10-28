@@ -826,9 +826,9 @@ export async function startStudio({ port = 4747, key, openBrowser = systemBrowse
     /* a page as text, read and written by what Studio writes into a page (layers pasted, page-text.mjs) */
     if (rest === 'page' && req.method === 'GET') return json(res, 200, await readPage(project.path, url.searchParams.get('path')));
     if (rest === 'page' && req.method === 'PUT') {
-      const { path: at, text, expect } = /** @type {{ path?: unknown, text?: unknown, expect?: unknown }} */ (await readJson(req) ?? {});
+      const { path: at, text, expect, undo } = /** @type {{ path?: unknown, text?: unknown, expect?: unknown, undo?: unknown }} */ (await readJson(req) ?? {});
       if (text !== null && typeof text !== 'string') throw new HttpError(400, 'the page\'s text, please');
-      return json(res, 200, await writePage(project.path, at, text, typeof expect === 'string' ? expect : null));
+      return json(res, 200, await writePage(project.path, at, text, typeof expect === 'string' ? expect : null, { undo: undo === true }));
     }
     /* a clip of another project brought into this one, with the files it needs (layers pasted from there) */
     if (rest === 'bring' && req.method === 'POST') {
