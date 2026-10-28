@@ -16,7 +16,7 @@ import { applyOps, EditError } from '../../../server/ops.mjs';
 import { filmHead } from '../../../../src/film-doc.mjs';
 import { api, ApiError, projectEvents, type Film, type Op } from '../api';
 import { inverse } from './undo';
-import { dropStep, moveStep, nextStep, pushStep, type Steps } from './steps';
+import { dropStep, inTurn, moveStep, nextStep, pushStep, type Steps } from './steps';
 
 export type FilmState = { value: Film; rev: string };
 
@@ -195,22 +195,24 @@ export function useFilm(projectId: string, initial: FilmState | null, onChange: 
     void run(ops, kind, undefined, false, one).then(drop);
     return Promise.resolve();
   }, [run, runOutside, setSteps]);
+  /* undo, redo and the history's jumps one at a time: the next step is looked for once the last one is taken */
+  const turn = useRef(inTurn());
   const undo = useCallback(() => {
-    const one = nextStep(stepsRef.current, 'undo');
-    if (one) step(one, 'undo');
+    void turn.current(() => { const one = nextStep(stepsRef.current, 'undo'); return one ? step(one, 'undo') : undefined; });
   }, [step]);
   const redo = useCallback(() => {
-    const one = nextStep(stepsRef.current, 'redo');
-    if (one) step(one, 'redo');
+    void turn.current(() => { const one = nextStep(stepsRef.current, 'redo'); return one ? step(one, 'redo') : undefined; });
   }, [step]);
   /** Undo or redo until `done` steps are done (the edit history's rows: click one to go back or forward to it), one
       step after another, each once the one before is taken (a step of another file waits for its write) */
   const rollbackTo = useCallback((done: number) => {
-    let { done: d, undone: u } = stepsRef.current;
-    const order: Array<[Step, 'undo' | 'redo']> = [];
-    while (d.length > done && d.length) { const one = d[d.length - 1]!; order.push([one, 'undo']); u = [...u, one]; d = d.slice(0, -1); }
-    while (d.length < done && u.length) { const one = u[u.length - 1]!; order.push([one, 'redo']); d = [...d, one]; u = u.slice(0, -1); }
-    void order.reduce((at, [one, kind]) => at.then(() => step(one, kind)), Promise.resolve());
+    void turn.current(async () => {
+      let { done: d, undone: u } = stepsRef.current;
+      const order: Array<[Step, 'undo' | 'redo']> = [];
+      while (d.length > done && d.length) { const one = d[d.length - 1]!; order.push([one, 'undo']); u = [...u, one]; d = d.slice(0, -1); }
+      while (d.length < done && u.length) { const one = u[u.length - 1]!; order.push([one, 'redo']); d = [...d, one]; u = u.slice(0, -1); }
+      for (const [one, kind] of order) await step(one, kind);
+    });
   }, [step]);
   /** `outside`: another file this edit changed too, made already; one undo takes both back (see Step). */
   const edit = useCallback((ops: Op[], label?: string, quiet?: boolean, outside?: OutsideStep) => run(ops, 'do', label, quiet, undefined, outside), [run]);

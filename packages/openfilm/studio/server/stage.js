@@ -1398,6 +1398,19 @@
   };
 
   /* ── a layer to be written into its page (the editor's lib/layer-paste) ── */
+  /** Where `el` is in `root`: element after element, from it. */
+  const pathIn = (root, el) => {
+    const path = [];
+    for (let n = el; n !== root; n = n.parentElement) path.unshift([...n.parentElement.children].indexOf(n));
+    return path;
+  };
+  /** What of an element's look a copy keeps from it, where the page's CSS would draw the copy otherwise. */
+  const OWN_LOOK = [
+    'color', 'background-color', 'background-image', 'border-top', 'border-right', 'border-bottom', 'border-left',
+    'border-radius', 'outline', 'box-shadow', 'opacity', 'visibility', 'display', 'padding', 'font-family', 'font-size',
+    'font-weight', 'font-style', 'line-height', 'letter-spacing', 'text-align', 'text-decoration', 'text-transform',
+    'text-shadow', 'filter', 'transform', 'scale', 'rotate', 'mix-blend-mode', 'fill', 'stroke',
+  ];
   /** An element's words as its page draws them, without what the clip's changes of words wrote (src/overrides.mjs). */
   const pageWords = (c, el) => {
     const texts = new Map();
@@ -1675,11 +1688,6 @@
       const c = clipById(clip);
       const doc = c?.kind === 'page' ? c.win?.document : null;
       if (!doc) return null;
-      const pathIn = (root, el) => {
-        const path = [];
-        for (let n = el; n !== root; n = n.parentElement) path.unshift([...n.parentElement.children].indexOf(n));
-        return path;
-      };
       return (of ?? []).map((o) => {
         const el = matches(doc, o)[0];
         if (!el) return null;
@@ -1711,7 +1719,9 @@
      * goes after, -1 first; `siblings`: their tags): right after it, unless the page's CSS would then draw what is
      * beside it otherwise (`:nth-child`, `:last-child`, `+` …), else the nearest place where it draws nothing
      * otherwise (after it first, then before it). Per override of the clip, the selector naming what it finds now
-     * when it would find other elements once they are there (null: the same).
+     * when it would find other elements once they are there (null: the same). Per layer, what the page's CSS draws
+     * otherwise on its copy there than on it (`looks`: element by element, from it, its own values), to be written on
+     * the copy, so it looks as it does.
      */
     afterCopy({ clip, of }) {
       const c = clipById(clip);
@@ -1759,7 +1769,34 @@
         put(copy, el.parentElement, places[i].after);
         return copy;
       });
+      /* what the page's CSS draws otherwise on a copy where it goes (a :first-child, a p + p): its original's, element
+         by element, to be written on it. Not where it is and how big (the paste places it), nor what its new ids lose
+         (their rules are said again of them) */
+      const looksOf = (el, copy) => {
+        const from = [el, ...el.querySelectorAll('*')];
+        const to = [copy, ...copy.querySelectorAll('*')];
+        return from.flatMap((src, k) => {
+          const out = to[k];
+          if (!out || out.localName !== src.localName) return [];
+          const a = view.getComputedStyle(src);
+          const b = view.getComputedStyle(out);
+          /* a border or outline drawn on neither (its color alone differs) is no difference */
+          const unseen = (v) => /(^|\s)0px(\s|$)/.test(v) || /\bnone\b/.test(v);
+          const decls = OWN_LOOK.filter((p) => {
+            const [x, y] = [a.getPropertyValue(p), b.getPropertyValue(p)];
+            return x !== y && !(/^(border-|outline)/.test(p) && unseen(x) && unseen(y));
+          }).map((p) => [p, a.getPropertyValue(p)]);
+          return decls.length ? [{ path: pathIn(el, src), decls }] : [];
+        });
+      };
       try {
+        const looks = els.map((el, i) => {
+          /* as its id rules make it: the copy's ids for this read are its original's */
+          const copy = copies[i];
+          const renamed = [copy, ...copy.querySelectorAll('[id]')].filter((n) => n.id.endsWith('-openfilm-copy'));
+          for (const n of renamed) n.id = n.id.slice(0, -'-openfilm-copy'.length);
+          try { return looksOf(el, copy); } finally { for (const n of renamed) n.id = `${n.id}-openfilm-copy`; }
+        });
         const moved = list.map((o, i) => {
           const was = before[i];
           if (!was) return null;
@@ -1768,7 +1805,7 @@
           if (now.length === was.length && now.every((n, k) => n === was[k])) return null;
           return was.length ? was.map((n) => selectorOf(n)).join(', ') : null;
         });
-        return { places, moved };
+        return { places, moved, looks };
       } finally {
         for (const copy of copies) copy.remove();
       }

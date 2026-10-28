@@ -7,7 +7,8 @@
  * (studio/server/stage.js `afterCopy`), with:
  *   - new ids (`<id>-copy`), and what in it names them (`url(#…)`, `href="#…"`, `for`, `aria-*`);
  *   - the page's CSS rules of the old ids said again of the new ones, only the parts naming them, in the page's head;
- *   - the clip's changes of it and of what is in it written in (styles, moves, words);
+ *   - the clip's changes of it and of what is in it written in (styles, moves, words), and what the page's CSS gives
+ *     it where it is that it would not give the copy where it goes (a `:first-child`, a `p + p`);
  *   - no scripts and no `on…` handlers (they would run twice, as the page's own code: a copy is a picture);
  *   - when it was in the page's flow, held where it was laid out (`position: absolute`, its size), so nothing else
  *     moves; and `offset` px lower and to the right.
@@ -56,6 +57,8 @@ export interface PasteItem {
   target: PasteTarget;
   place?: { after: number; siblings: string[] };
   over?: PasteTarget;
+  /** What the page's CSS draws otherwise on the copy there than on the layer (`afterCopy`): the layer's, written on it. */
+  look?: Array<{ path: number[]; decls: Array<[string, string]> }>;
 }
 
 export interface PastedPage {
@@ -169,7 +172,9 @@ function copyMarkup(text: string, el: SourceElement, o: CopyOptions): string {
   };
   walk(el);
   let copy = text.slice(el.start, el.end);
-  for (const e of edits.sort((a, b) => b.start - a.start)) copy = copy.slice(0, e.start - el.start) + e.text + copy.slice(e.end - el.start);
+  /* from the last place up; two at one place in the order made (the later one written first, so it ends up after) */
+  const order = edits.map((e, i) => ({ ...e, i })).sort((a, b) => b.start - a.start || b.i - a.i);
+  for (const e of order) copy = copy.slice(0, e.start - el.start) + e.text + copy.slice(e.end - el.start);
   return copy;
 }
 
@@ -258,7 +263,7 @@ export function pastedPage(text: string, items: readonly PasteItem[], offset: nu
   const writes: Array<{ at: number; text: string }> = [];
   const rules: string[] = [];
   const ats: string[] = [];
-  items.forEach(({ layer, target, place, over }, i) => {
+  items.forEach(({ layer, target, place, over, look }, i) => {
     const el = els[i]!;
     /* inside another one copied (or the same twice): copied with it */
     if (els.some((o, k) => k !== i && o!.start <= el.start && o!.end >= el.end && (o!.start < el.start || o!.end > el.end || k < i))) {
@@ -274,6 +279,11 @@ export function pastedPage(text: string, items: readonly PasteItem[], offset: nu
       for (const [k, v] of decls) { m.delete(k); m.set(k, v); }
       css.set(n, m);
     };
+    /* what the page's CSS gives the layer where it is (a :first-child, a p + p), and not its copy where it goes */
+    for (const { path, decls } of look ?? []) {
+      const n = at.get(path.join('.'));
+      if (n) put(n, decls);
+    }
     for (const { path, tag, ...tweak } of layer.tweaks) {
       const n = at.get(path.join('.'));
       if (!n || n.tag !== tag.toLowerCase()) continue;

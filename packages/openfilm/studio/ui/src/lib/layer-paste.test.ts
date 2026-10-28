@@ -157,3 +157,13 @@ test('an undo of a page written since: what the paste wrote taken out, where it 
   assert.equal(withoutPaste('<b>COPY</b><b>COPY</b>', ['<b>COPY</b>']), null, 'twice: not known which');
   assert.equal(withoutPaste('<a>x</a>', ['<b>COPY</b>']), null, 'gone');
 });
+
+test('what the page\'s CSS gives the layer where it is and not its copy where it goes is written on the copy', () => {
+  const page = '<body><div id="col"><p>A</p><p>B</p></div></body>';
+  const out = pastedPage(page, [{
+    layer: layer({ at: '#col > p:nth-of-type(1)', tag: 'p', id: null, classes: [], place: { position: 'absolute', left: 0, top: 0, width: 1, height: 1 }, idRules: [] }),
+    target: { path: [0, 0], tags: ['div', 'p'], shape: { tag: 'p', children: [] } },
+    look: [{ path: [], decls: [['color', 'rgb(255, 0, 0)'], ['border-top', '0px none rgb(255, 0, 0)']] }],
+  }], 0)!;
+  assert.equal(out.text, '<body><div id="col"><p>A</p>\n<p id="p-copy" style="color: rgb(255, 0, 0); border-top: 0px none rgb(255, 0, 0)">A</p><p>B</p></div></body>');
+});
