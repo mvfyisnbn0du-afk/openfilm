@@ -335,43 +335,17 @@
     const typed = siblings.filter((c) => c.tagName === el.tagName);
     return `${named}:nth-of-type(${typed.indexOf(el) + 1})`;
   };
-  /* a copy of an element (an override's `copy`, src/overrides.mjs) is named by its number, what is in it from there */
-  const COPY_ATTR = 'data-film-copy';
   const selectorOf = (el) => {
     const doc = el.ownerDocument;
-    if (el.hasAttribute(COPY_ATTR)) return `[${COPY_ATTR}="${el.getAttribute(COPY_ATTR)}"]`;
-    if (el.id && !el.closest(`[${COPY_ATTR}]`)) {
-      const at = `#${CSS.escape(el.id)}`;
-      const found = matches(doc, { at });
-      if (found.length === 1 && found[0] === el) return at;
-    }
+    if (el.id && doc.querySelectorAll(`#${CSS.escape(el.id)}`).length === 1) return `#${CSS.escape(el.id)}`;
     const parentEl = el.parentElement;
     if (!parentEl || el === doc.body) return el.localName;
     return `${parentEl === doc.body ? 'body' : selectorOf(parentEl)} > ${stepOf(el)}`;
   };
-  /** The elements an override is about, as the film finds them (src/overrides.mjs entryNodes). */
   const matches = (doc, o) => {
-    if (o.copy != null) return [...doc.querySelectorAll(`[${COPY_ATTR}="${Number(o.copy)}"]`)];
     let nodes = [];
     try { nodes = [...doc.querySelectorAll(o.at)]; } catch { return []; }
-    if (!String(o.at).includes(COPY_ATTR)) nodes = nodes.filter((el) => !el.closest(`[${COPY_ATTR}]`));
     return o.n ? nodes.slice(o.n - 1, o.n) : nodes;
-  };
-  /**
-   * The page's own element a layer is, or is drawn from: a layer of a copy is the one in the same place in what the
-   * copy copies (a copy of a copy: what that one copies).
-   */
-  const ownOf = (c, el) => {
-    const root = el.closest(`[${COPY_ATTR}]`);
-    if (!root) return el;
-    const entry = (c.overrides ?? []).find((o) => String(o.copy) === root.getAttribute(COPY_ATTR));
-    const from = entry ? matches(el.ownerDocument, { at: entry.at, n: entry.n })[0] : null;
-    if (!from) return null;
-    const path = [];
-    for (let n = el; n !== root; n = n.parentElement) path.unshift([...n.parentElement.children].indexOf(n));
-    let at = ownOf(c, from);
-    for (const i of path) at = at?.children[i] ?? null;
-    return at;
   };
   /** Its selector, and which match it is when the selector finds several. */
   const locOf = (el) => {
@@ -1333,6 +1307,96 @@
     return collect(doc.body);
   };
 
+  /* ── a layer as it looks now, to be written into another page (the editor's lib/layer-paste pastedElsewhere) ── */
+  /** What of an element's computed style is its look: where it is, its box, its type, its paint. */
+  const LOOK = [
+    'display', 'position', 'left', 'top', 'right', 'bottom', 'width', 'height', 'box-sizing', 'margin', 'padding',
+    'flex-direction', 'flex-wrap', 'justify-content', 'align-items', 'align-content', 'align-self', 'flex', 'gap', 'order',
+    'grid-template-columns', 'grid-template-rows', 'grid-column', 'grid-row',
+    'color', 'background-color', 'background-image', 'background-size', 'background-position', 'background-repeat',
+    'border', 'border-radius', 'outline', 'box-shadow', 'opacity', 'visibility', 'overflow', 'z-index',
+    'transform', 'transform-origin', 'translate', 'scale', 'rotate', 'filter', 'backdrop-filter', 'mix-blend-mode',
+    'clip-path', 'mask-image', 'object-fit', 'object-position',
+    'font-family', 'font-size', 'font-weight', 'font-style', 'line-height', 'letter-spacing', 'word-spacing', 'text-align',
+    'text-transform', 'text-decoration', 'text-shadow', 'white-space', '-webkit-text-stroke', 'text-indent', 'vertical-align',
+    'fill', 'stroke', 'stroke-width', 'stroke-linecap', 'stroke-linejoin', 'stroke-dasharray', 'stroke-dashoffset',
+  ];
+  const DEFAULT_LOOK = new Map();
+  /** A property's value an element of this tag has with no CSS of the page's: not written. */
+  const defaultLook = (doc, tag) => {
+    if (DEFAULT_LOOK.has(tag)) return DEFAULT_LOOK.get(tag);
+    const probe = doc.createElement(tag);
+    let out = new Map();
+    try {
+      probe.style.all = 'initial';
+      doc.body.append(probe);
+      const cs = doc.defaultView.getComputedStyle(probe);
+      out = new Map(LOOK.map((p) => [p, cs.getPropertyValue(p)]));
+    } finally { probe.remove(); }
+    DEFAULT_LOOK.set(tag, out);
+    return out;
+  };
+  /**
+   * `el` as it looks now, as markup that holds its look itself: each element's computed look written in its style (no
+   * id or class: another page's CSS does not reach it), what it loads as full addresses, no scripts; the root placed
+   * where it is in its page (`position: absolute`, page px). With the page's @font-face rules of the fonts in it.
+   */
+  const snapshotOf = (el) => {
+    const doc = el.ownerDocument;
+    const view = doc.defaultView;
+    const copy = el.cloneNode(true);
+    const from = [el, ...el.querySelectorAll('*')];
+    const to = [copy, ...copy.querySelectorAll('*')];
+    const families = new Set();
+    from.forEach((src, i) => {
+      const out = to[i];
+      if (!out) return;
+      const cs = view.getComputedStyle(src);
+      const plain = defaultLook(doc, src.localName);
+      const turned = ['transform', 'scale', 'rotate'].some((p) => cs.getPropertyValue(p) !== 'none');
+      const decls = LOOK.filter((p) => {
+        const v = cs.getPropertyValue(p);
+        if (v === plain.get(p)) return false;
+        /* a border or outline not drawn, a turning point of nothing turned: not its look */
+        if ((p === 'border' || p === 'outline') && (/(^|\s)0px(\s|$)/.test(v) || /\bnone\b/.test(v))) return false;
+        return p !== 'transform-origin' || turned;
+      }).map((p) => `${p}: ${cs.getPropertyValue(p)}`);
+      for (const f of cs.fontFamily.split(',')) families.add(f.trim().replace(/^["']|["']$/g, ''));
+      out.removeAttribute('id');
+      out.removeAttribute('class');
+      out.setAttribute('style', decls.join('; '));
+      for (const a of ['src', 'href', 'poster']) if (src[a] && typeof src[a] === 'string' && out.hasAttribute(a)) out.setAttribute(a, src[a]);
+    });
+    for (const n of copy.querySelectorAll('script')) n.remove();
+    /* the root where it is in its page, its own box: not the flow it was in */
+    let left = 0;
+    let top = 0;
+    for (let n = el; n; n = n.offsetParent) { left += n.offsetLeft; top += n.offsetTop; }
+    copy.style.setProperty('position', 'absolute');
+    copy.style.setProperty('left', `${left}px`);
+    copy.style.setProperty('top', `${top}px`);
+    copy.style.setProperty('width', `${el.offsetWidth}px`);
+    copy.style.setProperty('height', `${el.offsetHeight}px`);
+    copy.style.setProperty('margin', '0');
+    copy.style.setProperty('box-sizing', 'border-box');
+    copy.style.removeProperty('right');
+    copy.style.removeProperty('bottom');
+    const fonts = [];
+    for (const sheet of doc.styleSheets) {
+      let list = [];
+      try { list = [...sheet.cssRules]; } catch { continue; }
+      for (const r of list) {
+        if (r.type !== 5) continue;
+        const family = r.style.getPropertyValue('font-family').trim().replace(/^["']|["']$/g, '');
+        if (!families.has(family)) continue;
+        /* its files as full addresses */
+        const base = sheet.href ?? doc.baseURI;
+        fonts.push(r.cssText.replace(/url\(\s*(['"]?)([^'")]+)\1\s*\)/g, (m, q, u) => { try { return `url("${new URL(u, base).href}")`; } catch { return m; } }));
+      }
+    }
+    return { html: copy.outerHTML, fonts, base: new URL('.', location.href).href };
+  };
+
   /* ── the ops ── */
   const ops = {
     /** The layer under a point: the smallest (Alt: the next one under `cycleFrom`); groups stand for their layers. */
@@ -1523,25 +1587,93 @@
       const doc = c?.kind === 'page' ? c.win?.document : null;
       if (!doc) return null;
       const layers = (of ?? []).map((o) => matches(doc, o)[0] ?? null);
-      const named = (el) => {
+      const keep = layers.map((el) => {
         if (!el) return null;
         const at = selectorOf(el);
         return matches(doc, { at }).length === 1 ? at : null;
-      };
-      const keep = layers.map(named);
-      /* the page's own element each is drawn from, the one a copy of it copies */
-      const own = layers.map((el) => named(el && ownOf(c, el)));
+      });
       const held = layers.filter(Boolean);
-      const found = (targets ?? []).map((o) => (o?.at ? matches(doc, o) : []));
-      const near = found.map((list) => list.some((el) => held.some((h) => h.contains(el) || el.contains(h))));
-      /* per target, the layers it finds in each copied one, from there (`''` the layer itself): how it is said of a copy */
-      const inside = found.map((list) => list.flatMap((el) => layers.flatMap((h, layer) => {
-        if (!h || !h.contains(el)) return [];
-        const steps = [];
-        for (let n = el; n !== h; n = n.parentElement) steps.unshift(stepOf(n));
-        return [{ layer, rel: steps.map((step) => ` > ${step}`).join('') }];
-      })));
-      return { keep, near, own, inside };
+      const near = (targets ?? []).map((o) => (o?.at ? matches(doc, o) : []).some((el) => held.some((h) => h.contains(el) || el.contains(h))));
+      return { keep, near };
+    },
+    /**
+     * What writing a copy of the layers `of` of clip `clip` into their page needs (the editor's lib/layer-paste), per
+     * layer: a selector naming it alone, its tag, id, classes and words (to find it in the page's file), where it is
+     * laid out (`position`, and its box in its offset parent), the page's CSS rules naming an id in it (a copy's ids
+     * are new ones), and the clip's changes of it and of the layers in it, in order, each with where it is in the
+     * layer (element by element, from it). Null for a layer not found.
+     */
+    layerSource({ clip, of }) {
+      const c = clipById(clip);
+      const doc = c?.kind === 'page' ? c.win?.document : null;
+      if (!doc) return null;
+      const rules = [];
+      for (const sheet of doc.styleSheets) {
+        let list = [];
+        try { list = [...sheet.cssRules]; } catch { continue; }
+        for (const r of list) {
+          if (r.selectorText) rules.push({ text: r.cssText, selector: r.selectorText });
+          else if (r.conditionText != null && r.cssRules) for (const inner of r.cssRules) if (inner.selectorText) rules.push({ text: `@media ${r.conditionText} { ${inner.cssText} }`, selector: inner.selectorText });
+        }
+      }
+      const pathIn = (root, el) => {
+        const path = [];
+        for (let n = el; n !== root; n = n.parentElement) path.unshift([...n.parentElement.children].indexOf(n));
+        return path;
+      };
+      return (of ?? []).map((o) => {
+        const el = matches(doc, o)[0];
+        if (!el) return null;
+        const at = selectorOf(el);
+        const ids = [el, ...el.querySelectorAll('[id]')].map((n) => n.id).filter(Boolean);
+        const named = (sel) => ids.some((id) => new RegExp(`#${CSS.escape(id).replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(?![\\w-])`).test(sel));
+        const tweaks = [];
+        for (const t of c.overrides ?? []) {
+          if (t.at === undefined) continue;
+          const { at: _at, n: _n, lock: _lock, ...tweak } = t;
+          if (!Object.keys(tweak).length) continue;
+          for (const m of matches(doc, t)) if (el.contains(m)) tweaks.push({ path: pathIn(el, m), tag: m.localName, ...tweak });
+        }
+        const view = doc.defaultView;
+        return {
+          snapshot: snapshotOf(el),
+          at: matches(doc, { at }).length === 1 ? at : null,
+          tag: el.localName,
+          id: el.id || null,
+          classes: [...el.classList],
+          text: (el.textContent ?? '').replace(/\s+/g, ' ').trim().slice(0, 200),
+          place: { position: view.getComputedStyle(el).position, left: el.offsetLeft, top: el.offsetTop, width: el.offsetWidth, height: el.offsetHeight },
+          idRules: rules.filter((r) => named(r.selector)).map((r) => r.text),
+          tweaks,
+        };
+      });
+    },
+    /**
+     * Which of clip `clip`'s overrides would find other elements once a copy of the layer `of` is written right after
+     * it in its page (a `:nth-of-type` or `n` counting it too): per override, the selector naming what it finds now,
+     * else null when it finds the same.
+     */
+    afterCopy({ clip, of }) {
+      const c = clipById(clip);
+      const doc = c?.kind === 'page' ? c.win?.document : null;
+      const el = doc ? matches(doc, of ?? {})[0] : null;
+      if (!el) return null;
+      const list = c.overrides ?? [];
+      const before = list.map((o) => (o.at === undefined ? null : matches(doc, o)));
+      const copy = el.cloneNode(true);
+      for (const n of [copy, ...copy.querySelectorAll('[id]')]) if (n.id) n.id = `${n.id}-openfilm-copy`;
+      el.after(copy);
+      try {
+        return list.map((o, i) => {
+          const was = before[i];
+          if (!was) return null;
+          const now = matches(doc, o);
+          if (now.length === was.length && now.every((n, k) => n === was[k])) return null;
+          return was.length ? was.map((n) => selectorOf(n)).join(', ') : null;
+        });
+      } finally {
+        copy.remove();
+      }
     },
     /** Stop showing what was not kept on a clip (a refused edit, a cancelled drag). */
     release({ clip }) { release(clip); return true; },

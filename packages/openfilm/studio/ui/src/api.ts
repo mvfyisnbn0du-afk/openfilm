@@ -183,6 +183,12 @@ export const api = {
   takeSaved: (id: string, path: string) => call<{ clip: Record<string, unknown> & { src: string } } | { clips: SavedGroupClip[] } | { path: string }>(
     `${p(id)}/saved/take`, { method: 'POST', json: { path } },
   ),
+  /** a page of the project as text, with its rev (studio/server/page-text.mjs) */
+  readPage: (id: string, path: string) => call<{ text: string; rev: string }>(`${p(id)}/page?path=${encodeURIComponent(path)}`),
+  /** a page written (text null: taken away) when it is still the text of rev `expect` (null: none there yet); its new rev */
+  writePage: (id: string, path: string, text: string | null, expect: string | null) => (
+    call<{ rev: string | null }>(`${p(id)}/page`, { method: 'PUT', json: { path, text, expect } }).then((r) => r.rev)
+  ),
   /** a clip of project `from` brought into this one with the files it needs (layers pasted from there): its src here */
   bringClip: (id: string, from: string, clip: Record<string, unknown> & { src: string }) => (
     call<{ clip: Record<string, unknown> & { src: string } }>(`${p(id)}/bring`, { method: 'POST', json: { from, clip } }).then((r) => r.clip)

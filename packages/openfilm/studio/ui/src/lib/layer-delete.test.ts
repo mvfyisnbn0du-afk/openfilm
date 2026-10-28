@@ -41,13 +41,3 @@ test('the properties made of deleted layers go; a variable is no layer\'s', () =
   assert.deepEqual(pointers, { overrides: [null, { at: '#a', n: 3 }], props: [{ at: '#title' }, null, { at: 'img', n: 2 }] });
   assert.deepEqual(propsWithoutDeleted(props, [true, true, false]).map((p) => p.name), ['Accent', 'Photo']);
 });
-
-test('a copy deleted is taken away: its entry, and what is said of it and in it', () => {
-  const all: FilmOverride[] = [
-    { at: '#title', t: [4, 0] },
-    { at: '#title', copy: 1, t: [24, 24] },
-    { at: '[data-film-copy="1"] > b', text: 'Hi' },
-    { at: '#title', copy: 2 },
-  ];
-  assert.deepEqual(withDeleted(all, [{ at: '[data-film-copy="1"]' }], [false, false, false, false]), [{ at: '#title', t: [4, 0] }, { at: '#title', copy: 2 }]);
-});

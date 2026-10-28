@@ -58,7 +58,7 @@ export async function look(args, opts = {}) {
     const edits = await film.page.evaluate(() => window.__filmOverrides?.() ?? []).catch(() => []);
     for (const clip of edits) {
       const fade = clip.fade ? [`fades ${[clip.fade[0] > 0 && `in ${fmt(clip.fade[0])}`, clip.fade[1] > 0 && `out ${fmt(clip.fade[1])}`].filter(Boolean).join(', ')}`] : [];
-      sounds.push(`✎ ${clip.id}  changed in Studio: ${[...fade, ...clip.overrides.map((o) => `${o.at} ${[o.copy != null && `copied (data-film-copy="${o.copy}")`, o.text != null && 'text', o.t && 'moved', o.s != null && 'scaled', o.r != null && 'rotated', ...Object.keys(o.style ?? {})].filter(Boolean).join(', ')}`)].join(' · ')}`);
+      sounds.push(`✎ ${clip.id}  changed in Studio: ${[...fade, ...clip.overrides.map((o) => `${o.at} ${[o.text != null && 'text', o.t && 'moved', o.s != null && 'scaled', o.r != null && 'rotated', ...Object.keys(o.style ?? {})].filter(Boolean).join(', ')}`)].join(' · ')}`);
       for (const o of clip.overrides) {
         if (clip.drawn && !o.found) warnings.push(`${clip.id}: the person's change to ${o.at} finds nothing in ${clip.src} any more; keep that element (and its id) in the page, or drop the entry from the clip's overrides`);
       }

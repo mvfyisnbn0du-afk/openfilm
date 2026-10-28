@@ -1,19 +1,17 @@
 /**
- * Copy and paste of layers inside a page (⌘C / ⌘V and the menus, on the picture and in the Layers panel), as a design
- * tool does: a pasted layer is a new layer of the same page, over what is beside it, a little lower and to the right
- * each time it is pasted at the same spot, and selected, to be moved.
+ * Copy and paste of layers inside a page (⌘C / ⌘V and the menus, on the picture and in the Layers panel).
  *
- * The page is shared by every clip of it and is the agent's, so a paste never writes it: the copy is an override of
- * the clip (SPEC §1 `copy`), `{"at": <the page's own element>, "copy": k}`, which draws a copy of the element after
- * each frame, as the page draws it then, so it moves as the copied one does, in Studio and in an export. What made the
- * copied layer look as it does (its own changes and those of the layers in it) is said again of the copy
- * (`[data-film-copy="k"] …`), so the copy is the copied one as it was, and changing one later leaves the other be. It
- * is one edit of the clip's overrides: one undo takes it away.
+ * The page is shared by every clip of it and is the agent's, so a paste never writes it, and an override can only
+ * change what a page draws, not add to it. A pasted layer is a new clip of the same page instead, on a track above,
+ * showing that layer alone: every other element hidden (`visibility`, so nothing moves in the page's own layout), the
+ * page's background taken away, and the changes that make the layer look as it does (its own, those inside it and
+ * those of the layers around it) kept. It plays as the page plays, so it moves as the copied one does, and it is drawn
+ * the same wherever the film is (Studio, an export). The person moves it as any layer. It is one insert in film.html:
+ * one undo takes it away.
  *
- * Into a clip of the same page under the playhead (the one copied from, or another clip of that page). Another page,
- * or another project, cannot draw what its code does not: there the copy is a clip of its own instead (pastePlan), a
- * clip of the copied layer's page on a track above showing that layer alone (every other element hidden, the page's
- * background taken away), from the moment copied, at the playhead, where it was on the picture.
+ * Where it goes: pasted while the copied clip is under the playhead, the copy spans that clip's time, a little lower
+ * and to the right of it each time (pasted at the same spot it would hide under itself); elsewhere (another time,
+ * another page, another project) it starts at the playhead from the moment copied, where it was on the picture.
  *
  * The clipboard is the timeline's or this one's, whichever was copied last; it is kept in the browser's storage, so
  * another window and another project of the same Studio paste it too (lib: no React, no DOM, so `node --test` runs it).
@@ -24,6 +22,7 @@ import type { FilmClip, FilmDoc, FilmOverride } from './film.ts';
 import type { OverrideTarget } from './film-overrides.ts';
 import { propsAttr, propsOf } from './component-props.ts';
 import { TOUCH_MS, type EditModel } from './timeline-edit.ts';
+import type { PasteLayer } from './layer-paste.ts';
 
 /** One page clip's copied layers, as they are put down. */
 export interface CopiedClip {
@@ -38,16 +37,8 @@ export interface CopiedClip {
   clip: Omit<FilmClip, 'id' | 'at'>;
   /** A selector naming each copied layer: the first is selected once pasted. */
   layers: string[];
-  /** Per copied layer, the page's own element it is (or a copy of it copies), named alone; null: none. */
-  bases?: (string | null)[];
-  /** Per copied layer, what made it look as it does, said of the layers it finds in it (`''`: the layer itself). */
-  tweaks?: CopiedTweak[][];
-}
-
-/** A change of a copied layer or of layers in it: `rels` where in it, from it (`''` it, ` > h1:nth-of-type(2)` …). */
-export interface CopiedTweak {
-  rels: string[];
-  tweak: Omit<FilmOverride, 'at' | 'n' | 'copy' | 'lock'>;
+  /** Each copied layer as writing it into its page needs it (lib/layer-paste); null: one the stage could not tell. */
+  page?: (PasteLayer | null)[];
 }
 
 export interface LayerClipboard {
@@ -246,104 +237,3 @@ export function writeLayerClipboard(board: LayerClipboard | null): void {
 
 /** Whether a storage event is this clipboard's (another window copied or emptied it). */
 export const isLayerClipboardKey = (key: string | null) => key === KEY || key === null;
-
-/* ── into the same page: a copy of the layer, in the clip ── */
-
-/** The attribute a copy carries (src/overrides.mjs COPY_ATTR): the entries of it name it, or what is in it, by it. */
-const COPY_ATTR = 'data-film-copy';
-export const copySelector = (k: number) => `[${COPY_ATTR}="${k}"]`;
-
-/**
- * What is said again of a copy of each layer, from the clip's overrides as copied: per layer, the changes that find it
- * or layers in it (`inside`, one answer per override, studio/server/stage.js `copying`), each with where in it, without
- * a lock (a copy is made to be moved). The clip's own entry (its fades) is no layer's.
- */
-export function copiedTweaks(
-  all: readonly FilmOverride[] | undefined, inside: readonly (readonly { layer: number; rel: string }[])[], layers: number,
-): CopiedTweak[][] {
-  const out: CopiedTweak[][] = Array.from({ length: layers }, () => []);
-  (all ?? []).forEach((o, i) => {
-    if (o.at === undefined) return;
-    const { at: _at, n: _n, copy: _copy, lock: _lock, ...tweak } = o;
-    if (!Object.keys(tweak).length) return;
-    for (let layer = 0; layer < layers; layer++) {
-      const rels = [...new Set((inside[i] ?? []).filter((x) => x.layer === layer).map((x) => x.rel))];
-      if (rels.length) out[layer]!.push({ rels, tweak });
-    }
-  });
-  return out;
-}
-
-/**
- * The entries of copy `k` of the page's element `base`, `d` px lower and to the right of the copied layer: the copy,
- * then what is said again of it (`tweaks`). Its move goes where it counts: on the last change moving the layer itself
- * when that is the layer's alone, else on the copy's own entry.
- */
-export function copyEntries(base: string, k: number, tweaks: readonly CopiedTweak[], d: number): FilmOverride[] {
-  const root = copySelector(k);
-  const entries: FilmOverride[] = tweaks.map(({ rels, tweak }) => ({ at: rels.map((rel) => `${root}${rel}`).join(', '), ...structuredClone(tweak) }));
-  const moved = tweaks.map((x, i) => (x.rels.includes('') && x.tweak.t ? i : -1)).filter((i) => i >= 0).pop();
-  const own: FilmOverride = { at: base, copy: k };
-  if (moved === undefined) {
-    if (d) own.t = [d, d];
-  } else if (tweaks[moved]!.rels.length === 1) {
-    const t = entries[moved]!.t!;
-    entries[moved]!.t = [t[0] + d, t[1] + d];
-    /* a move alone, the last word on it: the copy's own entry says it */
-    if (Object.keys(tweaks[moved]!.tweak).length === 1 && moved === entries.length - 1) own.t = entries.pop()!.t;
-  } else {
-    const t = tweaks[moved]!.tweak.t!;
-    entries.push({ at: root, t: [t[0] + d, t[1] + d] });
-  }
-  return [own, ...entries];
-}
-
-/** What a paste into the same page is put into: the film now, the playhead, and the clip in hand (its id), if any. */
-export interface InPageContext {
-  project: string;
-  atMs: number;
-  film: FilmDoc;
-  model: EditModel;
-  /** The page clip of the layer or clip in hand. */
-  held: string | null;
-}
-
-export interface InPagePlan {
-  /** The clip pasted into, with its overrides as they are to be written. */
-  clip: string;
-  overrides: FilmOverride[];
-  /** The copy to select. */
-  layer: string;
-  /** The clipboard with this paste counted. */
-  board: LayerClipboard;
-}
-
-/**
- * The paste of `board` into a clip of its layers' page under the playhead (see the top): the one in hand, else the one
- * copied from, else the top one; on a track that is not locked. Null when there is none, or the copy cannot be one
- * (copied from another project, or before the page's own elements were known): a clip of its own then (pastePlan).
- */
-export function inPagePlan(board: LayerClipboard, ctx: InPageContext): InPagePlan | null {
-  if (board.project !== ctx.project || board.clips.length !== 1) return null;
-  const c = board.clips[0]!;
-  if (!c.bases?.length || c.bases.some((b) => !b) || !c.tweaks) return null;
-  const spanOf = (id: string) => ctx.model.flatMap((t) => t.clips.map((clip) => ({ clip, locked: Boolean(t.locked) }))).find((x) => x.clip.id === id);
-  const all = ctx.film.tracks.flatMap((t) => t.clips);
-  const here = all.filter((clip) => {
-    const span = spanOf(clip.id);
-    return clip.src === c.clip.src && span && !span.locked && ctx.atMs >= span.clip.startMs && ctx.atMs < span.clip.endMs;
-  });
-  const into = here.find((x) => x.id === ctx.held) ?? here.find((x) => x.id === c.from) ?? here[0];
-  if (!into) return null;
-  const used = (into.overrides ?? []).flatMap((o) => (o.copy != null ? [o.copy] : []));
-  const spot = `${ctx.project}:${into.id}:${c.bases.join('|')}`;
-  const n = board.pasted?.spot === spot ? board.pasted.n + 1 : 1;
-  let k = Math.max(0, ...used);
-  const added = c.bases.flatMap((base, i) => copyEntries(base!, ++k, c.tweaks![i] ?? [], PASTE_OFFSET * n));
-  return {
-    clip: into.id,
-    overrides: [...(into.overrides ?? []), ...added],
-    layer: copySelector(Math.max(0, ...used) + 1),
-    board: { ...board, pasted: { spot, n } },
-  };
-}

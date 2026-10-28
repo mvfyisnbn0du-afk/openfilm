@@ -22,6 +22,7 @@ import { mkdir, readFile } from 'node:fs/promises';
 import { createHash } from 'node:crypto';
 import { spawn } from 'node:child_process';
 import { EditError, editProjectFilm, pageClipLook, readProjectFilm } from './film.mjs';
+import { readPage, writePage } from './page-text.mjs';
 import { FileError, bringIn, collect, extractAudio, freezeFrame, importFile, inside, listFiles, makeFolder, moveCheck, moveFile, readable, relink, trashFile } from './files.mjs';
 import { ExportError, createExports, draftApps, exportCapabilities, exportsRoot, projectSizes } from './exports.mjs';
 import { MediaError, frame, loudness, poster, probe, waveform } from './derived.mjs';
@@ -821,6 +822,13 @@ export async function startStudio({ port = 4747, key, openBrowser = systemBrowse
     if (rest === 'saved/take' && req.method === 'POST') {
       const { path: from } = /** @type {{ path?: unknown }} */ (await readJson(req) ?? {});
       return json(res, 200, await savedCall(() => takeSaved(project.path, from)));
+    }
+    /* a page as text, read and written by what Studio writes into a page (layers pasted, page-text.mjs) */
+    if (rest === 'page' && req.method === 'GET') return json(res, 200, await readPage(project.path, url.searchParams.get('path')));
+    if (rest === 'page' && req.method === 'PUT') {
+      const { path: at, text, expect } = /** @type {{ path?: unknown, text?: unknown, expect?: unknown }} */ (await readJson(req) ?? {});
+      if (text !== null && typeof text !== 'string') throw new HttpError(400, 'the page\'s text, please');
+      return json(res, 200, await writePage(project.path, at, text, typeof expect === 'string' ? expect : null));
     }
     /* a clip of another project brought into this one, with the files it needs (layers pasted from there) */
     if (rest === 'bring' && req.method === 'POST') {

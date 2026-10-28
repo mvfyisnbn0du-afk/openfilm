@@ -1,9 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import {
-  copiedClip, copiedOverrides, copiedTweaks, copyEntries, inPagePlan, offsetBox, pastePlan, PASTE_OFFSET, propTargets,
-  type LayerClipboard, type PasteContext,
-} from './layer-clipboard.ts';
+import { copiedClip, copiedOverrides, offsetBox, pastePlan, PASTE_OFFSET, propTargets, type LayerClipboard, type PasteContext } from './layer-clipboard.ts';
 import type { FilmClip, FilmDoc } from './film.ts';
 import type { EditModel } from './timeline-edit.ts';
 
@@ -126,53 +123,4 @@ test('a paste never lands on a locked, hidden or sound track, nor over another c
   hidden.tracks[1]!.hidden = true;
   assert.deepEqual(pastePlan(board(), ctx({ atMs: 8500, into: 2, film: hidden }))!.ops.map((op) => op.op === 'insert' && op.track), [{ insert: 2 }]);
   assert.equal(pastePlan({ ...board(), clips: [] }, ctx()), null);
-});
-
-/* ── into the same page: a copy of the layer ── */
-
-test('what is said again of a copy: the changes of the layer and of what is in it, from it, without locks', () => {
-  const all = [
-    { fade: [0.5, 0] as [number, number] },
-    { at: '#card', t: [10, 0] as [number, number], lock: true as const },
-    { at: '#card h1', text: 'Hi' },
-    { at: '#other', s: 2 },
-    { at: '#card', lock: true as const },
-  ];
-  const inside = [[], [{ layer: 0, rel: '' }], [{ layer: 0, rel: ' > h1' }], [], [{ layer: 0, rel: '' }]];
-  assert.deepEqual(copiedTweaks(all, inside, 1), [[
-    { rels: [''], tweak: { t: [10, 0] } },
-    { rels: [' > h1'], tweak: { text: 'Hi' } },
-  ]]);
-});
-
-test('a copy\'s entries: the copy of the page\'s element, what is said again of it, and its move where it counts', () => {
-  assert.deepEqual(copyEntries('#card', 2, [], 24), [{ at: '#card', copy: 2, t: [24, 24] }], 'never moved: on its own entry');
-  assert.deepEqual(copyEntries('#card', 1, [{ rels: [''], tweak: { t: [10, 0], s: 2 } }, { rels: [' > h1'], tweak: { text: 'Hi' } }], 24), [
-    { at: '#card', copy: 1 },
-    { at: '[data-film-copy="1"]', t: [34, 24], s: 2 },
-    { at: '[data-film-copy="1"] > h1', text: 'Hi' },
-  ], 'moved: from there');
-  assert.deepEqual(copyEntries('#card', 3, [{ rels: [''], tweak: { t: [48, 48] } }], 24), [{ at: '#card', copy: 3, t: [72, 72] }], 'a copy of a copy');
-  assert.deepEqual(copyEntries('#card', 1, [{ rels: ['', ' > p'], tweak: { t: [10, 0] } }], 24), [
-    { at: '#card', copy: 1 },
-    { at: '[data-film-copy="1"], [data-film-copy="1"] > p', t: [10, 0] },
-    { at: '[data-film-copy="1"]', t: [34, 24] },
-  ], 'moved with others: a move of its own');
-});
-
-test('pasted into the page under the playhead: a copy in the clip in hand, else the one copied from; else none', () => {
-  const inPage: LayerClipboard = { ...board(), clips: [{ ...board().clips[0]!, bases: ['#title'], tweaks: [[]] }] };
-  const f = film();
-  f.tracks[1]!.clips[0]!.overrides = [{ at: '#x', copy: 3 }];
-  const first = inPagePlan(inPage, { project: 'p1', atMs: 4000, film: f, model: model(), held: null })!;
-  assert.deepEqual([first.clip, first.layer], ['title', '[data-film-copy="4"]']);
-  assert.deepEqual(first.overrides, [{ at: '#x', copy: 3 }, { at: '#title', copy: 4, t: [24, 24] }]);
-  const second = inPagePlan(first.board, { project: 'p1', atMs: 4000, film: f, model: model(), held: 'title' })!;
-  assert.deepEqual(second.overrides.at(-1), { at: '#title', copy: 4, t: [48, 48] }, 'at the same spot again: further off');
-  assert.equal(inPagePlan(inPage, { project: 'p1', atMs: 9000, film: f, model: model(), held: null }), null, 'not under the playhead');
-  assert.equal(inPagePlan(inPage, { project: 'p2', atMs: 4000, film: f, model: model(), held: null }), null, 'another project');
-  assert.equal(inPagePlan(board(), { project: 'p1', atMs: 4000, film: f, model: model(), held: null }), null, 'its own elements not known');
-  const locked = model();
-  locked[1]!.locked = true;
-  assert.equal(inPagePlan(inPage, { project: 'p1', atMs: 4000, film: f, model: locked, held: null }), null, 'a locked track');
 });
