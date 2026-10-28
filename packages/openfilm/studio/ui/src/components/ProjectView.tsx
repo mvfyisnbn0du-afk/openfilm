@@ -49,6 +49,7 @@ import { useLoadedThumbs } from '@/lib/use-loaded-thumbs';
 import { droppedOverrides, overrideTarget, undoneFields, type DroppedEdits, type PersonEdit } from '@/lib/dropped-overrides';
 import { filmFrameBox, type FilmFrameId } from '@/lib/film-frame';
 import { canvasFor, firstPictureSize, fitToCanvas } from '@/lib/canvas-fit';
+import { createViewerZoom } from '@/lib/viewer-zoom';
 import { factsOfProbe, mediaListingOf, resourceKindOf, srcHitsAsset, warmProjectMedia, type MediaListing, type MediaProxy, type MediaResult, type MediaSources, type WorkspaceResource } from '@/lib/workspace-resources';
 import { BrandLoadingScreen } from './BrandLoadingScreen';
 import { BrandLogo } from './BrandLogo';
@@ -90,6 +91,7 @@ import { historyMoved } from '@/lib/project-history';
 import { ProjectsPopover } from './ProjectsLibrary';
 import { FilmFullscreenBar, useFullscreenKeys } from './FilmFullscreenBar';
 import { ViewerBar } from './ViewerBar';
+import { ViewerZoom, ViewerZoomButton } from './ViewerZoom';
 import { LiveTime, type PlaybackClock } from './LiveTime';
 import { Toast, useToast } from './Toast';
 import { SpendAsks } from './SpendAsks';
@@ -150,10 +152,6 @@ const TITLE_MAX_CHARS = 56;
 const TOP_BTN =
   'flex h-[26px] w-[26px] shrink-0 items-center justify-center rounded-md text-[var(--text-dim)] transition hover:bg-[var(--bg-hover)] hover:text-[var(--text)]';
 
-const fitBox = (w: number, h: number): React.CSSProperties => ({
-  width: `min(100cqw, 100cqh * ${w} / ${h})`,
-  height: `min(100cqh, 100cqw * ${h} / ${w})`,
-});
 const clampTitle = (title: string) => (title.length > TITLE_MAX_CHARS ? `${title.slice(0, TITLE_MAX_CHARS)}…` : title);
 
 /**
@@ -1232,6 +1230,8 @@ export function ProjectView({ projectId, onProject, onLeave }: {
   const lookPreviewRef = React.useRef<((clipLoc: string, css: string | null) => void) | null>(null);
   /* where the thing in hand is, for the inspector only: it changes every frame of a drag */
   const geometryStore = React.useMemo(() => createGeometryStore(), []);
+  /* the viewer's zoom: only the picture and its fit button re-render as it changes (components/ViewerZoom) */
+  const viewerZoom = React.useMemo(() => createViewerZoom(), []);
   const [stageSelectRequest, setStageSelectRequest] = React.useState<{ loc: string; clipLoc?: string; seq: number } | null>(null);
   const [inlineTextFailure, setInlineTextFailure] = React.useState<{ loc: string; value: string; failure: StageEditFailure; seq: number } | null>(null);
   const setSelectedLocs = React.useCallback((locs: readonly string[]) => {
@@ -2919,8 +2919,8 @@ export function ProjectView({ projectId, onProject, onLeave }: {
                   {value ? (
                     <div ref={stageFullRef} className={`relative flex h-full w-full items-center justify-center ${fullscreen ? 'bg-black' : ''}`}
                       style={{ containerType: 'size' }} onClick={fullscreen ? toggle : undefined}>
-                      <div className={`relative bg-black ${frameBox.inner.left < -0.5 || frameBox.inner.top < -0.5 ? 'overflow-hidden' : 'overflow-visible'}`}
-                        style={{ ...fitBox(frameBox.w, frameBox.h), containerType: 'size' }}>
+                      <ViewerZoom store={viewerZoom} frame={frameBox} off={fullscreen}
+                        className={`relative bg-black ${frameBox.inner.left < -0.5 || frameBox.inner.top < -0.5 ? 'overflow-hidden' : 'overflow-visible'}`}>
                         <div className="absolute" style={{
                           left: `${(frameBox.inner.left / frameBox.w) * 100}%`,
                           top: `${(frameBox.inner.top / frameBox.h) * 100}%`,
@@ -2997,7 +2997,7 @@ export function ProjectView({ projectId, onProject, onLeave }: {
                             onPick={fullscreen ? undefined : showSubtitleLook}
                           />
                         )}</LiveTime>
-                      </div>
+                      </ViewerZoom>
                       {fullscreen ? (
                         <FilmFullscreenBar
                           hostRef={stageFullRef}
@@ -3043,6 +3043,7 @@ export function ProjectView({ projectId, onProject, onLeave }: {
                     onSpeed: setSpeed,
                   }}
                   onFullscreen={toggleFullscreen}
+                  extra={<ViewerZoomButton store={viewerZoom} />}
                 />
               </div>
 

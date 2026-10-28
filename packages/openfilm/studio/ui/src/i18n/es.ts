@@ -1014,6 +1014,7 @@ export const es: Words = {
     frameCustomApply: 'Usar esta proporción',
     frameCustomRange: 'De 1:4 a 4:1',
     fullscreen: 'Pantalla completa',
+    zoomFit: 'Ajustar la imagen al visor',
     playback: 'Reproducción',
     speed: 'Velocidad',
   },
