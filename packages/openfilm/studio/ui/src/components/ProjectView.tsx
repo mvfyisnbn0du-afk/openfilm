@@ -2920,7 +2920,22 @@ export function ProjectView({ projectId, onProject, onLeave }: {
                     <div ref={stageFullRef} className={`relative flex h-full w-full items-center justify-center ${fullscreen ? 'bg-black' : ''}`}
                       style={{ containerType: 'size' }} onClick={fullscreen ? toggle : undefined}>
                       <ViewerZoom store={viewerZoom} frame={frameBox} off={fullscreen}
-                        className={`relative bg-black ${frameBox.inner.left < -0.5 || frameBox.inner.top < -0.5 ? 'overflow-hidden' : 'overflow-visible'}`}>
+                        className={`relative bg-black ${frameBox.inner.left < -0.5 || frameBox.inner.top < -0.5 ? 'overflow-hidden' : 'overflow-visible'}`}
+                        notices={<>
+                          {/* a clip under the playhead whose file is gone plays as nothing (src/timeline.mjs, film-missing):
+                              said here, over the picture, with what to do; in sight at any zoom */}
+                          {statsOn && playing && played ? (
+                            <div data-playback-stats="" className="pointer-events-none absolute right-2 top-2 z-10 rounded-[4px] bg-black/75 px-2 py-1 font-mono text-[11px] tabular-nums text-white">
+                              {t('viewer.stats').replace('{fps}', String(Math.round((played.drawn * 1000) / Math.max(1, played.ms)))).replace('{late}', String(Math.round((played.late * 1000) / Math.max(1, played.ms))))}
+                              {played.rendered ? ` · ${t('viewer.statsRendered')}` : ''}
+                            </div>
+                          ) : null}
+                          {missingHere && !fullscreen ? (
+                            <div data-preview-missing="" className="pointer-events-none absolute left-2 top-2 z-10 max-w-[80%] truncate rounded-[4px] bg-black/75 px-2 py-1 text-[11px] text-white">
+                              {t('project.previewMissing').replace('{file}', missingHere)}
+                            </div>
+                          ) : null}
+                        </>}>
                         <div className="absolute" style={{
                           left: `${(frameBox.inner.left / frameBox.w) * 100}%`,
                           top: `${(frameBox.inner.top / frameBox.h) * 100}%`,
@@ -2967,19 +2982,6 @@ export function ProjectView({ projectId, onProject, onLeave }: {
                             ) : null}
                           </Preview>
                         </div>
-                        {/* a clip under the playhead whose file is gone plays as nothing (src/timeline.mjs, film-missing):
-                            said here, over the picture, with what to do */}
-                        {statsOn && playing && played ? (
-                          <div data-playback-stats="" className="pointer-events-none absolute right-2 top-2 z-10 rounded-[4px] bg-black/75 px-2 py-1 font-mono text-[11px] tabular-nums text-white">
-                            {t('viewer.stats').replace('{fps}', String(Math.round((played.drawn * 1000) / Math.max(1, played.ms)))).replace('{late}', String(Math.round((played.late * 1000) / Math.max(1, played.ms))))}
-                            {played.rendered ? ` · ${t('viewer.statsRendered')}` : ''}
-                          </div>
-                        ) : null}
-                        {missingHere && !fullscreen ? (
-                          <div data-preview-missing="" className="pointer-events-none absolute left-2 top-2 z-10 max-w-[80%] truncate rounded-[4px] bg-black/75 px-2 py-1 text-[11px] text-white">
-                            {t('project.previewMissing').replace('{file}', missingHere)}
-                          </div>
-                        ) : null}
                         {!viewerReady && !empty && !previewError ? (
                           <div className="pointer-events-none absolute inset-0 z-10 flex flex-col items-center justify-center gap-3 bg-black">
                             <span role="status" className="text-sweep relative text-[13px] text-white/60">{t('project.previewStageMount')}</span>

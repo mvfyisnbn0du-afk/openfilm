@@ -10,7 +10,8 @@
  * second, hidden frame that replaces the shown one once its first picture is drawn whole (its videos loaded, however
  * long that takes), and is told the edits made meanwhile. Either way the picture never goes black for an edit.
  */
-import { forwardRef, useEffect, useImperativeHandle, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
+import { forwardRef, useContext, useEffect, useImperativeHandle, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
+import { flushSync } from 'react-dom';
 import type { Film } from '../api';
 import { useT } from '@/i18n';
 import type { ClipSpan } from '@/lib/film-shape';
@@ -18,6 +19,7 @@ import type { Anchor, Sound } from './player';
 import { pageScaleFor, reloaded, shownAfter, updateKeys, type Frame } from './preview-frames';
 import { usePreviewPrefs } from '@/lib/preview-prefs';
 import { chromiumBased } from '@/lib/browser';
+import { PictureZoom } from '@/lib/viewer-zoom';
 
 /** How far the film's frame reaches past the picture's box on each side, in px (see the `stage-frames` clip). */
 const BLEED = 1;
@@ -125,7 +127,9 @@ export const Preview = forwardRef<PreviewHandle, Props>(function Preview({ folde
    * the film again behind the picture.
    */
   const { fitPages } = usePreviewPrefs();
-  const pageScale = fitPages && fit.w > 0 ? pageScaleFor(fit.k, window.devicePixelRatio || 1) : null;
+  /* for the picture fitted in the viewer: a zoom only scales it (components/ViewerZoom) */
+  const zoom = useContext(PictureZoom);
+  const pageScale = fitPages && fit.w > 0 ? pageScaleFor(fit.k / zoom, window.devicePixelRatio || 1) : null;
   const scaleOf = useRef(new Map<number, number | null>());
   const framesRef = useRef(frames);
   framesRef.current = frames;
@@ -334,6 +338,18 @@ export const Preview = forwardRef<PreviewHandle, Props>(function Preview({ folde
           });
           tell({ event: 'key', key });
           onKeyRef.current?.(key);
+        } else if (m.event === 'wheel') {
+          /* a wheel over the film while its words are typed in (the frame has the pointer then): sent on from the
+             frame, at its place on screen, for the viewer's zoom */
+          const el = elements.current.get(key);
+          const r = el?.getBoundingClientRect();
+          if (!el || !r) return;
+          el.dispatchEvent(new WheelEvent('wheel', {
+            clientX: r.left + (Number(m.x) * r.width) / stage.w, clientY: r.top + (Number(m.y) * r.height) / stage.h,
+            deltaX: Number(m.deltaX) || 0, deltaY: Number(m.deltaY) || 0, deltaMode: Number(m.deltaMode) || 0,
+            ctrlKey: Boolean(m.ctrlKey), metaKey: Boolean(m.metaKey), shiftKey: Boolean(m.shiftKey), buttons: Number(m.buttons) || 0,
+            bubbles: true, cancelable: true,
+          }));
         } else if (m.event === 'typing') {
           tell({ event: 'typing', handle: Number(m.handle), value: String(m.value ?? '') });
         } else if (m.event === 'text') {
@@ -362,7 +378,8 @@ export const Preview = forwardRef<PreviewHandle, Props>(function Preview({ folde
     /* measured now, before the first picture: the film loads once, for this size */
     if (el.clientWidth > 0 && el.clientHeight > 0) size(el.clientWidth, el.clientHeight);
     setMeasured(true);
-    const observer = new ResizeObserver(([entry]) => size(entry.contentRect.width, entry.contentRect.height));
+    /* sized before the frame is painted: a pinch moves the picture's box every frame, and the film keeps up with it */
+    const observer = new ResizeObserver(([entry]) => flushSync(() => size(entry.contentRect.width, entry.contentRect.height)));
     observer.observe(el);
     return () => observer.disconnect();
   }, [stage.w, stage.h]);

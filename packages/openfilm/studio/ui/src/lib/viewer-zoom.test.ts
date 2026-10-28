@@ -2,8 +2,8 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 
 import {
-  FIT_VIEW, ZOOM_MIN, createViewerZoom, fittedSize, isFit, panBy, wheelPx, wheelZoomFactor, zoomAt, zoomLayout, zoomMax,
-  type ViewerView,
+  FIT_VIEW, ZOOM_MIN, createViewerZoom, fittedSize, isFit, panBy, shownRect, wheelPx, wheelZoomFactor, zoomAt, zoomLayout,
+  zoomMax, type ViewerView,
 } from './viewer-zoom.ts';
 
 /* a 1920×1080 film in a 1000×800 viewer: fitted at 1000×562.5 */
@@ -73,6 +73,12 @@ test('the zoom stays between a quarter of fitted and 8 screen px per film px', (
   assert.equal(zoomMax(20), 1);
 });
 
+test('a zoom past the largest (the viewer grew since) is not brought down by a zoom in, only by a zoom out', () => {
+  const past: ViewerView = { z: max * 1.4, cx: 0.5, cy: 0.5 };
+  assert.equal(zoomAt(past, 1.2, { x: 500, y: 400 }, viewer, fitted, max), past);
+  near(zoomAt(past, 0.9, { x: 500, y: 400 }, viewer, fitted, max).z, max * 1.4 * 0.9);
+});
+
 test('a pan moves the picture the other way, until an edge reaches the viewer\'s middle', () => {
   const zoomed = zoomAt(FIT_VIEW, 2, { x: 500, y: 400 }, viewer, fitted, max);
   const panned = panBy(zoomed, 100, -50, fitted);
@@ -119,4 +125,14 @@ test('the store tells its listeners only of a change', () => {
   stop();
   store.set(FIT_VIEW);
   assert.equal(told, 2);
+});
+
+test('notices go over the part of the picture on screen: the picture fitted, the whole viewer zoomed in', () => {
+  assert.deepEqual(shownRect(FIT_VIEW, viewer, fitted), { x: 0, y: 118.75, w: 1000, h: 562.5 });
+  assert.deepEqual(shownRect({ z: 4, cx: 0.5, cy: 0.5 }, viewer, fitted), { x: 0, y: 0, w: 1000, h: 800 });
+  /* panned to the picture's right edge at the middle: the left half of the viewer */
+  assert.deepEqual(shownRect({ z: 4, cx: 1, cy: 0.5 }, viewer, fitted), { x: 0, y: 0, w: 500, h: 800 });
+  /* zoomed out: the small picture, centered */
+  const small = shownRect({ z: 0.5, cx: 0.5, cy: 0.5 }, viewer, fitted);
+  assert.deepEqual(small, { x: 250, y: 259.375, w: 500, h: 281.25 });
 });

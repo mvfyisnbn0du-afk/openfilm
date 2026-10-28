@@ -8,6 +8,7 @@
  * and that box is scrolled: the scroll is the point at the center (`cx` × the picture's width), so a picture can be
  * panned until an edge reaches the viewer's middle, and no farther.
  */
+import { createContext } from 'react';
 
 type Size = { w: number; h: number };
 type Point = { x: number; y: number };
@@ -47,10 +48,11 @@ export const wheelZoomFactor = (deltaPx: number) => Math.exp(-clamp(deltaPx, -WH
 
 /**
  * The view zoomed by `factor` about `at` (viewer px from its top left): the point of the picture under it stays under
- * it. `fitted` is the picture's fitted size, `max` the largest zoom (zoomMax).
+ * it. `fitted` is the picture's fitted size, `max` the largest zoom (zoomMax). A zoom past `max` (the viewer grew since)
+ * is not brought down by a zoom in.
  */
 export function zoomAt(view: ViewerView, factor: number, at: Point, viewer: Size, fitted: Size, max: number): ViewerView {
-  const z = clamp(view.z * factor, ZOOM_MIN, Math.max(ZOOM_MIN, max));
+  const z = clamp(view.z * factor, ZOOM_MIN, Math.max(ZOOM_MIN, max, view.z));
   if (z === view.z) return view;
   const pw = fitted.w * view.z, ph = fitted.h * view.z;
   /* the share of the picture under the pointer, then the center that keeps it there at the new size */
@@ -85,6 +87,23 @@ export function zoomLayout(view: ViewerView, viewer: Size, fitted: Size): { box:
     scroll: { x: view.cx * w, y: view.cy * h },
   };
 }
+
+/**
+ * The part of the viewer the picture covers, viewer px (fitted: the picture): notices about the picture are put there,
+ * so a zoom never takes them off screen.
+ */
+export function shownRect(view: ViewerView, viewer: Size, fitted: Size): Point & Size {
+  const w = fitted.w * view.z, h = fitted.h * view.z;
+  const left = viewer.w / 2 - view.cx * w, top = viewer.h / 2 - view.cy * h;
+  const x = Math.max(0, left), y = Math.max(0, top);
+  return { x, y, w: Math.max(0, Math.min(viewer.w, left + w) - x), h: Math.max(0, Math.min(viewer.h, top + h) - y) };
+}
+
+/**
+ * How many times its fitted size the picture is drawn (1: fitted), for the film's frames inside it: a page is drawn for
+ * the fitted size whatever the zoom, so a zoom never loads the film again (editor/Preview, pageScale).
+ */
+export const PictureZoom = createContext(1);
 
 /** The viewer's zoom, shared by the picture and the button that fits it again (only they re-render as it changes). */
 export interface ViewerZoomStore {

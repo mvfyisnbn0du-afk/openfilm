@@ -13,6 +13,8 @@
  *            { type: 'stage-event', event: 'text', handle, commit, value?, before? }   an in-place edit ended
  *            { type: 'stage-event', event: 'key', key, code, repeat, metaKey, ctrlKey, shiftKey, altKey }
  *                                                   a key pressed in the picture (not while typing in it)
+ *            { type: 'stage-event', event: 'wheel', x, y, deltaX, deltaY, deltaMode, ctrlKey, metaKey, shiftKey, buttons }
+ *                                                   a wheel or pinch over the picture (the viewer's zoom)
  *
  * Points and boxes are in stage px (the film's own size, before the editor scales its frame). A layer is named by a
  * `handle` (a number, good while its element is in the page) and by `loc`: its selector, with `#n` when the selector
@@ -1028,12 +1030,32 @@
     if ((EDITOR_KEYS.has(e.key) && !mod) || (mod && (k === 'z' || (k === 'a' && !e.shiftKey && !e.altKey) || (e.shiftKey && (k === 'h' || k === 'l'))))) e.preventDefault();
     post({ type: 'stage-event', event: 'key', key: e.key, code: e.code, repeat: e.repeat, metaKey: e.metaKey, ctrlKey: e.ctrlKey, shiftKey: e.shiftKey, altKey: e.altKey });
   };
+  /*
+   * A wheel or a pinch over the picture reaches here only while words are typed in it (the editor's overlay steps aside
+   * then): sent on for the viewer's zoom and pan, at its place in stage px. ⌘/Ctrl + wheel is never the page's (a
+   * browser would zoom all of Studio).
+   */
+  const onWheel = (e) => {
+    if (e.ctrlKey || e.metaKey) e.preventDefault();
+    let x = e.clientX, y = e.clientY;
+    for (let win = e.view; win && win !== window && win.frameElement; win = win.parent) {
+      const frame = win.frameElement;
+      const r = frame.getBoundingClientRect();
+      x = r.left + x * (r.width / (frame.clientWidth || r.width));
+      y = r.top + y * (r.height / (frame.clientHeight || r.height));
+    }
+    post({
+      type: 'stage-event', event: 'wheel', x, y, deltaX: e.deltaX, deltaY: e.deltaY, deltaMode: e.deltaMode,
+      ctrlKey: e.ctrlKey, metaKey: e.metaKey, shiftKey: e.shiftKey, buttons: e.buttons,
+    });
+  };
   /* by document: a page closed and opened again (the timeline does, far from the playhead) is a new one to hear */
   const listening = new WeakSet();
   const listen = (win) => {
     if (!win?.document || listening.has(win.document)) return;
     listening.add(win.document);
     win.addEventListener('keydown', onKey, true);
+    win.addEventListener('wheel', onWheel, { capture: true, passive: false });
   };
   const listenAll = () => { listen(window); for (const c of clips()) if (c.win) listen(c.win); };
   listen(window);
