@@ -49,7 +49,7 @@ import { installedFonts } from './fonts.mjs';
 import { projectFonts, resolveIn } from './project-fonts.mjs';
 import { FILM_PAGE, PageFrameError, closePageFrames, filmPoster, pageFacts, pageFrame, warmFilmPoster } from './pageframes.mjs';
 import { COVER_FRAME_W, CoverError, clearCover, readCover, readCoverBody, setCover, setCoverFromFile } from './cover.mjs';
-import { SavedError, bundlePoster, libraryPath, libraryRel, libraryRoot as savedLibrary, listLibrary, saveClip, saveFile, saveGroup, takeSaved } from './saved.mjs';
+import { SavedError, bundlePoster, libraryPath, libraryRel, libraryRoot as savedLibrary, listLibrary, bringClip, saveClip, saveFile, saveGroup, takeSaved } from './saved.mjs';
 import { FILM_FILE, clipKind, isPage } from '../../src/film-doc.mjs';
 import { moveToTrash } from './trash.mjs';
 import { listSkills, removeSkill, setSkillCover, setSkillInstalled, setSkillOn, skillOrigins, skillsInstalled, skillsOff } from '../../src/skills.mjs';
@@ -821,6 +821,13 @@ export async function startStudio({ port = 4747, key, openBrowser = systemBrowse
     if (rest === 'saved/take' && req.method === 'POST') {
       const { path: from } = /** @type {{ path?: unknown }} */ (await readJson(req) ?? {});
       return json(res, 200, await savedCall(() => takeSaved(project.path, from)));
+    }
+    /* a clip of another project brought into this one, with the files it needs (layers pasted from there) */
+    if (rest === 'bring' && req.method === 'POST') {
+      const { from, clip } = /** @type {{ from?: unknown, clip?: any }} */ (await readJson(req) ?? {});
+      const source = typeof from === 'string' ? await projectById(from).catch(() => null) : null;
+      if (!source || source.missing) throw new HttpError(404, 'The project it was copied from is not there any more.');
+      return json(res, 200, await savedCall(() => bringClip(project.path, source.path, clip, source.name)));
     }
     /* what Studio works out from a media file: its length and size, a poster, a frame, a waveform (see derived.mjs) */
     if (rest === 'media' && req.method === 'GET') {

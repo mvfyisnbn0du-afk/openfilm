@@ -183,6 +183,10 @@ export const api = {
   takeSaved: (id: string, path: string) => call<{ clip: Record<string, unknown> & { src: string } } | { clips: SavedGroupClip[] } | { path: string }>(
     `${p(id)}/saved/take`, { method: 'POST', json: { path } },
   ),
+  /** a clip of project `from` brought into this one with the files it needs (layers pasted from there): its src here */
+  bringClip: (id: string, from: string, clip: Record<string, unknown> & { src: string }) => (
+    call<{ clip: Record<string, unknown> & { src: string } }>(`${p(id)}/bring`, { method: 'POST', json: { from, clip } }).then((r) => r.clip)
+  ),
 };
 
 /** A clip of a saved group: its track counted from the group's top one, its time in seconds from the group's start. */

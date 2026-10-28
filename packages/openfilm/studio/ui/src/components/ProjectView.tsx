@@ -7,7 +7,7 @@
  * are written one at a time (see editor/use-film.ts); the agent's writes come in through the folder's events.
  */
 import * as React from 'react';
-import { BookmarkPlus, ClipboardCopy, ClipboardPaste, GalleryVerticalEnd, Layers, LibraryBig, MessageSquarePlus, MonitorDown, Settings2, TriangleAlert, Upload } from 'lucide-react';
+import { BookmarkPlus, ClipboardCopy, ClipboardPaste, GalleryVerticalEnd, Layers, LibraryBig, MessageSquarePlus, MonitorDown, Settings2, Trash2, TriangleAlert, Upload } from 'lucide-react';
 import { applyOps } from '../../../server/ops.mjs';
 import { api, ApiError, PREFS_EVENT, projectEvents, type Clip, type Film, type Listing, type Op, type ProjectFilm, type ProjectSettings } from '@/api';
 import { useT } from '@/i18n';
@@ -20,10 +20,10 @@ import { changesPicture } from '@/lib/picture-files';
 import { SPEED_MAX } from '@/lib/playback-speed';
 import type { ReplaceFamily } from '@/lib/clip-replace';
 import { layoutTracks, type TimelineBlock, type TimelineTrack } from '@/lib/timeline-layout';
-import { filmClipKind, filmSrcIsPage, filmSrcKind, filmTrackBadges, parseFilmDocLoc, type FilmBox, type FilmDoc, type FilmOverride } from '@/lib/film';
+import { filmClipKind, filmDocLoc, filmSrcIsPage, filmSrcKind, filmTrackBadges, parseFilmDocLoc, type FilmBox, type FilmDoc, type FilmOverride } from '@/lib/film';
 import { exactRate, footageFps, setTimecodeFps, snapToFrame, stepFrames } from '@/lib/timecode';
 import { JUMP_FRAMES, loopBack, playStart, shuttleRate } from '@/lib/timeline-keys';
-import { comboOf, parseCombo } from '@/lib/keymap';
+import { comboOf, hintOf, parseCombo } from '@/lib/keymap';
 import { currentKeymap, keyAction, useKeyHint } from '@/lib/keymap-store';
 import { attrsOf, pasteAttrs, type AttrGroup, type CopiedAttrs } from '@/lib/clip-attrs';
 import { cutPoints, namedTrack, nextCut, trackNamesOf } from '@/lib/timeline-nav';
@@ -31,7 +31,7 @@ import { anyLocked, lockedEdits } from '@/lib/track-lock';
 import { placeMedia, type SourceRange } from '@/lib/media-place';
 import { apartOnTracks, type ClipEdit } from '@/lib/film-clip-edits';
 import { mediaFetch, useMediaImages } from '@/lib/media-queue';
-import { clipboardItemsOf, clipboardNow, pasteEdit, type TimelineClipboardItem } from '@/lib/timeline-clipboard';
+import { clipboardItemsOf, clipboardNow, laneOfBlock, pasteEdit, type TimelineClipboardItem } from '@/lib/timeline-clipboard';
 import { editModelOf, freshLink, linkedIds, magnetOn, mainTrackOf, planMove, planRippleTrim, planRoom, planSpeed, soundTrackFor, type EditMode } from '@/lib/timeline-edit';
 import { readTimelinePrefs, switchesOf } from '@/lib/timeline-prefs';
 import { fadeMsOf, type FadeMs } from '@/lib/clip-fade';
@@ -99,12 +99,15 @@ import { ExportTray, type ExportTrayHandle } from './export/ExportTray';
 import { FilmStageSelect, type FilmStageControl, type LayerGeometry, type StageClipEdit, type StagePick } from './FilmStageSelect';
 import { openSection } from './inspector-fields';
 import { FontScopeContext, type FontScope } from '@/lib/use-fonts';
-import { stageMenu, stageRecoveryMenu, type StageArrangeResult, type StageMenuContext, type StagePictureActions } from './stage-menu';
+import { copyPasteEntries, stageMenu, stageRecoveryMenu, type StageArrangeResult, type StageMenuContext, type StagePictureActions } from './stage-menu';
 import type { StageEditFailure, StageTextEdit } from './FilmInspector';
 import { layerTarget, pageClipOf, recoverLayer } from '@/lib/stage-layers';
 import { pictureStyle, relativeTo, type TemplateControls } from '@/lib/template-controls';
 import { propsAttr, propsOf, type ComponentProp } from '@/lib/component-props';
 import { pointersOf, propsWithoutDeleted, withDeleted } from '@/lib/layer-delete';
+import {
+  copiedClip, isLayerClipboardKey, pastePlan, propTargets, readLayerClipboard, writeLayerClipboard, type CopiedClip, type LayerClipboard,
+} from '@/lib/layer-clipboard';
 import type { PropsHost } from './PropertiesSection';
 import type { LayerPropsActions } from './FilmInspector';
 import { SAVED, refreshSaved, savedActions, savedSources, useSavedListing } from '@/lib/saved';
@@ -1001,6 +1004,20 @@ export function ProjectView({ projectId, onProject, onLeave }: {
     ], clipStep('history.stepDetachAudio', [block.clipId]));
   }, [edit, editModel, t]);
   const [clipboard, setClipboard] = React.useState<readonly TimelineClipboardItem[]>([]);
+  /* layers copied (lib/layer-clipboard): kept in the browser, so another window or project pastes them too; the
+     timeline's clipboard and this one are emptied by a copy to the other, so a paste pastes what was copied last */
+  const [layerBoard, setLayerBoard] = React.useState<LayerClipboard | null>(readLayerClipboard);
+  const layerBoardRef = React.useRef(layerBoard);
+  layerBoardRef.current = layerBoard;
+  React.useEffect(() => {
+    const onStorage = (e: StorageEvent) => { if (isLayerClipboardKey(e.key)) setLayerBoard(readLayerClipboard()); };
+    window.addEventListener('storage', onStorage);
+    return () => window.removeEventListener('storage', onStorage);
+  }, []);
+  const keepLayerBoard = React.useCallback((board: LayerClipboard | null) => {
+    writeLayerClipboard(board);
+    setLayerBoard(board);
+  }, []);
   /* the clips copied as film.html had them then: a clip cut (⌘X) is gone from the film, and is pasted from these */
   const copiedClips = React.useRef(new Map<string, Clip>());
   const copyBlocks = React.useCallback((blocks: readonly TimelineBlock[]) => {
@@ -1010,7 +1027,86 @@ export function ProjectView({ projectId, onProject, onLeave }: {
       return clip ? [[clip.id, structuredClone(clip)] as const] : [];
     }));
     setClipboard(clipboardItemsOf(blocks, timelineTracks));
-  }, [timelineTracks]);
+    keepLayerBoard(null);
+  }, [timelineTracks, keepLayerBoard]);
+  /**
+   * Layers copied (⌘C, the menus): per page clip, the clip showing them alone, as the stage names them and tells which
+   * of the clip's changes and properties are of them (studio/server/stage.js `copying`). Null, or why not.
+   */
+  const copyLayers = React.useCallback(async (elements: readonly StageElement[]): Promise<string | null> => {
+    const doc = filmRef.current as unknown as FilmDoc | null;
+    if (!doc) return t('layers.copyFail');
+    const byClip = new Map<string, { clip: FilmDoc['tracks'][number]['clips'][number]; targets: OverrideTarget[] }>();
+    for (const element of elements) {
+      const found = pageClipOf(doc, element);
+      const target = layerTarget(element);
+      if (!found || !target) continue;
+      const entry = byClip.get(found.clip.id) ?? { clip: found.clip, targets: [] };
+      entry.targets.push(target);
+      byClip.set(found.clip.id, entry);
+    }
+    const clips: CopiedClip[] = [];
+    for (const { clip, targets } of byClip.values()) {
+      const block = blocksRef.current.find((b) => b.clipId === clip.id);
+      const own = (clip.overrides ?? []).map((o) => (o.at ? { at: o.at, ...(o.n != null ? { n: o.n } : {}) } : null));
+      const props = propTargets(clip);
+      const answer = await preview.current?.stage?.<{ keep: (string | null)[]; near: boolean[] }>('copying', { clip: clip.id, of: targets, targets: [...own, ...props] });
+      const keep = (answer?.keep ?? []).filter((at): at is string => Boolean(at));
+      if (!block || !answer || !keep.length) continue;
+      const span = spans.find((x) => x.id === clip.id);
+      clips.push({
+        from: clip.id, startMs: block.startMs, endMs: block.endMs, layers: keep,
+        own: span?.w && span.h ? { w: span.w, h: span.h } : null,
+        clip: copiedClip(clip, keep, answer.near.slice(0, own.length), answer.near.slice(own.length)),
+      });
+    }
+    if (!clips.length) return t('layers.copyFail');
+    keepLayerBoard({ project: projectId, atMs: Math.round(timeRef.current), clips });
+    setClipboard([]);
+    return null;
+  }, [keepLayerBoard, projectId, spans, t]);
+  /**
+   * The copied layers pasted (lib/layer-clipboard pastePlan): over the clip `intoLoc` (else the layer in hand's, else
+   * the top picture under the playhead), a page of another project brought in first. One edit; the first pasted
+   * layer is selected, to be moved.
+   */
+  const pasteLayers = React.useCallback(async (intoLoc: string | null): Promise<string | null> => {
+    let board = layerBoardRef.current;
+    const doc = filmRef.current as unknown as FilmDoc | null;
+    if (!board || !doc) return t('timeline.menuPasteEmpty');
+    if (board.project !== projectId) {
+      const from = board.project;
+      try {
+        const clips = await Promise.all(board.clips.map(async (c) => ({ ...c, clip: { ...c.clip, src: (await api.bringClip(projectId, from, c.clip)).src } })));
+        board = { ...board, clips };
+      } catch (e) {
+        return e instanceof Error ? e.message : String(e);
+      }
+    }
+    const now = timeRef.current;
+    const trackOfLoc = (loc: string | null | undefined) => (loc ? parseFilmDocLoc(loc)?.track ?? null : null);
+    const under = doc.tracks.findIndex((track, i) => !track.hidden && blocksRef.current.some((b) => (
+      (b.kind === 'mg' || b.kind === 'video') && b.loc && trackOfLoc(b.loc) === i && now >= b.startMs && now < b.endMs
+    )));
+    const into = trackOfLoc(intoLoc) ?? trackOfLoc(stageElementRef.current?.clipLoc) ?? (under >= 0 ? under : null);
+    const plan = pastePlan(board, { project: projectId, atMs: now, film: doc, model: editModel(), into });
+    if (!plan) return t('timeline.menuPasteEmpty');
+    const failed = await edit(plan.ops, 'history.stepPaste');
+    if (failed) return failed;
+    /* the same board, its pastes counted (its files are this project's now only when it is this project's) */
+    keepLayerBoard({ ...layerBoardRef.current!, pasted: plan.board.pasted! });
+    const first = plan.made[0];
+    if (first?.layer) {
+      /* the new page loads in the picture: its layer is selected once it is there */
+      for (let tries = 0; tries < 20; tries++) {
+        const loc = (filmRef.current as unknown as FilmDoc | null)?.tracks.flatMap((tr, ti) => tr.clips.map((c, ci) => (c.id === first.id ? filmDocLoc(ti, ci) : null))).find(Boolean);
+        const there = loc ? await preview.current?.stage?.<object>('layer', { clip: first.id, loc: first.layer, any: true }) : null;
+        if (loc && there) { selectStageParent(first.layer, loc); break; }
+        await new Promise((done) => window.setTimeout(done, 150));
+      }
+    }
+    return null;
+  }, [edit, editModel, keepLayerBoard, projectId, t]); // eslint-disable-line react-hooks/exhaustive-deps
   /**
    * A paste (⌘V, the menu) at a time: onto the track pointed at (`lane`) or each copy's own, never cutting what is
    * there: a taken spot opens a track beside it, and with the magnet a copy for the main track goes right above it
@@ -1018,6 +1114,12 @@ export function ProjectView({ projectId, onProject, onLeave }: {
    * new id).
    */
   const pasteAt = React.useCallback((lane: string | null, atMs: number): Promise<string | null> => {
+    /* layers copied last: pasted as layers, over a clip of that row when one is selected there */
+    if (layerBoardRef.current) {
+      const row = lane ? timelineTracks.find((tr) => tr.lane === lane) : null;
+      const picked = row?.blocks.find((b) => selectedBlocks.some((x) => x.id === b.id) && b.loc);
+      return pasteLayers(picked?.loc ?? row?.blocks.find((b) => b.loc)?.loc ?? null);
+    }
     if (!clipboard.length) return Promise.resolve(t('timeline.menuPasteEmpty'));
     const { items, missing } = clipboardNow(clipboard, timelineTracks);
     const cut = clipboard.filter((item) => !items.some((i) => i.clipId === item.clipId) && copiedClips.current.has(item.clipId));
@@ -1035,7 +1137,7 @@ export function ProjectView({ projectId, onProject, onLeave }: {
       return { ...rest, clip };
     });
     return edit(written, 'history.stepPaste');
-  }, [clipboard, timelineTracks, editModel, edit, t, toast]);
+  }, [clipboard, timelineTracks, selectedBlocks, pasteLayers, editModel, edit, t, toast]);
   /** Room for clips dropped onto a track (an insert pushes on, an overwrite cuts out): after the inserts, in one edit. */
   const roomFor = React.useCallback((spans: { track: number | { insert: number } | undefined; atSec: number; durMs: number }[], mode?: EditMode): Op[] => {
     const onTracks = spans.flatMap((s) => (typeof s.track === 'number' ? [{ track: s.track, startMs: Math.round(s.atSec * 1000), endMs: Math.round(s.atSec * 1000) + s.durMs }] : []));
@@ -1724,6 +1826,28 @@ export function ProjectView({ projectId, onProject, onLeave }: {
     setPointedLayer(null);
     void deleteLayers([layerElement(clipId, at, row.instance, row.label)]).then((f) => { if (f) toast.show(f); });
   }, [deleteLayers, toast]); // eslint-disable-line react-hooks/exhaustive-deps
+  /* a Layers row's right-click menu: Copy and Paste as on the picture, and Delete as its bin */
+  const layerRowMenu = React.useCallback((clipId: string, row: LayerRow): readonly ContextMenuEntry[] => {
+    const at = row.instance ? row.loc.slice(0, -`#${row.instance}`.length) : row.loc;
+    const clipLoc = blocksRef.current.find((b) => b.clipId === clipId)?.loc;
+    const element = { ...layerElement(clipId, at, row.instance, row.label), ...(clipLoc ? { clipLoc } : {}) };
+    const isLocked = (loc: string) => Boolean(tracksRef.current.find((tr) => tr.blocks.some((b) => b.loc === loc))?.locked);
+    const paste = (loc: string) => {
+      const lane = tracksRef.current.find((tr) => tr.blocks.some((b) => b.loc === loc))?.lane ?? null;
+      void (layerBoardRef.current ? pasteLayers(loc) : pasteAt(lane, timeRef.current)).then((f) => { if (f) toast.show(f); });
+    };
+    return [
+      ...copyPasteEntries([element], {
+        copyLayers: (list) => { void copyLayers(list).then((f) => { if (f) toast.show(f); }); },
+        clip: { isLocked, canPaste: () => clipboard.length > 0 || layerBoardRef.current != null, paste },
+      }, t),
+      { id: 'delete-sep', separator: true },
+      {
+        id: 'delete', label: t('timeline.removeBlock'), icon: <Trash2 size={14} />, danger: true, shortcut: hintOf(currentKeymap(), 'remove', MAC),
+        disabled: row.locked, hint: t('stageMenu.lockedHint'), onSelect: () => deleteLayerRow(clipId, row),
+      },
+    ];
+  }, [copyLayers, pasteLayers, pasteAt, clipboard, deleteLayerRow, t, toast]); // eslint-disable-line react-hooks/exhaustive-deps
   const restackLayers = React.useCallback((clipId: string, edits: StageArrangeResult['edits']) => {
     void editStageOverrides(edits.map(({ target, style }) => ({ element: layerElement(clipId, target.at, target.n, target.at), patch: { style } as OverrideGeometry })))
       .then((f) => { if (f) toast.show(f); });
@@ -1822,6 +1946,7 @@ export function ProjectView({ projectId, onProject, onLeave }: {
     editOverride: (element, patch) => { void editStageOverrideRef.current(element, patch).then((f) => { if (f) toast.show(f); }); },
     editOverrides: (list) => { void editStageOverrides(list).then((f) => { if (f) toast.show(f); }); },
     deleteLayers: (list) => { void deleteLayers(list).then((f) => { if (f) toast.show(f); }); },
+    copyLayers: (list) => { void copyLayers(list).then((f) => { if (f) toast.show(f); }); },
     selectParent: selectStageParent,
     selectClip: selectStageClip,
     notify: (message) => toast.show(message),
@@ -1836,8 +1961,9 @@ export function ProjectView({ projectId, onProject, onLeave }: {
         if (under.length) void splitBlocks(under, now).then((f) => { if (f) toast.show(f); });
       },
       copy: (clipLoc) => { const b = blockAt(clipLoc); if (b) copyBlocks([b]); },
-      canPaste: () => clipboard.length > 0,
+      canPaste: () => clipboard.length > 0 || layerBoardRef.current != null,
       paste: (clipLoc) => {
+        if (layerBoardRef.current) { void pasteLayers(clipLoc).then((f) => { if (f) toast.show(f); }); return; }
         const lane = timelineTracks.find((tr) => tr.blocks.some((b) => b.loc === clipLoc))?.lane ?? null;
         void pasteAt(lane, timeRef.current).then((f) => { if (f) toast.show(f); });
       },
@@ -1856,7 +1982,7 @@ export function ProjectView({ projectId, onProject, onLeave }: {
       exportClip: (clipId) => openClipExportRef.current(clipId),
       remove: (clipLoc) => { const b = blockAt(clipLoc); if (b) { void removeBlocks(withLinkedBlocks(b)); setStageElement(null); } },
     },
-  }, t), [editStageOverrides, selectStageParent, selectStageClip, splitBlocks, copyBlocks, clipboard, timelineTracks, pasteAt, editBlocks, removeBlocks, t, toast, pictureActions]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, t), [editStageOverrides, selectStageParent, selectStageClip, splitBlocks, copyBlocks, copyLayers, pasteLayers, clipboard, timelineTracks, pasteAt, editBlocks, removeBlocks, t, toast, pictureActions]); // eslint-disable-line react-hooks/exhaustive-deps
   /*
    * "Reference in chat", first on the menus of a clip, a layer and a track, when the app around Studio has a chat.
    * The references are made when it is chosen: a layer right-clicked is measured just after its menu opens. ⌘L does
@@ -2589,7 +2715,17 @@ export function ProjectView({ projectId, onProject, onLeave }: {
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
   }, []);
-  const previewKey = React.useCallback((event: KeyboardEvent) => onKeyRef.current(event), []);
+  /* ⌘V with the picture's keyboard pastes what was copied last, as the timeline's does (which does not hear it) */
+  const pasteKeyRef = React.useRef<() => void>(() => {});
+  pasteKeyRef.current = () => {
+    if (!layerBoardRef.current && !clipboard.length) return;
+    const lane = selectedBlocks[0] ? laneOfBlock(timelineTracks, selectedBlocks[0].id) : null;
+    void pasteAt(lane, timeRef.current).then((f) => { if (f) toast.show(f); });
+  };
+  const previewKey = React.useCallback((event: KeyboardEvent) => {
+    if (keyAction(event) === 'paste' && !event.defaultPrevented) { event.preventDefault(); pasteKeyRef.current(); return; }
+    onKeyRef.current(event);
+  }, []);
 
   /* ── top bar: title, menus, panels ── */
   const [renaming, setRenaming] = React.useState(false);
@@ -2828,6 +2964,7 @@ export function ProjectView({ projectId, onProject, onLeave }: {
                       onPoint={setPointedLayer}
                       onToggle={toggleLayerRow}
                       onDelete={deleteLayerRow}
+                      rowMenu={layerRowMenu}
                       onRestack={restackLayers}
                       onNotify={toast.show}
                       width={layersShownWidth}
@@ -3168,7 +3305,7 @@ export function ProjectView({ projectId, onProject, onLeave }: {
                     onDropAsset={dropAsset}
                     onDropFiles={dropFiles}
                     onExportBlock={openClipExport}
-                    hasClipboard={clipboard.length > 0}
+                    hasClipboard={clipboard.length > 0 || layerBoard != null}
                     selected={selectedIds}
                     onSelectedChange={onTimelineSelected}
                     subtitles={{ on: subs.style.on, onToggle: subs.toggle, count: subs.count, untranscribed: subs.captions?.untranscribed.length ?? 0, onConfigure: configureSubtitles, configuring: inspectorShown && inspectorContent === 'subtitles', onMake: makeSubtitles, making: subs.transcribing, problem: subtitleProblem }}

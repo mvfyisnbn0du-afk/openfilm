@@ -997,6 +997,7 @@ export const zhCN: Words = {
     lock: '锁定',
     unlock: '解锁',
     delete: '删除',
+    copyFail: '无法复制这个图层。请把播放头移到它出现的位置，再试一次。',
     notNow: '此刻不在画面上',
     restackFailed: '这个图层没能调整顺序。画面可能刚变过，再试一次。',
   },

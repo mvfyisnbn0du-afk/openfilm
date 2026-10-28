@@ -996,6 +996,7 @@ export const es: Words = {
     lock: 'Bloquear',
     unlock: 'Desbloquear',
     delete: 'Eliminar',
+    copyFail: 'No se pudo copiar esa capa. Mueve el cabezal a donde se ve y vuelve a intentarlo.',
     notNow: 'No está en la imagen en este momento',
     restackFailed: 'No se pudo reordenar esa capa. Puede que la imagen haya cambiado; inténtalo de nuevo.',
   },

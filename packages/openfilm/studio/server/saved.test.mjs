@@ -4,7 +4,7 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { makeFolder, moveFile } from './files.mjs';
-import { libraryRel, listLibrary, saveClip, saveFile, saveGroup, takeSaved } from './saved.mjs';
+import { bringClip, libraryRel, listLibrary, saveClip, saveFile, saveGroup, takeSaved } from './saved.mjs';
 
 let saved;
 let before;
@@ -138,4 +138,19 @@ test('a place in the library is named from saved/', () => {
   assert.equal(libraryRel('saved/a/b.png'), 'a/b.png');
   assert.throws(() => libraryRel('assets/a.png'), /a place in Saved/);
   assert.throws(() => libraryRel(7), /a place in Saved/);
+});
+
+test('a clip brought from another project: its page and what it loads copied in under its project\'s name, once', async () => {
+  const from = project();
+  const root = mkdtempSync(join(tmpdir(), 'of-saved-into-'));
+  const clip = { src: 'pages/title.html', overrides: [{ at: '#t', t: [24, 24] }] };
+  const { clip: brought } = await bringClip(root, from, clip, 'Launch: v2');
+  assert.deepEqual(brought, { ...clip, src: 'pasted/Launch-v2/pages/title.html' });
+  for (const f of ['pages/title.html', 'pages/title.css', 'pages/inset.html', 'assets/logo.png']) assert.ok(existsSync(join(root, 'pasted/Launch-v2', f)), f);
+  for (const f of ['pages/other.html', 'assets/unused.png', 'film.html']) assert.ok(!existsSync(join(root, 'pasted/Launch-v2', f)), `${f} is not the clip's`);
+  /* changed here since: brought again, it is used as it is */
+  writeFileSync(join(root, 'pasted/Launch-v2/pages/title.css'), 'h1 { color: red }');
+  await bringClip(root, from, clip, 'Launch: v2');
+  assert.equal(readFileSync(join(root, 'pasted/Launch-v2/pages/title.css'), 'utf8'), 'h1 { color: red }');
+  await assert.rejects(bringClip(root, from, { src: 'pages/gone.html' }, 'Launch'), /not in its project/);
 });

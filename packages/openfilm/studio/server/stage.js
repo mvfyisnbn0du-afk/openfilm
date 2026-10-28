@@ -83,12 +83,19 @@
   const shown = () => clips()
     .filter((c) => c.el && c.kind !== 'sound' && c.el.style.visibility === 'visible' && !(Number(c.el.style.opacity || 1) <= 0))
     .sort((a, b) => a.ti - b.ti);
+  /**
+   * Layers pasted (the editor's lib/layer-clipboard): a clip of their page hiding all of it but them. Only they are
+   * the clip's, not its box: a point elsewhere is about the clips under it.
+   */
+  const pastedOnly = (c) => c.kind === 'page' && (c.overrides ?? []).some((o) => typeof o?.at === 'string' && o.at.startsWith('body *:not(') && o.style?.visibility === 'hidden');
+  /** Whether a point of a clip (its px) is the clip's: in its box, and for pasted layers on one of them. */
+  const isClipsPoint = (c, p) => p.x >= 0 && p.y >= 0 && p.x <= c.w && p.y <= c.h && (!pastedOnly(c) || !c.win || layersAt(c, p.x, p.y, true).length > 0);
   /** The top clip under a stage point, by its placed box (a full-frame video draws nothing a point test could find). */
   const clipAt = (x, y, pictures = false) => {
     for (const c of shown()) {
       if (pictures && c.kind === 'page') continue;
       const p = matrixOf(c).inverse().transformPoint(new DOMPoint(x, y));
-      if (p.x >= 0 && p.y >= 0 && p.x <= c.w && p.y <= c.h) return c;
+      if (isClipsPoint(c, p)) return c;
     }
     return null;
   };
@@ -608,7 +615,7 @@
    * one, so a click on a title under a full-frame overlay takes the title. A layer in hand keeps its own page.
    */
   const pageAt = (x, y, includeLocked, held) => {
-    const inside = (c) => { const p = matrixOf(c).inverse().transformPoint(new DOMPoint(x, y)); return p.x >= 0 && p.y >= 0 && p.x <= c.w && p.y <= c.h ? p : null; };
+    const inside = (c) => { const p = matrixOf(c).inverse().transformPoint(new DOMPoint(x, y)); return isClipsPoint(c, p) ? p : null; };
     if (held) {
       const own = shown().find((c) => c.kind === 'page' && c.win && c.win.document === held.ownerDocument && inside(c));
       if (own) return own;
@@ -1479,6 +1486,25 @@
         const found = o?.at ? matches(doc, o) : [];
         return found.length > 0 && found.every((el) => gone.some((g) => g.contains(el)));
       });
+    },
+    /**
+     * What a copy of the layers `of` of clip `clip` needs (lib/layer-clipboard): a selector naming each one alone
+     * (null when none does), and, per target of `targets`, whether it names one of them, a layer inside one or a
+     * layer holding one: the changes that make them look as they do.
+     */
+    copying({ clip, of, targets }) {
+      const c = clipById(clip);
+      const doc = c?.kind === 'page' ? c.win?.document : null;
+      if (!doc) return null;
+      const layers = (of ?? []).map((o) => matches(doc, o)[0] ?? null);
+      const keep = layers.map((el) => {
+        if (!el) return null;
+        const at = selectorOf(el);
+        return matches(doc, { at }).length === 1 ? at : null;
+      });
+      const held = layers.filter(Boolean);
+      const near = (targets ?? []).map((o) => (o?.at ? matches(doc, o) : []).some((el) => held.some((h) => h.contains(el) || el.contains(h))));
+      return { keep, near };
     },
     /** Stop showing what was not kept on a clip (a refused edit, a cancelled drag). */
     release({ clip }) { release(clip); return true; },

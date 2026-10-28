@@ -1,0 +1,5 @@
+---
+"openfilm": patch
+---
+
+Studio: layers inside a page can be copied and pasted. Select one or more on the picture or in the Layers panel and press ⌘C / Ctrl+C, or choose Copy in the layer's menu (a Layers row now has a right-click menu with Copy, Paste and Delete). Paste with ⌘V / Ctrl+V or Paste in a menu. The page file is not changed: the pasted layer is a new clip of the same page on a track above, showing that layer alone, so it moves and looks as the copied one does in Studio and in exports. Pasted while the copied clip is under the playhead, it covers that clip's time, a little lower and to the right each time; anywhere else, including another page or another project, it starts at the playhead from the moment copied, in the same place on the picture. A page from another project is copied into `pasted/<project name>/`. Clicks on the empty part of a pasted clip go to the clips under it. One undo removes a paste. A paste pastes whatever was copied last: layers, or clips on the timeline.
