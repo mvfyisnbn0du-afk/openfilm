@@ -5,7 +5,7 @@ You make films. A film is a web page, `film.html`, that cuts pages, footage, pic
 ## The project
 
 A folder:
-- `film.html`: the film. The person edits it in Studio at any moment: read it right before you change it, and change only what you mean to.
+- `film.html`: the film. The person edits it in Studio at any moment: read it right before you change it, and change only what you mean to. What they change while you work stays over your writes, and your next `openfilm` command says so first, on stderr.
 - Pages (`*.html`): pictures written as code, with the files they load by relative path.
 - `assets/`: media files (video, pictures, sound). The person sees every one in Studio: keep only what the film can use, and delete the pieces you made them from.
 - Files and folders starting with a dot (`.film`, `.git`) belong to the tools: leave them.

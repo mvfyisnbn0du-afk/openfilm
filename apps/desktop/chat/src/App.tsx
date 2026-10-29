@@ -62,7 +62,7 @@ import { BalanceNotice } from '@/components/BalanceNotice';
 import { CopyDiagnostics } from '@/components/CopyDiagnostics';
 import { accountName, accountTrouble } from '@/lib/account-trouble';
 import { accountModel, accountModelOf, routeWithoutKey } from '@/lib/route-without-key';
-import { readStudioFilm } from '@/lib/studio-film';
+import { keptNote, readStudioFilm } from '@/lib/studio-film';
 import { studioRefsFromTransfer, transferHasStudioRefs } from '@/lib/studio-transfer';
 import { agentModelSummary, agentOptions, currentAgent, effectivePrefs, offeredOption, useLocalAgents } from '@/state/local-agent-store';
 import { useLiveActivityFromStore } from '@/lib/live-activity';
@@ -661,7 +661,7 @@ function ChatPane({ project, banners, selection, assetsOpen }: { project: Projec
    * Send a turn to the agent: what it is sent (`prepared`: the text, and the pictures) may take a moment to make. It
    * settles the turn the agent's run ends on: this one, or the last message sent into it while it ran (steerTurn).
    */
-  function runTurn(opened: ReturnType<typeof openTurn>, prepared: Promise<{ text: string; images: PromptImage[]; skills?: string[] }>): void {
+  function runTurn(opened: ReturnType<typeof openTurn>, prepared: Promise<{ text: string; images: PromptImage[]; skills?: string[]; said?: () => void }>): void {
     const { turn, meta, prefs, ready } = opened;
     const id = meta.turnId;
     const finish = (lastTurnId: string | undefined, patch: Partial<Turn & TurnBalance>) => {
@@ -670,7 +670,7 @@ function ChatPane({ project, banners, selection, assetsOpen }: { project: Projec
     };
     /* the agent's own session of this conversation, gone on with (after a restart too); a new one is kept for next time */
     const resume = sessions.find((s) => s.id === sessionId)?.agentSessions?.[agent] ?? null;
-    const run = Promise.all([prepared, ready]).then(([{ text, images, skills }]) => runLocalAgentTurn({
+    const run = Promise.all([prepared, ready]).then(([{ text, images, skills, said }]) => runLocalAgentTurn({
       projectId: projectKey,
       conversation: sessionId,
       resume,
@@ -682,6 +682,8 @@ function ChatPane({ project, banners, selection, assetsOpen }: { project: Projec
       options: prefs,
       meta,
       onOptions: (options) => useLocalAgents.getState().noteOptions(agent, options),
+      /* Studio's note in the message reached the agent: Studio counts it told (lib/studio-film keptNote) */
+      onStarted: said,
       onSessionInfo: (info) => {
         /* a session it could not take up again has none of the skills' pages from before: those of this message only */
         const fresh = !info.resumed || info.sessionId !== resume;
@@ -712,16 +714,17 @@ function ChatPane({ project, banners, selection, assetsOpen }: { project: Projec
    * (an agent that takes steering). It shows as a turn of its own, what the agent says from then on under it, and the
    * running one is done. One that did not join (the turn ended meanwhile) is sent once that run ends.
    */
-  function steerTurn(fromId: string, opened: ReturnType<typeof openTurn>, prepared: Promise<{ text: string; images: PromptImage[]; skills?: string[] }>): void {
+  function steerTurn(fromId: string, opened: ReturnType<typeof openTurn>, prepared: Promise<{ text: string; images: PromptImage[]; skills?: string[]; said?: () => void }>): void {
     /* the agent's run going now (one at a time in a conversation): a message that did not join waits for it */
     const run = [...runs.current.values()].at(-1) ?? Promise.resolve();
-    void Promise.all([prepared, opened.ready]).then(async ([{ text, images, skills }]) => {
+    void Promise.all([prepared, opened.ready]).then(async ([{ text, images, skills, said }]) => {
       if (await steerLocalAgentTurn(fromId, opened.turn, text, images)) {
+        said?.();
         settlers.current.get(fromId)?.({ status: 'ready' });
         return;
       }
       await run.catch(() => {});
-      runTurn(opened, Promise.resolve({ text, images, ...(skills ? { skills } : {}) }));
+      runTurn(opened, Promise.resolve({ text, images, ...(skills ? { skills } : {}), ...(said ? { said } : {}) }));
     });
   }
 
@@ -767,12 +770,12 @@ function ChatPane({ project, banners, selection, assetsOpen }: { project: Projec
     const withFolders = Promise.all(refs.map(async (ref) => (ref.kind === 'example' && !ref.folder
       ? { ...ref, folder: await app.exampleFolder?.(ref.id).catch(() => undefined) } : ref)));
     /* the pictures sent: the references' first, then the attached ones while there is room (the rest by their path) */
-    const prepared = withFolders.then((ready) => Promise.all([referencePictures(ready, { project: project.path, turnId: id }), skillTexts])
-      .then(async ([{ pictures, images }, skills]) => ({
-        text: said + studioReferencesText(ready, { stage, pictures }) + skills.map((s) => `\n\n${s.text}`).join(''),
-        images: [...images, ...await attachedPictures(files, PROMPT_PICTURES_MAX - images.length)],
-        skills: skills.map((s) => s.name),
-      })));
+    /* what the person changed while the agent last worked that Studio kept over its writes, said with this message */
+    const prepared = withFolders.then((ready) => Promise.all([referencePictures(ready, { project: project.path, turnId: id }), skillTexts, keptNote(project.id, sessionId)])
+      .then(async ([{ pictures, images }, skills, kept]) => {
+        const text = said + studioReferencesText(ready, { stage, pictures }) + kept.text + skills.map((s) => `\n\n${s.text}`).join('');
+        return { text, images: [...images, ...await attachedPictures(files, PROMPT_PICTURES_MAX - images.length)], skills: skills.map((s) => s.name), said: kept.said };
+      }));
     const opened = openTurn(id, instruction, promptDisplay ?? null, turnAttachments(files));
     if (steer && asset) steerTurn(asset.id, opened, prepared);
     else runTurn(opened, prepared);
