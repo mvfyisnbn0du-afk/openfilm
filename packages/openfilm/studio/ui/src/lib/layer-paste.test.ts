@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { elementAt, elementsOf, readSource, sourceBody } from './html-source.ts';
-import { copyId, pastedElsewhere, pastedPage, relativeTo, weighted, withoutPaste, withPaste, type PasteItem, type PasteLayer, type PasteTarget } from './layer-paste.ts';
+import { copyId, cssEscape, pastedElsewhere, pastedPage, relativeTo, weighted, withoutPaste, withPaste, type PasteItem, type PasteLayer, type PasteTarget } from './layer-paste.ts';
 
 const PAGE = `<!doctype html>
 <html><head><style>#card{background:#c33} #title{color:#ff0}</style></head>
@@ -176,4 +176,17 @@ test('what the page\'s rules give the layer and not its copy, and the copy and n
     + '<link rel="stylesheet" href="b.css"><style>@media (min-width: 800px) { :where(#p-copy):not(openfilm-none) { border-top-color: unset; } }</style>\n</head>'
     + '<body><div id="col"><p>A<b>!</b></p>\n<p id="p-copy">A<b id="b-copy">!</b></p><p>B</p></div></body>', 'as the rules write it: live, and weighed as they are');
   assert.equal(weighted('a', [2, 0, 3]), ':where(#a)#a#a:not(openfilm-none):not(openfilm-none):not(openfilm-none)');
+});
+
+test('ids are written as CSS writes them: a leading digit, a - and a digit, other signs; the page\'s rules found as it writes them', () => {
+  assert.deepEqual(['1st', '-2x', '-', 'a.b c', 'déjà', 'ok_-9'].map(cssEscape), ['\\31 st', '-\\32 x', '\\-', 'a\\.b\\ c', 'déjà', 'ok_-9']);
+  assert.equal(weighted('1st-copy', [1, 0, 0]), ':where(#\\31 st-copy)#\\31 st-copy');
+  const page = '<head></head><body><p id="1st">A</p></body>';
+  const out = pastedPage(page, [{
+    layer: layer({ at: '#\\31 st', tag: 'p', id: '1st', classes: [], place: { position: 'absolute', left: 0, top: 0, width: 1, height: 1 }, idRules: [{ selectors: ['#\\31 st'], body: 'color: red;', within: [] }] }),
+    target: { path: [0], tags: ['p'], shape: { tag: 'p', children: [] } },
+    look: [{ path: [], rules: [{ sheet: -1, within: [], weight: [1, 0, 1], decls: [['font-weight', '700']] }] }],
+  }], 0)!;
+  assert.equal(out.ats[0], '#1st-copy');
+  assert.ok(out.text.startsWith('<head><style>#\\31 st-copy { color: red; } :where(#\\31 st-copy)#\\31 st-copy:not(openfilm-none) { font-weight: 700; }</style>'), out.text);
 });

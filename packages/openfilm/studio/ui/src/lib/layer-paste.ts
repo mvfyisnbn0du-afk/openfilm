@@ -243,8 +243,24 @@ function indentAt(text: string, at: number): string {
 
 const lineBreak = (text: string) => (text.includes('\r\n') ? '\r\n' : '\n');
 
+/** A name as CSS writes it in a selector (CSS.escape, CSSOM: a leading digit, a `-` and a digit, other signs). */
+export function cssEscape(value: string): string {
+  let out = '';
+  for (let i = 0; i < value.length; i++) {
+    const ch = value[i]!;
+    const code = value.charCodeAt(i);
+    const digit = code >= 0x30 && code <= 0x39;
+    if (code === 0) out += '\uFFFD';
+    else if ((code >= 1 && code <= 0x1f) || code === 0x7f || (i === 0 && digit) || (i === 1 && digit && value.charCodeAt(0) === 0x2d)) out += `\\${code.toString(16)} `;
+    else if (i === 0 && value.length === 1 && ch === '-') out += `\\${ch}`;
+    else if (code >= 0x80 || /[\w-]/.test(ch)) out += ch;
+    else out += `\\${ch}`;
+  }
+  return out;
+}
+
 /** An id as a CSS selector names it. */
-const idSel = (id: string) => `#${id.replace(/[^\w-]/g, (ch) => `\\${ch}`)}`;
+const idSel = (id: string) => `#${cssEscape(id)}`;
 
 /**
  * A selector finding the element of id `id` alone, of weight `weight`: `:where()` weighs nothing, an id again, a
@@ -265,8 +281,11 @@ function rulesFor(rules: PasteLayer['idRules'], renamed: ReadonlyMap<string, str
       let out = sel;
       let named = false;
       for (const [from, to] of renamed) {
-        const re = new RegExp(`#${escRe(from)}(?![\\w-])`, 'g');
-        if (re.test(out)) { named = true; out = out.replace(re, `#${to}`); }
+        /* as the page's CSS writes it (`#\31 st`), or as it is */
+        for (const form of new Set([cssEscape(from), from])) {
+          const re = new RegExp(`#${escRe(form)}(?![\\w-])`, 'g');
+          if (re.test(out)) { named = true; out = out.replace(re, idSel(to)); }
+        }
       }
       return named ? [out] : [];
     });

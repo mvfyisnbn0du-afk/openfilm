@@ -6,7 +6,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { HOST_FLAG, folderFiles, launch } from '../../src/host.mjs';
 import { filmHtml } from '../../src/film-doc.mjs';
-import { pastedPage } from '../ui/src/lib/layer-paste.ts';
+import { cssEscape, pastedPage } from '../ui/src/lib/layer-paste.ts';
 
 const STAGE = readFileSync(new URL('./stage.js', import.meta.url), 'utf8');
 
@@ -584,8 +584,8 @@ async function pastedLook(css, body, id, props, at = 0.5) {
   writeFileSync(join(dir, 'film.html'), filmHtml({ stage: { w: 320, h: 180 }, tracks: [{ clips: [{ id: 'card', src: 'card.html' }] }] }));
   const stage = await stageOf(dir);
   try {
-    const [layer] = await stage.ask('layerSource', { clip: 'card', of: [{ at: `#${id}` }] });
-    const after = await stage.ask('afterCopy', { clip: 'card', of: [{ at: `#${id}` }] });
+    const [layer] = await stage.ask('layerSource', { clip: 'card', of: [{ at: `#${cssEscape(id)}` }] });
+    const after = await stage.ask('afterCopy', { clip: 'card', of: [{ at: `#${cssEscape(id)}` }] });
     const target = await stage.page.evaluate((id) => {
       const doc = document.querySelector('iframe').contentDocument;
       const shapeOf = (el) => ({ tag: el.localName, children: [...el.children].map(shapeOf) });
@@ -633,6 +633,12 @@ test('a copy looks as its original where the page\'s rules give it a look by its
       assert.deepEqual(seen.others, before.filter((o) => !o.startsWith('b-copy')), `${name}: the others as they were`);
     }
   }
+});
+
+test('an id starting with a digit: the copy\'s rules find it, its id rules are said again of it', { timeout: 60_000 }, async () => {
+  const seen = await pastedLook('#col p:first-child{color:red} #\\31 st{font-weight:700}', '<div id="col"><p id="1st">A</p><p id="b">B</p></div>', '1st', ['color', 'font-weight']);
+  assert.deepEqual(seen.copy, seen.el);
+  assert.deepEqual(seen.el, ['rgb(255, 0, 0)', '700']);
 });
 
 test('what a copy keeps from its original\'s place stays live: var(), currentColor and an animation', { timeout: 60_000 }, async () => {
