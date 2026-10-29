@@ -16,7 +16,7 @@ const STAGE = readFileSync(new URL('./stage.js', import.meta.url), 'utf8');
 const samePlace = (now, was, message) => assert.ok(now.every((v, i) => Math.abs(v - was[i]) < 0.5), `${message} (${JSON.stringify(now)}, was ${JSON.stringify(was)})`);
 
 /** A film served with Studio's stage in it, the page itself standing in for the editor (its own origin). */
-async function stageOf(dir) {
+async function stageOf(dir, query = '') {
   let files = null;
   const server = createServer((req, res) => {
     const url = new URL(req.url, 'http://x');
@@ -30,7 +30,7 @@ async function stageOf(dir) {
   const page = await browser.newPage({ viewport: { width: 320, height: 180 } });
   /* a setup that fails closes what it opened: a browser left open keeps the test file, and the run, from ending */
   try {
-    await page.goto(`${origin}/film.html`);
+    await page.goto(`${origin}/film.html${query}`);
     /* window.film may not be there yet when the page has loaded */
     await page.waitForFunction(() => Boolean(window.film));
     await page.evaluate(async () => { await window.film.ready; await window.film.frame(0.5); });
@@ -72,6 +72,27 @@ test('a click on a page\'s backdrop (a box filling the page) takes the clip, not
     assert.equal(root?.kind, 'box');
     assert.notEqual(root.handle, card.handle);
     assert.equal((await stage.ask('hit', { x: 150, y: 160, from: root.handle, detail: true }))?.handle, root.handle);
+  } finally {
+    await stage.close();
+  }
+});
+
+test('handles are counted from the load of the film: one kept from an earlier load names nothing, and the layer is found by its selector', { timeout: 60_000 }, async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'of-stage-handles-'));
+  writeFileSync(join(dir, 'card.html'), `<!doctype html><body style="margin:0">
+  <h1 id="title" style="position:absolute;left:20px;top:20px;margin:0;font:700 24px sans-serif">Every parcel</h1>
+  <div id="card" style="position:absolute;left:200px;top:100px;width:80px;height:50px;background:#f60"></div>
+<script>window.film={duration:2,frame(){}}</script></body>`);
+  writeFileSync(join(dir, 'film.html'), filmHtml({ stage: { w: 320, h: 180 }, tracks: [{ clips: [{ id: 'card', src: 'card.html' }] }] }));
+  const stage = await stageOf(dir, '?load=3');
+  try {
+    const title = await stage.ask('hit', { x: 40, y: 30, detail: true });
+    const card = await stage.ask('hit', { x: 240, y: 125, detail: true });
+    assert.ok(title.handle > 3 * 2 ** 32 && card.handle > 3 * 2 ** 32, 'counted from the load');
+    /* the card's handle in the first load of the film was a small number, maybe the title's here once: never now */
+    const kept = await stage.ask('layer', { handle: card.handle - 3 * 2 ** 32, clip: card.clip, at: card.at, n: card.n });
+    assert.equal(kept?.handle, card.handle, 'found by its selector: the card, not another layer');
+    assert.equal(kept?.kind, 'box');
   } finally {
     await stage.close();
   }

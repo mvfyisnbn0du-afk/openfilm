@@ -5,7 +5,8 @@
  * all measured on screen, keep their size and feel at any zoom. ViewerZoomButton, in the viewer's bar, fits it again.
  * Nothing zooms or pans while a button is held: a drag on the stage keeps the places it measured at the press.
  * The film is drawn for the zoom once it settles (ZOOM_SETTLE_MS still, nothing held, no words typed in): loaded again
- * behind the picture, as for a resized viewer, so a page's canvas is as sharp as it is seen.
+ * behind the picture, as for a resized viewer, so a page's canvas is as sharp as it is seen; that load is shown only
+ * when nothing is under way (`busy`), so a drag or a line typed in place started meanwhile goes on in the film it began in.
  */
 import React from 'react';
 import { useT } from '@/i18n';
@@ -77,6 +78,9 @@ export function ViewerZoom({ store, frame, off, className, notices, children }: 
     };
   }, []);
 
+  /** A button held, or words typed in place: the film is not drawn again, nor a new drawing shown, under it. */
+  const busy = React.useCallback(() => held.current || Boolean(scroller.current?.querySelector('[data-film-select][data-editing-text]')), []);
+
   /* the zoom the film is drawn for: the shown one once it has been still a while, with nothing held or typed in */
   const z = layout ? view.z : 1;
   const [drawn, setDrawn] = React.useState(1);
@@ -84,16 +88,12 @@ export function ViewerZoom({ store, frame, off, className, notices, children }: 
     if (z === drawn) return undefined;
     let timer = 0;
     const settle = () => {
-      timer = window.setTimeout(() => {
-        const typing = scroller.current?.querySelector('[data-film-select][data-editing-text]');
-        if (held.current || typing) settle();
-        else setDrawn(z);
-      }, ZOOM_SETTLE_MS);
+      timer = window.setTimeout(() => { if (busy()) settle(); else setDrawn(z); }, ZOOM_SETTLE_MS);
     };
     settle();
     return () => window.clearTimeout(timer);
-  }, [z, drawn]);
-  const zoom = React.useMemo(() => ({ z, drawn }), [z, drawn]);
+  }, [z, drawn, busy]);
+  const zoom = React.useMemo(() => ({ z, drawn, busy }), [z, drawn, busy]);
 
   const now = React.useRef({ viewer, fitted, off });
   now.current = { viewer, fitted, off };

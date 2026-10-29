@@ -30,8 +30,10 @@
   const hooks = () => window.__filmEditor?.stage;
   const clips = () => hooks()?.clips() ?? [];
 
-  /* ── handles: a number per element, kept weakly ── */
-  let nextHandle = 1;
+  /* ── handles: a number per element, kept weakly; counted from this load of the film's own base (its `load`, see
+     editor/Preview), so a handle the editor kept from an earlier load names nothing here, and the layer is found by its
+     selector instead ── */
+  let nextHandle = (Number(new URL(location.href).searchParams.get('load')) || 0) * 2 ** 32 + 1;
   const byHandle = new Map();
   const handles = new WeakMap();
   const handleOf = (el) => {

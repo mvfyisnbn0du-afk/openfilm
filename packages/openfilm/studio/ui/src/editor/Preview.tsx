@@ -104,6 +104,8 @@ type Props = {
 const CLOCK_PINGS = 5;
 /** How long the viewer keeps another size before the film is loaded again for it (ms): not at each step of a drag. */
 const RESCALE_MS = 600;
+/** How often a load held back for a drag or a line typed in place looks whether it may be shown, ms. */
+const HOLD_POLL_MS = 100;
 
 export const Preview = forwardRef<PreviewHandle, Props>(function Preview({ folder, stage, time, fps, onInfo, onKey, onError, onPlayed, onSpans, children }, ref) {
   const t = useT();
@@ -129,7 +131,9 @@ export const Preview = forwardRef<PreviewHandle, Props>(function Preview({ folde
   const { fitPages } = usePreviewPrefs();
   /* for the zoom the picture settled at: one on the move only scales it (components/ViewerZoom) */
   const zoom = useContext(PictureZoom);
-  const pageScale = fitPages && fit.w > 0 ? zoomedPageScale(fit.k, zoom.z, zoom.drawn, window.devicePixelRatio || 1) : null;
+  const pageScale = fitPages && fit.w > 0 ? zoomedPageScale(fit.k, zoom.z, zoom.drawn, window.devicePixelRatio || 1, stage) : null;
+  const busyRef = useRef(zoom.busy);
+  busyRef.current = zoom.busy;
   const scaleOf = useRef(new Map<number, number | null>());
   const framesRef = useRef(frames);
   framesRef.current = frames;
@@ -270,6 +274,32 @@ export const Preview = forwardRef<PreviewHandle, Props>(function Preview({ folde
     tell({ event: 'reset' });
   }, [shownKey]);
 
+  /**
+   * Show the frame `key`, drawn at `t`: the film playing, it plays on from the line; still, the playhead may have moved
+   * while it drew, and seeks went to the frame shown then.
+   */
+  const show = (key: number, t: number, swap: boolean) => {
+    setFrames((list) => shownAfter(list, key));
+    if (swap && line.current) tellPlay(key);
+    else if (swap && Math.abs(time() - t) > 1e-6) post(key, { type: 'seek', t: time(), seq: ++seq.current });
+  };
+  const showRef = useRef(show);
+  showRef.current = show;
+  /* a load held back (see 'seeked'): shown when nothing is under way, let go when another load took its place */
+  const held = useRef<{ key: number; t: number } | null>(null);
+  const [holding, setHolding] = useState(false);
+  useEffect(() => {
+    if (!holding) return undefined;
+    const timer = setInterval(() => {
+      const h = held.current;
+      if (h && framesRef.current.some((f) => f.key === h.key) && busyRef.current()) return;
+      held.current = null;
+      setHolding(false);
+      if (h && framesRef.current.some((f) => f.key === h.key)) showRef.current(h.key, h.t, true);
+    }, HOLD_POLL_MS);
+    return () => clearInterval(timer);
+  }, [holding]);
+
   /* the folder (a project) changed: start over */
   useEffect(() => {
     updates.current = 0;
@@ -311,11 +341,9 @@ export const Preview = forwardRef<PreviewHandle, Props>(function Preview({ folde
         if (line.current && key === shownRef.current?.key) tellPlay(key);
       } else if (m.type === 'seeked') {
         const swap = !framesRef.current.find((f) => f.key === key)?.ready;
-        setFrames((list) => shownAfter(list, key));
-        /* shown now: the film playing, it plays on from the line; still, the playhead may have moved while it drew,
-           and seeks went to the frame shown then */
-        if (swap && line.current) tellPlay(key);
-        else if (swap && Math.abs(time() - Number(m.t)) > 1e-6) post(key, { type: 'seek', t: time(), seq: ++seq.current });
+        /* a load behind the picture, ready while a drag or a line typed in place is under way: shown once it ends */
+        if (swap && busyRef.current()) { held.current = { key, t: Number(m.t) }; setHolding(true); return; }
+        showRef.current(key, Number(m.t), swap);
       } else if (m.type === 'updated') {
         if (m.inPlace) onInfo(m as FilmInfo);
         else reload();

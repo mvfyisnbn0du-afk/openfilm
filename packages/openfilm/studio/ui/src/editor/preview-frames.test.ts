@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { pageScaleFor, reloaded, shownAfter, updateKeys, zoomedPageScale } from './preview-frames.ts';
+import { ZOOMED_AREA_MAX, ZOOMED_SIDE_MAX, pageScaleFor, reloaded, shownAfter, updateKeys, zoomedPageScale } from './preview-frames.ts';
 
 test('a load behind the picture: the frame shown stays until the new one has drawn, and only then goes', () => {
   const first = [{ key: 1, ready: true }];
@@ -33,17 +33,32 @@ test('a page draws at what the viewer shows of the film: in quarter steps up, ne
 });
 
 test('a zoom on the move keeps the film as it was drawn; settled, the film is drawn as sharp as it is seen', () => {
+  const hd = { w: 1920, h: 1080 };
   /* a 1920-wide film fitted at 480 px on a 2× screen: drawn at 0.5 */
   const fitted = 480 / 1920;
-  assert.equal(zoomedPageScale(fitted, 1, 1, 2), 0.5);
+  assert.equal(zoomedPageScale(fitted, 1, 1, 2, hd), 0.5);
   /* pinched to 1.5× and 3×: still drawn for the fitted picture */
-  assert.equal(zoomedPageScale(fitted * 1.5, 1.5, 1, 2), 0.5);
-  assert.equal(zoomedPageScale(fitted * 3, 3, 1, 2), 0.5);
+  assert.equal(zoomedPageScale(fitted * 1.5, 1.5, 1, 2, hd), 0.5);
+  assert.equal(zoomedPageScale(fitted * 3, 3, 1, 2, hd), 0.5);
   /* settled at 3×: 0.75 px per film px on screen, 1.5 device px */
-  assert.equal(zoomedPageScale(fitted * 3, 3, 3, 2), 1.5);
-  /* settled far in: never more than the screen's pixels */
-  assert.equal(zoomedPageScale(fitted * 10, 10, 10, 2), 2);
+  assert.equal(zoomedPageScale(fitted * 3, 3, 3, 2, hd), 1.5);
   /* back to fitted: drawn for it again once that settles */
-  assert.equal(zoomedPageScale(fitted, 1, 10, 2), 2);
-  assert.equal(zoomedPageScale(fitted, 1, 1, 2), 0.5);
+  assert.equal(zoomedPageScale(fitted, 1, 6, 2, hd), 3);
+  assert.equal(zoomedPageScale(fitted, 1, 1, 2, hd), 0.5);
+});
+
+test('zoomed in past the film\'s own size, a page is drawn past the screen\'s pixels, up to a cap for memory', () => {
+  const hd = { w: 1920, h: 1080 };
+  const fitted = 480 / 1920;
+  /* settled at 8×: 2 screen px per film px, 4 device px, more than the screen's 2 */
+  assert.equal(zoomedPageScale(fitted * 8, 8, 8, 2, hd), 4);
+  /* settled at 32× (8 screen px per film px): the cap, 64 MP for a 1920×1080 page, in quarter steps down */
+  const capped = zoomedPageScale(fitted * 32, 32, 32, 2, hd);
+  assert.equal(capped, 5.5);
+  assert.ok(1920 * capped <= ZOOMED_SIDE_MAX && 1920 * capped * 1080 * capped <= ZOOMED_AREA_MAX);
+  /* a page too large for the cap at the screen's pixels: the screen's pixels still, as when fitted */
+  assert.equal(zoomedPageScale(fitted * 32, 32, 32, 2, { w: 7680, h: 4320 }), 2);
+  /* fitted and zoomed out stay within the screen's pixels */
+  assert.equal(zoomedPageScale(1.5, 1, 1, 2, hd), 2);
+  assert.equal(zoomedPageScale(1.5 * 0.5, 0.5, 0.5, 2, hd), 1.5);
 });
