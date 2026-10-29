@@ -1421,22 +1421,74 @@
     got.push(list.slice(from).trim());
     return got;
   };
+  /** A selector's weight [ids, classes and the like, types] (CSS Selectors 4: :is() / :not() / :has() their heaviest). */
+  const specificityOf = (sel) => {
+    const w = [0, 0, 0];
+    const add = (x) => { w[0] += x[0]; w[1] += x[1]; w[2] += x[2]; };
+    const heavier = (x, y) => (x[0] - y[0] || x[1] - y[1] || x[2] - y[2]) > 0;
+    const heaviest = (list) => selectorParts(list).map(specificityOf).reduce((m, x) => (heavier(x, m) ? x : m), [0, 0, 0]);
+    const name = (i) => { let k = i; while (k < sel.length && (/[\w-]/.test(sel[k]) || sel.charCodeAt(k) > 127 || sel[k] === '\\')) k += sel[k] === '\\' ? 2 : 1; return k; };
+    const inner = (i) => {
+      let depth = 0;
+      for (let k = i; k < sel.length; k++) {
+        if (sel[k] === '(') depth++;
+        else if (sel[k] === ')' && --depth === 0) return [sel.slice(i + 1, k), k + 1];
+      }
+      return [sel.slice(i + 1), sel.length];
+    };
+    for (let i = 0; i < sel.length;) {
+      const ch = sel[i];
+      if (ch === '#') { w[0]++; i = name(i + 1); } else if (ch === '.') { w[1]++; i = name(i + 1); } else if (ch === '[') {
+        w[1]++;
+        i = sel.indexOf(']', i) + 1 || sel.length;
+      } else if (ch === ':' && sel[i + 1] === ':') {
+        w[2]++;
+        i = name(i + 2);
+        if (sel[i] === '(') i = inner(i)[1];
+      } else if (ch === ':') {
+        const end = name(i + 1);
+        const pseudo = sel.slice(i + 1, end).toLowerCase();
+        i = end;
+        if (['before', 'after', 'first-line', 'first-letter'].includes(pseudo)) { w[2]++; continue; }
+        if (sel[i] !== '(') { w[1]++; continue; }
+        const [arg, next] = inner(i);
+        i = next;
+        if (pseudo === 'where') continue;
+        if (['is', 'not', 'has', 'matches', '-webkit-any'].includes(pseudo)) { add(heaviest(arg)); continue; }
+        w[1]++;
+        const of = /\sof\s([^]*)$/.exec(arg);
+        if ((pseudo === 'nth-child' || pseudo === 'nth-last-child') && of) add(heaviest(of[1]));
+      } else if (/[A-Za-z_-]/.test(ch) || sel.charCodeAt(i) > 127) { w[2]++; i = name(i); } else i++;
+    }
+    return w;
+  };
   /**
-   * The page's style rules in their order: each one's selector list in parts, its declarations as written, and the
-   * at-rules it is in (`@media …`, `@supports …`, `@layer …`, `@container …`), outermost first.
+   * The page's style rules in their order: each one's selector list in parts (a nested rule's, as it reads where it
+   * is: `&` its parent, `:is(…)`), its declarations as written, the at-rules it is in (`@media …`, `@supports …`,
+   * `@layer …`, `@container …`, outermost first), and the stylesheet it is in (its `<style>` or `<link>`, by place among
+   * them).
    */
   const styleRules = (doc) => {
     const out = [];
-    const walk = (rules, within) => {
+    const nest = (parts, parent) => (parent == null ? parts : parts.map((p) => (p.includes('&') ? p.replaceAll('&', `:is(${parent})`) : `:is(${parent}) ${p}`)));
+    const walk = (rules, within, sheet, parent) => {
       for (const r of rules) {
-        if (r.selectorText != null) out.push({ parts: selectorParts(r.selectorText), style: r.style, within });
-        else if (r.cssRules) walk(r.cssRules, [...within, r.cssText.slice(0, r.cssText.indexOf('{')).trim()]);
+        if (r.selectorText != null) {
+          const parts = nest(selectorParts(r.selectorText), parent);
+          out.push({ parts, style: r.style, within, sheet });
+          if (r.cssRules?.length) walk(r.cssRules, within, sheet, parts.join(', '));
+        } else if (r.styleSheet) {
+          let list = [];
+          try { list = [...r.styleSheet.cssRules]; } catch { /* another origin's */ }
+          walk(list, within, sheet, parent);
+        } else if (r.cssRules) walk(r.cssRules, [...within, r.cssText.slice(0, r.cssText.indexOf('{')).trim()], sheet, parent);
       }
     };
+    const owners = [...doc.querySelectorAll('style, link[rel~="stylesheet" i]')];
     for (const sheet of doc.styleSheets) {
       let list = [];
       try { list = [...sheet.cssRules]; } catch { continue; }
-      walk(list, []);
+      walk(list, [], owners.indexOf(sheet.ownerNode), null);
     }
     return out;
   };
@@ -1510,15 +1562,15 @@
     return { position, left: (r.left - b.left - (box?.clientLeft ?? 0)) / k, top: (r.top - b.top - (box?.clientTop ?? 0)) / k, width: r.width / k, height: r.height / k };
   };
   /**
-   * The page's CSS rules naming one of `ids`: of each, the selectors of its list naming one, its body, and the at-rules
-   * it is in (`@media …`, `@supports …`, `@layer …`, `@container …`), outermost first.
+   * The page's CSS rules naming one of `ids`: of each, the selectors of its list naming one, its body, the at-rules it
+   * is in (`@media …`, `@supports …`, `@layer …`, `@container …`), outermost first, and its stylesheet (styleRules).
    */
   const idRulesOf = (doc, ids) => {
     if (!ids.length) return [];
     const names = ids.map((id) => new RegExp(`#${CSS.escape(id).replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(?![\\w-])`));
     return styleRules(doc).flatMap((r) => {
       const selectors = r.parts.filter((sel) => names.some((re) => re.test(sel)));
-      return selectors.length ? [{ selectors, body: r.style.cssText, within: r.within }] : [];
+      return selectors.length ? [{ selectors, body: declsOf(r.style).map(([p, v]) => `${p}: ${v};`).join(' '), within: r.within, sheet: r.sheet }] : [];
     });
   };
 
@@ -1745,8 +1797,8 @@
      * beside it otherwise (`:nth-child`, `:last-child`, `+` …), else the nearest place where it draws nothing
      * otherwise (after it first, then before it). Per override of the clip, the selector naming what it finds now
      * when it would find other elements once they are there (null: the same). Per layer, what the page's rules give
-     * it and not its copy there, and the copy and not it (`looks`: element by element, from it, declarations as the
-     * rules write them, with their at-rules), to be written on the copy, so it looks as it does.
+     * it and not its copy there, and the copy and not it (`looks`: element by element, from it, rules for the copy,
+     * each with the weight, at-rules and stylesheet of the page's rule it answers), so the copy looks as it does.
      */
     afterCopy({ clip, of }) {
       const c = clipById(clip);
@@ -1797,31 +1849,43 @@
       /* what the page's CSS draws otherwise on a copy where it goes (a :first-child, a p + p): its original's, element
          by element, to be written on it. Not where it is and how big (the paste places it), nor what its new ids lose
          (their rules are said again of them) */
-      /* what the page's rules give an element where it is and not its copy where it goes (a :first-child, a p + p),
-         and what they give the copy there and not it, element by element: said again of the copy, as the rules say
-         it (`var()`, `currentColor`, an animation stay what they are); a rule's own at-rules (a @media) kept */
-      const rules = styleRules(doc);
+      /* what the page's rules give an element where it is and not its copy where it goes (a :first-child), and what
+         they give the copy there and not it (a p + p), element by element. The first said again of the copy as the rule
+         says it (`var()`, `currentColor`, an animation stay what they are); the second answered, property by property,
+         by what the element's own rules say (none: `unset`, so it inherits). Each with its rule's weight, at-rules and
+         stylesheet, for a rule of the copy's that the cascade weighs as that one */
+      const rules = styleRules(doc).map((r, order) => ({ ...r, order }));
+      const weightOf = (r, el) => r.parts.filter((p) => { try { return el.matches(p); } catch { return false; } })
+        .map(specificityOf).reduce((m, x) => ((x[0] - m[0] || x[1] - m[1] || x[2] - m[2]) > 0 ? x : m), [0, 0, 0]);
+      const heavier = (x, y) => (x[0] - y[0] || x[1] - y[1] || x[2] - y[2]);
       const looksOf = (el, copy) => {
         const from = [el, ...el.querySelectorAll('*')];
         const to = [copy, ...copy.querySelectorAll('*')];
         return from.flatMap((src, k) => {
           const out = to[k];
           if (!out || out.localName !== src.localName) return [];
-          const decls = [];
           const own = rules.filter((r) => matchesAny(src, r.parts));
+          const said = [];
           for (const r of own) {
             if (matchesAny(out, r.parts)) continue;
-            for (const [prop, value] of declsOf(r.style)) decls.push({ within: r.within, prop, value });
+            said.push({ sheet: r.sheet, within: r.within, weight: weightOf(r, src), decls: declsOf(r.style) });
           }
-          /* one only the copy gets there: what it says, as the element's own rules say it (none: as if unset) */
           for (const r of rules) {
             if (!matchesAny(out, r.parts) || matchesAny(src, r.parts)) continue;
-            for (const [prop] of declsOf(r.style)) {
-              const said = own.map((x) => ({ x, d: declsOf(x.style).filter(([p]) => p === prop).at(-1) })).filter((y) => y.d).at(-1);
-              decls.push({ within: said?.x.within ?? [], prop, value: said ? said.d[1] : 'initial' });
+            const decls = [];
+            for (let i = 0; i < r.style.length; i++) {
+              const p = r.style[i];
+              /* its own winning rule for it: !important first, then the heavier, then the later */
+              const by = own.filter((x) => x.style.getPropertyValue(p)).sort((x, y) => (
+                (x.style.getPropertyPriority(p) === 'important') - (y.style.getPropertyPriority(p) === 'important')
+                || heavier(weightOf(x, src), weightOf(y, src)) || x.order - y.order
+              )).at(-1);
+              const priority = by?.style.getPropertyPriority(p) === 'important' ? ' !important' : '';
+              decls.push([p, by ? `${by.style.getPropertyValue(p)}${priority}` : 'unset']);
             }
+            said.push({ sheet: r.sheet, within: r.within, weight: weightOf(r, out), decls });
           }
-          return decls.length ? [{ path: pathIn(el, src), decls }] : [];
+          return said.length ? [{ path: pathIn(el, src), rules: said }] : [];
         });
       };
       try {

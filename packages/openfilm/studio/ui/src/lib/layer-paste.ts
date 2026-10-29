@@ -6,9 +6,11 @@
  * there), right after it, or at the nearest place beside it where the page's CSS draws nothing beside it otherwise
  * (studio/server/stage.js `afterCopy`), with:
  *   - new ids (`<id>-copy`), and what in it names them (`url(#…)`, `href="#…"`, `for`, `aria-*`);
- *   - the page's CSS rules of the old ids said again of the new ones, only the parts naming them, in the page's head;
- *   - the clip's changes of it and of what is in it written in (styles, moves, words), and what the page's rules give
- *     it where it is that they would not give the copy where it goes (a `:first-child`, a `p + p`), as they write it;
+ *   - the page's CSS rules of the old ids said again of the new ones, only the parts naming them, right after the
+ *     stylesheet each is in (so the cascade weighs them as those);
+ *   - the clip's changes of it and of what is in it written in (styles, moves, words); and what the page's rules give
+ *     it where it is and not the copy where it goes (a `:first-child`), or the copy and not it (a `p + p`), as rules
+ *     of the copy weighed as those, as they write it;
  *   - no scripts and no `on…` handlers (they would run twice, as the page's own code: a copy is a picture);
  *   - when it was in the page's flow, held where it was laid out (`position: absolute`, its size), so nothing else
  *     moves; and `offset` px lower and to the right.
@@ -31,13 +33,19 @@ export interface PasteLayer {
   text: string;
   /** Where it is laid out: its `position`, and its box in what places it (px); null inside an SVG (placed by it). */
   place: { position: string; left: number; top: number; width: number; height: number } | null;
-  /** The page's CSS rules naming an id in it: the selectors naming one, their rule's body, the at-rules around it. */
-  idRules: Array<{ selectors: string[]; body: string; within: string[] }>;
+  /**
+   * The page's CSS rules naming an id in it: the selectors naming one, their rule's body, the at-rules around it, and
+   * its stylesheet (its `<style>` or `<link>`, by place among them; -1 not known).
+   */
+  idRules: Array<{ selectors: string[]; body: string; within: string[]; sheet?: number }>;
   /** The clip's changes of it and of what is in it, in order: where in it (element after element, from it), its tag. */
   tweaks: Array<{ path: number[]; tag: string } & Omit<FilmOverride, 'at' | 'n' | 'lock'>>;
   /** It as it looks now, for another page: markup holding its look, its fonts, and its project's address (`base`). */
   snapshot?: { html: string; fonts: string[]; base: string };
 }
+
+/** A rule written for a copy, weighed as the page's rule it answers: its declarations, as written. */
+export interface CopyRule { sheet: number; within: string[]; weight: [number, number, number]; decls: Array<[string, string]> }
 
 /** Where a layer is in the page's file, as the browser reads the file: its path from `<body>`, and its shape. */
 export interface PasteTarget {
@@ -59,9 +67,10 @@ export interface PasteItem {
   over?: PasteTarget;
   /**
    * What the page's rules give the layer and not its copy where it goes, and the copy and not it (`afterCopy`), element
-   * by element: declarations as the rules write them, with the at-rules they are in, said again of the copy.
+   * by element: rules for the copy, each with the weight, at-rules and stylesheet of the page's rule it answers, so the
+   * cascade weighs it as that one.
    */
-  look?: Array<{ path: number[]; decls: Array<{ within: string[]; prop: string; value: string }> }>;
+  look?: Array<{ path: number[]; rules: CopyRule[] }>;
 }
 
 export interface PastedPage {
@@ -117,6 +126,8 @@ interface CopyOptions {
   words: ReadonlyMap<SourceElement, string>;
   /** An address of a file, as the page it goes into names it. */
   url?: (url: string) => string;
+  /** Ids given to elements of it that had none (a rule of the copy's names them). */
+  added?: ReadonlyMap<SourceElement, string>;
 }
 
 /** `el` of `text` as a copy (see the top): its markup with the edits made. */
@@ -150,7 +161,8 @@ function copyMarkup(text: string, el: SourceElement, o: CopyOptions): string {
       if (value !== a.value) edits.push({ start: a.start, end: a.end, text: `${a.name}="${escAttr(value ?? '')}"` });
     }
     /* an id added first, a style after its own attributes */
-    if (n === el && !n.attrs.some((a) => a.name === 'id')) edits.push({ start: n.nameEnd, end: n.nameEnd, text: ` id="${escAttr(o.rootId)}"` });
+    const added = n === el ? o.rootId : o.added?.get(n);
+    if (added && !n.attrs.some((a) => a.name === 'id')) edits.push({ start: n.nameEnd, end: n.nameEnd, text: ` id="${escAttr(added)}"` });
     if (extra?.size && !styled) {
       const after = n.attrs.length ? n.attrs[n.attrs.length - 1]!.end : n.nameEnd;
       edits.push({ start: after, end: after, text: ` style="${escAttr([...extra].map(([k, v]) => `${k}: ${v}`).join('; '))}"` });
@@ -231,8 +243,23 @@ function indentAt(text: string, at: number): string {
 
 const lineBreak = (text: string) => (text.includes('\r\n') ? '\r\n' : '\n');
 
+/** An id as a CSS selector names it. */
+const idSel = (id: string) => `#${id.replace(/[^\w-]/g, (ch) => `\\${ch}`)}`;
+
+/**
+ * A selector finding the element of id `id` alone, of weight `weight`: `:where()` weighs nothing, an id again, a
+ * `:not()` of a class or a tag no element has weigh one each.
+ */
+export function weighted(id: string, weight: readonly [number, number, number]): string {
+  const sel = idSel(id);
+  return `:where(${sel})${sel.repeat(weight[0])}${':not(.openfilm-none)'.repeat(weight[1])}${':not(openfilm-none)'.repeat(weight[2])}`;
+}
+
+/** A rule in its at-rules. */
+const wrapped = (within: readonly string[], rule: string) => within.reduceRight((inner, at) => `${at} { ${inner} }`, rule);
+
 /** The page's CSS rules of a layer's old ids, of the new ones: only the selectors naming them, in their at-rules. */
-function rulesFor(rules: PasteLayer['idRules'], renamed: ReadonlyMap<string, string>): string[] {
+function rulesFor(rules: PasteLayer['idRules'], renamed: ReadonlyMap<string, string>): Array<{ sheet: number; text: string }> {
   return rules.flatMap((r) => {
     const selectors = r.selectors.flatMap((sel) => {
       let out = sel;
@@ -244,8 +271,26 @@ function rulesFor(rules: PasteLayer['idRules'], renamed: ReadonlyMap<string, str
       return named ? [out] : [];
     });
     if (!selectors.length) return [];
-    return [r.within.reduceRight((inner, at) => `${at} { ${inner} }`, `${selectors.join(', ')} { ${r.body} }`)];
+    return [{ sheet: r.sheet ?? -1, text: wrapped(r.within, `${selectors.join(', ')} { ${r.body} }`) }];
   });
+}
+
+/**
+ * Where a copy's rules of stylesheet `sheet` go: right after its `<style>` or `<link>` in the file (the `sheet`-th of
+ * them, so the cascade weighs them as its own rules, after them), when it is in the page's head; else at the end of
+ * the head.
+ */
+function sheetAt(text: string, root: SourceElement, sheet: number): number {
+  const owners: SourceElement[] = [];
+  const walk = (n: SourceElement, inBody: boolean) => {
+    for (const c of elementsOf(n)) {
+      if (c.tag === 'style' || (c.tag === 'link' && /(^|\s)stylesheet(\s|$)/i.test(c.attrs.find((a) => a.name === 'rel')?.value ?? ''))) owners.push(inBody ? { ...c, end: -1 } : c);
+      walk(c, inBody || c.tag === 'body');
+    }
+  };
+  walk(root, false);
+  const owner = sheet >= 0 ? owners[sheet] : undefined;
+  return owner && owner.end >= 0 ? owner.end : headAt(text, root);
 }
 
 /**
@@ -264,7 +309,7 @@ export function pastedPage(text: string, items: readonly PasteItem[], offset: nu
   const taken = idsOf(root);
   const nl = lineBreak(text);
   const writes: Array<{ at: number; text: string }> = [];
-  const rules: string[] = [];
+  const rules: Array<{ sheet: number; text: string }> = [];
   const ats: string[] = [];
   items.forEach(({ layer, target, place, over, look }, i) => {
     const el = els[i]!;
@@ -282,18 +327,18 @@ export function pastedPage(text: string, items: readonly PasteItem[], offset: nu
       for (const [k, v] of decls) { m.delete(k); m.set(k, v); }
       css.set(n, m);
     };
-    /* what the page's rules give the layer where it is (a :first-child, a p + p) and not its copy where it goes: in
-       the copy's own style, as the rules write it; inside an at-rule (a @media), a rule of the copy's id there */
-    const scoped: string[] = [];
-    for (const { path, decls } of look ?? []) {
+    /* what the page's rules give the layer where it is (a :first-child) and not its copy where it goes, and the copy
+       and not it (a p + p): rules of the copy's, each weighed as the page's rule it answers, after its stylesheet (an
+       element of it without an id gets one for them) */
+    const added = new Map<SourceElement, string>();
+    const scoped: Array<{ sheet: number; text: string }> = [];
+    for (const { path, rules: own } of look ?? []) {
       const n = at.get(path.join('.'));
-      if (!n) continue;
-      put(n, decls.filter((d) => !d.within.length).map((d): [string, string] => [d.prop, d.value]));
-      const own = n.attrs.find((a) => a.name === 'id')?.value;
-      const id = n === el ? rootId : own ? renamed.get(own) : undefined;
-      for (const d of id ? decls.filter((x) => x.within.length) : []) {
-        scoped.push(d.within.reduceRight((inner, w) => `${w} { ${inner} }`, `#${id} { ${d.prop}: ${d.value}; }`));
-      }
+      if (!n || !own.length) continue;
+      const had = n.attrs.find((a) => a.name === 'id')?.value;
+      let id = n === el ? rootId : had ? renamed.get(had) : added.get(n);
+      if (!id) { id = copyId(n.attrs.find((a) => a.name === 'class')?.value?.split(/\s+/)[0] || n.tag, taken); added.set(n, id); }
+      for (const r of own) scoped.push({ sheet: r.sheet, text: wrapped(r.within, `${weighted(id, r.weight)} { ${r.decls.map(([p, v]) => `${p}: ${v};`).join(' ')} }`) });
     }
     for (const { path, tag, ...tweak } of layer.tweaks) {
       const n = at.get(path.join('.'));
@@ -311,7 +356,7 @@ export function pastedPage(text: string, items: readonly PasteItem[], offset: nu
       const [x, y] = moved ? [Number(moved[1]), Number(moved[2])] : translateOf(el.attrs.find((a) => a.name === 'style')?.value);
       put(el, [['translate', `${x + offset}px ${y + offset}px`]]);
     }
-    const copy = copyMarkup(text, el, { renamed, rootId, css, words });
+    const copy = copyMarkup(text, el, { renamed, rootId, css, words, added });
     rules.push(...rulesFor(layer.idRules, renamed), ...scoped);
     /* where it goes: over the copy before; else at its place among the elements beside it, when the file has them
        as the page draws them; else right after it */
@@ -324,7 +369,10 @@ export function pastedPage(text: string, items: readonly PasteItem[], offset: nu
     writes.push({ at: into, text: `${nl}${indentAt(text, el.start)}${copy}` });
     ats.push(`#${rootId}`);
   });
-  if (rules.length) writes.push({ at: headAt(text, root), text: `<style>${rules.join(' ')}</style>${nl}` });
+  /* each stylesheet's after it, one <style> each */
+  const bySheet = new Map<number, string[]>();
+  for (const r of rules) bySheet.set(sheetAt(text, root, r.sheet), [...(bySheet.get(sheetAt(text, root, r.sheet)) ?? []), r.text]);
+  for (const [at, list] of bySheet) writes.push({ at, text: at === headAt(text, root) ? `<style>${list.join(' ')}</style>${nl}` : `${nl}<style>${list.join(' ')}</style>` });
   return written(text, writes, ats);
 }
 

@@ -6,6 +6,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { HOST_FLAG, folderFiles, launch } from '../../src/host.mjs';
 import { filmHtml } from '../../src/film-doc.mjs';
+import { pastedPage } from '../ui/src/lib/layer-paste.ts';
 
 const STAGE = readFileSync(new URL('./stage.js', import.meta.url), 'utf8');
 
@@ -49,7 +50,7 @@ async function stageOf(dir) {
     window.addEventListener('message', hear);
     window.postMessage({ source: 'openfilm-studio', type: 'stage', seq, op, ...args }, '*');
   }), { op, args, seq: ++seq });
-  return { ask, page, close };
+  return { ask, page, close, browser };
 }
 
 test('a click on a page\'s backdrop (a box filling the page) takes the clip, not the box; a smaller box is taken', { timeout: 60_000 }, async () => {
@@ -496,8 +497,8 @@ test('a layer to be written into its page or another: where it is laid out, its 
     assert.deepEqual([title.at, title.tag, title.id, title.text], ['#title', 'h1', 'title', 'Every parcel']);
     assert.deepEqual([title.place.position, title.place.left, title.place.top], ['static', 0, 0]);
     assert.deepEqual(title.idRules, [
-      { selectors: ['#title'], body: 'letter-spacing: 1px;', within: [] },
-      { selectors: ['#title b'], body: 'color: rgb(255, 0, 0);', within: ['@supports (display: grid)', '@layer base'] },
+      { selectors: ['#title'], body: 'letter-spacing: 1px;', within: [], sheet: 0 },
+      { selectors: ['#title b'], body: 'color: rgb(255, 0, 0);', within: ['@supports (display: grid)', '@layer base'], sheet: 0 },
     ], 'the parts of a list naming its ids, in their at-rules');
     assert.deepEqual(title.tweaks, [{ path: [0], tag: 'b', style: { color: 'blue' } }]);
     assert.equal(late.text, 'Late', 'its words as the page has them, not as the clip changed them');
@@ -572,79 +573,74 @@ test('a copy goes where the page\'s CSS draws nothing beside it otherwise: not w
   }
 });
 
-test('a copy keeps the look the page\'s CSS gives its original where it is (a :first-child, a p + p), not what it gives the copy', { timeout: 60_000 }, async () => {
+/**
+ * A paste into its own page, as the editor makes it (layerSource, afterCopy, lib/layer-paste pastedPage), the page
+ * then drawn as written: per element asked, `props` of it and of its copy, and the color of every other element.
+ */
+async function pastedLook(css, body, id, props, at = 0.5) {
   const dir = mkdtempSync(join(tmpdir(), 'of-stage-look-'));
-  writeFileSync(join(dir, 'card.html'), `<!doctype html><head><style>#col p:first-child { color: rgb(255, 0, 0) } #col p:last-child { color: rgb(0, 128, 0) } #col > p + p { border-top: 2px solid rgb(0, 0, 255) }</style></head>
-<body style="margin:0"><div id="col"><p id="a">A</p><p id="b">B</p><p id="c">C</p></div><script>window.film={duration:2,frame(){}}</script></body>`);
+  const page = `<!doctype html><head><style>${css}</style></head><body style="margin:0">${body}<script>window.film={duration:2,frame(){}}</script></body>`;
+  writeFileSync(join(dir, 'card.html'), page);
   writeFileSync(join(dir, 'film.html'), filmHtml({ stage: { w: 320, h: 180 }, tracks: [{ clips: [{ id: 'card', src: 'card.html' }] }] }));
   const stage = await stageOf(dir);
   try {
-    for (const id of ['a', 'c']) {
-      const after = await stage.ask('afterCopy', { clip: 'card', of: [{ at: `#${id}` }] });
-      /* the copy written where it goes, with what it keeps: drawn as its original */
-      const seen = await stage.page.evaluate(({ id, after, looks }) => {
-        const doc = document.querySelector('iframe').contentDocument;
-        const el = doc.getElementById(id);
-        const copy = el.cloneNode(true);
-        copy.id = `${id}-copy`;
-        for (const { path, decls } of looks[0] ?? []) if (!path.length) for (const d of decls) if (!d.within.length) copy.style.setProperty(d.prop, d.value);
-        const kids = [...el.parentElement.children];
-        if (after < 0) el.parentElement.prepend(copy); else kids[after].after(copy);
-        const look = (n) => { const cs = getComputedStyle(n); return [cs.color, cs.borderTopWidth]; };
-        const out = { el: look(el), copy: look(copy), others: ['a', 'b', 'c'].map((x) => look(doc.getElementById(x))) };
-        copy.remove();
-        return out;
-      }, { id, after: after.places[0].after, looks: after.looks });
-      assert.deepEqual(seen.copy, seen.el, `the copy of ${id} looks as ${id}`);
-      assert.deepEqual(after.looks[0][0].decls.map((d) => `${d.prop}: ${d.value}`), id === 'a' ? ['color: rgb(255, 0, 0)', 'border-top: initial'] : ['color: rgb(0, 128, 0)'], 'only what differs, as the rules say it');
-      assert.deepEqual(seen.others, [['rgb(255, 0, 0)', '0px'], ['rgb(0, 0, 0)', '2px'], ['rgb(0, 128, 0)', '2px']], 'and the others as they were');
-    }
+    const [layer] = await stage.ask('layerSource', { clip: 'card', of: [{ at: `#${id}` }] });
+    const after = await stage.ask('afterCopy', { clip: 'card', of: [{ at: `#${id}` }] });
+    const target = await stage.page.evaluate((id) => {
+      const doc = document.querySelector('iframe').contentDocument;
+      const shapeOf = (el) => ({ tag: el.localName, children: [...el.children].map(shapeOf) });
+      const el = doc.getElementById(id);
+      const path = [];
+      const tags = [];
+      for (let n = el; n !== doc.body; n = n.parentElement) { path.unshift([...n.parentElement.children].indexOf(n)); tags.unshift(n.localName); }
+      return { path, tags, shape: shapeOf(el) };
+    }, id);
+    const out = pastedPage(page, [{ layer, target, place: after.places[0], look: after.looks[0] }], 0);
+    const drawn = await stage.browser.newPage();
+    try {
+      await drawn.setContent(out.text);
+      return await drawn.evaluate(({ id, props, at }) => {
+        for (const a of document.getAnimations()) { a.pause(); a.currentTime = at * 1000; }
+        const look = (el) => props.map((p) => getComputedStyle(el).getPropertyValue(p));
+        const copy = document.getElementById(`${id}-copy`);
+        const others = [...document.querySelectorAll('body *:not(script)')].filter((e) => !e.id.endsWith('-copy')).map((e) => `${e.id || e.localName}:${getComputedStyle(e).color}`);
+        return { el: look(document.getElementById(id)), copy: look(copy), others };
+      }, { id, props, at });
+    } finally { await drawn.close(); }
   } finally {
     await stage.close();
   }
+}
+
+test('a copy looks as its original where the page\'s rules give it a look by its place, and the others stay as they were', { timeout: 120_000 }, async () => {
+  const col = '<div id="col"><p id="a">A</p><p id="b">B</p><p id="c">C</p></div>';
+  const cases = [
+    ['first-child, last-child, p + p', '#col p:first-child{color:red} #col p:last-child{color:green} #col > p + p{border-top:2px solid blue}', ['a', 'c'], ['color', 'border-top-width']],
+    ['a heavier rule still wins', '#col p:first-child{color:red} #col #a{color:blue}', ['a'], ['color']],
+    ['a rule only the copy gets: what it would inherit', '#col{color:rgb(200, 100, 0)} #col p + p{color:blue}', ['a'], ['color']],
+    ['a rule only the copy gets, against a shorthand', '#col p{border:2px solid red} #col p + p{border-top-color:blue}', ['a'], ['border-top-color', 'border-top-width']],
+    ['in a @media, weighed as written', '@media (min-width: 1px){ #col p:first-child{color:red} } #col p{color:blue}', ['a'], ['color']],
+    ['in a @layer', '@layer base { #col p:first-child{color:red} } #col p{color:blue}', ['a'], ['color']],
+    ['nested', '#col { & p:first-child{color:red} }', ['a'], ['color']],
+    ['nested id rule', '#col { & #a{color:red} }', ['a'], ['color']],
+    ['!important', '#col p:first-child{color:red !important} #col #a{color:blue}', ['a'], ['color']],
+  ];
+  for (const [name, css, ids, props] of cases) {
+    for (const id of ids) {
+      const before = await pastedLook(css, col, 'b', ['color']).then((x) => x.others);
+      const seen = await pastedLook(css, col, id, props);
+      assert.deepEqual(seen.copy, seen.el, `${name}: the copy of ${id} looks as ${id}`);
+      assert.deepEqual(seen.others, before.filter((o) => !o.startsWith('b-copy')), `${name}: the others as they were`);
+    }
+  }
 });
 
-test('what a copy keeps from its original\'s place is the rules as written: var(), currentColor, an animation and a @media stay live', { timeout: 60_000 }, async () => {
-  const dir = mkdtempSync(join(tmpdir(), 'of-stage-live-'));
-  writeFileSync(join(dir, 'card.html'), `<!doctype html><head><style>
-:root { --accent: rgb(255, 0, 0) }
-@keyframes in { from { opacity: 0 } to { opacity: 1 } }
-#col p:first-child { color: var(--accent); border: 2px solid currentColor; animation: in 1s linear both }
-@media (min-width: 1px) { #col p:first-child { letter-spacing: 3px } }
-</style></head><body style="margin:0"><div id="col"><p id="a">A</p><p id="b">B</p></div><script>window.film={duration:2,frame(){}}</script></body>`);
-  writeFileSync(join(dir, 'film.html'), filmHtml({ stage: { w: 320, h: 180 }, tracks: [{ clips: [{ id: 'card', src: 'card.html' }] }] }));
-  const stage = await stageOf(dir);
-  try {
-    const after = await stage.ask('afterCopy', { clip: 'card', of: [{ at: '#a' }] });
-    const decls = after.looks[0][0].decls;
-    assert.deepEqual(decls.filter((d) => !d.within.length).map((d) => d.prop), ['color', 'border', 'animation']);
-    assert.deepEqual(decls.filter((d) => !d.within.length).map((d) => d.value), ['var(--accent)', '2px solid', '1s linear 0s 1 normal both running in'], 'currentColor kept (the border\'s own color unless set)');
-    assert.deepEqual(decls.filter((d) => d.within.length).map((d) => [d.within, d.prop, d.value]), [[['@media (min-width: 1px)'], 'letter-spacing', '3px']]);
-    /* written on a copy where it goes: drawn as the original, and changing as it does */
-    const seen = await stage.page.evaluate(({ after, decls }) => {
-      const doc = document.querySelector('iframe').contentDocument;
-      const el = doc.getElementById('a');
-      const copy = el.cloneNode(true);
-      copy.id = 'a-copy';
-      for (const d of decls) if (!d.within.length) copy.style.setProperty(d.prop, d.value);
-      const extra = doc.createElement('style');
-      extra.textContent = '@media (min-width: 1px) { #a-copy { letter-spacing: 3px } }';
-      doc.head.append(extra);
-      [...el.parentElement.children][after][after < 0 ? 'before' : 'after'](copy);
-      for (const a of [...el.getAnimations(), ...copy.getAnimations()]) { a.pause(); a.currentTime = 250; }
-      const look = (n) => { const cs = getComputedStyle(n); return [cs.color, cs.borderTopColor, cs.opacity, cs.letterSpacing]; };
-      const before = [look(el), look(copy)];
-      doc.documentElement.style.setProperty('--accent', 'rgb(0, 0, 255)');
-      for (const a of [...el.getAnimations(), ...copy.getAnimations()]) a.currentTime = 750;
-      const later = [look(el), look(copy)];
-      copy.remove();
-      extra.remove();
-      return { before, later };
-    }, { after: after.places[0].after, decls });
-    assert.deepEqual(seen.before[1], seen.before[0], 'as the original');
-    assert.deepEqual(seen.later[1], seen.later[0], 'and as it changes: its accent, its animation');
-    assert.deepEqual(seen.later[0], ['rgb(0, 0, 255)', 'rgb(0, 0, 255)', '0.75', '3px']);
-  } finally {
-    await stage.close();
+test('what a copy keeps from its original\'s place stays live: var(), currentColor and an animation', { timeout: 60_000 }, async () => {
+  const css = ':root{--accent: rgb(255, 0, 0)} @keyframes in { from { opacity: 0 } to { opacity: 1 } } #col p:first-child { color: var(--accent); border: 2px solid currentColor; animation: in 1s linear both }';
+  const col = '<div id="col"><p id="a">A</p><p id="b">B</p></div>';
+  for (const at of [0.25, 0.75]) {
+    const seen = await pastedLook(css, col, 'a', ['color', 'border-top-color', 'opacity'], at);
+    assert.deepEqual(seen.copy, seen.el, `at ${at}s`);
+    assert.equal(seen.el[2], String(at));
   }
 });

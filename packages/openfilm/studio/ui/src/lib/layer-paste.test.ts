@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { elementAt, elementsOf, readSource, sourceBody } from './html-source.ts';
-import { copyId, pastedElsewhere, pastedPage, relativeTo, withoutPaste, withPaste, type PasteItem, type PasteLayer, type PasteTarget } from './layer-paste.ts';
+import { copyId, pastedElsewhere, pastedPage, relativeTo, weighted, withoutPaste, withPaste, type PasteItem, type PasteLayer, type PasteTarget } from './layer-paste.ts';
 
 const PAGE = `<!doctype html>
 <html><head><style>#card{background:#c33} #title{color:#ff0}</style></head>
@@ -158,18 +158,22 @@ test('an undo of a page written since: what the paste wrote taken out, where it 
   assert.equal(withoutPaste('<a>x</a>', ['<b>COPY</b>']), null, 'gone');
 });
 
-test('what the page\'s CSS gives the layer where it is and not its copy where it goes is written on the copy', () => {
-  const page = '<body><div id="col"><p>A</p><p>B</p></div></body>';
+test('what the page\'s rules give the layer and not its copy, and the copy and not it: rules of the copy, weighed as those, after their stylesheet', () => {
+  const page = '<head><style>#col p:first-child { color: var(--accent) }</style><link rel="stylesheet" href="b.css"></head><body><div id="col"><p>A<b>!</b></p><p>B</p></div></body>';
   const out = pastedPage(page, [{
     layer: layer({ at: '#col > p:nth-of-type(1)', tag: 'p', id: null, classes: [], place: { position: 'absolute', left: 0, top: 0, width: 1, height: 1 }, idRules: [] }),
-    target: { path: [0, 0], tags: ['div', 'p'], shape: { tag: 'p', children: [] } },
-    look: [{ path: [], decls: [
-      { within: [], prop: 'color', value: 'var(--accent)' },
-      { within: [], prop: 'animation', value: '1s both in' },
-      { within: [], prop: 'border-top', value: 'initial' },
-      { within: ['@media (min-width: 800px)'], prop: 'font-size', value: '2em' },
-    ] }],
+    target: { path: [0, 0], tags: ['div', 'p'], shape: { tag: 'p', children: [{ tag: 'b', children: [] }] } },
+    look: [
+      { path: [], rules: [
+        { sheet: 0, within: [], weight: [1, 1, 1], decls: [['color', 'var(--accent)'], ['animation', '1s both in']] },
+        { sheet: 1, within: ['@media (min-width: 800px)'], weight: [0, 0, 1], decls: [['border-top-color', 'unset']] },
+      ] },
+      { path: [0], rules: [{ sheet: 0, within: [], weight: [0, 1, 0], decls: [['font-weight', '700']] }] },
+    ],
   }], 0)!;
-  assert.equal(out.text, '<style>@media (min-width: 800px) { #p-copy { font-size: 2em; } }</style>\n<body><div id="col"><p>A</p>\n'
-    + '<p id="p-copy" style="color: var(--accent); animation: 1s both in; border-top: initial">A</p><p>B</p></div></body>', 'as the rules write it: live');
+  assert.equal(out.text, '<head><style>#col p:first-child { color: var(--accent) }</style>'
+    + '\n<style>:where(#p-copy)#p-copy:not(.openfilm-none):not(openfilm-none) { color: var(--accent); animation: 1s both in; } :where(#b-copy):not(.openfilm-none) { font-weight: 700; }</style>'
+    + '<link rel="stylesheet" href="b.css"><style>@media (min-width: 800px) { :where(#p-copy):not(openfilm-none) { border-top-color: unset; } }</style>\n</head>'
+    + '<body><div id="col"><p>A<b>!</b></p>\n<p id="p-copy">A<b id="b-copy">!</b></p><p>B</p></div></body>', 'as the rules write it: live, and weighed as they are');
+  assert.equal(weighted('a', [2, 0, 3]), ':where(#a)#a#a:not(openfilm-none):not(openfilm-none):not(openfilm-none)');
 });
