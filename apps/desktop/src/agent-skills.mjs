@@ -29,7 +29,7 @@
  * A session's OpenFilm skills are a folder of the app's, links to each skill's own folder (agent-skills/<id>/skills),
  * as each agent reads a plugin or a skills folder. Reads no Electron module, so `node --test` can use it.
  */
-import { mkdirSync, readFileSync, readdirSync, rmSync, statSync, symlinkSync, writeFileSync } from 'node:fs';
+import { mkdirSync, readFileSync, readdirSync, rmSync, statSync, symlinkSync, unlinkSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { basename, dirname, join, resolve } from 'node:path';
 import { createRequire } from 'node:module';
@@ -214,7 +214,7 @@ export function ownMcpServers(agent, { cwd = '', env = {}, home = homedir() } = 
 function removeSession(dir) {
   for (const entry of readdirSync(dir, { withFileTypes: true })) {
     const path = join(dir, entry.name);
-    if (entry.isSymbolicLink()) rmSync(path, { force: true });
+    if (entry.isSymbolicLink()) unlinkSync(path);
     else if (entry.isDirectory()) removeSession(path);
   }
   rmSync(dir, { recursive: true, force: true });
