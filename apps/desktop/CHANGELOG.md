@@ -1,5 +1,22 @@
 # @openfilm/desktop
 
+## 0.2.7
+
+### Patch Changes
+
+- [#278](https://github.com/openfilm/openfilm/pull/278) [`1ed02d7`](https://github.com/openfilm/openfilm/commit/1ed02d7e84e8e85a9a02af864e59be1518e0671c) Thanks [@rick-mingyu-liu](https://github.com/rick-mingyu-liu)! - Settings › Agents says when Claude Code is older than the one OpenFilm was tested with (2.1.308), whose model menu may then miss the newest models, and gives the command that updates it the way it was installed: npm, pnpm or bun, its Homebrew cask, or its own installer (`claude update`). The Claude app's own copy is updated by the app.
+
+- [#283](https://github.com/openfilm/openfilm/pull/283) [`de5a98b`](https://github.com/openfilm/openfilm/commit/de5a98bd46e2edfe8a98a6ca5343f925f71d53ff) Thanks [@WEBGRS](https://github.com/WEBGRS)! - Chat: when a DeepSeek Harness model needs an API key this computer doesn't have (only a DeepSeek account is signed in), the chat says so in the app's language instead of showing DeepSeek Harness's own words, and offers a model of the account in its place. Once picked, that model is DeepSeek Harness's from then on, in new conversations too.
+
+- [#281](https://github.com/openfilm/openfilm/pull/281) [`74b5c06`](https://github.com/openfilm/openfilm/commit/74b5c06cedb73ebc0ee01916012d23d8a5582d06) Thanks [@WEBGRS](https://github.com/WEBGRS)! - On Windows, opening Settings or the chat's agent menu no longer holds the app for a second or two each time: the apps Windows has registered are read in the background, and the last reading is used meanwhile.
+
+- [#279](https://github.com/openfilm/openfilm/pull/279) [`4021fec`](https://github.com/openfilm/openfilm/commit/4021feca73a02cb136163f0cafaf0e5f7dbb93cc) Thanks [@rick-mingyu-liu](https://github.com/rick-mingyu-liu)! - A picture opened in the chat opens in a light viewer: the window dims, the picture shows at its own size in the middle (at most nine tenths of the window), and Esc, a click beside it or × closes it. Download is in its right-click menu. The full-window frame with its name, size, Fit / 100% and Download is gone for pictures; video, sound and documents open as before. An Esc pressed just after one that closed a viewer no longer stops the running turn.
+
+- [#302](https://github.com/openfilm/openfilm/pull/302) [`cf06197`](https://github.com/openfilm/openfilm/commit/cf06197212af714d8f4e4d5cbcd7c5f514408256) Thanks [@QianYan-Art](https://github.com/QianYan-Art)! - Expired agent skill sessions now remove only their own links and files, never the real skills those links point at.
+
+- Updated dependencies [[`005f61d`](https://github.com/openfilm/openfilm/commit/005f61d76bbeefa364f0c5ef23d9155f17620b29), [`015a240`](https://github.com/openfilm/openfilm/commit/015a240c8fe7ee10fbf8cf2814f654314060afcd), [`1ed02d7`](https://github.com/openfilm/openfilm/commit/1ed02d7e84e8e85a9a02af864e59be1518e0671c), [`97bc98b`](https://github.com/openfilm/openfilm/commit/97bc98b9d2d9585ea917b24abc9742c68b5f0a27), [`6c7d599`](https://github.com/openfilm/openfilm/commit/6c7d599c2c7e98d8f05a9d56edfc775f0a83771f), [`d71b72e`](https://github.com/openfilm/openfilm/commit/d71b72eda800c94ea6bb2de6747baea630cb0d50), [`768fc6d`](https://github.com/openfilm/openfilm/commit/768fc6d4dfdb5bd9922a6f89bf43b659eb0942f5)]:
+  - openfilm@0.2.7
+
 ## 0.2.6
 
 ### Patch Changes
