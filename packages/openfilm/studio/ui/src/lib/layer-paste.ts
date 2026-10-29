@@ -85,7 +85,6 @@ const UNITLESS = /opacity|z-index|font-weight|line-height|flex/;
 const kebab = (k: string) => (k.startsWith('--') ? k : k.replace(/[A-Z]/g, (ch) => `-${ch.toLowerCase()}`));
 const escAttr = (v: string) => v.replace(/&/g, '&amp;').replace(/"/g, '&quot;');
 const escText = (v: string) => v.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-const escRe = (v: string) => v.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 const NAMES_IDS = new Set(['for', 'aria-labelledby', 'aria-describedby', 'aria-controls', 'aria-owns', 'list', 'form', 'headers']);
 const FILE_ATTRS = new Set(['src', 'href', 'poster', 'xlink:href']);
 
@@ -263,6 +262,40 @@ export function cssEscape(value: string): string {
 const idSel = (id: string) => `#${cssEscape(id)}`;
 
 /**
+ * The ids a selector names, as CSS reads them: a `#` and a name, its escapes read (`\31 ` a 1, `\.` a dot) and
+ * what is not ASCII part of it; not in quotes. Each with where it is written.
+ */
+export function idsIn(sel: string): Array<{ start: number; end: number; id: string }> {
+  const out: Array<{ start: number; end: number; id: string }> = [];
+  /* an escape at `i` (a `\`): what it stands for, and where it ends */
+  const escape = (i: number): [string, number] => {
+    const hex = /^[0-9a-fA-F]{1,6}/.exec(sel.slice(i + 1, i + 7))?.[0];
+    if (!hex) return [sel[i + 1] ?? '', Math.min(sel.length, i + 2)];
+    let end = i + 1 + hex.length;
+    if (/\s/.test(sel[end] ?? '')) end++;
+    const code = Number.parseInt(hex, 16);
+    return [code > 0 && code <= 0x10ffff ? String.fromCodePoint(code) : '\uFFFD', end];
+  };
+  let quote: string | null = null;
+  for (let i = 0; i < sel.length;) {
+    const ch = sel[i]!;
+    if (quote) { i += ch === '\\' ? 2 : 1; if (ch === quote) quote = null; continue; }
+    if (ch === '"' || ch === "'") { quote = ch; i++; continue; }
+    if (ch === '\\') { i = escape(i)[1]; continue; }
+    if (ch !== '#') { i++; continue; }
+    let id = '';
+    let k = i + 1;
+    while (k < sel.length) {
+      const c = sel[k]!;
+      if (c === '\\') { const [got, end] = escape(k); id += got; k = end; } else if (/[\w-]/.test(c) || sel.charCodeAt(k) >= 0x80) { id += c; k++; } else break;
+    }
+    if (id) out.push({ start: i, end: k, id });
+    i = k;
+  }
+  return out;
+}
+
+/**
  * A selector finding the element of id `id` alone, of weight `weight`: `:where()` weighs nothing, an id again, a
  * `:not()` of a class or a tag no element has weigh one each.
  */
@@ -280,12 +313,10 @@ function rulesFor(rules: PasteLayer['idRules'], renamed: ReadonlyMap<string, str
     const selectors = r.selectors.flatMap((sel) => {
       let out = sel;
       let named = false;
-      for (const [from, to] of renamed) {
-        /* as the page's CSS writes it (`#\31 st`), or as it is */
-        for (const form of new Set([cssEscape(from), from])) {
-          const re = new RegExp(`#${escRe(form)}(?![\\w-])`, 'g');
-          if (re.test(out)) { named = true; out = out.replace(re, idSel(to)); }
-        }
+      /* each id as CSS reads it, however the page's CSS writes it (`#\31 st`), the whole of it */
+      for (const t of idsIn(sel).reverse()) {
+        const to = renamed.get(t.id);
+        if (to) { named = true; out = `${out.slice(0, t.start)}${idSel(to)}${out.slice(t.end)}`; }
       }
       return named ? [out] : [];
     });
@@ -386,7 +417,7 @@ export function pastedPage(text: string, items: readonly PasteItem[], offset: nu
     const previous = over ? elementAt(body, over.path, over.tags) : null;
     const into = previous?.end ?? (placed && place && parent ? (place.after < 0 ? parent.openEnd : kids[place.after]!.end) : el.end);
     writes.push({ at: into, text: `${nl}${indentAt(text, el.start)}${copy}` });
-    ats.push(`#${rootId}`);
+    ats.push(idSel(rootId));
   });
   /* each stylesheet's after it, one <style> each */
   const bySheet = new Map<number, string[]>();
@@ -444,7 +475,7 @@ export function pastedElsewhere(
     }
     writes.push({ at, text: `${copyMarkup(shot.html, el, { renamed, rootId, css, words: new Map(), url: local })}${nl}` });
     for (const f of shot.fonts) fonts.add(f.replace(/url\((["']?)([^"')]+)\1\)/g, (_m, _q, u: string) => `url("${local(u)}")`));
-    ats.push(`#${rootId}`);
+    ats.push(idSel(rootId));
   }
   if (fonts.size) writes.push({ at: headAt(text, root), text: `<style>${[...fonts].join(' ')}</style>${nl}` });
   return written(text, writes, ats);

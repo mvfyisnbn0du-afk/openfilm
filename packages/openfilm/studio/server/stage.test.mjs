@@ -641,6 +641,15 @@ test('an id starting with a digit: the copy\'s rules find it, its id rules are s
   assert.deepEqual(seen.el, ['rgb(255, 0, 0)', '700']);
 });
 
+test('a one-digit id, and an id with a dot: the copy keeps its id rules, and only its own', { timeout: 60_000 }, async () => {
+  const one = await pastedLook('#\\31 {font-weight:700} #col p:first-child{color:red}', '<div id="col"><p id="1">A</p><p id="b">B</p></div>', '1', ['color', 'font-weight']);
+  assert.deepEqual(one.copy, one.el);
+  assert.deepEqual(one.el, ['rgb(255, 0, 0)', '700']);
+  const dot = await pastedLook('#a\\.b{color:blue} #a{font-weight:700}', '<div id="col"><p id="a">A</p><p id="a.b">B</p></div>', 'a', ['color', 'font-weight']);
+  assert.deepEqual(dot.copy, dot.el);
+  assert.ok(dot.others.includes('a.b:rgb(0, 0, 255)'), 'the other one as it was');
+});
+
 test('what a copy keeps from its original\'s place stays live: var(), currentColor and an animation', { timeout: 60_000 }, async () => {
   const css = ':root{--accent: rgb(255, 0, 0)} @keyframes in { from { opacity: 0 } to { opacity: 1 } } #col p:first-child { color: var(--accent); border: 2px solid currentColor; animation: in 1s linear both }';
   const col = '<div id="col"><p id="a">A</p><p id="b">B</p></div>';
@@ -648,5 +657,20 @@ test('what a copy keeps from its original\'s place stays live: var(), currentCol
     const seen = await pastedLook(css, col, 'a', ['color', 'border-top-color', 'opacity'], at);
     assert.deepEqual(seen.copy, seen.el, `at ${at}s`);
     assert.equal(seen.el[2], String(at));
+  }
+});
+
+test('a copy whose id needs escaping is found by the selector a paste says (to be selected)', { timeout: 60_000 }, async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'of-stage-select-'));
+  writeFileSync(join(dir, 'card.html'), '<!doctype html><body style="margin:0"><p id="1st-copy">A</p><p id="a:b-copy">B</p><script>window.film={duration:2,frame(){}}</script></body>');
+  writeFileSync(join(dir, 'film.html'), filmHtml({ stage: { w: 320, h: 180 }, tracks: [{ clips: [{ id: 'card', src: 'card.html' }] }] }));
+  const stage = await stageOf(dir);
+  try {
+    for (const id of ['1st-copy', 'a:b-copy']) {
+      const layer = await stage.ask('layer', { clip: 'card', loc: `#${cssEscape(id)}`, any: true });
+      assert.equal(layer?.label, id === '1st-copy' ? 'A' : 'B', id);
+    }
+  } finally {
+    await stage.close();
   }
 });

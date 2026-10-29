@@ -109,7 +109,7 @@ import {
   isLayerClipboardKey, PASTE_OFFSET, pasteGoals, pasteOffset, readLayerClipboard, whyNowhere, writeLayerClipboard, type CopiedLayers,
   type LayerClipboard,
 } from '@/lib/layer-clipboard';
-import { pastedElsewhere, pastedPage, withoutPaste, withPaste, type PasteItem, type PasteLayer, type PastedPage } from '@/lib/layer-paste';
+import { idsIn, pastedElsewhere, pastedPage, withoutPaste, withPaste, type PasteItem, type PasteLayer, type PastedPage } from '@/lib/layer-paste';
 import { pasteTargets, targetById } from '@/lib/layer-paste-target';
 import type { PropsHost } from './PropertiesSection';
 import type { LayerPropsActions } from './FilmInspector';
@@ -1129,7 +1129,8 @@ export function ProjectView({ projectId, onProject, onLeave }: {
         /* pasted at this spot before: over the last copy */
         const lastAts = board.pasted?.spot === spot ? board.pasted.ats ?? [] : [];
         out = targets && after ? pastedPage(page.text, goal.layers.map((layer, i) => {
-          const last = lastAts[i] ? targetById(page.text, lastAts[i]!.slice(1)) : null;
+          const lastId = lastAts[i] ? idsIn(lastAts[i]!)[0]?.id : undefined;
+          const last = lastId ? targetById(page.text, lastId) : null;
           return { layer, target: targets[i]!, place: after.places[i], look: after.looks[i], ...(last ? { over: last } : {}) };
         }), PASTE_OFFSET * n) : null;
         /* the clip's changes that would find others once the copies are there point at what they found */

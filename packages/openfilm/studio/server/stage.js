@@ -1463,6 +1463,38 @@
     return w;
   };
   /**
+   * The ids a selector names, as CSS reads them (the editor's lib/layer-paste idsIn): a `#` and a name, its escapes
+   * read (`\31 ` a 1, `\.` a dot) and what is not ASCII part of it; not in quotes.
+   */
+  const idsIn = (sel) => {
+    const out = [];
+    const escape = (i) => {
+      const hex = /^[0-9a-fA-F]{1,6}/.exec(sel.slice(i + 1, i + 7))?.[0];
+      if (!hex) return [sel[i + 1] ?? '', Math.min(sel.length, i + 2)];
+      let end = i + 1 + hex.length;
+      if (/\s/.test(sel[end] ?? '')) end++;
+      const code = Number.parseInt(hex, 16);
+      return [code > 0 && code <= 0x10ffff ? String.fromCodePoint(code) : '\uFFFD', end];
+    };
+    let quote = null;
+    for (let i = 0; i < sel.length;) {
+      const ch = sel[i];
+      if (quote) { i += ch === '\\' ? 2 : 1; if (ch === quote) quote = null; continue; }
+      if (ch === '"' || ch === "'") { quote = ch; i++; continue; }
+      if (ch === '\\') { i = escape(i)[1]; continue; }
+      if (ch !== '#') { i++; continue; }
+      let id = '';
+      let k = i + 1;
+      while (k < sel.length) {
+        const c = sel[k];
+        if (c === '\\') { const [got, end] = escape(k); id += got; k = end; } else if (/[\w-]/.test(c) || sel.charCodeAt(k) >= 0x80) { id += c; k++; } else break;
+      }
+      if (id) out.push(id);
+      i = k;
+    }
+    return out;
+  };
+  /**
    * The page's style rules in their order: each one's selector list in parts (a nested rule's, as it reads where it
    * is: `&` its parent, `:is(…)`), its declarations as written, the at-rules it is in (`@media …`, `@supports …`,
    * `@layer …`, `@container …`, outermost first), and the stylesheet it is in (its `<style>` or `<link>`, by place among
@@ -1567,9 +1599,9 @@
    */
   const idRulesOf = (doc, ids) => {
     if (!ids.length) return [];
-    const names = ids.map((id) => new RegExp(`#${CSS.escape(id).replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(?![\\w-])`));
+    const names = new Set(ids);
     return styleRules(doc).flatMap((r) => {
-      const selectors = r.parts.filter((sel) => names.some((re) => re.test(sel)));
+      const selectors = r.parts.filter((sel) => idsIn(sel).some((id) => names.has(id)));
       return selectors.length ? [{ selectors, body: declsOf(r.style).map(([p, v]) => `${p}: ${v};`).join(' '), within: r.within, sheet: r.sheet }] : [];
     });
   };

@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { elementAt, elementsOf, readSource, sourceBody } from './html-source.ts';
-import { copyId, cssEscape, pastedElsewhere, pastedPage, relativeTo, weighted, withoutPaste, withPaste, type PasteItem, type PasteLayer, type PasteTarget } from './layer-paste.ts';
+import { copyId, cssEscape, idsIn, pastedElsewhere, pastedPage, relativeTo, weighted, withoutPaste, withPaste, type PasteItem, type PasteLayer, type PasteTarget } from './layer-paste.ts';
 
 const PAGE = `<!doctype html>
 <html><head><style>#card{background:#c33} #title{color:#ff0}</style></head>
@@ -187,6 +187,28 @@ test('ids are written as CSS writes them: a leading digit, a - and a digit, othe
     target: { path: [0], tags: ['p'], shape: { tag: 'p', children: [] } },
     look: [{ path: [], rules: [{ sheet: -1, within: [], weight: [1, 0, 1], decls: [['font-weight', '700']] }] }],
   }], 0)!;
-  assert.equal(out.ats[0], '#1st-copy');
+  assert.equal(out.ats[0], '#\\31 st-copy', 'and the copy named so, to be selected');
   assert.ok(out.text.startsWith('<head><style>#\\31 st-copy { color: red; } :where(#\\31 st-copy)#\\31 st-copy:not(openfilm-none) { font-weight: 700; }</style>'), out.text);
+});
+
+test('the ids a selector names, read as CSS reads them: escapes ended by a space or not, whole names only', () => {
+  const ids = (sel: string) => idsIn(sel).map((t) => t.id);
+  assert.deepEqual(ids('#\\31 '), ['1']);
+  assert.deepEqual(ids('#\\31'), ['1'], 'its ending space trimmed off');
+  assert.deepEqual(ids('#\\31 st > #-\\32 x:hover'), ['1st', '-2x']);
+  assert.deepEqual(ids('#a\\.b, #a.c'), ['a.b', 'a']);
+  assert.deepEqual(ids('#déjà [href="#a"] #a\\:b'), ['déjà', 'a:b'], 'not in quotes');
+  /* copying #a renames #a, not #a\.b; a one-digit id's rule is found */
+  const page = '<head></head><body><p id="a">A</p><p id="1">B</p></body>';
+  const one = (id: string, at: string, path: number[]) => ({
+    layer: layer({ at, tag: 'p', id, classes: [], place: { position: 'absolute', left: 0, top: 0, width: 1, height: 1 }, idRules: [
+      { selectors: ['#a\\.b', '#a'], body: 'color: red;', within: [] },
+      { selectors: ['#\\31'], body: 'font-weight: 700;', within: [] },
+    ] }),
+    target: { path, tags: ['p'], shape: { tag: 'p', children: [] } },
+  });
+  assert.ok(pastedPage(page, [one('a', '#a', [0])], 0)!.text.startsWith('<head><style>#a-copy { color: red; }</style>'));
+  const digit = pastedPage(page, [one('1', '#\\31 ', [1])], 0)!;
+  assert.ok(digit.text.startsWith('<head><style>#\\31 -copy { font-weight: 700; }</style>'), digit.text);
+  assert.deepEqual(digit.ats, ['#\\31 -copy']);
 });
