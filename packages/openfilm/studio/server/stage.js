@@ -1858,7 +1858,7 @@
       /* each rule's parts with the pseudo-element they end in apart (`::before`, `::marker` …: what an element's own
          match cannot say), so a rule of an element's pseudo-element is weighed as the element's, and said again of
          the copy's same pseudo-element */
-      const PSEUDO = /(?:::?(?:before|after|first-line|first-letter)|::[\w-]+(?:\([^)]*\))?)+$/i;
+      const PSEUDO = /(?:::[\w-]+(?:\([^)]*\))?|:(?:before|after|first-line|first-letter)(?![\w-]))+$/i;
       const rules = styleRules(doc).map((r, order) => ({
         ...r,
         order,
