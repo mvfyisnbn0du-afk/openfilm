@@ -638,3 +638,24 @@ test('a clip a write would leave unreadable: a box size the person removed stays
   assert.match(line, /clip v box\.w; clip v box\.h\./);
   assert.doesNotMatch(line, /time|fade/);
 });
+
+test('a clip a write would leave unreadable: the writer is told of a whole field of its that gave way (N1), and a field only writes set is no one\'s but theirs (N2)', async () => {
+  /* N1: the person trims v; agent B, from its copy before, adds a 2+2 s fade that no longer fits */
+  const one = await project(F([{ id: 'v', src: 'v.mp4', time: [0, 6] }, { id: 't', src: 't.html', at: 7 }]));
+  const copy = read(one);
+  await editProjectFilm(one, null, [{ op: 'set', clip: 'v', field: 'time', value: [0, 3] }]);
+  write(one, mod(copy, (f) => { clip(f, 'v').overrides = [{ fade: [2, 2] }]; clip(f, 't').class = 'x'; }));
+  await settleProjectFilm(one);
+  assert.deepEqual(clip(read(one), 'v'), { id: 'v', src: 'v.mp4', time: [0, 3] });
+  assert.match(tell(one, 'pid:B'), /clip v time; clip v overrides\./);
+  /* N2: the person adds v; agent A adds a fade; agent B, from its copy before A's, sets speed 2 */
+  const two = await project(F([{ id: 't', src: 't.html', at: 7 }]));
+  await editProjectFilm(two, null, [{ op: 'insert', clip: { id: 'v', src: 'v.mp4', time: [0, 6], at: 10 } }]);
+  const before = read(two);
+  write(two, mod(before, (f) => { clip(f, 'v').overrides = [{ fade: [2, 2] }]; }));
+  await settleProjectFilm(two);
+  write(two, mod(before, (f) => { clip(f, 'v').speed = 2; }));
+  await settleProjectFilm(two);
+  assert.deepEqual(clip(read(two), 'v'), { id: 'v', src: 'v.mp4', time: [0, 6], at: 10, speed: 2 });
+  assert.equal(tell(two, 'pid:B'), null);
+});

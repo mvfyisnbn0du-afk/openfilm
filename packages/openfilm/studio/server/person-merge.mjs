@@ -735,13 +735,17 @@ function mergeClip(/** @type {string} */ id, /** @type {Clip | undefined} */ b, 
      what an earlier write left gives way to this writer's; then, the clash being with the person's, the writer's go
      back to ours (named). Else the writer's clip, or ours when only it reads */
   const set = (/** @type {string} */ key, /** @type {unknown} */ v) => { if (v === undefined) delete out[key]; else out[key] = structuredClone(v); };
-  /* a field is the person's when any unit of it is, as the base, the writer or ours has it (one the person removed) */
-  const mine = (/** @type {string} */ key) => doubt.mine(`field\0${id}\0${key}`)
-    || [B, W, O].some((c) => [...clipUnits(/** @type {Clip} */ ({ id, [key]: c[key] }), new Map()).keys()].some(doubt.mine));
-  /* what the writer is told of: only units that stood over its write */
+  /* a field is the person's when any unit it holds is, as the base, the writer or ours has it (one the person
+     removed): asked of its units alone, so a field only writes ever set is no one's but theirs */
+  const mine = (/** @type {string} */ key) => [B, W, O].some((c) => [...clipUnits(/** @type {Clip} */ ({ id, [key]: c[key] }), new Map()).keys()].some(doubt.mine));
+  /* what the writer is told of: only units that stood over its write (a whole field, by all it holds) */
   const told = (/** @type {Record<string, any>} */ c) => {
     const uc = clipUnits(/** @type {Clip} */ (c), new Map()), uw = clipUnits(/** @type {Clip} */ (W), new Map());
-    for (const k of [...kept]) if (k.split('\0')[1] === id && !k.startsWith('clip\0') && alike(uc.get(k), uw.get(k))) { kept.delete(k); doubt.forPerson.delete(k); }
+    const same = (/** @type {string} */ k) => {
+      const [kind, , name] = k.split('\0');
+      return kind === 'field' ? alike(orDefault(name, c[name]), orDefault(name, W[name])) : alike(uc.get(k), uw.get(k));
+    };
+    for (const k of [...kept]) if (k.split('\0')[1] === id && !k.startsWith('clip\0') && same(k)) { kept.delete(k); doubt.forPerson.delete(k); }
     return /** @type {Clip} */ (c);
   };
   for (const key of new Set([...Object.keys(out), ...Object.keys(W)])) {
