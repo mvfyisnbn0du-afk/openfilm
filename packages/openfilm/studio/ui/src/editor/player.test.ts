@@ -1,6 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { anchorTime, EASE_STEP, easedLead, fadeSteps, fileTime, JUMP, soundsDue, stretchRate } from './player.ts';
+import { mediaPlays } from '../../../../src/film-doc.mjs';
 
 test('a sound\'s fades as ramps: where it is now, then each corner after it', () => {
   /* 4 s long, 1 s in, 2 s out */
@@ -52,6 +53,17 @@ test('a sound heard at another speed is played by a media element at its rate, p
   /* within what a browser plays */
   assert.equal(stretchRate(64, 2), 16);
   assert.equal(stretchRate(0.1, 0.25), 1 / 16);
+});
+
+test('a sound is heard here only at a rate a browser plays: past 16× or under 1/16×, the picture goes on alone', () => {
+  /* a clip's speed by the viewer's */
+  assert.equal(mediaPlays(16 * 1), true);
+  assert.equal(mediaPlays(4 * 4), true);
+  assert.equal(mediaPlays(0.25 * 0.25), true);
+  assert.equal(mediaPlays(0.1 * 1), true);
+  assert.equal(mediaPlays(100 * 1), false);
+  assert.equal(mediaPlays(16 * 1.5), false);
+  assert.equal(mediaPlays(0.1 * 0.25), false);
 });
 
 test('where in its file a sound is at a film second', () => {

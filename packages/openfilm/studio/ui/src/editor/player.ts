@@ -13,7 +13,9 @@
  * studio/server/pages.mjs): a video's is a copy of its sound alone, never the whole video. A sound heard at its own
  * speed (its clip's speed by the viewer's is 1) is decoded and played sample-accurate. One heard faster or slower is
  * played by the browser's own media element with its pitch kept (`preservesPitch`), in the same mix: another speed is
- * heard at once, with nothing made for it, and its place is checked against the film as it plays. A sound not here yet
+ * heard at once, with nothing made for it, and its place is checked against the film as it plays. One whose rate is
+ * beyond what a browser plays (faster than 16×, slower than 1/16×) is not heard: its picture goes on alone, by its
+ * frames (src/timeline.mjs), and the export mixes it from the file. A sound not here yet
  * (its copy still being made) is silent until it is, then joins where the film is. Sounds are started a few seconds
  * ahead of the film, not all at once: a film of hundreds of sounds starts as quickly as one of a few.
  *
@@ -23,6 +25,7 @@
  */
 
 import { SPEED_MAX, SPEED_MIN } from '../lib/playback-speed.ts';
+import { MEDIA_RATE_MAX, MEDIA_RATE_MIN, mediaPlays } from '../../../../src/film-doc.mjs';
 
 /** Sounds fetched at once; the others wait, the ones nearest to where the film is first. */
 const FETCHES = 3;
@@ -93,11 +96,12 @@ const lengthOf = (s: Sound) => (s.to - s.from) / s.speed;
 
 /**
  * The rate a sound's media element plays its file at, its pitch kept: its clip's speed by the viewer's, within what a
- * browser plays (1/16 to 16). Null when that is 1: the sound is decoded and played as it is.
+ * browser plays (MEDIA_RATE_MIN to _MAX; a sound beyond them is not heard, see startDue). Null when that is 1: the
+ * sound is decoded and played as it is.
  */
 export function stretchRate(speed: number, rate: number): number | null {
   const v = Math.round(speed * rate * 1e4) / 1e4;
-  return v === 1 ? null : Math.max(1 / 16, Math.min(16, v));
+  return v === 1 ? null : Math.max(MEDIA_RATE_MIN, Math.min(MEDIA_RATE_MAX, v));
 }
 
 /** Where in its file a sound is at film second `t` (s). */
@@ -422,6 +426,9 @@ export class Player {
     for (const i of soundsDue(this.sounds, now, now + AHEAD * this.rate, this.started, this.heard)) {
       this.started.add(i);
       const s = this.sounds[i];
+      /* its clip's speed by the viewer's beyond what a browser plays (MEDIA_RATE_MIN to _MAX): not heard here, the
+         picture alone goes on (by its frames); an export mixes it from its file */
+      if (!mediaPlays(s.speed * this.rate)) continue;
       if (stretchRate(s.speed, this.rate) != null) { this.voice(s, heard); continue; }
       void this.buffers.get(s.src)?.buffer.then((buffer) => {
         if (!buffer || !this.playing || this.heardLine !== heard) return;

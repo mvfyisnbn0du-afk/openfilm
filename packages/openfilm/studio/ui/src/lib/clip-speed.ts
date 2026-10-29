@@ -1,12 +1,12 @@
 /**
- * A clip's speed set on the timeline by dragging its edges: the clip toolbar's Speed button turns a clip's edge
- * handles into speed handles. The clip keeps the part of its source it plays, so what changes is its length on the
- * film, and its speed is that source over the new length.
+ * A clip's speed, as Studio sets it: by dragging its edges on the timeline (the clip toolbar's Speed button turns a
+ * clip's edge handles into speed handles), or on the inspector's slider. The clip keeps the part of its source it
+ * plays, so what changes is its length on the film, and its speed is that source over the new length.
  *
- * Written as the clip's `speed` (SPEC §1: 0.25× to 4×, its sound keeping its pitch), with the edits a speed typed in
- * the inspector makes (lib/timeline-edit planSpeed): one write, one undo step.
+ * Written as the clip's `speed` (SPEC §1: SPEED_MIN to SPEED_MAX, 0.1× to 100×, its sound keeping its pitch), with
+ * the edits a speed typed in the inspector makes (lib/timeline-edit planSpeed): one write, one undo step.
  *
- * Pure: the timeline draws the speed while the hand is on the edge, and writes it on release.
+ * Pure: the timeline and the inspector show the speed while the hand is on it, and write it on release.
  */
 import { SPEED_MAX, SPEED_MIN, isStill } from '../../../../src/film-doc.mjs';
 import { snapToFrame } from './timecode.ts';
@@ -31,16 +31,48 @@ export function speedRoomMs(clip: SpeedClip): number {
   return Math.max(0, sourceMsOf(clip) / SPEED_MIN - (clip.endMs - clip.startMs));
 }
 
+/** A speed as people set it: three figures (`0.125×`, `1.6×`, `37.5×`), as fine at 0.1× as at 100×. */
+export function roundSpeed(speed: number): number {
+  return Math.min(SPEED_MAX, Math.max(SPEED_MIN, Number(speed.toPrecision(3))));
+}
+
 /**
- * The speed for the clip at `lengthMs` on the film, inside the speeds a clip can have. Let go anywhere it is on the
- * hundredth (`1.6×`, as the inspector writes it); `exact`, when the edge snapped to something, the speed that lands it
- * there, a hair faster rather than slower so it never runs past what it snapped to.
+ * The speed for the clip at `lengthMs` on the film, inside the speeds a clip can have. Let go anywhere it is a round
+ * one (roundSpeed: `1.6×`); `exact`, when the edge snapped to something, the speed that lands it there, a hair faster
+ * rather than slower so it never runs past what it snapped to.
  */
 export function speedForLength(clip: SpeedClip, lengthMs: number, exact = false): number {
   if (!(lengthMs > 0)) return SPEED_MAX;
   const raw = sourceMsOf(clip) / lengthMs;
-  const stepped = exact ? Math.ceil(raw * 1e4 - 1e-6) / 1e4 : Math.round(raw * 100) / 100;
-  return Math.min(SPEED_MAX, Math.max(SPEED_MIN, stepped));
+  return exact ? Math.min(SPEED_MAX, Math.max(SPEED_MIN, Math.ceil(raw * 1e4 - 1e-6) / 1e4)) : roundSpeed(raw);
+}
+
+/** The speed a clip `lengthMs` long on the film plays at `speed`: how long it lasts then (ms). */
+export function lengthAtSpeed(clip: SpeedClip, speed: number): number {
+  return sourceMsOf(clip) / speed;
+}
+
+/* ── the slider ── */
+
+/** The speeds marked under the inspector's slider. */
+export const SPEED_STOPS: readonly number[] = [0.1, 1, 2, 5, 10, 100].filter((s) => s >= SPEED_MIN && s <= SPEED_MAX);
+
+const LOG_MIN = Math.log10(SPEED_MIN);
+const LOG_SPAN = Math.log10(SPEED_MAX) - LOG_MIN;
+
+/** Where a speed sits along the slider, 0 to 1: on a log scale, so 0.1× to 1× takes as much room as 10× to 100×. */
+export function speedPosition(speed: number): number {
+  return Math.min(1, Math.max(0, (Math.log10(speed) - LOG_MIN) / LOG_SPAN));
+}
+
+/**
+ * The speed at a place along the slider (0 to 1): a stop when it is within `snap` of one (the hand finds 1× and 2×
+ * by feel), else a round one.
+ */
+export function speedAtPosition(pos: number, snap = 0.012): number {
+  const p = Math.min(1, Math.max(0, pos));
+  const stop = SPEED_STOPS.find((s) => Math.abs(speedPosition(s) - p) <= snap);
+  return stop ?? roundSpeed(10 ** (LOG_MIN + p * LOG_SPAN));
 }
 
 /**

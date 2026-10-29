@@ -54,7 +54,7 @@ test('a film.html that does not read is never written over', async () => {
 
 test('an edit that would break the film is refused with the reason', async () => {
   const root = folder(film([{ src: 'clip.mp4', id: 'clip' }]));
-  await assert.rejects(editProjectFilm(root, null, [{ op: 'set', clip: 'clip', field: 'speed', value: 17 }]), (e) => e.kind === 'invalid' && /speed/.test(e.message));
+  await assert.rejects(editProjectFilm(root, null, [{ op: 'set', clip: 'clip', field: 'speed', value: 101 }]), (e) => e.kind === 'invalid' && /speed/.test(e.message));
   await assert.rejects(editProjectFilm(root, null, [{ op: 'set', clip: 'clip', field: 'kind', value: 'x' }]), (e) => e.kind === 'invalid');
 });
 

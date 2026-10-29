@@ -43,7 +43,7 @@ A folder:
   - `at`: where it starts in the film, in seconds; without it, 0.
   - `left`, `top`, `width`, `height` in its `style` (px) and `rotate` (degrees, clockwise): where it sits. Without them, a video or picture is the stage, and a page is its own size, centered. With only `width` or `height`, the other keeps its proportions.
   - Its look is CSS, in `class` or `style`: a video or picture fits whole in its box unless you say otherwise (`object-fit: cover` crops it to the box). The film's CSS holds still; what moves is a page.
-  - `speed` (video and sound): 0.25 to 16. The clip lasts `(out − in) / speed` seconds. To make it faster or slower, change `speed` only: never make the file again at another speed, nor move its `.vtt`'s times. Its subtitles follow `speed` on their own.
+  - `speed` (video and sound): 0.1 to 100. The clip lasts `(out − in) / speed` seconds. To make it faster or slower, change `speed` only: never make the file again at another speed, nor move its `.vtt`'s times. Its subtitles follow `speed` on their own.
   - `volume` (video and sound): 1 is the file's own level; `muted` silences it.
   - `id`: a name, unique in the film; without it, the file's name.
   - `overrides`: the person's changes made in Studio. Keep them as they are.
