@@ -14,7 +14,7 @@
  *   desktop:chat:unsaved   { project, except? } → [{ turnId, events }]   turns with a log and no saved record
  *   desktop:chat:snapshot  { project, turnId }     the project's files as a turn starts (file-changes.mjs), kept here
  *   desktop:chat:changes   { project, turnId } → { files, cut } | null   what the turn changed in them since
- *   desktop:prefs          → { developer, changes } and `desktop:prefs:set` either; told on `desktop:prefs`
+ *   desktop:prefs          → { developer, changes, notify } and `desktop:prefs:set` any; told on `desktop:prefs`
  *
  * `project` is a folder path, and only one Studio has as a project is read or written: the page cannot point the
  * app at any other folder.
@@ -48,13 +48,14 @@ export async function withAgentRecord(found) {
 
 /**
  * The app's own preferences (`<dataDir>/preferences.json`): `developer`, each turn's log shown, and agents started with
- * their logging switches (off unless turned on); `changes`, what each turn changed, under its reply (on).
+ * their logging switches (off unless turned on); `changes`, what each turn changed, under its reply (on); `notify`, the
+ * system's notifications of a turn done, stopped or waiting while the window is not in front (on; turn-notices.mjs).
  */
 export function readPreferences(dataDir) {
   try {
     const raw = JSON.parse(readFileSync(join(dataDir, 'preferences.json'), 'utf8'));
-    return { developer: raw.developer === true, changes: raw.changes !== false };
-  } catch { return { developer: false, changes: true }; }
+    return { developer: raw.developer === true, changes: raw.changes !== false, notify: raw.notify !== false };
+  } catch { return { developer: false, changes: true, notify: true }; }
 }
 
 /** how many turns' snapshots are kept at once: one per running turn, and a few whose end was never asked about */
@@ -123,7 +124,7 @@ export function registerChatIpc(ipcMain, { trusted, projects, dataDir, reveal, t
   handle('desktop:prefs', async () => read());
   handle('desktop:prefs:set', async (next) => {
     const prefs = { ...read() };
-    for (const key of ['developer', 'changes']) if (typeof next[key] === 'boolean') prefs[key] = next[key];
+    for (const key of ['developer', 'changes', 'notify']) if (typeof next[key] === 'boolean') prefs[key] = next[key];
     if (!existsSync(dataDir)) mkdirSync(dataDir, { recursive: true });
     writeFileSync(file, `${JSON.stringify(prefs, null, 2)}\n`);
     tell('desktop:prefs', prefs);
