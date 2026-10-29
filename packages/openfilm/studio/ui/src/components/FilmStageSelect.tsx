@@ -1192,6 +1192,8 @@ function FilmStageSelectImpl({
         return;
       }
       if (e.key !== 'Escape') return;
+      /* the timeline's speed handles out (its Speed button): that Esc puts them away, and the selection stays */
+      if (document.querySelector('[data-speed-handle]')) return;
       /* a number being typed in the inspector: the field gives it up itself (its own Esc runs after this one, which
          listens first), then it is blurred; the selection stays. Blurred here at once, the field
          would take the blur for a commit and keep what was typed. */

@@ -99,3 +99,11 @@ test('never over the ruler: a clip on the top track with the track below full ge
   const none = placeToolbar({ anchor: { left: 400, top: 300, width: 200, height: 40 }, size, bounds, avoid: [{ left: 0, top: 0, width: 1000, height: 1000 }] });
   assert.deepEqual(none, { left: 440, top: 266, side: 'above' });
 });
+
+test('in a pane that shows only the ruler and one track, the bar goes under the ruler, over the clip, never on the ruler', () => {
+  const short = { left: 0, top: 100, width: 1000, height: 110 };
+  const ruler = { left: 0, top: 104, width: 1000, height: 20 };
+  const anchor = { left: 400, top: 130, width: 200, height: 70 };
+  const at = placeToolbar({ anchor, size, bounds: short, avoid: [], keepOff: [ruler] })!;
+  assert.deepEqual(at, { left: 440, top: 104 + 20 + 4, side: 'below' });
+});

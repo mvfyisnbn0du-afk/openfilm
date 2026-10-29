@@ -2766,13 +2766,17 @@ export const Timeline = React.memo(function Timeline({
   const [speedFor, setSpeedFor] = React.useState<string | null>(null);
   const speedOn = speedFor != null && speedFor === selectedKey;
   React.useEffect(() => { if (speedFor != null && speedFor !== selectedKey) setSpeedFor(null); }, [speedFor, selectedKey]);
+  const cancelDrag = drag.cancel;
   React.useEffect(() => {
     if (!speedOn) return undefined;
-    /* before the timeline's own Esc (which clears the selection) and the toolbar's: this one ends the speed alone */
+    /* before the timeline's own Esc (which clears the selection) and the toolbar's: this one ends the speed alone, and
+       a handle pressed but not yet dragged with it. Not while a menu, a popover or a dialog is open: that Esc is theirs */
     const onKey = (e: KeyboardEvent) => {
       if (e.key !== 'Escape' || inHandRef.current || isTypingTarget(e.target) || inHostPanel(e.target)) return;
+      if (document.querySelector('[data-popover-panel], [role="menu"], [role="listbox"], [role="dialog"]')) return;
       e.preventDefault();
       e.stopImmediatePropagation();
+      cancelDrag();
       setSpeedFor(null);
     };
     const onDown = (e: PointerEvent) => {
@@ -2785,7 +2789,7 @@ export const Timeline = React.memo(function Timeline({
       window.removeEventListener('keydown', onKey, true);
       window.removeEventListener('pointerdown', onDown, true);
     };
-  }, [speedOn]);
+  }, [speedOn, cancelDrag]);
 
   /* ── fades: each clip's ramp, and the handles at its top corners that set it (lib/clip-fade) ── */
   const fadesRef = React.useRef(fades);

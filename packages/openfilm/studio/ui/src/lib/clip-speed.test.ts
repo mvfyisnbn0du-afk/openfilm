@@ -1,6 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { canChangeSpeed, speedForLength, speedRoomMs } from './clip-speed.ts';
+import { applyDrag } from './timeline-drag.ts';
+import { canChangeSpeed, edgeHeld, speedDragEdge, speedForLength, speedRoomMs } from './clip-speed.ts';
 
 test('videos and sounds playing a part of their source have a speed; stills and pages do not', () => {
   assert.equal(canChangeSpeed({ kind: 'video', src: 'a.mp4', anchor: { trimFrom: 0 } }), true);
@@ -39,4 +40,32 @@ test('no faster than 4× and no slower than 0.25×; the room to get longer stops
   assert.equal(speedForLength(clip, 64000), 0.25);
   assert.equal(speedRoomMs(clip), 24000);
   assert.equal(speedRoomMs({ startMs: 0, endMs: 8000, speed: 0.25 }), 0);
+});
+
+test('rippling, the start knob changes the length from the end: left longer, right shorter, the film\'s start no limit', () => {
+  /* a clip at 0–8 s on the main track with the magnet: its start knob 2 s to the left is 2 s longer, from the end */
+  const at = speedDragEdge('start', true, -2000);
+  assert.deepEqual(at, { edge: 'end', deltaMs: 2000 });
+  const clip = { id: 'a', startMs: 0, endMs: 8000 };
+  const out = applyDrag(clip, 'trim-end', at.deltaMs, [], 0.05, { tailMs: speedRoomMs(clip) });
+  assert.deepEqual([out.startMs, out.endMs], [0, 10000]);
+  assert.equal(speedForLength(clip, out.endMs - out.startMs), 0.8);
+  /* to the right: shorter, faster */
+  assert.deepEqual(speedDragEdge('start', true, 4000), { edge: 'end', deltaMs: -4000 });
+  /* not rippling, or the end knob: the edge itself */
+  assert.deepEqual(speedDragEdge('start', false, -2000), { edge: 'start', deltaMs: -2000 });
+  assert.deepEqual(speedDragEdge('end', true, 500), { edge: 'end', deltaMs: 500 });
+});
+
+test('an edge let go on the nearest frame is free (a round speed), however far zoomed in; one stopped away is held', () => {
+  /* at 1 px/ms a 30 fps frame is 33 px: the hand halfway between two frames, the edge goes 17 px to one, more than a
+     snap's reach, and is still free */
+  const hand = 8000 - 1250;
+  const out = applyDrag({ id: 'a', startMs: 0, endMs: 8000 }, 'trim-end', -1250, [], 1);
+  assert.ok(Math.abs(out.endMs - hand) > 16, `${out.endMs} is on a frame`);
+  assert.equal(edgeHeld(out.endMs, hand), false);
+  assert.equal(speedForLength({ startMs: 0, endMs: 8000 }, out.endMs, edgeHeld(out.endMs, hand)), 1.18);
+  /* stopped by the clip after it, 300 ms short of the hand */
+  const fenced = applyDrag({ id: 'a', startMs: 0, endMs: 8000 }, 'trim-end', 1300, [], 1, undefined, undefined, { endMs: 9000 });
+  assert.equal(edgeHeld(fenced.endMs, 9300), true);
 });

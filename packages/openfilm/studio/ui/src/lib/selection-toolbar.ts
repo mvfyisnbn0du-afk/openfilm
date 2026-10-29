@@ -114,11 +114,19 @@ export function placeToolbar(opts: {
       }
       /* nothing free right beside it: above it all the same (over the track above), else below, off what it never
          covers */
+      const left = clampLeft(centred);
       for (const [top, side] of sides) {
         if (top < area.minTop || top > area.maxTop) continue;
-        const left = clampLeft(centred);
         const box = { left, top, width: size.width, height: size.height };
         if (!keepOff.some((b) => intersects(box, b))) return { left: Math.round(left), top: Math.round(top), side };
+      }
+      /* neither (a pane so short it shows the ruler and one track): down from above it past what it never covers, over
+         the clip itself if it must */
+      if (keepOff.length) {
+        const hitAt = (top: number) => keepOff.find((b) => intersects({ left, top, width: size.width, height: size.height }, b));
+        let top = Math.min(Math.max(above, area.minTop), area.maxTop);
+        for (let hit = hitAt(top); hit && top <= area.maxTop; hit = hitAt(top)) top = hit.top + hit.height + edge;
+        if (top <= area.maxTop) return { left: Math.round(left), top: Math.round(top), side: top + size.height <= seen.top ? 'above' : 'below' };
       }
     }
   }

@@ -50,7 +50,7 @@ import {
   type MoveMode,
   type TrackDest,
 } from '@/lib/timeline-edit';
-import { speedForLength, speedRoomMs } from '@/lib/clip-speed';
+import { edgeHeld, speedDragEdge, speedForLength, speedRoomMs } from '@/lib/clip-speed';
 import { planCopies } from '@/lib/timeline-clipboard';
 import { switchesOf, type TimelinePrefs } from '@/lib/timeline-prefs';
 import type { TimelineBlock, TimelineTrack } from '@/lib/timeline-layout';
@@ -155,6 +155,8 @@ export interface BlockDrag {
   /** Whether a clip can move / be trimmed: decides handles and cursors. */
   can: (block: TimelineBlock) => { move: boolean; resize: boolean };
   dismissError: () => void;
+  /** Drops the gesture in hand, pressed or dragging: nothing is written. */
+  cancel: () => void;
 }
 
 /** Whether the pointer is over the panel of the app around Studio (lib/host.ts `panel`). */
@@ -358,13 +360,18 @@ export function useBlockDrag(opts: {
       if (speedEdge) {
         /* a speed: the edge goes where the hand puts it as a trim's does (snapped, stopped by the neighbors unless it
            ripples), no further than the slowest speed; the speed is the clip's source over its new length, and it and
-           the clips linked to it take it as the inspector's speed does (planSpeed) */
+           the clips linked to it take it as the inspector's speed does (planSpeed). Rippling, the start knob is
+           measured at the end (speedDragEdge): the start stays, so the film's start is no limit */
         const room = speedRoomMs({ ...geom, speed: block.speed ?? 1 });
-        const out = applyDrag(geom, edgeMode, deltaMs, targets, pxPerMs, speedEdge === 'end' ? { tailMs: room } : { headMs: room }, undefined, ripple ? undefined : fence);
+        const at = speedDragEdge(speedEdge, ripple, deltaMs);
+        const was = at.edge === 'end' ? geom.endMs : geom.startMs;
+        const out = applyDrag(geom, at.edge === 'end' ? 'trim-end' : 'trim-start', at.deltaMs,
+          at.edge === speedEdge ? targets : targets.filter((tg) => Math.abs(tg.ms - was) >= 1),
+          pxPerMs, at.edge === 'end' ? { tailMs: room } : { headMs: room }, undefined, ripple ? undefined : fence);
         const opts = { ripple, edge: speedEdge, ...switchesOf(p) };
+        const outEdge = at.edge === 'end' ? out.endMs : out.startMs;
         /* snapped, or held where it stops (the film's start, a neighbor): the speed that lands it exactly there */
-        const held = Math.abs((speedEdge === 'end' ? out.endMs - geom.endMs : out.startMs - geom.startMs) - deltaMs) * pxPerMs > SNAP_THRESHOLD_PX;
-        let speed = speedForLength({ ...geom, speed: block.speed ?? 1 }, out.endMs - out.startMs, Boolean(out.snappedTo) || held);
+        let speed = speedForLength({ ...geom, speed: block.speed ?? 1 }, out.endMs - out.startMs, Boolean(out.snappedTo) || edgeHeld(outEdge, was + at.deltaMs));
         let plan = planSpeed(m, ids, speed, opts);
         /* a linked clip with less room than this one: as slow as they all fit */
         if (plan.slowest != null) {
@@ -374,7 +381,7 @@ export function useBlockDrag(opts: {
         const own = plan.placed.get(block.clipId!);
         const startMs = own?.startMs ?? geom.startMs;
         const endMs = own?.endMs ?? geom.endMs;
-        const landed = speedEdge === 'end' ? endMs - out.endMs : startMs - out.startMs;
+        const landed = (at.edge === 'end' ? endMs : startMs) - outEdge;
         lastPlan = plan;
         document.body.style.cursor = 'ew-resize';
         last = {
@@ -671,6 +678,7 @@ export function useBlockDrag(opts: {
   }, [can]);
 
   const dismissError = React.useCallback(() => setError(null), []);
+  const cancel = React.useCallback(() => cancelGesture.current?.(), []);
 
   const placedOf = React.useCallback((id: string) => {
     if (!preview) return null;
@@ -685,7 +693,7 @@ export function useBlockDrag(opts: {
   /* memoized: the timeline lists this object among what decides whether its clips redraw (see Timeline rows); a
      new literal every render would redraw every clip on every render */
   return React.useMemo(
-    () => ({ preview, placedOf, saving, error, start, can, dismissError }),
-    [preview, placedOf, saving, error, start, can, dismissError],
+    () => ({ preview, placedOf, saving, error, start, can, dismissError, cancel }),
+    [preview, placedOf, saving, error, start, can, dismissError, cancel],
   );
 }

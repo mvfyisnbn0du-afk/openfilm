@@ -9,6 +9,7 @@
  * Pure: the timeline draws the speed while the hand is on the edge, and writes it on release.
  */
 import { SPEED_MAX, SPEED_MIN, isStill } from '../../../../src/film-doc.mjs';
+import { snapToFrame } from './timecode.ts';
 
 /** A clip as a speed drag sees it: its place on the film and its speed now. */
 export interface SpeedClip { startMs: number; endMs: number; speed?: number }
@@ -40,4 +41,21 @@ export function speedForLength(clip: SpeedClip, lengthMs: number, exact = false)
   const raw = sourceMsOf(clip) / lengthMs;
   const stepped = exact ? Math.ceil(raw * 1e4 - 1e-6) / 1e4 : Math.round(raw * 100) / 100;
   return Math.min(SPEED_MAX, Math.max(SPEED_MIN, stepped));
+}
+
+/**
+ * Which edge a speed handle's drag moves, and by how much: its own, but rippling (the main track with the magnet) the
+ * start stays and what follows moves, as a magnet's trim of the head: the start knob then moves the end the other way,
+ * left longer, right shorter.
+ */
+export function speedDragEdge(edge: 'start' | 'end', ripple: boolean, deltaMs: number): { edge: 'start' | 'end'; deltaMs: number } {
+  return edge === 'start' && ripple ? { edge: 'end', deltaMs: -deltaMs } : { edge, deltaMs };
+}
+
+/**
+ * Whether the edge stopped away from the hand (`handMs`, where the hand puts it): a neighbor, the film's start, a snap.
+ * A free edge only goes to the nearest frame, and that is not held, however many pixels a frame is zoomed in.
+ */
+export function edgeHeld(edgeMs: number, handMs: number): boolean {
+  return Math.abs(edgeMs - snapToFrame(handMs)) >= 0.5;
 }
