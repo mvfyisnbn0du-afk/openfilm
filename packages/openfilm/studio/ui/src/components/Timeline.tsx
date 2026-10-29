@@ -3893,6 +3893,8 @@ export const Timeline = React.memo(function Timeline({
     <div
       ref={rootRef}
       data-timeline=""
+      /* the Speed button on: the picture's Esc leaves it to the timeline (FilmStageSelect) */
+      data-speed-mode={speedOn ? '' : undefined}
       className="relative isolate overflow-hidden flex min-h-0 min-w-0 flex-1 flex-col"
       /* any press here takes focus out of a text field: most presses preventDefault (which also stops the browser's
          own blur), and a focused field would keep eating Space */
