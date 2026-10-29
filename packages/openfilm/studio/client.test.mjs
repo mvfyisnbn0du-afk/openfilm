@@ -150,10 +150,12 @@ test('the agent running a command: the desktop app\'s by OPENFILM_AGENT, else th
     encoding: 'utf8', env: { ...process.env, OPENFILM_AGENT: '', ...env },
   }).stdout.trim();
   assert.equal(name({ OPENFILM_AGENT: 'app:c1' }), 'app:c1');
-  /* run through a shell from this process: the shell is passed over, this process is the agent */
-  const viaShell = spawnSync('/bin/sh', ['-c', `"${process.execPath}" --input-type=module -e "import('${new URL('./client.mjs', import.meta.url)}').then((m) => console.log(m.agentName()))"`], {
-    encoding: 'utf8', env: { ...process.env, OPENFILM_AGENT: '' },
-  }).stdout.trim();
-  if (process.platform !== 'win32') assert.equal(viaShell, `pid:${process.pid}`);
+  /* run through a shell from this process: the shell is passed over, this process is the agent (no /bin/sh on Windows) */
+  if (process.platform !== 'win32') {
+    const viaShell = spawnSync('/bin/sh', ['-c', `"${process.execPath}" --input-type=module -e "import('${new URL('./client.mjs', import.meta.url)}').then((m) => console.log(m.agentName()))"`], {
+      encoding: 'utf8', env: { ...process.env, OPENFILM_AGENT: '' },
+    }).stdout.trim();
+    assert.equal(viaShell, `pid:${process.pid}`);
+  }
   assert.equal(agentName().startsWith('pid:') || agentName().startsWith('app:'), true);
 });
