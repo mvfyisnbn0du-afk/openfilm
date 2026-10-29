@@ -210,11 +210,21 @@ export function ownMcpServers(agent, { cwd = '', env = {}, home = homedir() } = 
 
 /* ── a session's switches ────────────────────────────────────────────────── */
 
+/** Remove an expired session's links before its own folder, never anything they point at. */
+function removeSession(dir) {
+  for (const entry of readdirSync(dir, { withFileTypes: true })) {
+    const path = join(dir, entry.name);
+    if (entry.isSymbolicLink()) rmSync(path, { force: true });
+    else if (entry.isDirectory()) removeSession(path);
+  }
+  rmSync(dir, { recursive: true, force: true });
+}
+
 /** A folder of links to OpenFilm's skills, as a Claude Code plugin and as a skills folder (`skills`, `.agents/skills`). */
 function linkFolder(base, skills) {
   mkdirSync(base, { recursive: true });
   for (const name of subdirs(base)) {
-    try { if (Date.now() - statSync(join(base, name)).mtimeMs > KEEP_MS) rmSync(join(base, name), { recursive: true, force: true }); } catch { /* in use */ }
+    try { if (Date.now() - statSync(join(base, name)).mtimeMs > KEEP_MS) removeSession(join(base, name)); } catch { /* in use */ }
   }
   const dir = join(base, `${Date.now().toString(36)}-${process.pid}-${Math.random().toString(36).slice(2, 8)}`);
   const link = process.platform === 'win32' ? 'junction' : 'dir';
