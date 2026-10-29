@@ -18,7 +18,7 @@
 export const FILM_FILE = 'film.html';
 /** The stage of a film that says none. */
 export const DEFAULT_STAGE = Object.freeze({ w: 1920, h: 1080 });
-/** A video's or a sound's `speed`: 0.1× to 100×, the range editors give (CapCut's); the export plays any of it. */
+/** A video's or a sound's `speed`: 0.1× to 100×, the range people expect of an editor; the export plays any of it. */
 export const SPEED_MIN = 0.1;
 export const SPEED_MAX = 100;
 /**
