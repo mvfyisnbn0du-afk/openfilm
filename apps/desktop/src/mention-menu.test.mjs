@@ -8,15 +8,15 @@ test('`@` is the one menu: a `/` at the start of the message is only a slash', (
   assert.equal(matchMentionTrigger('/compact'), null);
 });
 
-test('each group is cut on its own: many files keep the group after them, each group with its title', () => {
+test('each group is cut on its own: many files keep the skills after them, each group with its title', () => {
   const items = (kind, n) => Array.from({ length: n }, (_, i) => ({ id: `${kind}:${i}`, kind, label: `${kind} ${i}`, select: () => null }));
   const menu = buildMentionMenu([
-    { id: 'skills', groupLabel: 'Skills', items: items('skill', 146), limit: Infinity },
+    { id: 'moment', groupLabel: 'Moments', items: items('time', 2) },
     { id: 'asset', groupLabel: 'Files', items: items('file', 50) },
-    { id: 'more', groupLabel: 'More', items: items('file', 2) },
+    { id: 'skills', groupLabel: 'Skills', items: items('skill', 146), limit: Infinity },
   ], '');
-  assert.equal(menu.filter((e) => e.providerId === 'skills').length, 146, 'a group with no cap shows every row');
+  assert.equal(menu.filter((e) => e.providerId === 'moment').length, 2);
   assert.equal(menu.filter((e) => e.providerId === 'asset').length, MENTION_MENU_LIMIT);
-  assert.equal(menu.filter((e) => e.providerId === 'more').length, 2);
-  assert.deepEqual(menu.filter((e) => e.firstOfGroup).map((e) => e.groupLabel), ['Skills', 'Files', 'More']);
+  assert.equal(menu.filter((e) => e.providerId === 'skills').length, 146, 'a group with no cap shows every row');
+  assert.deepEqual(menu.filter((e) => e.firstOfGroup).map((e) => e.groupLabel), ['Moments', 'Files', 'Skills']);
 });

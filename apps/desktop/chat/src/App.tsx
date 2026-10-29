@@ -430,8 +430,20 @@ function ChatPane({ project, banners, selection, assetsOpen }: { project: Projec
           select: () => takeStudioRefs(picked),
         }],
       },
-      /* the skills, each the pill the Skills button makes: before the files, a short list above what can be hundreds.
-         Every one, uncut: an agent's own can be a hundred or more, and a person may not remember the name to type */
+      {
+        id: 'asset',
+        groupLabel: t('mention.groupAssets'),
+        items: mentionFiles.map((file) => {
+          const name = file.path.split('/').pop() ?? file.path;
+          const pill: PromptReference = { id: fileReferenceId(file.path), kind: 'file', label: file.kind === 'mg' ? name.replace(/\.html?$/i, '') : name, detail: formatFileSize(file.size) };
+          return {
+            id: pill.id, kind: pill.kind, label: pill.label, detail: pill.detail, keywords: [file.path],
+            select: () => { setFileRefs((list) => (list.some((p) => p.id === pill.id) ? list : [...list, pill])); return pill; },
+          };
+        }),
+      },
+      /* the skills, each the pill the Skills button makes: after the files, which people reach for most and which stop
+         at 20. Every one, uncut: an agent's own can be a hundred or more, and a person may not remember the name to type */
       {
         id: 'skills',
         groupLabel: t('skills.button'),
@@ -446,18 +458,6 @@ function ChatPane({ project, banners, selection, assetsOpen }: { project: Projec
             ...(words.summary ? { detail: words.summary, describes: true } : {}),
             keywords: [skill.name],
             select: () => skillPill(skill),
-          };
-        }),
-      },
-      {
-        id: 'asset',
-        groupLabel: t('mention.groupAssets'),
-        items: mentionFiles.map((file) => {
-          const name = file.path.split('/').pop() ?? file.path;
-          const pill: PromptReference = { id: fileReferenceId(file.path), kind: 'file', label: file.kind === 'mg' ? name.replace(/\.html?$/i, '') : name, detail: formatFileSize(file.size) };
-          return {
-            id: pill.id, kind: pill.kind, label: pill.label, detail: pill.detail, keywords: [file.path],
-            select: () => { setFileRefs((list) => (list.some((p) => p.id === pill.id) ? list : [...list, pill])); return pill; },
           };
         }),
       },
