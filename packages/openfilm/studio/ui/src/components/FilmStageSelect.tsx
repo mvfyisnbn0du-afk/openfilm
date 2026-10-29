@@ -60,7 +60,7 @@ import { spanShows, type ClipSpan } from '@/lib/film-shape';
 import {
   mgSize, moveTransform, rotateTransform, sameMgTransform, snapMove, type MgBox, type MgGuide, type MgTransform,
 } from '@/lib/mg-transform';
-import { compactBox, transformOf } from '@/lib/stage-clip';
+import { compactBox, liveLookStands, transformOf } from '@/lib/stage-clip';
 import {
   aspectRatio, CROP_ASPECTS, cropOfRect, cropPreviewCss, croppedCss, cropRect, draggedCrop, fitAspect, frameAabb, pannedCrop,
   positionOf, roundOf, transformOfVisible, visibleFrame, type CropAspect, type Rect,
@@ -566,6 +566,10 @@ function FilmStageSelectImpl({
   const [lookLive, setLookLive] = React.useState<{ clipLoc: string; css: string; written: string } | null>(null);
   const lookLiveRef = React.useRef(lookLive);
   lookLiveRef.current = lookLive;
+  /* film.html's style changed under it (kept, undone): over for good, so another load of the film does not show it */
+  React.useEffect(() => {
+    if (lookLiveRef.current && !liveLookStands(doc, lookLiveRef.current)) setLookLive(null);
+  }, [doc]);
   const infoOf = (loc: string) => {
     const live = lookLiveRef.current;
     return clipInfo(docRef.current, spansRef.current, stage, loc, live?.clipLoc === loc ? live : null);
@@ -1753,7 +1757,7 @@ function FilmStageSelectImpl({
     const live = lookLiveRef.current;
     const at = live ? parseFilmDocLoc(live.clipLoc) : null;
     const id = at ? docRef.current?.tracks[at.track]?.clips[at.clip]?.id : undefined;
-    if (live && id) void ask('look', { clip: id, css: live.css });
+    if (live && id && liveLookStands(docRef.current, live)) void ask('look', { clip: id, css: live.css });
     const crop = cropRef.current;
     if (crop) cropPaint.push({ clip: crop.clipId, css: cropPreviewCss(crop.css0, crop.pos0, crop.pos) });
   };
@@ -2838,8 +2842,9 @@ function FilmStageSelectImpl({
     <div
       ref={host}
       data-film-select
-      /* words typed in place, a crop or a mask open: a film loaded again behind the picture waits (ViewerZoom's busy) */
-      data-stage-busy={editingText != null || cropping || maskSession ? '' : undefined}
+      /* words typed in place or a crop open: a film loaded again behind the picture waits (ViewerZoom's busy); a mask
+         is only while its knobs are held, as any drag */
+      data-stage-busy={editingText != null || cropping ? '' : undefined}
       /* below the subtitles (z-5): they must get the pointer in their own box to be dragged */
       /* the cursor stays an arrow: text cursors over the size label would read as "this can be typed in" */
       className="absolute inset-0 z-[4] cursor-default overflow-visible"

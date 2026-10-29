@@ -35,15 +35,19 @@ export function pageScaleFor(k: number, dpr: number, most = dpr): number {
   return Math.min(most, Math.ceil(shown * 4 - 1e-9) / 4);
 }
 
+/** How long a load held behind the picture waits, nothing under way, to say it drew the latest film, ms: then shown. */
+export const HELD_DRAWN_MAX_MS = 3000;
+
 /**
  * What becomes of a load held behind the picture (editor/Preview): it waits while something is under way on the stage
- * (`busy`), while it has not drawn the latest film sent to it (`sent` and `drawn`: those updates' seqs) or a zoom is
- * not drawn for yet (`zoomPending`); then it is shown, or, made at another scale than the one needed now, another load
- * is made instead of showing it first. Let go when another load already took its place (`there` false).
+ * (`busy`), while it has not drawn the latest film sent to it (`sent` and `drawn`: those updates' seqs; for at most
+ * HELD_DRAWN_MAX_MS of `waited`, the time since nothing was under way, should it never say) or a zoom is not drawn for
+ * yet (`zoomPending`); then it is shown, or, made at another scale than the one needed now, another load is made
+ * instead of showing it first. Let go when another load already took its place (`there` false).
  */
-export function heldNext(h: { there: boolean; busy: boolean; sent: number; drawn: number; zoomPending: boolean; scale: number | null | undefined; needed: number | null }): 'wait' | 'show' | 'load' | 'drop' {
+export function heldNext(h: { there: boolean; busy: boolean; sent: number; drawn: number; waited: number; zoomPending: boolean; scale: number | null | undefined; needed: number | null }): 'wait' | 'show' | 'load' | 'drop' {
   if (!h.there) return 'drop';
-  if (h.busy || h.sent > h.drawn || h.zoomPending) return 'wait';
+  if (h.busy || h.zoomPending || (h.sent > h.drawn && h.waited < HELD_DRAWN_MAX_MS)) return 'wait';
   return h.scale !== h.needed ? 'load' : 'show';
 }
 

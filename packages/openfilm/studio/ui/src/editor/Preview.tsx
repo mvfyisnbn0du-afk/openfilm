@@ -306,11 +306,15 @@ export const Preview = forwardRef<PreviewHandle, Props>(function Preview({ folde
   zoomRef.current = zoom;
   useEffect(() => {
     if (!holding) return undefined;
+    let free = performance.now();
     const timer = setInterval(() => {
       const h = held.current;
+      const busy = busyRef.current();
+      const zoomPending = zoomRef.current.z !== zoomRef.current.drawn;
+      if (busy || zoomPending) free = performance.now();
       const next = !h ? 'drop' : heldNext({
-        there: framesRef.current.some((f) => f.key === h.key), busy: busyRef.current(),
-        sent: updateSeq.current.get(h.key) ?? 0, drawn: h.seq, zoomPending: zoomRef.current.z !== zoomRef.current.drawn,
+        there: framesRef.current.some((f) => f.key === h.key), busy, zoomPending,
+        sent: updateSeq.current.get(h.key) ?? 0, drawn: h.seq, waited: performance.now() - free,
         scale: scaleOf.current.get(h.key), needed: pageScaleRef.current,
       });
       if (next === 'wait') return;

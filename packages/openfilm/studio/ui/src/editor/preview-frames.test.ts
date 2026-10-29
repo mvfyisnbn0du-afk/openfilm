@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { ZOOMED_AREA_MAX, ZOOMED_SIDE_MAX, heldNext, pageScaleFor, reloaded, shownAfter, updateKeys, zoomedPageScale } from './preview-frames.ts';
+import { HELD_DRAWN_MAX_MS, ZOOMED_AREA_MAX, ZOOMED_SIDE_MAX, heldNext, pageScaleFor, reloaded, shownAfter, updateKeys, zoomedPageScale } from './preview-frames.ts';
 
 test('a load behind the picture: the frame shown stays until the new one has drawn, and only then goes', () => {
   const first = [{ key: 1, ready: true }];
@@ -64,11 +64,13 @@ test('zoomed in past the film\'s own size, a page is drawn past the screen\'s pi
 });
 
 test('a load held behind the picture waits for what is under way and for the latest film, then is shown, or made again for the zoom now', () => {
-  const ready = { there: true, busy: false, sent: 0, drawn: 7, zoomPending: false, scale: 1.5, needed: 1.5 };
+  const ready = { there: true, busy: false, sent: 0, drawn: 7, waited: 0, zoomPending: false, scale: 1.5, needed: 1.5 };
   assert.equal(heldNext(ready), 'show');
   assert.equal(heldNext({ ...ready, busy: true }), 'wait', 'a drag, words typed in place, a crop or a mask open');
   assert.equal(heldNext({ ...ready, sent: 9 }), 'wait', 'an edit sent to it it has not drawn yet: it would show the old words');
   assert.equal(heldNext({ ...ready, sent: 9, drawn: 9 }), 'show', 'drawn since');
+  assert.equal(heldNext({ ...ready, sent: 9, waited: HELD_DRAWN_MAX_MS }), 'show', 'never said it drew it: shown after a while, not held for good');
+  assert.equal(heldNext({ ...ready, busy: true, sent: 9, waited: HELD_DRAWN_MAX_MS }), 'wait', 'never while something is under way');
   assert.equal(heldNext({ ...ready, zoomPending: true }), 'wait', 'a zoom not drawn for yet');
   assert.equal(heldNext({ ...ready, needed: 2.75 }), 'load', 'made for a zoom since left: not shown, then loaded again at once');
   assert.equal(heldNext({ ...ready, there: false }), 'drop');

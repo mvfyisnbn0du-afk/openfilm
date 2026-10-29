@@ -4,7 +4,7 @@
  * picture is laid out at its zoomed size, not scaled by a transform, so the stage's handles, outlines and snapping,
  * all measured on screen, keep their size and feel at any zoom. ViewerZoomButton, in the viewer's bar, fits it again.
  * Nothing zooms or pans while a button is held: a drag on the stage keeps the places it measured at the press.
- * The film is drawn for the zoom once it settles (ZOOM_SETTLE_MS still, nothing held or open on the stage): loaded again
+ * The film is drawn for the zoom once it settles (ZOOM_SETTLE_MS still, nothing held, typed or cropped): loaded again
  * behind the picture, as for a resized viewer, so a page's canvas is as sharp as it is seen; that load is shown only
  * when nothing is under way (`busy`), so a drag or a line typed in place started meanwhile goes on in the film it began in.
  */
@@ -81,7 +81,7 @@ export function ViewerZoom({ store, frame, off, className, notices, children }: 
     window.addEventListener('pointerup', onPress, true);
     window.addEventListener('pointercancel', onLetGo, true);
     window.addEventListener('blur', onLetGo);
-    /* the stage says when words are typed in place or a crop or a mask is open (FilmStageSelect, data-stage-busy) */
+    /* the stage says when words are typed in place or a crop is open (FilmStageSelect, data-stage-busy) */
     const stage = new MutationObserver((changes) => {
       if (changes.some((c) => c.oldValue != null && !(c.target as Element).hasAttribute('data-stage-busy'))) ended.current = performance.now();
     });
@@ -96,8 +96,8 @@ export function ViewerZoom({ store, frame, off, className, notices, children }: 
   }, []);
 
   /**
-   * A button held, words typed in place, a crop or a mask open, or one of them just ended (what it kept is on its way
-   * to the film, BUSY_AFTER_MS): the film is not drawn again, nor a new drawing shown.
+   * A button held (a mask's knobs too), words typed in place, a crop open, or one of them just ended (what it kept is
+   * on its way to the film, BUSY_AFTER_MS): the film is not drawn again, nor a new drawing shown.
    */
   const busy = React.useCallback(() => held.current || performance.now() - ended.current < BUSY_AFTER_MS
     || Boolean(scroller.current?.querySelector('[data-film-select][data-stage-busy]')), []);
