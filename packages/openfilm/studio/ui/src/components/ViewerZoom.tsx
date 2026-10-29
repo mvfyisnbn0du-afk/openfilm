@@ -1,5 +1,5 @@
 /**
- * The viewer's picture, zoomed and panned as Figma's canvas (lib/viewer-zoom): a pinch or ⌘/Ctrl + wheel zooms about
+ * The viewer's picture, zoomed and panned (lib/viewer-zoom): a pinch or ⌘/Ctrl + wheel zooms about
  * the pointer; while it is not fitted, a scroll (Shift + wheel: sideways) or a drag with the middle button pans. The
  * picture is laid out at its zoomed size, not scaled by a transform, so the stage's handles, outlines and snapping,
  * all measured on screen, keep their size and feel at any zoom. ViewerZoomButton, in the viewer's bar, fits it again.
@@ -157,7 +157,7 @@ export function ViewerZoom({ store, frame, off, className, notices, children }: 
       dy += sideways ? 0 : wheelPx(e, e.deltaY);
       schedule();
     };
-    /* the middle button drags the picture, as in Figma (Windows' autoscroll would take it otherwise) */
+    /* the middle button drags the picture (Windows' autoscroll would take it otherwise) */
     const onDown = (e: PointerEvent) => {
       if (e.button !== 1 || now.current.off || isFit(store.get().view)) return;
       e.preventDefault();

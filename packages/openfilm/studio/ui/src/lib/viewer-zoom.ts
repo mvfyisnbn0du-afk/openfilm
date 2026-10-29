@@ -1,5 +1,5 @@
 /**
- * The viewer's zoom, as Figma zooms its canvas: a pinch or ⌘/Ctrl + wheel zooms the picture about the pointer, and a
+ * The viewer's zoom: a pinch or ⌘/Ctrl + wheel zooms the picture about the pointer, and a
  * scroll pans it while it is not fitted. A view is how many times its fitted size the picture is drawn (`z`) and which
  * point of the picture is at the viewer's center (`cx`, `cy`: shares of its width and height, 0 to 1). Fitted: 1×,
  * centered. Only the viewer changes; the film and its exports never do.
