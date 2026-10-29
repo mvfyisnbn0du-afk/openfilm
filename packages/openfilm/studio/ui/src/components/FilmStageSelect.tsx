@@ -869,8 +869,17 @@ function FilmStageSelectImpl({
     syncGeomSoon();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [stale, syncGeomSoon]);
-  /* film.html changed (an edit, an undo, the agent): the picture follows it a moment later */
+  /* film.html changed (an edit, an undo, the agent): the picture follows it a moment later. A layer whose clip is not
+     in the film any more (pasted layers undone) lets go */
   React.useEffect(() => {
+    const held = pickedRef.current;
+    const ids = new Set(doc.tracks.flatMap((t) => t.clips.map((c) => c.id)));
+    const clips = multiRef.current ? multiRef.current.map((i) => i.layer.clip) : [held?.element?.kind !== 'clip' ? held?.layer?.clip : undefined];
+    if (held && clips.some((clip) => clip && !ids.has(clip))) {
+      dropPick();
+      onSelectElement?.(null);
+      return undefined;
+    }
     syncGeomSoon();
     const later = window.setTimeout(syncGeomSoon, 150);
     return () => window.clearTimeout(later);
@@ -1147,16 +1156,20 @@ function FilmStageSelectImpl({
         return;
       }
       /* the shortcuts are the menu's items: ⇧⌘H hide, ⇧⌘L lock, ] / [ to the front / back, Delete (the timeline's
-         keys for it) deletes; grayed ones do nothing. A whole clip's delete / copy / paste are the timeline's keys. */
+         keys for it) deletes, Copy (⌘C, the keymap's) copies the layers, not their clip, unless words are selected
+         somewhere; grayed ones do nothing. A whole clip's delete / copy / paste are the timeline's keys, and so is
+         Paste: it pastes what was copied last, layers or clips. */
       const mod = e.metaKey || e.ctrlKey;
       const k = e.key.toLowerCase();
       const action = keyAction(e);
+      const wordsSelected = () => Boolean(window.getSelection()?.toString());
       const menuId = mod && e.shiftKey && k === 'h' ? 'hide'
         : mod && e.shiftKey && k === 'l' ? 'lock'
           : !mod && !e.altKey && e.key === ']' ? 'front'
             : !mod && !e.altKey && e.key === '[' ? 'back'
               : action === 'remove' || action === 'ripple-delete' ? 'delete'
-                : null;
+                : action === 'copy' && !wordsSelected() ? 'copy-layers'
+                  : null;
       /* C crops the video or still in hand */
       if (!mod && !e.altKey && !e.shiftKey && k === 'c' && !textEdit.current && !typingNow()) {
         if (startCrop()) e.preventDefault();
