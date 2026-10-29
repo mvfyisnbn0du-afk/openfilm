@@ -1098,6 +1098,7 @@ export const en = {
     inPointWhole: 'The clip plays all of its file. Shorten it to move the in point.',
     speed: 'Speed',
     speedLimit: 'Slower than {n}× runs into the next clip. On the main track, the timeline\'s magnet pushes it along.',
+    speedReset: 'Back to 1× (or double-click the slider)',
     speedTooSlow: 'Slower than {n}× runs into the next clip on its track.',
     sound: 'Sound',
     gainDb: 'Volume',

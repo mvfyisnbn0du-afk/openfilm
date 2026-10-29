@@ -49,9 +49,11 @@ import { PANE_BAR, PANE_BTN, PANE_ICON, PANE_TITLE } from './dock-pane-bar';
 import { Tooltip } from './Tooltip';
 import { ContextMenu, type ContextMenuEntry } from './ContextMenu';
 import {
-  ICON, MIXED, NumField, Row, RotateGlyph, Section, SectionAction, Segmented, SliderField,
+  ICON, MIXED, NumField, Row, RotateGlyph, Section, SectionAction, Segmented, SliderField, SubLabel,
   useTimeUnit, type FieldApply, type Mixed,
 } from './inspector-fields';
+import { SPEED_STOPS, lengthAtSpeed, roundSpeed, speedAtPosition, speedPosition } from '@/lib/clip-speed';
+import { speedText } from '@/lib/playback-speed';
 import {
   AdjustSection, AdvancedSection, AppearanceSection, CropSection, EffectsSection, FillSection, MaskSection, NEUTRAL, StrokeSection,
   TypographySection, camelOf,
@@ -1779,24 +1781,18 @@ function TimingSection({ t, block, onMain, commit }: { t: T; block: TimelineBloc
             {...time}
             onCommit={slipTo}
           />
-          {canSpeed ? (
-            <NumField
-              label={t('inspector.speed')}
-              prefix={<Gauge size={11} />}
-              value={k}
-              unit="×"
-              step={0.25}
-              min={minSpeed}
-              max={FILM_SPEED_MAX}
-              /* the source range stays; the clip gets shorter or longer on the film (its sound keeps its pitch) */
-              onCommit={(n) => {
-                const next = Math.round(Math.min(FILM_SPEED_MAX, Math.max(minSpeed, n)) * 100) / 100;
-                if (next === k) return;
-                commit([{ loc, prop: 'speed', value: next, from: k }]);
-              }}
-            />
-          ) : <span />}
+          <span />
         </Row>
+      ) : null}
+      {trimFrom != null && canSpeed ? (
+        <SpeedField
+          t={t}
+          speed={k}
+          min={minSpeed}
+          lengthMs={block.endMs - block.startMs}
+          /* the source range stays; the clip gets shorter or longer on the film (its sound keeps its pitch) */
+          onCommit={(next) => { if (next !== k) commit([{ loc, prop: 'speed', value: next, from: k }]); }}
+        />
       ) : null}
       {wholeFile ? (
         <p data-in-point-limit="" className="px-0.5 text-[10.5px] leading-snug text-[var(--text-faint)]">
@@ -1813,6 +1809,146 @@ function TimingSection({ t, block, onMain, commit }: { t: T; block: TimelineBloc
         <SourceBar t={t} block={block} timecode={timecode} onSlip={slipTo} onCommit={commit} maxDurSec={maxDurSec} />
       ) : null}
     </Section>
+  );
+}
+
+/** The slider's resolution: places along it, from the slowest speed to the fastest. */
+const SPEED_PLACES = 1000;
+/** How long a click on the slider waits for a second one (a double-click puts it back to 1×). */
+const DOUBLE_CLICK_MS = 250;
+
+/**
+ * A clip's speed, as editors give it: a slider on a log scale (0.1× to 1× takes as much room as 10× to 100×) with its
+ * stops marked, and the number beside it for an exact one. Dragged, it says the speed and how long the clip lasts then,
+ * and writes nothing; let go, it is written once (one undo step). A double-click on the slider, a stop clicked or the
+ * reset puts it there at once. Never slower than `min` (the next clip, without the magnet).
+ */
+function SpeedField({ t, speed, min, lengthMs, onCommit }: {
+  t: T;
+  speed: number;
+  min: number;
+  /** How long the clip lasts on the film now (ms). */
+  lengthMs: number;
+  onCommit: (speed: number) => void;
+}) {
+  const [slide, setSlide] = React.useState<number | null>(null);
+  /* a write waiting: the arrows' (400 ms after the last), a click's on the slider (until a double-click is ruled out) */
+  const keyTimer = React.useRef<ReturnType<typeof setTimeout> | null>(null);
+  const pressX = React.useRef<number | null>(null);
+  React.useEffect(() => () => { if (keyTimer.current) clearTimeout(keyTimer.current); }, []);
+  const fit = (n: number) => Math.min(FILM_SPEED_MAX, Math.max(min, roundSpeed(n)));
+  const settle = (n: number | null) => {
+    if (keyTimer.current) { clearTimeout(keyTimer.current); keyTimer.current = null; }
+    setSlide(null);
+    if (n != null) onCommit(fit(n));
+  };
+  const shown = slide ?? speed;
+  const clip = { startMs: 0, endMs: lengthMs, speed };
+  const secs = (ms: number) => `${(ms / 1000).toFixed(ms < 1000 ? 2 : 1)} s`;
+  const at = (n: number) => `${speedPosition(n) * 100}%`;
+  const one = speedPosition(1);
+  const pos = speedPosition(shown);
+  const floor = speedPosition(min);
+  return (
+    <div data-speed-field="" className="flex flex-col gap-1">
+      <SubLabel
+        aside={(
+          <span className="flex items-center gap-1">
+            {/* how long the clip lasts: now, and at the speed in hand */}
+            <span data-speed-length="" className="tabular-nums">
+              {slide != null && Math.abs(slide - speed) > 1e-9 ? (
+                <>{secs(lengthMs)} → <span className="text-[var(--text)]">{secs(lengthAtSpeed(clip, slide))}</span></>
+              ) : secs(lengthMs)}
+            </span>
+            {speed !== 1 && slide == null ? (
+              <SectionAction label={t('inspector.speedReset')} onClick={() => settle(1)}><RotateCcw size={11} /></SectionAction>
+            ) : null}
+          </span>
+        )}
+      >
+        <span className="flex items-center gap-1"><Gauge size={11} />{t('inspector.speed')}</span>
+      </SubLabel>
+      <div className="grid items-center gap-2" style={{ gridTemplateColumns: 'minmax(0,1fr) 56px' }}>
+        <div className="relative pb-[13px]">
+          <div className="relative flex h-[22px] items-center">
+            <div className="pointer-events-none absolute inset-x-0 top-1/2 h-[3px] -translate-y-1/2 rounded-full bg-[var(--border-strong)]">
+              {/* slower than the clip after it lets it be: out of reach */}
+              {floor > 0 ? <div className="absolute inset-y-0 left-0 rounded-l-full bg-[var(--fill-tsp)]" style={{ width: `${floor * 100}%` }} /> : null}
+              <div className="absolute inset-y-0 rounded-full bg-[var(--text-muted)]" style={{ left: `${Math.min(one, pos) * 100}%`, width: `${Math.abs(pos - one) * 100}%` }} />
+              {SPEED_STOPS.map((s) => (
+                <div key={s} className="absolute -top-[3px] h-[9px] w-px bg-[var(--text-faint)]" style={{ left: at(s) }} />
+              ))}
+            </div>
+            <input
+              type="range"
+              min={0}
+              max={SPEED_PLACES}
+              step={1}
+              value={Math.round(pos * SPEED_PLACES)}
+              aria-label={t('inspector.speed')}
+              aria-valuetext={speedText(shown)}
+              onChange={(e) => setSlide(fit(speedAtPosition(Number(e.target.value) / SPEED_PLACES)))}
+              onPointerDown={(e) => { pressX.current = e.clientX; }}
+              /* dragged: written now. Clicked: a moment later, so the first click of a double-click (back to 1×)
+                 writes nothing */
+              onPointerUp={(e) => {
+                const clicked = pressX.current != null && Math.abs(e.clientX - pressX.current) < 3;
+                pressX.current = null;
+                if (keyTimer.current) clearTimeout(keyTimer.current);
+                const n = slide;
+                if (clicked) keyTimer.current = setTimeout(() => settle(n), DOUBLE_CLICK_MS);
+                else settle(n);
+              }}
+              /* the arrows: a step of the scale (⇧ five), written 400 ms after the last */
+              onKeyDown={(e) => {
+                if (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight' && e.key !== 'ArrowUp' && e.key !== 'ArrowDown') return;
+                e.preventDefault();
+                const by = (e.key === 'ArrowLeft' || e.key === 'ArrowDown' ? -1 : 1) * (e.shiftKey ? 0.05 : 0.01);
+                const next = fit(speedAtPosition(speedPosition(slide ?? speed) + by, 0));
+                setSlide(next);
+                if (keyTimer.current) clearTimeout(keyTimer.current);
+                keyTimer.current = setTimeout(() => settle(next), 400);
+              }}
+              onDoubleClick={() => settle(1)}
+              className={`relative h-[22px] w-full cursor-pointer appearance-none bg-transparent
+                [&::-webkit-slider-runnable-track]:h-[3px] [&::-webkit-slider-runnable-track]:bg-transparent
+                [&::-webkit-slider-thumb]:-mt-[4.5px] [&::-webkit-slider-thumb]:h-3 [&::-webkit-slider-thumb]:w-3 [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-[var(--bg)] [&::-webkit-slider-thumb]:shadow-[0_0_0_1px_var(--border-strong),0_1px_3px_rgba(0,0,0,0.25)]
+                [&::-moz-range-track]:h-[3px] [&::-moz-range-track]:bg-transparent
+                [&::-moz-range-thumb]:h-3 [&::-moz-range-thumb]:w-3 [&::-moz-range-thumb]:rounded-full [&::-moz-range-thumb]:border-0 [&::-moz-range-thumb]:bg-[var(--bg)] [&::-moz-range-thumb]:shadow-[0_0_0_1px_var(--border-strong),0_1px_3px_rgba(0,0,0,0.25)]`}
+            />
+          </div>
+          {/* the stops, each a click away; the ends kept inside the slider */}
+          {SPEED_STOPS.map((s, i) => (
+            <button
+              key={s}
+              type="button"
+              tabIndex={-1}
+              disabled={s < min}
+              data-speed-stop={s}
+              onClick={() => settle(s)}
+              className="absolute bottom-0 text-[9.5px] leading-[12px] tabular-nums text-[var(--text-faint)] transition hover:text-[var(--text)] disabled:cursor-default disabled:opacity-40 disabled:hover:text-[var(--text-faint)]"
+              style={{ left: at(s), transform: i === 0 ? 'none' : i === SPEED_STOPS.length - 1 ? 'translateX(-100%)' : 'translateX(-50%)' }}
+            >
+              {speedText(s)}
+            </button>
+          ))}
+        </div>
+        <div className="self-start">
+          <NumField
+            bare
+            label={t('inspector.speed')}
+            value={shown}
+            unit="×"
+            step={0.1}
+            min={min}
+            max={FILM_SPEED_MAX}
+            onPreview={(n) => setSlide(fit(n))}
+            onRevert={() => setSlide(null)}
+            onCommit={(n) => settle(n)}
+          />
+        </div>
+      </div>
+    </div>
   );
 }
 

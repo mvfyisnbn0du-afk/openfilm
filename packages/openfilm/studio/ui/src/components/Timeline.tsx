@@ -168,7 +168,7 @@ import { Tooltip } from './Tooltip';
 import { unionBox, type ScreenBox } from '@/lib/selection-toolbar';
 import { useBlockDrag, type GestureTip } from './useBlockDrag';
 import { fadeEdits, fadeFromPointer, fadeHandleX, type FadeEdge, type FadeMs } from '@/lib/clip-fade';
-import { canChangeSpeed } from '@/lib/clip-speed';
+import { canChangeSpeed, roundSpeed } from '@/lib/clip-speed';
 import { speedText } from '@/lib/playback-speed';
 import { cutNear, transitionSpan, type CutRef, type FilmTransition, type TransitionAsk, type TransitionKind } from '@/lib/transitions';
 
@@ -3089,13 +3089,13 @@ export const Timeline = React.memo(function Timeline({
                     </span>
                     {width > 64 ? (
                       <span className="shrink-0 text-[10px] leading-none tabular-nums text-white/70">
-                        {block.noLength ? t('timeline.noLength') : `${((endMs - startMs) / 1000).toFixed(1)}s`}
+                        {block.noLength ? t('timeline.noLength') : `${((endMs - startMs) / 1000).toFixed(endMs - startMs < 1000 ? 2 : 1)}s`}
                       </span>
                     ) : null}
                     {/* the speed handles on: the speed they set, as it is now */}
                     {speeding && width > 96 ? (
                       <span data-clip-speed="" className="shrink-0 text-[10px] font-medium leading-none tabular-nums text-white/95">
-                        {speedText(Math.round(thumbSpeed * 100) / 100)}
+                        {speedText(roundSpeed(thumbSpeed))}
                       </span>
                     ) : null}
                   </span>
@@ -4479,10 +4479,11 @@ function GestureLabel({ tip, left, top }: { tip: GestureTip; left: number; top: 
   return (
     <div
       data-gesture-tip={tip.kind}
-      className="pointer-events-none absolute z-[70] -translate-x-1/2 whitespace-nowrap rounded-[4px] px-1.5 py-[2px] text-[10.5px] font-medium leading-[15px] text-white tabular-nums shadow-[0_1px_4px_rgba(0,0,0,.35)]"
-      style={{ left, top: Math.max(0, top - 21), background: 'var(--tl-accent)' }}
+      className="pointer-events-none absolute z-[70] whitespace-nowrap rounded-[4px] px-1.5 py-[2px] text-[10.5px] font-medium leading-[15px] text-white tabular-nums shadow-[0_1px_4px_rgba(0,0,0,.35)]"
+      /* centred on the edge, but never cut off at the film's start (a clip at 0 s made 100× has its edge there) */
+      style={{ left, top: Math.max(0, top - 21), transform: `translateX(max(-50%, ${-left}px))`, background: 'var(--tl-accent)' }}
     >
-      {what} {tip.speed != null ? speedText(Math.round(tip.speed * 100) / 100) : signedSeconds(tip.deltaMs)}
+      {what} {tip.speed != null ? speedText(roundSpeed(tip.speed)) : signedSeconds(tip.deltaMs)}
       {tip.lengthMs != null ? <span className="opacity-75"> · {(tip.lengthMs / 1000).toFixed(2)} s</span> : null}
       {/* the source ends here: why the edge stops */}
       {tip.sourceEnd ? <span> · {t('timeline.tip.sourceEnd')}</span> : null}

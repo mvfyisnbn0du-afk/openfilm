@@ -1097,6 +1097,7 @@ export const es: Words = {
     inPointWhole: 'El clip reproduce todo su archivo. Acórtalo para mover el punto de entrada.',
     speed: 'Velocidad',
     speedLimit: 'Más lento que {n}× choca con el clip siguiente. En la pista principal, el imán de la línea de tiempo lo empuja.',
+    speedReset: 'Volver a 1× (o doble clic en el control)',
     speedTooSlow: 'Más lento que {n}× choca con el clip siguiente de su pista.',
     sound: 'Sonido',
     gainDb: 'Volumen',

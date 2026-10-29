@@ -1094,6 +1094,7 @@ export const ko: Words = {
     inPointWhole: '클립이 파일 전체를 재생하고 있습니다. 시작 지점을 옮기려면 먼저 줄이세요.',
     speed: '속도',
     speedLimit: '{n}×보다 느리면 다음 클립과 겹칩니다. 메인 트랙에서는 타임라인의 자석이 뒤 클립을 밀어냅니다.',
+    speedReset: '1×로 되돌리기 (슬라이더 더블클릭도 가능)',
     speedTooSlow: '{n}×보다 느리면 같은 트랙의 다음 클립과 겹칩니다.',
     sound: '사운드',
     gainDb: '볼륨',

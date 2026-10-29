@@ -24,6 +24,7 @@ import {
   dragLifted,
   flushShiftMs,
   groupLaneShift,
+  MIN_BLOCK_MS,
   moveDestFor,
   moveEditMode,
   snapTargetsFor,
@@ -370,8 +371,13 @@ export function useBlockDrag(opts: {
           pxPerMs, at.edge === 'end' ? { tailMs: room } : { headMs: room }, undefined, ripple ? undefined : fence);
         const opts = { ripple, edge: speedEdge, ...switchesOf(p) };
         const outEdge = at.edge === 'end' ? out.endMs : out.startMs;
+        /* a trim stops at the shortest clip (MIN_BLOCK_MS); a speed goes on with the hand, to the fastest there is (8 s
+           of source at 100× is 80 ms) */
+        const handLength = at.edge === 'end' ? geom.endMs + at.deltaMs - geom.startMs : geom.endMs - geom.startMs - at.deltaMs;
+        const shortest = out.endMs - out.startMs <= MIN_BLOCK_MS + 0.5 && handLength < out.endMs - out.startMs;
         /* snapped, or held where it stops (the film's start, a neighbor): the speed that lands it exactly there */
-        let speed = speedForLength({ ...geom, speed: block.speed ?? 1 }, out.endMs - out.startMs, Boolean(out.snappedTo) || edgeHeld(outEdge, was + at.deltaMs));
+        let speed = speedForLength({ ...geom, speed: block.speed ?? 1 }, shortest ? handLength : out.endMs - out.startMs,
+          !shortest && (Boolean(out.snappedTo) || edgeHeld(outEdge, was + at.deltaMs)));
         let plan = planSpeed(m, ids, speed, opts);
         /* a linked clip with less room than this one: as slow as they all fit */
         if (plan.slowest != null) {

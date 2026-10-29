@@ -2539,7 +2539,8 @@ export function ProjectView({ projectId, onProject, onLeave }: {
         take();
         setInspectorContent('selection');
         setInspectorOpen(true);
-        window.setTimeout(() => document.querySelector<HTMLInputElement>(`input[aria-label="${t('inspector.speed')}"]`)?.focus(), 80);
+        /* the number beside the slider: typed into at once */
+        window.setTimeout(() => document.querySelector<HTMLInputElement>(`[data-speed-field] input[aria-label="${t('inspector.speed')}"]:not([type=range])`)?.focus(), 80);
         return;
       }
       case 'detach-audio': {
