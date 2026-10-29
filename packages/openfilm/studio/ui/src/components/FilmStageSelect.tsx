@@ -1277,9 +1277,11 @@ function FilmStageSelectImpl({
         if (textEdit.current) { textEdit.current = null; setEditingText(null); }
         syncFilmOffsetRef.current();
         syncGeomSoon();
+        reshowRef.current();
       }
     });
   }, [previewRef, syncGeomSoon]);
+  const reshowRef = React.useRef<() => void>(() => {});
   const onTextDoneRef = React.useRef(onTextDone);
   onTextDoneRef.current = onTextDone;
   const onTypingRef = React.useRef(onTyping);
@@ -1746,6 +1748,15 @@ function FilmStageSelectImpl({
   const [maskSession, setMaskSession] = React.useState<MaskSession | null>(null);
   const cropRef = React.useRef<CropSession | null>(null);
   const cropPaint = React.useMemo(() => new Latest<{ clip: string; css: string | null }>(async (a) => { await ask('look', a); }), [ask]);
+  /* another load of the film shown: the looks shown on the old one, not kept yet (the inspector's, a crop's), shown on it */
+  reshowRef.current = () => {
+    const live = lookLiveRef.current;
+    const at = live ? parseFilmDocLoc(live.clipLoc) : null;
+    const id = at ? docRef.current?.tracks[at.track]?.clips[at.clip]?.id : undefined;
+    if (live && id) void ask('look', { clip: id, css: live.css });
+    const crop = cropRef.current;
+    if (crop) cropPaint.push({ clip: crop.clipId, css: cropPreviewCss(crop.css0, crop.pos0, crop.pos) });
+  };
   const setCrop = (next: CropSession | null) => {
     cropRef.current = next;
     setCroppingState(next);
@@ -2827,7 +2838,8 @@ function FilmStageSelectImpl({
     <div
       ref={host}
       data-film-select
-      data-editing-text={editingText != null ? '' : undefined}
+      /* words typed in place, a crop or a mask open: a film loaded again behind the picture waits (ViewerZoom's busy) */
+      data-stage-busy={editingText != null || cropping || maskSession ? '' : undefined}
       /* below the subtitles (z-5): they must get the pointer in their own box to be dragged */
       /* the cursor stays an arrow: text cursors over the size label would read as "this can be typed in" */
       className="absolute inset-0 z-[4] cursor-default overflow-visible"

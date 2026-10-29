@@ -102,8 +102,8 @@ export function shownRect(view: ViewerView, viewer: Size, fitted: Size): Point &
 /**
  * For the film's frames inside the picture (editor/Preview): how many times its fitted size the picture is shown (`z`,
  * 1: fitted), the zoom its pages are drawn for (`drawn`), which follows `z` once a zoom has settled, and whether the
- * person is in the middle of something on it (`busy`: a button held, words typed in place), which a film loaded again
- * behind the picture waits for before it is shown.
+ * person is in the middle of something on it (`busy`: a button held, words typed in place, a crop or a mask open),
+ * which a film loaded again behind the picture waits for before it is shown.
  */
 export const PictureZoom = createContext<{ z: number; drawn: number; busy: () => boolean }>({ z: 1, drawn: 1, busy: () => false });
 

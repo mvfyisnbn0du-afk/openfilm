@@ -35,6 +35,18 @@ export function pageScaleFor(k: number, dpr: number, most = dpr): number {
   return Math.min(most, Math.ceil(shown * 4 - 1e-9) / 4);
 }
 
+/**
+ * What becomes of a load held behind the picture (editor/Preview): it waits while something is under way on the stage
+ * (`busy`), while it has not drawn the latest film sent to it (`sent` and `drawn`: those updates' seqs) or a zoom is
+ * not drawn for yet (`zoomPending`); then it is shown, or, made at another scale than the one needed now, another load
+ * is made instead of showing it first. Let go when another load already took its place (`there` false).
+ */
+export function heldNext(h: { there: boolean; busy: boolean; sent: number; drawn: number; zoomPending: boolean; scale: number | null | undefined; needed: number | null }): 'wait' | 'show' | 'load' | 'drop' {
+  if (!h.there) return 'drop';
+  if (h.busy || h.sent > h.drawn || h.zoomPending) return 'wait';
+  return h.scale !== h.needed ? 'load' : 'show';
+}
+
 /** A page zoomed in draws at most this many device px a side and in all: a larger canvas costs more than it shows. */
 export const ZOOMED_SIDE_MAX = 16384;
 export const ZOOMED_AREA_MAX = 64e6;

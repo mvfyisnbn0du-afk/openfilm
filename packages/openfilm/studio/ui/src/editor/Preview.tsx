@@ -16,7 +16,7 @@ import type { Film } from '../api';
 import { useT } from '@/i18n';
 import type { ClipSpan } from '@/lib/film-shape';
 import type { Anchor, Sound } from './player';
-import { reloaded, shownAfter, updateKeys, zoomedPageScale, type Frame } from './preview-frames';
+import { heldNext, reloaded, shownAfter, updateKeys, zoomedPageScale, type Frame } from './preview-frames';
 import { usePreviewPrefs } from '@/lib/preview-prefs';
 import { chromiumBased } from '@/lib/browser';
 import { PictureZoom } from '@/lib/viewer-zoom';
@@ -194,7 +194,7 @@ export const Preview = forwardRef<PreviewHandle, Props>(function Preview({ folde
     if (!ref) {
       ref = (el) => {
         if (el) { elements.current.set(key, el); return; }
-        elements.current.delete(key); up.current.delete(key); clocks.current.delete(key); scaleOf.current.delete(key); refs.current.delete(key);
+        elements.current.delete(key); up.current.delete(key); clocks.current.delete(key); scaleOf.current.delete(key); refs.current.delete(key); updateSeq.current.delete(key);
       };
       refs.current.set(key, ref);
     }
@@ -226,7 +226,10 @@ export const Preview = forwardRef<PreviewHandle, Props>(function Preview({ folde
       if (head != null) latestHead.current = head;
       /* a film that failed is loaded again as it is now, rather than changed in place */
       if (!shownRef.current || failedRef.current) { reload(); return; }
-      for (const key of updateKeys(shownRef.current.key, up.current)) post(key, { type: 'update', film, head: latestHead.current, seq: ++seq.current });
+      for (const key of updateKeys(shownRef.current.key, up.current)) {
+        updateSeq.current.set(key, ++seq.current);
+        post(key, { type: 'update', film, head: latestHead.current, seq: seq.current });
+      }
     },
     preview(clip, overrides) {
       post(shownRef.current?.key, { type: 'preview', clip, overrides });
@@ -285,19 +288,39 @@ export const Preview = forwardRef<PreviewHandle, Props>(function Preview({ folde
   };
   const showRef = useRef(show);
   showRef.current = show;
-  /* a load held back (see 'seeked'): shown when nothing is under way, let go when another load took its place */
-  const held = useRef<{ key: number; t: number } | null>(null);
+  /** The seq of the last film update sent to each frame: a frame behind the picture is shown once it has drawn it. */
+  const updateSeq = useRef(new Map<number, number>());
+  /** Whether a frame behind the picture must wait (see 'seeked'): something under way, or the film it has drawn is old. */
+  const mustWait = (key: number, drawn: number) => busyRef.current() || (updateSeq.current.get(key) ?? 0) > drawn;
+  const mustWaitRef = useRef(mustWait);
+  mustWaitRef.current = mustWait;
+  /*
+   * A load held back (see 'seeked'): shown when it may be, let go when another load took its place. A zoom not drawn
+   * for yet is waited for, and a load made for a zoom since left is replaced by one for the zoom now, not shown first.
+   */
+  const held = useRef<{ key: number; t: number; seq: number } | null>(null);
   const [holding, setHolding] = useState(false);
+  const pageScaleRef = useRef(pageScale);
+  pageScaleRef.current = pageScale;
+  const zoomRef = useRef(zoom);
+  zoomRef.current = zoom;
   useEffect(() => {
     if (!holding) return undefined;
     const timer = setInterval(() => {
       const h = held.current;
-      if (h && framesRef.current.some((f) => f.key === h.key) && busyRef.current()) return;
+      const next = !h ? 'drop' : heldNext({
+        there: framesRef.current.some((f) => f.key === h.key), busy: busyRef.current(),
+        sent: updateSeq.current.get(h.key) ?? 0, drawn: h.seq, zoomPending: zoomRef.current.z !== zoomRef.current.drawn,
+        scale: scaleOf.current.get(h.key), needed: pageScaleRef.current,
+      });
+      if (next === 'wait') return;
       held.current = null;
       setHolding(false);
-      if (h && framesRef.current.some((f) => f.key === h.key)) showRef.current(h.key, h.t, true);
+      if (next === 'load') reload();
+      else if (next === 'show' && h) showRef.current(h.key, h.t, true);
     }, HOLD_POLL_MS);
     return () => clearInterval(timer);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [holding]);
 
   /* the folder (a project) changed: start over */
@@ -323,7 +346,10 @@ export const Preview = forwardRef<PreviewHandle, Props>(function Preview({ folde
         if (Number(m.origin) > 0) clocks.current.set(key, { offset: performance.timeOrigin - Number(m.origin), rtt: Infinity });
         for (let i = 0; i < CLOCK_PINGS; i++) setTimeout(() => post(key, { type: 'clock', ping: performance.now() }), 40 * i);
         /* the film changed here while this frame was loading: it gets the latest before its first picture */
-        if ((born.current.get(key) ?? 0) < updates.current && latest.current) post(key, { type: 'update', film: latest.current, head: latestHead.current, seq: ++seq.current });
+        if ((born.current.get(key) ?? 0) < updates.current && latest.current) {
+          updateSeq.current.set(key, ++seq.current);
+          post(key, { type: 'update', film: latest.current, head: latestHead.current, seq: seq.current });
+        }
         /* behind the picture shown: its first picture is waited for whole (its videos loaded), as it replaces that one */
         const behind = shownRef.current != null && shownRef.current.key !== key;
         post(key, { type: 'seek', t: time(), seq: ++seq.current, ...(behind ? { behind: true } : {}) });
@@ -341,8 +367,13 @@ export const Preview = forwardRef<PreviewHandle, Props>(function Preview({ folde
         if (line.current && key === shownRef.current?.key) tellPlay(key);
       } else if (m.type === 'seeked') {
         const swap = !framesRef.current.find((f) => f.key === key)?.ready;
-        /* a load behind the picture, ready while a drag or a line typed in place is under way: shown once it ends */
-        if (swap && busyRef.current()) { held.current = { key, t: Number(m.t) }; setHolding(true); return; }
+        /* a load behind the picture, ready while a drag or a line typed in place is under way, or before it has drawn
+           the film as it is now: shown once it may be (the first load, with nothing shown yet, is shown at once) */
+        if (swap && shownRef.current && (mustWaitRef.current(key, Number(m.seq)) || held.current?.key === key)) {
+          held.current = { key, t: Number(m.t), seq: Math.max(Number(m.seq) || 0, held.current?.key === key ? held.current.seq : 0) };
+          setHolding(true);
+          return;
+        }
         showRef.current(key, Number(m.t), swap);
       } else if (m.type === 'updated') {
         if (m.inPlace) onInfo(m as FilmInfo);

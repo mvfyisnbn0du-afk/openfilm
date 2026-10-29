@@ -4,7 +4,7 @@
  * picture is laid out at its zoomed size, not scaled by a transform, so the stage's handles, outlines and snapping,
  * all measured on screen, keep their size and feel at any zoom. ViewerZoomButton, in the viewer's bar, fits it again.
  * Nothing zooms or pans while a button is held: a drag on the stage keeps the places it measured at the press.
- * The film is drawn for the zoom once it settles (ZOOM_SETTLE_MS still, nothing held, no words typed in): loaded again
+ * The film is drawn for the zoom once it settles (ZOOM_SETTLE_MS still, nothing held or open on the stage): loaded again
  * behind the picture, as for a resized viewer, so a page's canvas is as sharp as it is seen; that load is shown only
  * when nothing is under way (`busy`), so a drag or a line typed in place started meanwhile goes on in the film it began in.
  */
@@ -18,6 +18,9 @@ import { PANE_BTN } from './dock-pane-bar';
 import { Tooltip } from './Tooltip';
 
 type Size = { w: number; h: number };
+
+/** How long after a drag or an edit in place ends a new drawing of the film still waits: its edit is written by then. */
+const BUSY_AFTER_MS = 600;
 
 /** The picture fitted in its container (the container's size, CSS container units). */
 const fitBox = (w: number, h: number): React.CSSProperties => ({
@@ -63,23 +66,41 @@ export function ViewerZoom({ store, frame, off, className, notices, children }: 
 
   /* a button held anywhere (a drag on the stage, a pan): no zoom, and the film is not drawn again under it */
   const held = React.useRef(false);
+  /* when the last of them ended (performance.now()): what it kept reaches the film a moment later */
+  const ended = React.useRef(-Infinity);
   React.useEffect(() => {
-    const onPress = (e: PointerEvent) => { held.current = e.buttons !== 0; };
-    const onLetGo = () => { held.current = false; };
+    const onPress = (e: PointerEvent) => {
+      if (held.current && e.buttons === 0) ended.current = performance.now();
+      held.current = e.buttons !== 0;
+    };
+    const onLetGo = () => {
+      if (held.current) ended.current = performance.now();
+      held.current = false;
+    };
     window.addEventListener('pointerdown', onPress, true);
     window.addEventListener('pointerup', onPress, true);
     window.addEventListener('pointercancel', onLetGo, true);
     window.addEventListener('blur', onLetGo);
+    /* the stage says when words are typed in place or a crop or a mask is open (FilmStageSelect, data-stage-busy) */
+    const stage = new MutationObserver((changes) => {
+      if (changes.some((c) => c.oldValue != null && !(c.target as Element).hasAttribute('data-stage-busy'))) ended.current = performance.now();
+    });
+    if (scroller.current) stage.observe(scroller.current, { subtree: true, attributes: true, attributeOldValue: true, attributeFilter: ['data-stage-busy'] });
     return () => {
       window.removeEventListener('pointerdown', onPress, true);
       window.removeEventListener('pointerup', onPress, true);
       window.removeEventListener('pointercancel', onLetGo, true);
       window.removeEventListener('blur', onLetGo);
+      stage.disconnect();
     };
   }, []);
 
-  /** A button held, or words typed in place: the film is not drawn again, nor a new drawing shown, under it. */
-  const busy = React.useCallback(() => held.current || Boolean(scroller.current?.querySelector('[data-film-select][data-editing-text]')), []);
+  /**
+   * A button held, words typed in place, a crop or a mask open, or one of them just ended (what it kept is on its way
+   * to the film, BUSY_AFTER_MS): the film is not drawn again, nor a new drawing shown.
+   */
+  const busy = React.useCallback(() => held.current || performance.now() - ended.current < BUSY_AFTER_MS
+    || Boolean(scroller.current?.querySelector('[data-film-select][data-stage-busy]')), []);
 
   /* the zoom the film is drawn for: the shown one once it has been still a while, with nothing held or typed in */
   const z = layout ? view.z : 1;
