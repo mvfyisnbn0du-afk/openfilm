@@ -1,5 +1,23 @@
 # openfilm
 
+## 0.2.7
+
+### Patch Changes
+
+- [#293](https://github.com/openfilm/openfilm/pull/293) [`005f61d`](https://github.com/openfilm/openfilm/commit/005f61d76bbeefa364f0c5ef23d9155f17620b29) Thanks [@PazChen](https://github.com/PazChen)! - Render: a video with an alpha keeps it. A WebM (VP9) or Apple HEVC with an alpha whose key frames are far apart was given a copy without its alpha for a render, which then showed what lay under the alpha (often a solid color) in the export, and in Studio's picture once the copy was made. An HEVC with an alpha that the browser does not decode now gets a copy with its alpha.
+
+- [#277](https://github.com/openfilm/openfilm/pull/277) [`015a240`](https://github.com/openfilm/openfilm/commit/015a240c8fe7ee10fbf8cf2814f654314060afcd) Thanks [@WeiXunWuMing](https://github.com/WeiXunWuMing)! - Exports: footage the browser shows no picture of is copied in a form it plays, instead of being drawn black. ProRes with sound, which most cameras record, plays its sound and shows no picture, without an error: it gets a copy too, as HEVC on a computer without a decoder for it already did.
+
+- [#278](https://github.com/openfilm/openfilm/pull/278) [`1ed02d7`](https://github.com/openfilm/openfilm/commit/1ed02d7e84e8e85a9a02af864e59be1518e0671c) Thanks [@rick-mingyu-liu](https://github.com/rick-mingyu-liu)! - Settings › Agents says when Claude Code is older than the one OpenFilm was tested with (2.1.308), whose model menu may then miss the newest models, and gives the command that updates it the way it was installed: npm, pnpm or bun, its Homebrew cask, or its own installer (`claude update`). The Claude app's own copy is updated by the app.
+
+- [#284](https://github.com/openfilm/openfilm/pull/284) [`97bc98b`](https://github.com/openfilm/openfilm/commit/97bc98b9d2d9585ea917b24abc9742c68b5f0a27) Thanks [@WEBGRS](https://github.com/WEBGRS)! - Settings › Agents: three of an own model's errors are worded as people say them in 日本語, 한국어, Español and 简体中文: nothing answering at the address, the status the service answered, and a model left out.
+
+- [#292](https://github.com/openfilm/openfilm/pull/292) [`6c7d599`](https://github.com/openfilm/openfilm/commit/6c7d599c2c7e98d8f05a9d56edfc775f0a83771f) Thanks [@PazChen](https://github.com/PazChen)! - Studio: the viewer plays at 3× and 4× too, its sound’s pitch kept. Its playback menu is laid out again: loop and speed as the layout menu’s rows, and the speed two rows, 0.25× to 1× and 1.5× to 4×. J/K/L’s 4× plays with sound, and the full-screen player offers the same speeds.
+
+- [#287](https://github.com/openfilm/openfilm/pull/287) [`d71b72e`](https://github.com/openfilm/openfilm/commit/d71b72eda800c94ea6bb2de6747baea630cb0d50) Thanks [@HEOJUNFO](https://github.com/HEOJUNFO)! - Studio: a new project starts in the subtitle look used last, written to it as it is made, so burned-in subtitles match what Studio shows; an opened project shows its own look or the default, as its exports do
+
+- [#294](https://github.com/openfilm/openfilm/pull/294) [`768fc6d`](https://github.com/openfilm/openfilm/commit/768fc6d4dfdb5bd9922a6f89bf43b659eb0942f5) Thanks [@PazChen](https://github.com/PazChen)! - What's new after an update shows only the version now running, not every earlier release under it; the changelog on GitHub keeps them all.
+
 ## 0.2.6
 
 ### Patch Changes
