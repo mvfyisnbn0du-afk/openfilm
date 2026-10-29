@@ -124,6 +124,9 @@ export const ko: Words = {
     clearRange: '구간 해제',
     splitSelected: '선택한 클립을 재생 헤드에서 분할',
     splitNone: '재생 헤드가 선택한 클립 위에 없습니다',
+    speed: '속도: 클립 가장자리를 드래그',
+    speedHandle: '드래그해 속도 변경',
+    speedNone: '속도는 동영상과 사운드 클립에만 있습니다',
   },
   desktop: {
     title: '데스크톱용 OpenFilm',
@@ -1091,6 +1094,7 @@ export const ko: Words = {
     inPointWhole: '클립이 파일 전체를 재생하고 있습니다. 시작 지점을 옮기려면 먼저 줄이세요.',
     speed: '속도',
     speedLimit: '{n}×보다 느리면 다음 클립과 겹칩니다. 메인 트랙에서는 타임라인의 자석이 뒤 클립을 밀어냅니다.',
+    speedReset: '1×로 되돌리기 (슬라이더 더블클릭도 가능)',
     speedTooSlow: '{n}×보다 느리면 같은 트랙의 다음 클립과 겹칩니다.',
     sound: '사운드',
     gainDb: '볼륨',
@@ -1433,6 +1437,7 @@ export const ko: Words = {
     tip: {
       trim: '트림',
       ripple: '리플',
+      speed: '속도',
       sourceEnd: '소스의 끝입니다',
     },
     trackLocked: '트랙 잠김',

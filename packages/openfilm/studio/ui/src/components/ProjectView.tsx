@@ -32,7 +32,9 @@ import { placeMedia, type SourceRange } from '@/lib/media-place';
 import { apartOnTracks, type ClipEdit } from '@/lib/film-clip-edits';
 import { mediaFetch, useMediaImages } from '@/lib/media-queue';
 import { clipboardItemsOf, clipboardNow, pasteEdit, type TimelineClipboardItem } from '@/lib/timeline-clipboard';
-import { editModelOf, freshLink, linkedIds, magnetOn, mainTrackOf, planMove, planRippleTrim, planRoom, planSpeed, soundTrackFor, type EditMode } from '@/lib/timeline-edit';
+import {
+  editModelOf, freshLink, linkedIds, magnetOn, mainTrackOf, planMove, planRippleTrim, planRoom, planSpeed, slowestSpeed, soundTrackFor, type EditMode,
+} from '@/lib/timeline-edit';
 import { readTimelinePrefs, switchesOf } from '@/lib/timeline-prefs';
 import { fadeMsOf, type FadeMs } from '@/lib/clip-fade';
 import {
@@ -597,6 +599,12 @@ export function ProjectView({ projectId, onProject, onLeave }: {
   const editModel = React.useCallback(() => editModelOf(tracksRef.current, clipLinksRef.current), []);
   /** The main track (the lowest picture track), where the magnet acts: the inspector asks. */
   const mainTrack = React.useMemo(() => mainTrackOf(editModelOf(timelineTracks)), [timelineTracks]);
+  /** How slow a clip can go without the magnet, with the clips linked to it (they take its speed too): the inspector asks. */
+  const speedFloorOf = React.useCallback((block: TimelineBlock) => {
+    if (!block.clipId) return 0;
+    const model = editModel();
+    return slowestSpeed(model, [block.clipId, ...linkedIds(model, [block.clipId]).filter((id) => id !== block.clipId)]);
+  }, [editModel]);
   const blocksRef = React.useRef<readonly TimelineBlock[]>([]);
   blocksRef.current = React.useMemo(() => timelineTracks.flatMap((tr) => tr.blocks), [timelineTracks]);
   /* the film's length: the preview's, unless it could not draw the film; that length is then of the film before
@@ -2539,7 +2547,8 @@ export function ProjectView({ projectId, onProject, onLeave }: {
         take();
         setInspectorContent('selection');
         setInspectorOpen(true);
-        window.setTimeout(() => document.querySelector<HTMLInputElement>(`input[aria-label="${t('inspector.speed')}"]`)?.focus(), 80);
+        /* the number beside the slider: typed into at once */
+        window.setTimeout(() => document.querySelector<HTMLInputElement>(`[data-speed-field] input[aria-label="${t('inspector.speed')}"]:not([type=range])`)?.focus(), 80);
         return;
       }
       case 'detach-audio': {
@@ -3064,6 +3073,7 @@ export function ProjectView({ projectId, onProject, onLeave }: {
                       element={stageElement}
                       clips={selectedBlocks}
                       mainTrack={mainTrack}
+                      speedFloorOf={speedFloorOf}
                       onEditClips={editClips}
                       width={inspectorShownWidth}
                       onClose={closeInspector}

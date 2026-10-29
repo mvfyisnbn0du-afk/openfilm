@@ -128,6 +128,9 @@ export const zhCN: Words = {
     clearRange: '清除区间',
     splitSelected: '在播放头处分割选中的片段',
     splitNone: '播放头不在选中的片段上',
+    speed: '变速：拖动片段的边缘',
+    speedHandle: '拖动以改变速度',
+    speedNone: '只有视频和声音片段可以变速',
   },
   desktop: {
     title: 'OpenFilm 桌面版',
@@ -1095,6 +1098,7 @@ export const zhCN: Words = {
     inPointWhole: '片段已经播放整个文件。先缩短它，才能移动入点。',
     speed: '速度',
     speedLimit: '慢于 {n}× 会碰到后一个片段。在主轨上，打开时间线的主轨磁吸就会把后面的片段往后推。',
+    speedReset: '恢复为 1×（也可双击滑块）',
     speedTooSlow: '慢于 {n}× 会碰到同一轨上的后一个片段。',
     sound: '声音',
     gainDb: '音量',
@@ -1437,6 +1441,7 @@ export const zhCN: Words = {
     tip: {
       trim: '裁剪',
       ripple: '波纹',
+      speed: '变速',
       sourceEnd: '素材到头了',
     },
     trackLocked: '轨道已锁定',

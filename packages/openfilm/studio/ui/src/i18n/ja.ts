@@ -127,6 +127,9 @@ export const ja: Words = {
     clearRange: '範囲を解除',
     splitSelected: '選択したクリップを再生ヘッドで分割',
     splitNone: '再生ヘッドが選択したクリップの上にありません',
+    speed: '速度：クリップの端をドラッグ',
+    speedHandle: 'ドラッグして速度を変更',
+    speedNone: '速度を変えられるのは動画とサウンドのクリップだけです',
   },
   desktop: {
     title: 'OpenFilm デスクトップ版',
@@ -1094,6 +1097,7 @@ export const ja: Words = {
     inPointWhole: 'クリップはファイル全体を再生しています。イン点を動かすには、先に短くしてください。',
     speed: '速度',
     speedLimit: '{n}× より遅くすると次のクリップに重なります。メイントラックでは、タイムラインのマグネットで後ろのクリップが送られます。',
+    speedReset: '1× に戻す（スライダーのダブルクリックでも可）',
     speedTooSlow: '{n}× より遅くすると同じトラックの次のクリップに重なります。',
     sound: 'サウンド',
     gainDb: '音量',
@@ -1436,6 +1440,7 @@ export const ja: Words = {
     tip: {
       trim: 'トリム',
       ripple: 'リップル',
+      speed: '速度',
       sourceEnd: '素材の端です',
     },
     trackLocked: 'トラックはロックされています',
