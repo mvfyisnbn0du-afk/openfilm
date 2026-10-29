@@ -109,8 +109,21 @@ export function fileTime(s: Sound, t: number): number {
   return s.from + (t - s.at) * s.speed;
 }
 
-/** A sound played by a media element: the element, what it goes through in the mix, and when it was last put back. */
-type Voice = { el: HTMLAudioElement; source: MediaElementAudioSourceNode; gain: GainNode; sound: Sound; timer: number; settled: number };
+/**
+ * A sound played by a media element: the element, what it goes through in the mix, when it was last put back, and
+ * what starts it once its file is ready (`ready`, listened for until then).
+ */
+type Voice = { el: HTMLAudioElement; source: MediaElementAudioSourceNode; gain: GainNode; sound: Sound; timer: number; settled: number; ready?: () => void };
+
+/**
+ * Where a sound joins the film when its file is ready only now (its copy was still being made, the file slow to read):
+ * the film second the mix plays at audio-clock time `ctxNow`, not where it was when loading began; null when the
+ * sound has ended by then.
+ */
+export function joinAt(s: Sound, heard: { t: number; at: number }, ctxNow: number, rate: number, from: number): number | null {
+  const now = Math.max(from, heard.t + (ctxNow - heard.at) * rate);
+  return now >= s.at + lengthOf(s) ? null : now;
+}
 
 /** How far film time `t` is from a sound: 0 while it plays, else until it starts; one already past after all those. */
 function awayFrom(s: Sound, t: number) {
@@ -498,10 +511,25 @@ export class Player {
     const gain = this.fades(s, startFilm, when, ctxAt);
     source.connect(gain).connect(this.mix ?? ctx.destination);
     const voice: Voice = { el, source, gain, sound: s, settled: 0, timer: 0 };
-    voice.timer = window.setTimeout(() => {
-      if (!this.voices.includes(voice)) return;
+    /* started once its file is ready, where the film is then (a file not ready in time joins late, in step). Ready
+       now, or on whichever of its events comes first; never twice; let go of with the voice (dropVoice) */
+    const start = () => {
+      if (!this.voices.includes(voice) || voice.ready !== start) return;
+      el.removeEventListener('loadeddata', start);
+      el.removeEventListener('canplay', start);
+      voice.ready = undefined;
+      const now = joinAt(s, heard, ctx.currentTime, r, startFilm);
+      if (now == null) { this.dropVoice(voice); return; }
+      if (Math.abs(el.currentTime - fileTime(s, now)) > DRIFT) el.currentTime = fileTime(s, now);
       el.playbackRate = stretchRate(s.speed, this.rate) ?? 1;
       void el.play().catch(() => {});
+    };
+    voice.timer = window.setTimeout(() => {
+      if (!this.voices.includes(voice)) return;
+      voice.ready = start;
+      if (el.readyState >= 2) { start(); return; }
+      el.addEventListener('loadeddata', start);
+      el.addEventListener('canplay', start);
     }, Math.max(0, (when - ctx.currentTime) * 1000));
     this.voices.push(voice);
   }
@@ -525,6 +553,11 @@ export class Player {
 
   private dropVoice(v: Voice) {
     window.clearTimeout(v.timer);
+    if (v.ready) {
+      v.el.removeEventListener('loadeddata', v.ready);
+      v.el.removeEventListener('canplay', v.ready);
+      v.ready = undefined;
+    }
     v.el.pause();
     v.el.removeAttribute('src');
     v.el.load();

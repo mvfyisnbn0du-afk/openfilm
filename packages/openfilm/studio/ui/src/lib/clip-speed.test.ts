@@ -2,7 +2,8 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { applyDrag } from './timeline-drag.ts';
 import {
-  SPEED_STOPS, canChangeSpeed, edgeHeld, lengthAtSpeed, roundSpeed, speedAtPosition, speedDragEdge, speedForLength, speedPosition, speedRoomMs,
+  SPEED_STOPS, canChangeSpeed, edgeHeld, exactSpeed, lengthAtSpeed, roundSpeed, sliderKeyPosition, speedAtPosition, speedDragEdge, speedForLength,
+  speedPosition, speedRoomMs,
 } from './clip-speed.ts';
 
 test('videos and sounds playing a part of their source have a speed; stills and pages do not', () => {
@@ -100,4 +101,26 @@ test('an edge let go on the nearest frame is free (a round speed), however far z
   /* stopped by the clip after it, 300 ms short of the hand */
   const fenced = applyDrag({ id: 'a', startMs: 0, endMs: 8000 }, 'trim-end', 1300, [], 1, undefined, undefined, { endMs: 9000 });
   assert.equal(edgeHeld(fenced.endMs, 9300), true);
+});
+
+test('a typed speed is kept as typed, to the ten-thousandth, inside the range', () => {
+  assert.equal(exactSpeed(12.34), 12.34);
+  assert.equal(exactSpeed(0.125), 0.125);
+  assert.equal(exactSpeed(1.23456), 1.2346);
+  assert.equal(exactSpeed(0.01), 0.1);
+  assert.equal(exactSpeed(1000), 100);
+});
+
+test('the slider\'s keys: the arrows a step (⇧ five), Page Up / Down a tenth, Home and End its ends; others none', () => {
+  assert.ok(Math.abs(sliderKeyPosition('ArrowRight', 0.5)! - 0.51) < 1e-9);
+  assert.ok(Math.abs(sliderKeyPosition('ArrowDown', 0.5, true)! - 0.45) < 1e-9);
+  assert.ok(Math.abs(sliderKeyPosition('PageUp', 0.5)! - 0.6) < 1e-9);
+  assert.ok(Math.abs(sliderKeyPosition('PageDown', 0.5)! - 0.4) < 1e-9);
+  assert.equal(sliderKeyPosition('Home', 0.5), 0);
+  assert.equal(sliderKeyPosition('End', 0.5), 1);
+  assert.equal(sliderKeyPosition('PageUp', 0.95), 1);
+  assert.equal(sliderKeyPosition('ArrowLeft', 0.005), 0);
+  assert.equal(sliderKeyPosition('a', 0.5), null);
+  /* End is the fastest there is */
+  assert.equal(speedAtPosition(sliderKeyPosition('End', 0.3)!, 0), 100);
 });

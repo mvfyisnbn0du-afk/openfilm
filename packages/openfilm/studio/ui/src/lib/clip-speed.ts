@@ -36,6 +36,11 @@ export function roundSpeed(speed: number): number {
   return Math.min(SPEED_MAX, Math.max(SPEED_MIN, Number(speed.toPrecision(3))));
 }
 
+/** A speed typed in: as typed, to the ten-thousandth (`12.34×`), inside the speeds a clip can have. */
+export function exactSpeed(speed: number): number {
+  return Math.min(SPEED_MAX, Math.max(SPEED_MIN, Math.round(speed * 1e4) / 1e4));
+}
+
 /**
  * The speed for the clip at `lengthMs` on the film, inside the speeds a clip can have. Let go anywhere it is a round
  * one (roundSpeed: `1.6×`); `exact`, when the edge snapped to something, the speed that lands it there, a hair faster
@@ -90,4 +95,21 @@ export function speedDragEdge(edge: 'start' | 'end', ripple: boolean, deltaMs: n
  */
 export function edgeHeld(edgeMs: number, handMs: number): boolean {
   return Math.abs(edgeMs - snapToFrame(handMs)) >= 0.5;
+}
+
+/**
+ * Where a key moves the slider from `pos` (0 to 1): the arrows a step of the scale (⇧ five), Page Up / Down a tenth of
+ * it, Home and End its ends. Null for any other key.
+ */
+export function sliderKeyPosition(key: string, pos: number, shift = false): number | null {
+  const step = shift ? 0.05 : 0.01;
+  switch (key) {
+    case 'ArrowRight': case 'ArrowUp': return Math.min(1, pos + step);
+    case 'ArrowLeft': case 'ArrowDown': return Math.max(0, pos - step);
+    case 'PageUp': return Math.min(1, pos + 0.1);
+    case 'PageDown': return Math.max(0, pos - 0.1);
+    case 'Home': return 0;
+    case 'End': return 1;
+    default: return null;
+  }
 }
