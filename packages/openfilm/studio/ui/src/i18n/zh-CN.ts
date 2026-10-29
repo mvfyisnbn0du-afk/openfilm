@@ -128,6 +128,9 @@ export const zhCN: Words = {
     clearRange: '清除区间',
     splitSelected: '在播放头处分割选中的片段',
     splitNone: '播放头不在选中的片段上',
+    speed: '变速：拖动片段的边缘',
+    speedHandle: '拖动以改变速度',
+    speedNone: '只有视频和声音片段可以变速',
   },
   desktop: {
     title: 'OpenFilm 桌面版',
@@ -1437,6 +1440,7 @@ export const zhCN: Words = {
     tip: {
       trim: '裁剪',
       ripple: '波纹',
+      speed: '变速',
       sourceEnd: '素材到头了',
     },
     trackLocked: '轨道已锁定',

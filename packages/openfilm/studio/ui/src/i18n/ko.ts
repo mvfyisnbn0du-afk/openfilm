@@ -124,6 +124,9 @@ export const ko: Words = {
     clearRange: '구간 해제',
     splitSelected: '선택한 클립을 재생 헤드에서 분할',
     splitNone: '재생 헤드가 선택한 클립 위에 없습니다',
+    speed: '속도: 클립 가장자리를 드래그',
+    speedHandle: '드래그해 속도 변경',
+    speedNone: '속도는 동영상과 사운드 클립에만 있습니다',
   },
   desktop: {
     title: '데스크톱용 OpenFilm',
@@ -1433,6 +1436,7 @@ export const ko: Words = {
     tip: {
       trim: '트림',
       ripple: '리플',
+      speed: '속도',
       sourceEnd: '소스의 끝입니다',
     },
     trackLocked: '트랙 잠김',

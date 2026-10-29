@@ -128,6 +128,9 @@ export const en = {
     clearRange: 'Clear range',
     splitSelected: 'Split selected clips at playhead',
     splitNone: 'The playhead is not over a selected clip',
+    speed: "Speed: drag the clip's edges",
+    speedHandle: 'Drag to change the speed',
+    speedNone: 'Only video and sound clips have a speed',
   },
   desktop: {
     title: 'OpenFilm for desktop',
@@ -1437,6 +1440,7 @@ export const en = {
     tip: {
       trim: 'Trim',
       ripple: 'Ripple',
+      speed: 'Speed',
       sourceEnd: 'End of the media',
     },
     trackLocked: 'Track locked',

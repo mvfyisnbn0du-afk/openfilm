@@ -414,6 +414,18 @@ test('slower with a ripple pushes what follows on its track; without, it says ho
   assert.deepEqual(after(m, planSpeed(m, ['a'], 0.8, { ripple: false })), [[['a', 0, 2.5], ['b', 3, 4]], [['vo', 3, 4]]]);
 });
 
+test('a speed set from the start edge keeps each clip\'s end, back to the clip before; rippling, the start stays', () => {
+  const m = model([['p', 0, 1], ['a', 2, 4], ['b', 4, 5]], [['vo', 4, 5]]);
+  assert.deepEqual(after(m, planSpeed(m, ['a'], 2, { ripple: false, edge: 'start' })), [[['p', 0, 1], ['a', 3, 4], ['b', 4, 5]], [['vo', 4, 5]]]);
+  assert.deepEqual(after(m, planSpeed(m, ['a'], 0.8, { ripple: false, edge: 'start' })), [[['p', 0, 1], ['a', 1.5, 4], ['b', 4, 5]], [['vo', 4, 5]]]);
+  /* 1 s free before it: no slower than 2 s of source over 3 s */
+  const held = planSpeed(m, ['a'], 0.5, { ripple: false, edge: 'start' });
+  assert.deepEqual([held.ops, held.slowest], [[], 0.67]);
+  /* the first clip on its track goes back to the film's start, no further */
+  assert.equal(planSpeed(model([['a', 1, 2]]), ['a'], 0.25, { ripple: false, edge: 'start' }).slowest, 0.5);
+  assert.deepEqual(after(m, planSpeed(m, ['a'], 0.5, { ripple: true, edge: 'start' })), [[['p', 0, 1], ['a', 2, 6], ['b', 6, 7]], [['vo', 4, 5]]]);
+});
+
 test('linked clips get the speed together', () => {
   const m = model([['v', 0, 2, { link: 'v' }]], [['s', 0, 2, { link: 'v' }], ['x', 3, 4]]);
   const out = after(m, planSpeed(m, ['v', 's'], 2, { ripple: true }));

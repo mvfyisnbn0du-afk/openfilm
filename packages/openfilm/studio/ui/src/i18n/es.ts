@@ -127,6 +127,9 @@ export const es: Words = {
     clearRange: 'Quitar rango',
     splitSelected: 'Dividir los clips seleccionados en el cabezal',
     splitNone: 'El cabezal no está sobre un clip seleccionado',
+    speed: 'Velocidad: arrastra los bordes del clip',
+    speedHandle: 'Arrastra para cambiar la velocidad',
+    speedNone: 'Solo los clips de vídeo y de sonido tienen velocidad',
   },
   desktop: {
     title: 'OpenFilm para escritorio',
@@ -1436,6 +1439,7 @@ export const es: Words = {
     tip: {
       trim: 'Recorte',
       ripple: 'Desplazar',
+      speed: 'Velocidad',
       sourceEnd: 'Fin del medio',
     },
     trackLocked: 'Pista bloqueada',

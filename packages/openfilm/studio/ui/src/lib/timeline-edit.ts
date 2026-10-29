@@ -1078,12 +1078,15 @@ export function planRippleTrimTo(model: EditModel, ids: readonly string[], edge:
  * film changes. With `ripple` what comes after on their tracks follows; without, a clip that would run into the next
  * one cannot get that slow: `slowest` says how slow it can go, and nothing changes. With linkage what rides on a
  * main-track clip stays on its footage.
+ *
+ * `edge` is the edge that moves (the timeline's speed handles): the end, or, without `ripple`, the start, each clip
+ * keeping its end, and then the clip before it is the limit. Rippling, the start stays: what follows moves instead.
  */
 export function planSpeed(
   model: EditModel,
   ids: readonly string[],
   speed: number,
-  opts: { ripple: boolean } & Partial<Switches>,
+  opts: { ripple: boolean; edge?: 'start' | 'end' } & Partial<Switches>,
 ): EditPlan & { slowest?: number } {
   const d = draftOf(model);
   const rides = opts.linkage ? ridesOf(d, mainTrackOf(model), new Set(ids)) : new Map<string, Ride>();
@@ -1092,17 +1095,25 @@ export function planSpeed(
   if (!main || !(speed > 0)) return emptyPlan();
   const grow = (c: EditClip) => (lenOf(c) * c.speed) / speed - lenOf(c);
   if (!opts.ripple) {
-    /* each may grow only into the free time after it */
+    const head = opts.edge === 'start';
+    /* each may grow only into the free time after it (its head: before it, back to the film's start) */
     let slowest = 0;
     for (const { track, clip } of parts) {
-      const next = track.clips.filter((x) => x !== clip && x.startMs >= clip.endMs - TOUCH_MS);
-      if (!next.length) continue;
-      const free = Math.max(0, Math.min(...next.map((x) => x.startMs)) - clip.endMs);
+      let free: number;
+      if (head) {
+        const prev = track.clips.filter((x) => x !== clip && x.endMs <= clip.startMs + TOUCH_MS);
+        free = Math.max(0, clip.startMs - Math.max(0, ...prev.map((x) => x.endMs)));
+      } else {
+        const next = track.clips.filter((x) => x !== clip && x.startMs >= clip.endMs - TOUCH_MS);
+        if (!next.length) continue;
+        free = Math.max(0, Math.min(...next.map((x) => x.startMs)) - clip.endMs);
+      }
       slowest = Math.max(slowest, (lenOf(clip) * clip.speed) / (lenOf(clip) + free));
     }
     if (speed < slowest - 1e-9) return { ...emptyPlan(), slowest: Math.ceil(slowest * 100) / 100 };
     for (const { clip } of parts) {
-      clip.endMs += grow(clip);
+      if (head) clip.startMs -= grow(clip);
+      else clip.endMs += grow(clip);
       clip.speed = speed;
     }
     carry(d, rides);
