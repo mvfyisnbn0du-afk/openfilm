@@ -48,6 +48,8 @@ export interface MentionProvider {
   id: string;
   /** The group title, already localized; this layer has no i18n. */
   groupLabel: string;
+  /** The most rows it shows (MENTION_MENU_LIMIT); Infinity for a group a person scrolls through whole. */
+  limit?: number;
   items: MentionItem[];
 }
 
@@ -150,7 +152,7 @@ export function scoreMentionItem(item: MentionItem, query: string): number | nul
   return best;
 }
 
-/** The most rows a group shows; with hundreds of files, typing a little more beats scrolling. */
+/** The most rows a group shows unless it says; with hundreds of files, typing a little more beats scrolling. */
 export const MENTION_MENU_LIMIT = 20;
 
 /**
@@ -159,11 +161,7 @@ export const MENTION_MENU_LIMIT = 20;
  * Groups stay together, each one kind of thing; sorting happens only within a group. Each
  * group is cut on its own, so a long one (files) never pushes a later one out of the menu.
  */
-export function buildMentionMenu(
-  providers: MentionProvider[],
-  query: string,
-  limit: number = MENTION_MENU_LIMIT,
-): MentionEntry[] {
+export function buildMentionMenu(providers: MentionProvider[], query: string): MentionEntry[] {
   const entries: MentionEntry[] = [];
   for (const provider of providers) {
     provider.items
@@ -177,7 +175,7 @@ export function buildMentionMenu(
         // Ties keep the provider's order (files come newest first).
         return a.order - b.order;
       })
-      .slice(0, limit)
+      .slice(0, provider.limit ?? MENTION_MENU_LIMIT)
       .forEach((row, index) => {
         entries.push({
           item: row.item,

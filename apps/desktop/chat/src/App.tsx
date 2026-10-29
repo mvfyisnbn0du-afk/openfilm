@@ -430,10 +430,12 @@ function ChatPane({ project, banners, selection, assetsOpen }: { project: Projec
           select: () => takeStudioRefs(picked),
         }],
       },
-      /* the skills, each the pill the Skills button makes: before the files, a short list above what can be hundreds */
+      /* the skills, each the pill the Skills button makes: before the files, a short list above what can be hundreds.
+         Every one, uncut: an agent's own can be a hundred or more, and a person may not remember the name to type */
       {
         id: 'skills',
         groupLabel: t('skills.button'),
+        limit: Infinity,
         items: nameableSkills.map((skill) => {
           const words = skillWords(skill.name, skill.description);
           return {
