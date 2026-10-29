@@ -1798,11 +1798,26 @@
       const COPY = 'data-openfilm-copy';
       const looks = (parent) => [...parent.querySelectorAll(`:scope > :not([${COPY}]), :scope > :not([${COPY}]) *`)]
         .filter((x) => !x.closest(`[${COPY}]`))
-        .map((x) => LOOKED.map((p) => view.getComputedStyle(x).getPropertyValue(p)).join('|')).join('\n');
+        .map((x) => [...LOOKED.map((p) => view.getComputedStyle(x).getPropertyValue(p)), ...['::before', '::after'].map((pe) => view.getComputedStyle(x, pe).getPropertyValue('content'))].join('|')).join('\n');
+      /* a copy as lib/layer-paste writes it: its ids new ones, and what in it names them too (`for`, `href="#…"`,
+         `aria-*`, `url(#…)`) */
+      const NAMES_IDS = ['for', 'aria-labelledby', 'aria-describedby', 'aria-controls', 'aria-owns', 'list', 'form', 'headers'];
       const copyOf = (el) => {
         const copy = el.cloneNode(true);
         copy.setAttribute(COPY, '');
-        for (const n of [copy, ...copy.querySelectorAll('[id]')]) if (n.id) n.id = `${n.id}-openfilm-copy`;
+        const all = [copy, ...copy.querySelectorAll('*')];
+        const ids = new Set(all.map((n) => n.id).filter(Boolean));
+        const renamed = (id) => (ids.has(id) ? `${id}-openfilm-copy` : id);
+        for (const n of all) {
+          if (n.id) n.id = renamed(n.id);
+          for (const a of [...n.attributes]) {
+            let v = a.value;
+            if (NAMES_IDS.includes(a.name)) v = v.split(/\s+/).map(renamed).join(' ');
+            else if ((a.name === 'href' || a.name === 'xlink:href') && v.startsWith('#')) v = `#${renamed(v.slice(1))}`;
+            else v = v.replace(/url\((["']?)#([^"')]+)\1\)/g, (m, q, id) => `url(${q}#${renamed(id)}${q})`);
+            if (v !== a.value) n.setAttribute(a.name, v);
+          }
+        }
         return copy;
       };
       const put = (copy, parent, after) => {
@@ -1840,9 +1855,23 @@
          says it (`var()`, `currentColor`, an animation stay what they are); the second answered, property by property,
          by what the element's own rules say (none: `unset`, so it inherits). Each with its rule's weight, at-rules and
          stylesheet, for a rule of the copy's that the cascade weighs as that one */
-      const rules = styleRules(doc).map((r, order) => ({ ...r, order }));
-      const weightOf = (r, el) => r.parts.filter((p) => { try { return el.matches(p); } catch { return false; } })
-        .map(specificityOf).reduce((m, x) => ((x[0] - m[0] || x[1] - m[1] || x[2] - m[2]) > 0 ? x : m), [0, 0, 0]);
+      /* each rule's parts with the pseudo-element they end in apart (`::before`, `::marker` …: what an element's own
+         match cannot say), so a rule of an element's pseudo-element is weighed as the element's, and said again of
+         the copy's same pseudo-element */
+      const PSEUDO = /(?:::?(?:before|after|first-line|first-letter)|::[\w-]+(?:\([^)]*\))?)+$/i;
+      const rules = styleRules(doc).map((r, order) => ({
+        ...r,
+        order,
+        split: r.parts.map((part) => {
+          const m = PSEUDO.exec(part);
+          return m ? { part, base: part.slice(0, m.index).trim() || '*', pseudo: m[0] } : { part, base: part, pseudo: '' };
+        }),
+      }));
+      const pseudosOf = (r) => [...new Set(r.split.map((x) => x.pseudo))];
+      const found = (r, el, pseudo) => r.split.filter((x) => x.pseudo === pseudo && matchesAny(el, [x.base]));
+      /* the element part's weight: the pseudo-element is written again after the copy's selector, and weighs there */
+      const weightOf = (r, el, pseudo) => found(r, el, pseudo).map((x) => specificityOf(x.base))
+        .reduce((m, x) => ((x[0] - m[0] || x[1] - m[1] || x[2] - m[2]) > 0 ? x : m), [0, 0, 0]);
       const heavier = (x, y) => (x[0] - y[0] || x[1] - y[1] || x[2] - y[2]);
       const looksOf = (el, copy) => {
         const from = [el, ...el.querySelectorAll('*')];
@@ -1850,26 +1879,28 @@
         return from.flatMap((src, k) => {
           const out = to[k];
           if (!out || out.localName !== src.localName) return [];
-          const own = rules.filter((r) => matchesAny(src, r.parts));
           const said = [];
-          for (const r of own) {
-            if (matchesAny(out, r.parts)) continue;
-            said.push({ sheet: r.sheet, within: r.within, weight: weightOf(r, src), decls: declsOf(r.style) });
-          }
           for (const r of rules) {
-            if (!matchesAny(out, r.parts) || matchesAny(src, r.parts)) continue;
-            const decls = [];
-            for (let i = 0; i < r.style.length; i++) {
-              const p = r.style[i];
-              /* its own winning rule for it: !important first, then the heavier, then the later */
-              const by = own.filter((x) => x.style.getPropertyValue(p)).sort((x, y) => (
-                (x.style.getPropertyPriority(p) === 'important') - (y.style.getPropertyPriority(p) === 'important')
-                || heavier(weightOf(x, src), weightOf(y, src)) || x.order - y.order
-              )).at(-1);
-              const priority = by?.style.getPropertyPriority(p) === 'important' ? ' !important' : '';
-              decls.push([p, by ? `${by.style.getPropertyValue(p)}${priority}` : 'unset']);
+            for (const pseudo of pseudosOf(r)) {
+              const mine = found(r, src, pseudo).length > 0;
+              const its = found(r, out, pseudo).length > 0;
+              if (mine && !its) said.push({ sheet: r.sheet, within: r.within, pseudo, weight: weightOf(r, src, pseudo), decls: declsOf(r.style) });
+              if (its && !mine) {
+                const own = rules.filter((x) => found(x, src, pseudo).length);
+                const decls = [];
+                for (let i = 0; i < r.style.length; i++) {
+                  const p = r.style[i];
+                  /* its own winning rule for it: !important first, then the heavier, then the later */
+                  const by = own.filter((x) => x.style.getPropertyValue(p)).sort((x, y) => (
+                    (x.style.getPropertyPriority(p) === 'important') - (y.style.getPropertyPriority(p) === 'important')
+                    || heavier(weightOf(x, src, pseudo), weightOf(y, src, pseudo)) || x.order - y.order
+                  )).at(-1);
+                  const priority = by?.style.getPropertyPriority(p) === 'important' ? ' !important' : '';
+                  decls.push([p, by ? `${by.style.getPropertyValue(p)}${priority}` : 'unset']);
+                }
+                said.push({ sheet: r.sheet, within: r.within, pseudo, weight: weightOf(r, out, pseudo), decls });
+              }
             }
-            said.push({ sheet: r.sheet, within: r.within, weight: weightOf(r, out), decls });
           }
           return said.length ? [{ path: pathIn(el, src), rules: said }] : [];
         });

@@ -573,7 +573,7 @@ test('a copy goes where the page\'s CSS draws nothing beside it otherwise: not w
  * A paste into its own page, as the editor makes it (layerSource, afterCopy, lib/layer-paste pastedPage), the page
  * then drawn as written: per element asked, `props` of it and of its copy, and the color of every other element.
  */
-async function pastedLook(css, body, id, props, at = 0.5) {
+async function pastedLook(css, body, id, props, at = 0.5, pseudos = []) {
   const dir = mkdtempSync(join(tmpdir(), 'of-stage-look-'));
   const page = `<!doctype html><head><style>${css}</style></head><body style="margin:0">${body}<script>window.film={duration:2,frame(){}}</script></body>`;
   writeFileSync(join(dir, 'card.html'), page);
@@ -595,14 +595,17 @@ async function pastedLook(css, body, id, props, at = 0.5) {
     const drawn = await stage.browser.newPage();
     try {
       await drawn.setContent(out.text);
-      return await drawn.evaluate(({ id, props, at }) => {
+      return await drawn.evaluate(({ id, props, at, pseudos }) => {
         for (const a of document.getAnimations()) { a.pause(); a.currentTime = at * 1000; }
-        const look = (el) => props.map((p) => getComputedStyle(el).getPropertyValue(p));
+        const look = (el) => [
+          ...props.map((p) => getComputedStyle(el).getPropertyValue(p)),
+          ...pseudos.map((pe) => { const cs = getComputedStyle(el, pe); return `${pe} ${cs.content} ${cs.color} ${cs.fontSize}`; }),
+        ];
         const deep = (el) => [...el.querySelectorAll('*')].map((n) => look(n).join(' '));
         const copy = document.getElementById(`${id}-copy`);
         const others = [...document.querySelectorAll('body *:not(script)')].filter((e) => !e.closest('[id$="-copy"]')).map((e) => `${e.id || e.localName}:${getComputedStyle(e).color}`);
         return { el: look(document.getElementById(id)), copy: look(copy), inside: [deep(document.getElementById(id)), deep(copy)], others };
-      }, { id, props, at });
+      }, { id, props, at, pseudos });
     } finally { await drawn.close(); }
   } finally {
     await stage.close();
@@ -648,6 +651,26 @@ test('a one-digit id, and an id with a dot: the copy keeps its id rules, and onl
   const dot = await pastedLook('#a\\.b{color:blue} #a{font-weight:700}', '<div id="col"><p id="a">A</p><p id="a.b">B</p></div>', 'a', ['color', 'font-weight']);
   assert.deepEqual(dot.copy, dot.el);
   assert.ok(dot.others.includes('a.b:rgb(0, 0, 255)'), 'the other one as it was');
+});
+
+test('a copy keeps the rules of its pseudo-elements: ::before, ::after, ::first-letter, ::marker, ::placeholder, ::selection', { timeout: 120_000 }, async () => {
+  const pseudos = ['::before', '::after', '::first-letter', '::marker', '::placeholder', '::selection'];
+  const cases = [
+    ['of its id', '#a::before{content:"\\2605";color:red} #a::after{content:"!"} #a::first-letter{font-size:30px} #a::selection{color:green}', '<div id="col"><p id="a">A</p><p id="b">B</p></div>', 'a'],
+    ['by its place', '#col p:first-child::before{content:"1. "} #col p + p::after{content:" (more)"}', '<div id="col"><p id="a">A</p><p id="b">B</p></div>', 'a'],
+    ['a list\'s marker', '#lst li:first-child::marker{color:red}', '<ul id="lst"><li id="a">A</li><li id="b">B</li></ul>', 'a'],
+    ['a field\'s placeholder', '#in::placeholder{color:red}', '<div id="col"><input id="in" placeholder="Name"></div>', 'in'],
+  ];
+  for (const [name, css, body, id] of cases) {
+    const seen = await pastedLook(css, body, id, ['color'], 0.5, pseudos);
+    assert.deepEqual(seen.copy, seen.el, `${name}: the copy's pseudo-elements as its original's`);
+  }
+});
+
+test('a rule of what names an id in the copy (a label\'s for) finds the copy\'s, renamed as it is', { timeout: 60_000 }, async () => {
+  const seen = await pastedLook('label[for="x"]{color:purple} a[href="#x"]{font-weight:700}', '<div id="col"><div id="f"><label for="x">Name</label><a href="#x">go</a><input id="x"></div></div>', 'f', ['color', 'font-weight']);
+  assert.deepEqual(seen.inside[1], seen.inside[0]);
+  assert.ok(seen.inside[0][0].startsWith('rgb(128, 0, 128)'), seen.inside[0][0]);
 });
 
 test('what a copy keeps from its original\'s place stays live: var(), currentColor and an animation', { timeout: 60_000 }, async () => {

@@ -38,7 +38,14 @@ export interface PasteLayer {
 }
 
 /** A rule written for a copy, weighed as the page's rule it answers: its declarations, as written. */
-export interface CopyRule { sheet: number; within: string[]; weight: [number, number, number]; decls: Array<[string, string]> }
+export interface CopyRule {
+  sheet: number;
+  within: string[];
+  /** The pseudo-element the page's rule is of (`::before` …), '' the element's own. */
+  pseudo?: string;
+  weight: [number, number, number];
+  decls: Array<[string, string]>;
+}
 
 /** Where a layer is in the page's file, as the browser reads the file: its path from `<body>`, and its shape. */
 export interface PasteTarget {
@@ -363,7 +370,7 @@ export function pastedPage(text: string, items: readonly PasteItem[], offset: nu
       const had = n.attrs.find((a) => a.name === 'id')?.value;
       let id = n === el ? rootId : had ? renamed.get(had) : added.get(n);
       if (!id) { id = copyId(n.attrs.find((a) => a.name === 'class')?.value?.split(/\s+/)[0] || n.tag, taken); added.set(n, id); }
-      for (const r of own) scoped.push({ sheet: r.sheet, text: wrapped(r.within, `${weighted(id, r.weight)} { ${r.decls.map(([p, v]) => `${p}: ${v};`).join(' ')} }`) });
+      for (const r of own) scoped.push({ sheet: r.sheet, text: wrapped(r.within, `${weighted(id, r.weight)}${r.pseudo ?? ''} { ${r.decls.map(([p, v]) => `${p}: ${v};`).join(' ')} }`) });
     }
     for (const { path, tag, ...tweak } of layer.tweaks) {
       const n = at.get(path.join('.'));
