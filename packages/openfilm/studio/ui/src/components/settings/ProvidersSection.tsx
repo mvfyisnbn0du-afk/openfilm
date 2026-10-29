@@ -5,6 +5,7 @@
  *
  * ElevenLabs, OpenAI, Google, Microsoft Azure, fal.ai, Groq, Pexels, Pixabay, Brave Search and Tavily connect with the person's
  * own key, which pays that service directly when it charges (a key in the environment shows as such and stays there).
+ * Keenable also works without one: Connect connects it at once, and a key can be added after, for higher limits.
  * Which of them makes each kind of media, and with which model, is Settings → Services, with the person's own custom
  * services (CustomServices).
  */
@@ -81,7 +82,10 @@ function abilityPhrase(verbs: readonly ProviderVerb[], t: (key: string) => strin
   return words.length > 1 ? `${words.slice(0, -1).join(', ')} ${t('settings.providers.and')} ${words.at(-1)}` : words[0] ?? '';
 }
 
-/** A service paid with the person's own key: connected by pasting one (kept here, or read from the environment). */
+/**
+ * A service paid with the person's own key: connected by pasting one (kept here, or read from the environment). One that
+ * works without a key (`keyless`) connects with one click, and takes a key afterwards.
+ */
 function KeyRow({ provider, hook }: { provider: OwnProvider; hook: ProvidersHook }) {
   const t = useT();
   const [adding, setAdding] = React.useState(false);
@@ -91,6 +95,9 @@ function KeyRow({ provider, hook }: { provider: OwnProvider; hook: ProvidersHook
   const [region, setRegion] = React.useState('');
   const saving = hook.busy === provider.id;
   const key = azure ? azureKey(region, draft) : draft.trim() ? draft : null;
+  /* a key can be pasted while there is none: not connected, or connected without one */
+  const keyless = Boolean(provider.keyless);
+  const keyWanted = !provider.source || (keyless && !provider.last4);
 
   const close = () => { setAdding(false); setDraft(''); setRegion(''); };
   const save = async () => {
@@ -105,19 +112,24 @@ function KeyRow({ provider, hook }: { provider: OwnProvider; hook: ProvidersHook
       name={provider.name}
       badge={provider.source ? (
         <Connected>
-          <span className="font-mono tabular-nums text-[var(--text-faint)]" aria-label={t('settings.providers.keyEnding').replaceAll('{last4}', provider.last4 ?? '')}>
-            •••• {provider.last4}
-          </span>
+          {provider.last4 ? (
+            <span className="font-mono tabular-nums text-[var(--text-faint)]" aria-label={t('settings.providers.keyEnding').replaceAll('{last4}', provider.last4)}>
+              •••• {provider.last4}
+            </span>
+          ) : null}
         </Connected>
       ) : null}
       action={provider.source ? (
-        <SettingsButton variant="quiet" disabled={saving} onClick={() => void hook.removeKey(provider.id)}>{t('settings.providers.disconnect')}</SettingsButton>
+        <>
+          {keyWanted && !adding ? <SettingsButton variant="quiet" onClick={() => setAdding(true)}>{t('settings.providers.addKey')}</SettingsButton> : null}
+          <SettingsButton variant="quiet" disabled={saving} onClick={() => void hook.removeKey(provider.id)}>{t('settings.providers.disconnect')}</SettingsButton>
+        </>
       ) : adding ? null : (
-        <SettingsButton onClick={() => setAdding(true)}>
+        <SettingsButton disabled={saving} onClick={() => (keyless ? void hook.saveKey(provider.id, '') : setAdding(true))}>
           <Plus size={15} strokeWidth={2} />{t('settings.providers.connect')}
         </SettingsButton>
       )}
-      below={adding && !provider.source ? (
+      below={adding && keyWanted ? (
         <form className="pl-[34px]" onSubmit={(e) => { e.preventDefault(); void save(); }}>
           <SettingsInset>
             {azure ? (
@@ -172,6 +184,8 @@ function KeyRow({ provider, hook }: { provider: OwnProvider; hook: ProvidersHook
       ) : null}
     >
       {abilityPhrase(ABILITY_ORDER.filter((v) => provider.verbs.includes(v)), t)}
+      {/* what goes to a service connected with no key, said before it is connected */}
+      {keyless ? <span className="block">{t('settings.providers.keyless').replaceAll('{name}', provider.name)}</span> : null}
     </Row>
   );
 }
