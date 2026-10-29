@@ -253,12 +253,20 @@ const START_LAG = 0.08;   // s: how long play() takes to get a video going
 /** Keep a playing video at `want` as the film plays at `rate`: its pace nudged when it drifts, sought when far off. */
 function roll(c, want, rate) {
   const v = c.el;
+  const speed = (c.span.speed ?? 1) * rate;
+  /* At high clip × viewer rates the browser cannot roll: follow the film by seeking, as when autoplay is refused. */
+  if (speed > 16) {
+    if (!v.paused) v.pause();
+    c.steer = 0; c.off = 0;
+    step(c, want);
+    return;
+  }
   const drift = v.currentTime - want;
   if (Math.abs(drift) > ROLL_SEEK || v.ended) { v.currentTime = want; c.steer = 0; c.off = 0; }
   else if (Math.abs(drift) > ROLL_STEER) { c.off = (c.off ?? 0) + 1; if (c.off >= 2) c.steer = drift > 0 ? -1 : 1; }
   else { c.off = 0; if (Math.abs(drift) < ROLL_SETTLE) c.steer = 0; }
   /* the pace is written only when it changes: each write is work for the media pipeline */
-  const pace = (c.span.speed ?? 1) * rate * (1 + (c.steer ?? 0) * ROLL_NUDGE);
+  const pace = Math.max(1 / 16, Math.min(16, speed * (1 + (c.steer ?? 0) * ROLL_NUDGE)));
   if (Math.abs(v.playbackRate - pace) > 1e-4) v.playbackRate = pace;
   if (v.paused) v.play().catch((e) => { if (e?.name === 'NotAllowedError') c.held = true; });
   c.lastWant = want;
@@ -362,7 +370,7 @@ function getReady(c, lead, rate) {
     v.currentTime = cue;
     c.cued = c.lastWant = cue;
   }
-  if (lead < rolling + START_LAG * rate && v.paused && !v.seeking && !c.held) {
+  if (speed * rate <= 16 && lead < rolling + START_LAG * rate && v.paused && !v.seeking && !c.held) {
     v.playbackRate = speed * rate;
     v.play().catch((e) => { if (e?.name === 'NotAllowedError') c.held = true; });
   }

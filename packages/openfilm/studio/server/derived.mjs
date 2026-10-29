@@ -159,13 +159,15 @@ const makingSound = new Map();
  * The sound of a media file as the editor plays it, small: a compressed sound file of up to COMPACT_BYTES is its
  * own; any other (a video, a WAV, a long recording) gets a copy of its sound in `.film/cache/audio/`, AAC in .m4a:
  * the file's own AAC as it is, any other sound encoded at 128 kb/s, stereo at most. Made once per version of the
- * file; returns the path to play, or null when there is no sound in it. Exports mix from the files themselves.
- * @param {string} root @param {string} rel
+ * file; returns the path to play, or null when there is no sound in it. At speed 4, a separate copy plays four times
+ * faster with its pitch kept, for clip × viewer rates beyond the browser's range. Exports mix from the originals.
+ * @param {string} root @param {string} rel @param {number} speed
  */
-export async function soundOf(root, rel) {
+export async function soundOf(root, rel, speed = 1) {
+  if (speed !== 1 && speed !== 4) throw new MediaError('sound speed: 1 or 4', 400);
   const { abs, key } = await source(root, rel);
-  if (COMPACT.test(rel) && (await stat(abs)).size <= COMPACT_BYTES) return abs;
-  const out = join(root, TOOL_DIR, 'cache', 'audio', `${key}.m4a`);
+  if (speed === 1 && COMPACT.test(rel) && (await stat(abs)).size <= COMPACT_BYTES) return abs;
+  const out = join(root, TOOL_DIR, 'cache', 'audio', `${key}${speed === 1 ? '' : '-4x'}.m4a`);
   if (existsSync(out)) return out;
   let made = makingSound.get(out);
   if (!made) {
@@ -175,11 +177,12 @@ export async function soundOf(root, rel) {
       const stream = info.streams?.[0] ?? {};
       const channels = Number(stream.channels) || 2;
       /* AAC is what a browser decodes everywhere: kept as it is when it is that already (no loss, no time) */
-      const codec = stream.codec_name === 'aac' && channels <= 2 ? ['-c:a', 'copy'] : ['-c:a', 'aac', '-b:a', '128k', '-ac', String(Math.min(2, channels))];
+      const codec = speed === 1 && stream.codec_name === 'aac' && channels <= 2 ? ['-c:a', 'copy'] : ['-c:a', 'aac', '-b:a', '128k', '-ac', String(Math.min(2, channels))];
+      const tempo = speed === 4 ? ['-af', 'atempo=2,atempo=2'] : [];
       await mkdir(join(root, TOOL_DIR, 'cache', 'audio'), { recursive: true });
       const part = `${out}.part`;
       try {
-        await tool('ffmpeg', ['-v', 'error', '-nostdin', '-y', '-i', abs, '-map', '0:a:0', '-vn', '-sn', '-dn', ...codec, '-f', 'mp4', part], SOUND_SLOTS);
+        await tool('ffmpeg', ['-v', 'error', '-nostdin', '-y', '-i', abs, '-map', '0:a:0', '-vn', '-sn', '-dn', ...tempo, ...codec, '-f', 'mp4', part], SOUND_SLOTS);
         await rename(part, out);
       } catch (e) {
         await rm(part, { force: true });

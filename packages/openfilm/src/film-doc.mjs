@@ -19,7 +19,7 @@ export const FILM_FILE = 'film.html';
 /** The stage of a film that says none. */
 export const DEFAULT_STAGE = Object.freeze({ w: 1920, h: 1080 });
 export const SPEED_MIN = 0.25;
-export const SPEED_MAX = 4;
+export const SPEED_MAX = 16;
 const TRIM_EPS = 1e-6;
 
 const STILL_EXTENSIONS = new Set(['png', 'jpg', 'jpeg', 'webp', 'avif', 'gif', 'bmp', 'svg']);

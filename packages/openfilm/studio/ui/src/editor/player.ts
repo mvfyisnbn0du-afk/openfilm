@@ -13,7 +13,8 @@
  * studio/server/pages.mjs): a video's is a copy of its sound alone, never the whole video. A sound heard at its own
  * speed (its clip's speed by the viewer's is 1) is decoded and played sample-accurate. One heard faster or slower is
  * played by the browser's own media element with its pitch kept (`preservesPitch`), in the same mix: another speed is
- * heard at once, with nothing made for it, and its place is checked against the film as it plays. A sound not here yet
+ * heard at once, and its place is checked against the film as it plays. Beyond 16× combined speed it uses a cached
+ * 4× sound copy, its source coordinates scaled with it, so the browser still plays within its range. A sound not here yet
  * (its copy still being made) is silent until it is, then joins where the film is. Sounds are started a few seconds
  * ahead of the film, not all at once: a film of hundreds of sounds starts as quickly as one of a few.
  *
@@ -216,9 +217,9 @@ export class Player {
   }
 
   /** The address of a file's sound, small (`?film-sound`), past the browser's cache when the file was made again. */
-  private soundUrl(src: string): string {
+  private soundUrl(src: string, speed = 1): string {
     const url = new URL(src, this.origin);
-    url.searchParams.set('film-sound', '1');
+    url.searchParams.set('film-sound', String(speed));
     const version = this.versionOf(src);
     if (version !== undefined) url.searchParams.set('v', String(version));
     return url.href;
@@ -473,6 +474,10 @@ export class Player {
   private voice(s: Sound, heard: { t: number; at: number }) {
     const ctx = this.context();
     const r = this.rate;
+    /* One 4× copy serves every clip/viewer pair above the browser's 16× limit (up to 16 × 4). Its source
+       coordinates are quartered too; film placement, length, volume and fade times stay the same. */
+    const copySpeed = s.speed * r > 16 ? 4 : 1;
+    if (copySpeed !== 1) s = { ...s, from: s.from / copySpeed, to: s.to / copySpeed, speed: s.speed / copySpeed };
     const ctxAt = (filmT: number) => heard.at + (filmT - heard.t) / r;
     const end = s.at + lengthOf(s);
     const soonest = ctx.currentTime + LEAD;
@@ -484,7 +489,7 @@ export class Player {
     el.crossOrigin = 'anonymous';
     el.preload = 'auto';
     el.preservesPitch = true;
-    el.src = this.soundUrl(s.src);
+    el.src = this.soundUrl(s.src, copySpeed);
     el.defaultPlaybackRate = el.playbackRate = stretchRate(s.speed, r) ?? 1;
     el.currentTime = fileTime(s, startFilm);
     const source = ctx.createMediaElementSource(el);
@@ -492,9 +497,17 @@ export class Player {
     source.connect(gain).connect(this.mix ?? ctx.destination);
     const voice: Voice = { el, source, gain, sound: s, settled: 0, timer: 0 };
     voice.timer = window.setTimeout(() => {
-      if (!this.voices.includes(voice)) return;
-      el.playbackRate = stretchRate(s.speed, this.rate) ?? 1;
-      void el.play().catch(() => {});
+      const start = () => {
+        if (!this.voices.includes(voice)) return;
+        /* A cold copy can take seconds. Join where the film is now, before making any sound. */
+        const now = Math.max(startFilm, heard.t + (ctx.currentTime - heard.at) * r);
+        if (now >= end) { this.dropVoice(voice); return; }
+        el.currentTime = fileTime(s, now);
+        el.playbackRate = stretchRate(s.speed, r) ?? 1;
+        void el.play().catch(() => {});
+      };
+      if (el.readyState >= 2) start();
+      else el.addEventListener('loadeddata', start, { once: true });
     }, Math.max(0, (when - ctx.currentTime) * 1000));
     this.voices.push(voice);
   }
