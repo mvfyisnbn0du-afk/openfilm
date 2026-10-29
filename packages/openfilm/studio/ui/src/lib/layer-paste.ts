@@ -7,8 +7,8 @@
  * (studio/server/stage.js `afterCopy`), with:
  *   - new ids (`<id>-copy`), and what in it names them (`url(#…)`, `href="#…"`, `for`, `aria-*`);
  *   - the page's CSS rules of the old ids said again of the new ones, only the parts naming them, in the page's head;
- *   - the clip's changes of it and of what is in it written in (styles, moves, words), and what the page's CSS gives
- *     it where it is that it would not give the copy where it goes (a `:first-child`, a `p + p`);
+ *   - the clip's changes of it and of what is in it written in (styles, moves, words), and what the page's rules give
+ *     it where it is that they would not give the copy where it goes (a `:first-child`, a `p + p`), as they write it;
  *   - no scripts and no `on…` handlers (they would run twice, as the page's own code: a copy is a picture);
  *   - when it was in the page's flow, held where it was laid out (`position: absolute`, its size), so nothing else
  *     moves; and `offset` px lower and to the right.
@@ -57,8 +57,11 @@ export interface PasteItem {
   target: PasteTarget;
   place?: { after: number; siblings: string[] };
   over?: PasteTarget;
-  /** What the page's CSS draws otherwise on the copy there than on the layer (`afterCopy`): the layer's, written on it. */
-  look?: Array<{ path: number[]; decls: Array<[string, string]> }>;
+  /**
+   * What the page's rules give the layer and not its copy where it goes, and the copy and not it (`afterCopy`), element
+   * by element: declarations as the rules write them, with the at-rules they are in, said again of the copy.
+   */
+  look?: Array<{ path: number[]; decls: Array<{ within: string[]; prop: string; value: string }> }>;
 }
 
 export interface PastedPage {
@@ -279,10 +282,18 @@ export function pastedPage(text: string, items: readonly PasteItem[], offset: nu
       for (const [k, v] of decls) { m.delete(k); m.set(k, v); }
       css.set(n, m);
     };
-    /* what the page's CSS gives the layer where it is (a :first-child, a p + p), and not its copy where it goes */
+    /* what the page's rules give the layer where it is (a :first-child, a p + p) and not its copy where it goes: in
+       the copy's own style, as the rules write it; inside an at-rule (a @media), a rule of the copy's id there */
+    const scoped: string[] = [];
     for (const { path, decls } of look ?? []) {
       const n = at.get(path.join('.'));
-      if (n) put(n, decls);
+      if (!n) continue;
+      put(n, decls.filter((d) => !d.within.length).map((d): [string, string] => [d.prop, d.value]));
+      const own = n.attrs.find((a) => a.name === 'id')?.value;
+      const id = n === el ? rootId : own ? renamed.get(own) : undefined;
+      for (const d of id ? decls.filter((x) => x.within.length) : []) {
+        scoped.push(d.within.reduceRight((inner, w) => `${w} { ${inner} }`, `#${id} { ${d.prop}: ${d.value}; }`));
+      }
     }
     for (const { path, tag, ...tweak } of layer.tweaks) {
       const n = at.get(path.join('.'));
@@ -301,7 +312,7 @@ export function pastedPage(text: string, items: readonly PasteItem[], offset: nu
       put(el, [['translate', `${x + offset}px ${y + offset}px`]]);
     }
     const copy = copyMarkup(text, el, { renamed, rootId, css, words });
-    rules.push(...rulesFor(layer.idRules, renamed));
+    rules.push(...rulesFor(layer.idRules, renamed), ...scoped);
     /* where it goes: over the copy before; else at its place among the elements beside it, when the file has them
        as the page draws them; else right after it */
     const parent = target.path.length > 1 ? elementAt(body, target.path.slice(0, -1), target.tags.slice(0, -1)) : body;

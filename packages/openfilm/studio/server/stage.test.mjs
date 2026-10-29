@@ -587,7 +587,7 @@ test('a copy keeps the look the page\'s CSS gives its original where it is (a :f
         const el = doc.getElementById(id);
         const copy = el.cloneNode(true);
         copy.id = `${id}-copy`;
-        for (const { path, decls } of looks[0] ?? []) if (!path.length) for (const [p, v] of decls) copy.style.setProperty(p, v);
+        for (const { path, decls } of looks[0] ?? []) if (!path.length) for (const d of decls) if (!d.within.length) copy.style.setProperty(d.prop, d.value);
         const kids = [...el.parentElement.children];
         if (after < 0) el.parentElement.prepend(copy); else kids[after].after(copy);
         const look = (n) => { const cs = getComputedStyle(n); return [cs.color, cs.borderTopWidth]; };
@@ -596,9 +596,54 @@ test('a copy keeps the look the page\'s CSS gives its original where it is (a :f
         return out;
       }, { id, after: after.places[0].after, looks: after.looks });
       assert.deepEqual(seen.copy, seen.el, `the copy of ${id} looks as ${id}`);
-      assert.deepEqual(after.looks[0][0].decls.map(([p]) => p), id === 'a' ? ['color', 'border-top'] : ['color'], 'only what differs');
+      assert.deepEqual(after.looks[0][0].decls.map((d) => `${d.prop}: ${d.value}`), id === 'a' ? ['color: rgb(255, 0, 0)', 'border-top: initial'] : ['color: rgb(0, 128, 0)'], 'only what differs, as the rules say it');
       assert.deepEqual(seen.others, [['rgb(255, 0, 0)', '0px'], ['rgb(0, 0, 0)', '2px'], ['rgb(0, 128, 0)', '2px']], 'and the others as they were');
     }
+  } finally {
+    await stage.close();
+  }
+});
+
+test('what a copy keeps from its original\'s place is the rules as written: var(), currentColor, an animation and a @media stay live', { timeout: 60_000 }, async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'of-stage-live-'));
+  writeFileSync(join(dir, 'card.html'), `<!doctype html><head><style>
+:root { --accent: rgb(255, 0, 0) }
+@keyframes in { from { opacity: 0 } to { opacity: 1 } }
+#col p:first-child { color: var(--accent); border: 2px solid currentColor; animation: in 1s linear both }
+@media (min-width: 1px) { #col p:first-child { letter-spacing: 3px } }
+</style></head><body style="margin:0"><div id="col"><p id="a">A</p><p id="b">B</p></div><script>window.film={duration:2,frame(){}}</script></body>`);
+  writeFileSync(join(dir, 'film.html'), filmHtml({ stage: { w: 320, h: 180 }, tracks: [{ clips: [{ id: 'card', src: 'card.html' }] }] }));
+  const stage = await stageOf(dir);
+  try {
+    const after = await stage.ask('afterCopy', { clip: 'card', of: [{ at: '#a' }] });
+    const decls = after.looks[0][0].decls;
+    assert.deepEqual(decls.filter((d) => !d.within.length).map((d) => d.prop), ['color', 'border', 'animation']);
+    assert.deepEqual(decls.filter((d) => !d.within.length).map((d) => d.value), ['var(--accent)', '2px solid', '1s linear 0s 1 normal both running in'], 'currentColor kept (the border\'s own color unless set)');
+    assert.deepEqual(decls.filter((d) => d.within.length).map((d) => [d.within, d.prop, d.value]), [[['@media (min-width: 1px)'], 'letter-spacing', '3px']]);
+    /* written on a copy where it goes: drawn as the original, and changing as it does */
+    const seen = await stage.page.evaluate(({ after, decls }) => {
+      const doc = document.querySelector('iframe').contentDocument;
+      const el = doc.getElementById('a');
+      const copy = el.cloneNode(true);
+      copy.id = 'a-copy';
+      for (const d of decls) if (!d.within.length) copy.style.setProperty(d.prop, d.value);
+      const extra = doc.createElement('style');
+      extra.textContent = '@media (min-width: 1px) { #a-copy { letter-spacing: 3px } }';
+      doc.head.append(extra);
+      [...el.parentElement.children][after][after < 0 ? 'before' : 'after'](copy);
+      for (const a of [...el.getAnimations(), ...copy.getAnimations()]) { a.pause(); a.currentTime = 250; }
+      const look = (n) => { const cs = getComputedStyle(n); return [cs.color, cs.borderTopColor, cs.opacity, cs.letterSpacing]; };
+      const before = [look(el), look(copy)];
+      doc.documentElement.style.setProperty('--accent', 'rgb(0, 0, 255)');
+      for (const a of [...el.getAnimations(), ...copy.getAnimations()]) a.currentTime = 750;
+      const later = [look(el), look(copy)];
+      copy.remove();
+      extra.remove();
+      return { before, later };
+    }, { after: after.places[0].after, decls });
+    assert.deepEqual(seen.before[1], seen.before[0], 'as the original');
+    assert.deepEqual(seen.later[1], seen.later[0], 'and as it changes: its accent, its animation');
+    assert.deepEqual(seen.later[0], ['rgb(0, 0, 255)', 'rgb(0, 0, 255)', '0.75', '3px']);
   } finally {
     await stage.close();
   }

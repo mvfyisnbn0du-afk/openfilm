@@ -1404,13 +1404,68 @@
     for (let n = el; n !== root; n = n.parentElement) path.unshift([...n.parentElement.children].indexOf(n));
     return path;
   };
-  /** What of an element's look a copy keeps from it, where the page's CSS would draw the copy otherwise. */
-  const OWN_LOOK = [
-    'color', 'background-color', 'background-image', 'border-top', 'border-right', 'border-bottom', 'border-left',
-    'border-radius', 'outline', 'box-shadow', 'opacity', 'visibility', 'display', 'padding', 'font-family', 'font-size',
-    'font-weight', 'font-style', 'line-height', 'letter-spacing', 'text-align', 'text-decoration', 'text-transform',
-    'text-shadow', 'filter', 'transform', 'scale', 'rotate', 'mix-blend-mode', 'fill', 'stroke',
-  ];
+  /** A selector list's parts: split at its own commas, not those in :is(…) or [a="b, c"]. */
+  const selectorParts = (list) => {
+    const got = [];
+    let depth = 0;
+    let quote = null;
+    let from = 0;
+    for (let i = 0; i < list.length; i++) {
+      const ch = list[i];
+      if (quote) { if (ch === quote && list[i - 1] !== '\\') quote = null; continue; }
+      if (ch === '"' || ch === "'") quote = ch;
+      else if (ch === '(' || ch === '[') depth++;
+      else if (ch === ')' || ch === ']') depth--;
+      else if (ch === ',' && depth === 0) { got.push(list.slice(from, i).trim()); from = i + 1; }
+    }
+    got.push(list.slice(from).trim());
+    return got;
+  };
+  /**
+   * The page's style rules in their order: each one's selector list in parts, its declarations as written, and the
+   * at-rules it is in (`@media …`, `@supports …`, `@layer …`, `@container …`), outermost first.
+   */
+  const styleRules = (doc) => {
+    const out = [];
+    const walk = (rules, within) => {
+      for (const r of rules) {
+        if (r.selectorText != null) out.push({ parts: selectorParts(r.selectorText), style: r.style, within });
+        else if (r.cssRules) walk(r.cssRules, [...within, r.cssText.slice(0, r.cssText.indexOf('{')).trim()]);
+      }
+    };
+    for (const sheet of doc.styleSheets) {
+      let list = [];
+      try { list = [...sheet.cssRules]; } catch { continue; }
+      walk(list, []);
+    }
+    return out;
+  };
+  const matchesAny = (el, parts) => parts.some((part) => { try { return el.matches(part); } catch { return false; } });
+  /**
+   * A rule's declarations as it writes them, shorthands and `var()` kept (its longhands read one by one lose a
+   * shorthand written with a `var()`): [property, value] in its order.
+   */
+  const declsOf = (style) => {
+    const out = [];
+    let depth = 0;
+    let quote = null;
+    let from = 0;
+    const text = style.cssText;
+    const take = (part) => {
+      const at = part.indexOf(':');
+      if (at > 0) out.push([part.slice(0, at).trim(), part.slice(at + 1).trim()]);
+    };
+    for (let i = 0; i < text.length; i++) {
+      const ch = text[i];
+      if (quote) { if (ch === quote && text[i - 1] !== '\\') quote = null; continue; }
+      if (ch === '"' || ch === "'") quote = ch;
+      else if (ch === '(') depth++;
+      else if (ch === ')') depth--;
+      else if (ch === ';' && depth === 0) { take(text.slice(from, i)); from = i + 1; }
+    }
+    take(text.slice(from));
+    return out;
+  };
   /** An element's words as its page draws them, without what the clip's changes of words wrote (src/overrides.mjs). */
   const pageWords = (c, el) => {
     const texts = new Map();
@@ -1461,40 +1516,10 @@
   const idRulesOf = (doc, ids) => {
     if (!ids.length) return [];
     const names = ids.map((id) => new RegExp(`#${CSS.escape(id).replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(?![\\w-])`));
-    const out = [];
-    /* a selector list's parts: split at its own commas, not those in :is(…) or [a="b, c"] */
-    const parts = (list) => {
-      const got = [];
-      let depth = 0;
-      let quote = null;
-      let from = 0;
-      for (let i = 0; i < list.length; i++) {
-        const ch = list[i];
-        if (quote) { if (ch === quote && list[i - 1] !== '\\') quote = null; continue; }
-        if (ch === '"' || ch === "'") quote = ch;
-        else if (ch === '(' || ch === '[') depth++;
-        else if (ch === ')' || ch === ']') depth--;
-        else if (ch === ',' && depth === 0) { got.push(list.slice(from, i).trim()); from = i + 1; }
-      }
-      got.push(list.slice(from).trim());
-      return got;
-    };
-    const walk = (rules, within) => {
-      for (const r of rules) {
-        if (r.selectorText != null) {
-          const selectors = parts(r.selectorText).filter((sel) => names.some((re) => re.test(sel)));
-          if (selectors.length) out.push({ selectors, body: r.style.cssText, within });
-        } else if (r.cssRules) {
-          walk(r.cssRules, [...within, r.cssText.slice(0, r.cssText.indexOf('{')).trim()]);
-        }
-      }
-    };
-    for (const sheet of doc.styleSheets) {
-      let list = [];
-      try { list = [...sheet.cssRules]; } catch { continue; }
-      walk(list, []);
-    }
-    return out;
+    return styleRules(doc).flatMap((r) => {
+      const selectors = r.parts.filter((sel) => names.some((re) => re.test(sel)));
+      return selectors.length ? [{ selectors, body: r.style.cssText, within: r.within }] : [];
+    });
   };
 
   /* ── the ops ── */
@@ -1719,9 +1744,9 @@
      * goes after, -1 first; `siblings`: their tags): right after it, unless the page's CSS would then draw what is
      * beside it otherwise (`:nth-child`, `:last-child`, `+` …), else the nearest place where it draws nothing
      * otherwise (after it first, then before it). Per override of the clip, the selector naming what it finds now
-     * when it would find other elements once they are there (null: the same). Per layer, what the page's CSS draws
-     * otherwise on its copy there than on it (`looks`: element by element, from it, its own values), to be written on
-     * the copy, so it looks as it does.
+     * when it would find other elements once they are there (null: the same). Per layer, what the page's rules give
+     * it and not its copy there, and the copy and not it (`looks`: element by element, from it, declarations as the
+     * rules write them, with their at-rules), to be written on the copy, so it looks as it does.
      */
     afterCopy({ clip, of }) {
       const c = clipById(clip);
@@ -1772,20 +1797,30 @@
       /* what the page's CSS draws otherwise on a copy where it goes (a :first-child, a p + p): its original's, element
          by element, to be written on it. Not where it is and how big (the paste places it), nor what its new ids lose
          (their rules are said again of them) */
+      /* what the page's rules give an element where it is and not its copy where it goes (a :first-child, a p + p),
+         and what they give the copy there and not it, element by element: said again of the copy, as the rules say
+         it (`var()`, `currentColor`, an animation stay what they are); a rule's own at-rules (a @media) kept */
+      const rules = styleRules(doc);
       const looksOf = (el, copy) => {
         const from = [el, ...el.querySelectorAll('*')];
         const to = [copy, ...copy.querySelectorAll('*')];
         return from.flatMap((src, k) => {
           const out = to[k];
           if (!out || out.localName !== src.localName) return [];
-          const a = view.getComputedStyle(src);
-          const b = view.getComputedStyle(out);
-          /* a border or outline drawn on neither (its color alone differs) is no difference */
-          const unseen = (v) => /(^|\s)0px(\s|$)/.test(v) || /\bnone\b/.test(v);
-          const decls = OWN_LOOK.filter((p) => {
-            const [x, y] = [a.getPropertyValue(p), b.getPropertyValue(p)];
-            return x !== y && !(/^(border-|outline)/.test(p) && unseen(x) && unseen(y));
-          }).map((p) => [p, a.getPropertyValue(p)]);
+          const decls = [];
+          const own = rules.filter((r) => matchesAny(src, r.parts));
+          for (const r of own) {
+            if (matchesAny(out, r.parts)) continue;
+            for (const [prop, value] of declsOf(r.style)) decls.push({ within: r.within, prop, value });
+          }
+          /* one only the copy gets there: what it says, as the element's own rules say it (none: as if unset) */
+          for (const r of rules) {
+            if (!matchesAny(out, r.parts) || matchesAny(src, r.parts)) continue;
+            for (const [prop] of declsOf(r.style)) {
+              const said = own.map((x) => ({ x, d: declsOf(x.style).filter(([p]) => p === prop).at(-1) })).filter((y) => y.d).at(-1);
+              decls.push({ within: said?.x.within ?? [], prop, value: said ? said.d[1] : 'initial' });
+            }
+          }
           return decls.length ? [{ path: pathIn(el, src), decls }] : [];
         });
       };

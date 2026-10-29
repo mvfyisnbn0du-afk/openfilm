@@ -163,7 +163,13 @@ test('what the page\'s CSS gives the layer where it is and not its copy where it
   const out = pastedPage(page, [{
     layer: layer({ at: '#col > p:nth-of-type(1)', tag: 'p', id: null, classes: [], place: { position: 'absolute', left: 0, top: 0, width: 1, height: 1 }, idRules: [] }),
     target: { path: [0, 0], tags: ['div', 'p'], shape: { tag: 'p', children: [] } },
-    look: [{ path: [], decls: [['color', 'rgb(255, 0, 0)'], ['border-top', '0px none rgb(255, 0, 0)']] }],
+    look: [{ path: [], decls: [
+      { within: [], prop: 'color', value: 'var(--accent)' },
+      { within: [], prop: 'animation', value: '1s both in' },
+      { within: [], prop: 'border-top', value: 'initial' },
+      { within: ['@media (min-width: 800px)'], prop: 'font-size', value: '2em' },
+    ] }],
   }], 0)!;
-  assert.equal(out.text, '<body><div id="col"><p>A</p>\n<p id="p-copy" style="color: rgb(255, 0, 0); border-top: 0px none rgb(255, 0, 0)">A</p><p>B</p></div></body>');
+  assert.equal(out.text, '<style>@media (min-width: 800px) { #p-copy { font-size: 2em; } }</style>\n<body><div id="col"><p>A</p>\n'
+    + '<p id="p-copy" style="color: var(--accent); animation: 1s both in; border-top: initial">A</p><p>B</p></div></body>', 'as the rules write it: live');
 });
