@@ -49,6 +49,7 @@ import { useLoadedThumbs } from '@/lib/use-loaded-thumbs';
 import { droppedOverrides, overrideTarget, undoneFields, type DroppedEdits, type PersonEdit } from '@/lib/dropped-overrides';
 import { filmFrameBox, type FilmFrameId } from '@/lib/film-frame';
 import { canvasFor, firstPictureSize, fitToCanvas } from '@/lib/canvas-fit';
+import { createViewerZoom } from '@/lib/viewer-zoom';
 import { factsOfProbe, mediaListingOf, resourceKindOf, srcHitsAsset, warmProjectMedia, type MediaListing, type MediaProxy, type MediaResult, type MediaSources, type WorkspaceResource } from '@/lib/workspace-resources';
 import { BrandLoadingScreen } from './BrandLoadingScreen';
 import { BrandLogo } from './BrandLogo';
@@ -90,6 +91,7 @@ import { historyMoved } from '@/lib/project-history';
 import { ProjectsPopover } from './ProjectsLibrary';
 import { FilmFullscreenBar, useFullscreenKeys } from './FilmFullscreenBar';
 import { ViewerBar } from './ViewerBar';
+import { ViewerZoom, ViewerZoomButton } from './ViewerZoom';
 import { LiveTime, type PlaybackClock } from './LiveTime';
 import { Toast, useToast } from './Toast';
 import { SpendAsks } from './SpendAsks';
@@ -150,10 +152,6 @@ const TITLE_MAX_CHARS = 56;
 const TOP_BTN =
   'flex h-[26px] w-[26px] shrink-0 items-center justify-center rounded-md text-[var(--text-dim)] transition hover:bg-[var(--bg-hover)] hover:text-[var(--text)]';
 
-const fitBox = (w: number, h: number): React.CSSProperties => ({
-  width: `min(100cqw, 100cqh * ${w} / ${h})`,
-  height: `min(100cqh, 100cqw * ${h} / ${w})`,
-});
 const clampTitle = (title: string) => (title.length > TITLE_MAX_CHARS ? `${title.slice(0, TITLE_MAX_CHARS)}…` : title);
 
 /**
@@ -1232,6 +1230,8 @@ export function ProjectView({ projectId, onProject, onLeave }: {
   const lookPreviewRef = React.useRef<((clipLoc: string, css: string | null) => void) | null>(null);
   /* where the thing in hand is, for the inspector only: it changes every frame of a drag */
   const geometryStore = React.useMemo(() => createGeometryStore(), []);
+  /* the viewer's zoom: only the picture and its fit button re-render as it changes (components/ViewerZoom) */
+  const viewerZoom = React.useMemo(() => createViewerZoom(), []);
   const [stageSelectRequest, setStageSelectRequest] = React.useState<{ loc: string; clipLoc?: string; seq: number } | null>(null);
   const [inlineTextFailure, setInlineTextFailure] = React.useState<{ loc: string; value: string; failure: StageEditFailure; seq: number } | null>(null);
   const setSelectedLocs = React.useCallback((locs: readonly string[]) => {
@@ -2919,8 +2919,23 @@ export function ProjectView({ projectId, onProject, onLeave }: {
                   {value ? (
                     <div ref={stageFullRef} className={`relative flex h-full w-full items-center justify-center ${fullscreen ? 'bg-black' : ''}`}
                       style={{ containerType: 'size' }} onClick={fullscreen ? toggle : undefined}>
-                      <div className={`relative bg-black ${frameBox.inner.left < -0.5 || frameBox.inner.top < -0.5 ? 'overflow-hidden' : 'overflow-visible'}`}
-                        style={{ ...fitBox(frameBox.w, frameBox.h), containerType: 'size' }}>
+                      <ViewerZoom store={viewerZoom} frame={frameBox} off={fullscreen}
+                        className={`relative bg-black ${frameBox.inner.left < -0.5 || frameBox.inner.top < -0.5 ? 'overflow-hidden' : 'overflow-visible'}`}
+                        notices={<>
+                          {/* a clip under the playhead whose file is gone plays as nothing (src/timeline.mjs, film-missing):
+                              said here, over the picture, with what to do; in sight at any zoom */}
+                          {statsOn && playing && played ? (
+                            <div data-playback-stats="" className="pointer-events-none absolute right-2 top-2 z-10 rounded-[4px] bg-black/75 px-2 py-1 font-mono text-[11px] tabular-nums text-white">
+                              {t('viewer.stats').replace('{fps}', String(Math.round((played.drawn * 1000) / Math.max(1, played.ms)))).replace('{late}', String(Math.round((played.late * 1000) / Math.max(1, played.ms))))}
+                              {played.rendered ? ` · ${t('viewer.statsRendered')}` : ''}
+                            </div>
+                          ) : null}
+                          {missingHere && !fullscreen ? (
+                            <div data-preview-missing="" className="pointer-events-none absolute left-2 top-2 z-10 max-w-[80%] truncate rounded-[4px] bg-black/75 px-2 py-1 text-[11px] text-white">
+                              {t('project.previewMissing').replace('{file}', missingHere)}
+                            </div>
+                          ) : null}
+                        </>}>
                         <div className="absolute" style={{
                           left: `${(frameBox.inner.left / frameBox.w) * 100}%`,
                           top: `${(frameBox.inner.top / frameBox.h) * 100}%`,
@@ -2967,19 +2982,6 @@ export function ProjectView({ projectId, onProject, onLeave }: {
                             ) : null}
                           </Preview>
                         </div>
-                        {/* a clip under the playhead whose file is gone plays as nothing (src/timeline.mjs, film-missing):
-                            said here, over the picture, with what to do */}
-                        {statsOn && playing && played ? (
-                          <div data-playback-stats="" className="pointer-events-none absolute right-2 top-2 z-10 rounded-[4px] bg-black/75 px-2 py-1 font-mono text-[11px] tabular-nums text-white">
-                            {t('viewer.stats').replace('{fps}', String(Math.round((played.drawn * 1000) / Math.max(1, played.ms)))).replace('{late}', String(Math.round((played.late * 1000) / Math.max(1, played.ms))))}
-                            {played.rendered ? ` · ${t('viewer.statsRendered')}` : ''}
-                          </div>
-                        ) : null}
-                        {missingHere && !fullscreen ? (
-                          <div data-preview-missing="" className="pointer-events-none absolute left-2 top-2 z-10 max-w-[80%] truncate rounded-[4px] bg-black/75 px-2 py-1 text-[11px] text-white">
-                            {t('project.previewMissing').replace('{file}', missingHere)}
-                          </div>
-                        ) : null}
                         {!viewerReady && !empty && !previewError ? (
                           <div className="pointer-events-none absolute inset-0 z-10 flex flex-col items-center justify-center gap-3 bg-black">
                             <span role="status" className="text-sweep relative text-[13px] text-white/60">{t('project.previewStageMount')}</span>
@@ -2997,7 +2999,7 @@ export function ProjectView({ projectId, onProject, onLeave }: {
                             onPick={fullscreen ? undefined : showSubtitleLook}
                           />
                         )}</LiveTime>
-                      </div>
+                      </ViewerZoom>
                       {fullscreen ? (
                         <FilmFullscreenBar
                           hostRef={stageFullRef}
@@ -3043,6 +3045,7 @@ export function ProjectView({ projectId, onProject, onLeave }: {
                     onSpeed: setSpeed,
                   }}
                   onFullscreen={toggleFullscreen}
+                  extra={<ViewerZoomButton store={viewerZoom} />}
                 />
               </div>
 

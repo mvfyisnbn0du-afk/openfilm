@@ -1014,6 +1014,7 @@ export const ja: Words = {
     frameCustomApply: 'この比率を使う',
     frameCustomRange: '1:4 から 4:1 まで',
     fullscreen: '全画面表示',
+    zoomFit: '画面をビューアに合わせる',
     playback: '再生設定',
     speed: '再生速度',
   },

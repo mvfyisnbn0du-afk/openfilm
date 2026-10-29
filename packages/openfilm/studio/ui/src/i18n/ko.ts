@@ -1011,6 +1011,7 @@ export const ko: Words = {
     frameCustomApply: '이 비율 사용',
     frameCustomRange: '1:4부터 4:1까지',
     fullscreen: '전체 화면',
+    zoomFit: '화면을 뷰어에 맞추기',
     playback: '재생 설정',
     speed: '재생 속도',
   },

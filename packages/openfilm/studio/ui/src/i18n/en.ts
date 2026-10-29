@@ -1015,6 +1015,7 @@ export const en = {
     frameCustomApply: 'Use this ratio',
     frameCustomRange: 'From 1:4 to 4:1',
     fullscreen: 'Full screen',
+    zoomFit: 'Fit the picture to the viewer',
     playback: 'Playback',
     speed: 'Speed',
   },

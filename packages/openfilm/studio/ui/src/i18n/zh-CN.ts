@@ -1015,6 +1015,7 @@ export const zhCN: Words = {
     frameCustomApply: '使用这个比例',
     frameCustomRange: '范围 1:4 到 4:1',
     fullscreen: '全屏',
+    zoomFit: '画面适应窗口',
     playback: '播放设置',
     speed: '播放速度',
   },
