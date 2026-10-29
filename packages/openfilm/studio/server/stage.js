@@ -1463,38 +1463,6 @@
     return w;
   };
   /**
-   * The ids a selector names, as CSS reads them (the editor's lib/layer-paste idsIn): a `#` and a name, its escapes
-   * read (`\31 ` a 1, `\.` a dot) and what is not ASCII part of it; not in quotes.
-   */
-  const idsIn = (sel) => {
-    const out = [];
-    const escape = (i) => {
-      const hex = /^[0-9a-fA-F]{1,6}/.exec(sel.slice(i + 1, i + 7))?.[0];
-      if (!hex) return [sel[i + 1] ?? '', Math.min(sel.length, i + 2)];
-      let end = i + 1 + hex.length;
-      if (/\s/.test(sel[end] ?? '')) end++;
-      const code = Number.parseInt(hex, 16);
-      return [code > 0 && code <= 0x10ffff ? String.fromCodePoint(code) : '\uFFFD', end];
-    };
-    let quote = null;
-    for (let i = 0; i < sel.length;) {
-      const ch = sel[i];
-      if (quote) { i += ch === '\\' ? 2 : 1; if (ch === quote) quote = null; continue; }
-      if (ch === '"' || ch === "'") { quote = ch; i++; continue; }
-      if (ch === '\\') { i = escape(i)[1]; continue; }
-      if (ch !== '#') { i++; continue; }
-      let id = '';
-      let k = i + 1;
-      while (k < sel.length) {
-        const c = sel[k];
-        if (c === '\\') { const [got, end] = escape(k); id += got; k = end; } else if (/[\w-]/.test(c) || sel.charCodeAt(k) >= 0x80) { id += c; k++; } else break;
-      }
-      if (id) out.push(id);
-      i = k;
-    }
-    return out;
-  };
-  /**
    * The page's style rules in their order: each one's selector list in parts (a nested rule's, as it reads where it
    * is: `&` its parent, `:is(…)`), its declarations as written, the at-rules it is in (`@media …`, `@supports …`,
    * `@layer …`, `@container …`, outermost first), and the stylesheet it is in (its `<style>` or `<link>`, by place among
@@ -1593,19 +1561,6 @@
     const k = localScale(el);
     return { position, left: (r.left - b.left - (box?.clientLeft ?? 0)) / k, top: (r.top - b.top - (box?.clientTop ?? 0)) / k, width: r.width / k, height: r.height / k };
   };
-  /**
-   * The page's CSS rules naming one of `ids`: of each, the selectors of its list naming one, its body, the at-rules it
-   * is in (`@media …`, `@supports …`, `@layer …`, `@container …`), outermost first, and its stylesheet (styleRules).
-   */
-  const idRulesOf = (doc, ids) => {
-    if (!ids.length) return [];
-    const names = new Set(ids);
-    return styleRules(doc).flatMap((r) => {
-      const selectors = r.parts.filter((sel) => idsIn(sel).some((id) => names.has(id)));
-      return selectors.length ? [{ selectors, body: declsOf(r.style).map(([p, v]) => `${p}: ${v};`).join(' '), within: r.within, sheet: r.sheet }] : [];
-    });
-  };
-
   /* ── the ops ── */
   const ops = {
     /** The layer under a point: the smallest (Alt: the next one under `cycleFrom`); groups stand for their layers. */
@@ -1789,9 +1744,10 @@
     /**
      * What writing a copy of the layers `of` of clip `clip` into their page needs (the editor's lib/layer-paste), per
      * layer: a selector naming it alone, its tag, id, classes and words as its page has them (the clip's changes of
-     * words undone: to find it in the page's file), where it is laid out, the page's CSS rules naming an id in it
-     * (a copy's ids are new ones), the clip's changes of it and of the layers in it, in order, each with where it is
-     * in the layer (element by element, from it), and how it looks now (snapshotOf). Null for a layer not found.
+     * words undone: to find it in the page's file), where it is laid out, the clip's changes of it and of the layers
+     * in it, in order, each with where it is in the layer (element by element, from it), and how it looks now
+     * (snapshotOf). Null for a layer not found. (The page's rules of its ids are afterCopy's `looks`, as any rule it
+     * gets and its copy does not.)
      */
     layerSource({ clip, of }) {
       const c = clipById(clip);
@@ -1801,7 +1757,6 @@
         const el = matches(doc, o)[0];
         if (!el) return null;
         const at = selectorOf(el);
-        const ids = [el, ...el.querySelectorAll('[id]')].map((n) => n.id).filter(Boolean);
         const tweaks = [];
         for (const t of c.overrides ?? []) {
           if (t.at === undefined) continue;
@@ -1816,7 +1771,6 @@
           classes: [...el.classList],
           text: pageWords(c, el).replace(/\s+/g, ' ').trim().slice(0, 200),
           place: layoutOf(el),
-          idRules: idRulesOf(doc, ids),
           tweaks,
           snapshot: snapshotOf(el),
         };
@@ -1921,13 +1875,9 @@
         });
       };
       try {
-        const looks = els.map((el, i) => {
-          /* as its id rules make it: the copy's ids for this read are its original's */
-          const copy = copies[i];
-          const renamed = [copy, ...copy.querySelectorAll('[id]')].filter((n) => n.id.endsWith('-openfilm-copy'));
-          for (const n of renamed) n.id = n.id.slice(0, -'-openfilm-copy'.length);
-          try { return looksOf(el, copy); } finally { for (const n of renamed) n.id = `${n.id}-openfilm-copy`; }
-        });
+        /* read with the copies' own new ids: a rule naming an original's id (`#a`, `:not(#a)`) is one more rule it
+           gets and the copy not, or the other way */
+        const looks = els.map((el, i) => looksOf(el, copies[i]));
         const moved = list.map((o, i) => {
           const was = before[i];
           if (!was) return null;

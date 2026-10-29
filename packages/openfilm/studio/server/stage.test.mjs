@@ -476,7 +476,7 @@ test('a deleted layer has no row in the Layers tree; what points only at it or i
   }
 });
 
-test('a layer to be written into its page or another: where it is laid out, its id rules, the changes in it, and how it looks', { timeout: 60_000 }, async () => {
+test('a layer to be written into its page or another: where it is laid out, the changes in it, and how it looks', { timeout: 60_000 }, async () => {
   const dir = mkdtempSync(join(tmpdir(), 'of-stage-source-'));
   writeFileSync(join(dir, 'card.html'), `<!doctype html><head><style>
 #title, p { letter-spacing: 1px } @supports (display: grid) { @layer base { #title b { color: rgb(255, 0, 0) } } }
@@ -496,10 +496,6 @@ test('a layer to be written into its page or another: where it is laid out, its 
     const [title, late, logo] = await stage.ask('layerSource', { clip: 'card', of: [{ at: '#title' }, { at: '.note', n: 2 }, { at: '#logo' }] });
     assert.deepEqual([title.at, title.tag, title.id, title.text], ['#title', 'h1', 'title', 'Every parcel']);
     assert.deepEqual([title.place.position, title.place.left, title.place.top], ['static', 0, 0]);
-    assert.deepEqual(title.idRules, [
-      { selectors: ['#title'], body: 'letter-spacing: 1px;', within: [], sheet: 0 },
-      { selectors: ['#title b'], body: 'color: rgb(255, 0, 0);', within: ['@supports (display: grid)', '@layer base'], sheet: 0 },
-    ], 'the parts of a list naming its ids, in their at-rules');
     assert.deepEqual(title.tweaks, [{ path: [0], tag: 'b', style: { color: 'blue' } }]);
     assert.equal(late.text, 'Late', 'its words as the page has them, not as the clip changed them');
     assert.ok(logo.place && logo.place.width === 20 && logo.place.height === 10 && Number.isFinite(logo.place.left), `an <svg> is measured too (${JSON.stringify(logo.place)})`);
@@ -602,9 +598,10 @@ async function pastedLook(css, body, id, props, at = 0.5) {
       return await drawn.evaluate(({ id, props, at }) => {
         for (const a of document.getAnimations()) { a.pause(); a.currentTime = at * 1000; }
         const look = (el) => props.map((p) => getComputedStyle(el).getPropertyValue(p));
+        const deep = (el) => [...el.querySelectorAll('*')].map((n) => look(n).join(' '));
         const copy = document.getElementById(`${id}-copy`);
-        const others = [...document.querySelectorAll('body *:not(script)')].filter((e) => !e.id.endsWith('-copy')).map((e) => `${e.id || e.localName}:${getComputedStyle(e).color}`);
-        return { el: look(document.getElementById(id)), copy: look(copy), others };
+        const others = [...document.querySelectorAll('body *:not(script)')].filter((e) => !e.closest('[id$="-copy"]')).map((e) => `${e.id || e.localName}:${getComputedStyle(e).color}`);
+        return { el: look(document.getElementById(id)), copy: look(copy), inside: [deep(document.getElementById(id)), deep(copy)], others };
       }, { id, props, at });
     } finally { await drawn.close(); }
   } finally {
@@ -613,7 +610,7 @@ async function pastedLook(css, body, id, props, at = 0.5) {
 }
 
 test('a copy looks as its original where the page\'s rules give it a look by its place, and the others stay as they were', { timeout: 120_000 }, async () => {
-  const col = '<div id="col"><p id="a">A</p><p id="b">B</p><p id="c">C</p></div>';
+  const col = '<div id="col"><p id="a">A<b>!</b></p><p id="b">B</p><p id="c">C</p></div>';
   const cases = [
     ['first-child, last-child, p + p', '#col p:first-child{color:red} #col p:last-child{color:green} #col > p + p{border-top:2px solid blue}', ['a', 'c'], ['color', 'border-top-width']],
     ['a heavier rule still wins', '#col p:first-child{color:red} #col #a{color:blue}', ['a'], ['color']],
@@ -624,13 +621,16 @@ test('a copy looks as its original where the page\'s rules give it a look by its
     ['nested', '#col { & p:first-child{color:red} }', ['a'], ['color']],
     ['nested id rule', '#col { & #a{color:red} }', ['a'], ['color']],
     ['!important', '#col p:first-child{color:red !important} #col #a{color:blue}', ['a'], ['color']],
+    ['a rule of its id, a rule naming it in :not()', '#a{font-weight:700} #col p:not(#a){color:blue}', ['a'], ['color', 'font-weight']],
+    ['an id rule of what is in it, in its at-rules', '@supports (display: grid) { @layer base { #a b{color:red} } } #col b{color:blue}', ['a'], ['color']],
   ];
   for (const [name, css, ids, props] of cases) {
     for (const id of ids) {
       const before = await pastedLook(css, col, 'b', ['color']).then((x) => x.others);
       const seen = await pastedLook(css, col, id, props);
       assert.deepEqual(seen.copy, seen.el, `${name}: the copy of ${id} looks as ${id}`);
-      assert.deepEqual(seen.others, before.filter((o) => !o.startsWith('b-copy')), `${name}: the others as they were`);
+      assert.deepEqual(seen.inside[1], seen.inside[0], `${name}: and what is in it`);
+      assert.deepEqual(seen.others, before, `${name}: the others as they were`);
     }
   }
 });

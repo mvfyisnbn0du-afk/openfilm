@@ -6,11 +6,9 @@
  * there), right after it, or at the nearest place beside it where the page's CSS draws nothing beside it otherwise
  * (studio/server/stage.js `afterCopy`), with:
  *   - new ids (`<id>-copy`), and what in it names them (`url(#…)`, `href="#…"`, `for`, `aria-*`);
- *   - the page's CSS rules of the old ids said again of the new ones, only the parts naming them, right after the
- *     stylesheet each is in (so the cascade weighs them as those);
  *   - the clip's changes of it and of what is in it written in (styles, moves, words); and what the page's rules give
- *     it where it is and not the copy where it goes (a `:first-child`), or the copy and not it (a `p + p`), as rules
- *     of the copy weighed as those, as they write it;
+ *     it and not the copy where it goes (`#a`, a `:first-child`), or the copy and not it (`:not(#a)`, a `p + p`), as
+ *     rules of the copy the cascade weighs as those, right after their stylesheet, as they write it;
  *   - no scripts and no `on…` handlers (they would run twice, as the page's own code: a copy is a picture);
  *   - when it was in the page's flow, held where it was laid out (`position: absolute`, its size), so nothing else
  *     moves; and `offset` px lower and to the right.
@@ -33,11 +31,6 @@ export interface PasteLayer {
   text: string;
   /** Where it is laid out: its `position`, and its box in what places it (px); null inside an SVG (placed by it). */
   place: { position: string; left: number; top: number; width: number; height: number } | null;
-  /**
-   * The page's CSS rules naming an id in it: the selectors naming one, their rule's body, the at-rules around it, and
-   * its stylesheet (its `<style>` or `<link>`, by place among them; -1 not known).
-   */
-  idRules: Array<{ selectors: string[]; body: string; within: string[]; sheet?: number }>;
   /** The clip's changes of it and of what is in it, in order: where in it (element after element, from it), its tag. */
   tweaks: Array<{ path: number[]; tag: string } & Omit<FilmOverride, 'at' | 'n' | 'lock'>>;
   /** It as it looks now, for another page: markup holding its look, its fonts, and its project's address (`base`). */
@@ -307,24 +300,6 @@ export function weighted(id: string, weight: readonly [number, number, number]):
 /** A rule in its at-rules. */
 const wrapped = (within: readonly string[], rule: string) => within.reduceRight((inner, at) => `${at} { ${inner} }`, rule);
 
-/** The page's CSS rules of a layer's old ids, of the new ones: only the selectors naming them, in their at-rules. */
-function rulesFor(rules: PasteLayer['idRules'], renamed: ReadonlyMap<string, string>): Array<{ sheet: number; text: string }> {
-  return rules.flatMap((r) => {
-    const selectors = r.selectors.flatMap((sel) => {
-      let out = sel;
-      let named = false;
-      /* each id as CSS reads it, however the page's CSS writes it (`#\31 st`), the whole of it */
-      for (const t of idsIn(sel).reverse()) {
-        const to = renamed.get(t.id);
-        if (to) { named = true; out = `${out.slice(0, t.start)}${idSel(to)}${out.slice(t.end)}`; }
-      }
-      return named ? [out] : [];
-    });
-    if (!selectors.length) return [];
-    return [{ sheet: r.sheet ?? -1, text: wrapped(r.within, `${selectors.join(', ')} { ${r.body} }`) }];
-  });
-}
-
 /**
  * Where a copy's rules of stylesheet `sheet` go: right after its `<style>` or `<link>` in the file (the `sheet`-th of
  * them, so the cascade weighs them as its own rules, after them), when it is in the page's head; else at the end of
@@ -407,7 +382,7 @@ export function pastedPage(text: string, items: readonly PasteItem[], offset: nu
       put(el, [['translate', `${x + offset}px ${y + offset}px`]]);
     }
     const copy = copyMarkup(text, el, { renamed, rootId, css, words, added });
-    rules.push(...rulesFor(layer.idRules, renamed), ...scoped);
+    rules.push(...scoped);
     /* where it goes: over the copy before; else at its place among the elements beside it, when the file has them
        as the page draws them; else right after it */
     const parent = target.path.length > 1 ? elementAt(body, target.path.slice(0, -1), target.tags.slice(0, -1)) : body;

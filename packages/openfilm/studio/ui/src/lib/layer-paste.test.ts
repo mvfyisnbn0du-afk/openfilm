@@ -45,10 +45,6 @@ test('as the browser reads it: rows in a <tbody>, <div/> left open, <noscript> a
 const layer = (over: Partial<PasteLayer> = {}): PasteLayer => ({
   at: '#card', tag: 'div', id: 'card', classes: ['card'], text: 'Hello worldagain',
   place: { position: 'static', left: 200, top: 100, width: 900, height: 500 },
-  idRules: [
-    { selectors: ['#card'], body: 'background: rgb(204, 51, 51);', within: [] },
-    { selectors: ['#title'], body: 'color: rgb(255, 255, 0);', within: ['@supports (display: grid)', '@layer base'] },
-  ],
   tweaks: [], ...over,
 });
 const CARD: PasteTarget = {
@@ -56,10 +52,9 @@ const CARD: PasteTarget = {
   shape: { tag: 'div', children: [{ tag: 'h1', children: [] }, { tag: 'p', children: [{ tag: 'br', children: [] }] }, { tag: 'svg', children: [{ tag: 'linearGradient', children: [] }, { tag: 'rect', children: [] }, { tag: 'use', children: [] }, { tag: 'use', children: [] }] }] },
 };
 
-test('a copy written right after the layer: new ids and what names them, its id rules in the head, held in place and moved', () => {
+test('a copy written right after the layer: new ids and what names them, held in place and moved', () => {
   const out = pastedPage(PAGE, [{ layer: layer({ tweaks: [{ path: [0], tag: 'h1', text: 'Hi & bye', style: { fontSize: 48 } }, { path: [], tag: 'div', t: [10, 0] }] }), target: CARD }], 24)!;
   assert.deepEqual(out.ats, ['#card-copy']);
-  assert.ok(out.text.includes('<style>#card-copy { background: rgb(204, 51, 51); } @supports (display: grid) { @layer base { #title-copy { color: rgb(255, 255, 0); } } }</style>\n</head>'), 'in the head, its at-rules kept');
   const at = out.text.indexOf('<div id="card-copy"');
   const added = out.text.slice(at, out.text.indexOf('</div>', at) + 6);
   assert.ok(added.startsWith('<div id="card-copy" class="card" style="position: absolute; left: 200px; top: 100px; width: 900px; height: 500px; margin: 0; box-sizing: border-box; translate: 34px 24px">'), added);
@@ -72,14 +67,14 @@ test('a copy written right after the layer: new ids and what names them, its id 
 test('several layers of one page: each found before any is written, so a selector counting them finds the right one', () => {
   const page = '<body>\n<div id="card">\n  <h1 class="line">One</h1>\n  <h1 class="line">Two</h1>\n</div>\n</body>';
   const line = (text: string, i: number): PasteItem => ({
-    layer: layer({ at: `#card > h1.line:nth-of-type(${i + 1})`, tag: 'h1', id: null, classes: ['line'], text, place: { position: 'absolute', left: 0, top: 0, width: 10, height: 10 }, idRules: [] }),
+    layer: layer({ at: `#card > h1.line:nth-of-type(${i + 1})`, tag: 'h1', id: null, classes: ['line'], text, place: { position: 'absolute', left: 0, top: 0, width: 10, height: 10 } }),
     target: { path: [0, i], tags: ['div', 'h1'], shape: { tag: 'h1', children: [] } },
   });
   const out = pastedPage(page, [line('One', 0), line('Two', 1)], 24)!;
   assert.deepEqual(out.ats, ['#line-copy', '#line-copy-2']);
   assert.equal(out.text, '<body>\n<div id="card">\n  <h1 class="line">One</h1>\n  <h1 id="line-copy" class="line" style="translate: 24px 24px">One</h1>'
     + '\n  <h1 class="line">Two</h1>\n  <h1 id="line-copy-2" class="line" style="translate: 24px 24px">Two</h1>\n</div>\n</body>');
-  const card: PasteItem = { layer: layer({ idRules: [] }), target: { path: [0], tags: ['div'], shape: { tag: 'div', children: [{ tag: 'h1', children: [] }, { tag: 'h1', children: [] }] } } };
+  const card: PasteItem = { layer: layer(), target: { path: [0], tags: ['div'], shape: { tag: 'div', children: [{ tag: 'h1', children: [] }, { tag: 'h1', children: [] }] } } };
   assert.deepEqual(pastedPage(page, [card, line('One', 0)], 24)!.ats, ['#card-copy', ''], 'one inside another copied: with it');
   const over = pastedPage(out.text, [{ ...line('One', 0), over: { path: [0, 1], tags: ['div', 'h1'], shape: { tag: 'h1', children: [] } } }], 48)!;
   assert.ok(over.text.includes('<h1 id="line-copy" class="line" style="translate: 24px 24px">One</h1>\n  <h1 id="line-copy-3"'), 'pasted again: over the copy before');
@@ -91,19 +86,19 @@ test('several layers of one page: each found before any is written, so a selecto
   assert.ok(other.text.includes('<h1 class="line">One</h1>\n  <h1 id="line-copy"'), 'the file has other elements beside it than the page as drawn: right after it');
 });
 
-test('a copy runs no code: its scripts and handlers go; only the parts of a rule naming its ids are said again', () => {
-  const page = '<head><style>#w, p { color: red }</style></head><body><div id="w" onclick="go()"><canvas id="c"></canvas><script>const ctx = 1;</script></div></body>';
+test('a copy runs no code: its scripts and handlers go', () => {
+  const page = '<head></head><body><div id="w" onclick="go()"><canvas id="c"></canvas><script>const ctx = 1;</script></div></body>';
   const out = pastedPage(page, [{
-    layer: layer({ at: '#w', id: 'w', classes: [], place: { position: 'absolute', left: 0, top: 0, width: 1, height: 1 }, idRules: [{ selectors: ['#w'], body: 'color: red;', within: [] }] }),
+    layer: layer({ at: '#w', id: 'w', classes: [], place: { position: 'absolute', left: 0, top: 0, width: 1, height: 1 } }),
     target: { path: [0], tags: ['div'], shape: { tag: 'div', children: [{ tag: 'canvas', children: [] }, { tag: 'script', children: [] }] } },
   }], 0)!;
-  assert.equal(out.text, '<head><style>#w, p { color: red }</style><style>#w-copy { color: red; }</style>\n</head><body><div id="w" onclick="go()"><canvas id="c"></canvas><script>const ctx = 1;</script></div>\n<div id="w-copy"><canvas id="c-copy"></canvas></div></body>');
+  assert.equal(out.text, '<head></head><body><div id="w" onclick="go()"><canvas id="c"></canvas><script>const ctx = 1;</script></div>\n<div id="w-copy"><canvas id="c-copy"></canvas></div></body>');
 });
 
 test('words written as the film writes them; a file\'s own line breaks; ids keep their numbers', () => {
   const page = '<body>\r\n<h1 id="h">Quiet<br><em>you</em> now</h1>\r\n</body>';
   const out = pastedPage(page, [{
-    layer: layer({ at: '#h', tag: 'h1', id: 'h', classes: [], place: { position: 'absolute', left: 0, top: 0, width: 1, height: 1 }, idRules: [], tweaks: [{ path: [], tag: 'h1', text: 'Hello' }] }),
+    layer: layer({ at: '#h', tag: 'h1', id: 'h', classes: [], place: { position: 'absolute', left: 0, top: 0, width: 1, height: 1 }, tweaks: [{ path: [], tag: 'h1', text: 'Hello' }] }),
     target: { path: [0], tags: ['h1'], shape: { tag: 'h1', children: [{ tag: 'br', children: [] }, { tag: 'em', children: [] }] } },
   }], 0)!;
   assert.equal(out.text, '<body>\r\n<h1 id="h">Quiet<br><em>you</em> now</h1>\r\n<h1 id="h-copy">Hello<br><em>you</em></h1>\r\n</body>', 'its first run of words, the others taken away');
@@ -119,7 +114,7 @@ test('a layer the file does not hold as the browser reads it (made by the page\'
 test('an element placed by the page already keeps its place and its own move; one without an id gets one', () => {
   const page = '<body><span class="tag" style="position:absolute;left:5px;translate:10px 0px">New</span></body>';
   const out = pastedPage(page, [{
-    layer: layer({ at: 'body > span', tag: 'span', id: null, classes: ['tag'], place: { position: 'absolute', left: 5, top: 0, width: 30, height: 10 }, idRules: [] }),
+    layer: layer({ at: 'body > span', tag: 'span', id: null, classes: ['tag'], place: { position: 'absolute', left: 5, top: 0, width: 30, height: 10 } }),
     target: { path: [0], tags: ['span'], shape: { tag: 'span', children: [] } },
   }], 24)!;
   assert.equal(out.ats[0], '#tag-copy');
@@ -161,7 +156,7 @@ test('an undo of a page written since: what the paste wrote taken out, where it 
 test('what the page\'s rules give the layer and not its copy, and the copy and not it: rules of the copy, weighed as those, after their stylesheet', () => {
   const page = '<head><style>#col p:first-child { color: var(--accent) }</style><link rel="stylesheet" href="b.css"></head><body><div id="col"><p>A<b>!</b></p><p>B</p></div></body>';
   const out = pastedPage(page, [{
-    layer: layer({ at: '#col > p:nth-of-type(1)', tag: 'p', id: null, classes: [], place: { position: 'absolute', left: 0, top: 0, width: 1, height: 1 }, idRules: [] }),
+    layer: layer({ at: '#col > p:nth-of-type(1)', tag: 'p', id: null, classes: [], place: { position: 'absolute', left: 0, top: 0, width: 1, height: 1 } }),
     target: { path: [0, 0], tags: ['div', 'p'], shape: { tag: 'p', children: [{ tag: 'b', children: [] }] } },
     look: [
       { path: [], rules: [
@@ -178,17 +173,17 @@ test('what the page\'s rules give the layer and not its copy, and the copy and n
   assert.equal(weighted('a', [2, 0, 3]), ':where(#a)#a#a:not(openfilm-none):not(openfilm-none):not(openfilm-none)');
 });
 
-test('ids are written as CSS writes them: a leading digit, a - and a digit, other signs; the page\'s rules found as it writes them', () => {
+test('ids are written as CSS writes them: a leading digit, a - and a digit, other signs', () => {
   assert.deepEqual(['1st', '-2x', '-', 'a.b c', 'déjà', 'ok_-9'].map(cssEscape), ['\\31 st', '-\\32 x', '\\-', 'a\\.b\\ c', 'déjà', 'ok_-9']);
   assert.equal(weighted('1st-copy', [1, 0, 0]), ':where(#\\31 st-copy)#\\31 st-copy');
   const page = '<head></head><body><p id="1st">A</p></body>';
   const out = pastedPage(page, [{
-    layer: layer({ at: '#\\31 st', tag: 'p', id: '1st', classes: [], place: { position: 'absolute', left: 0, top: 0, width: 1, height: 1 }, idRules: [{ selectors: ['#\\31 st'], body: 'color: red;', within: [] }] }),
+    layer: layer({ at: '#\\31 st', tag: 'p', id: '1st', classes: [], place: { position: 'absolute', left: 0, top: 0, width: 1, height: 1 } }),
     target: { path: [0], tags: ['p'], shape: { tag: 'p', children: [] } },
     look: [{ path: [], rules: [{ sheet: -1, within: [], weight: [1, 0, 1], decls: [['font-weight', '700']] }] }],
   }], 0)!;
   assert.equal(out.ats[0], '#\\31 st-copy', 'and the copy named so, to be selected');
-  assert.ok(out.text.startsWith('<head><style>#\\31 st-copy { color: red; } :where(#\\31 st-copy)#\\31 st-copy:not(openfilm-none) { font-weight: 700; }</style>'), out.text);
+  assert.ok(out.text.startsWith('<head><style>:where(#\\31 st-copy)#\\31 st-copy:not(openfilm-none) { font-weight: 700; }</style>'), out.text);
 });
 
 test('the ids a selector names, read as CSS reads them: escapes ended by a space or not, whole names only', () => {
@@ -198,17 +193,10 @@ test('the ids a selector names, read as CSS reads them: escapes ended by a space
   assert.deepEqual(ids('#\\31 st > #-\\32 x:hover'), ['1st', '-2x']);
   assert.deepEqual(ids('#a\\.b, #a.c'), ['a.b', 'a']);
   assert.deepEqual(ids('#déjà [href="#a"] #a\\:b'), ['déjà', 'a:b'], 'not in quotes');
-  /* copying #a renames #a, not #a\.b; a one-digit id's rule is found */
-  const page = '<head></head><body><p id="a">A</p><p id="1">B</p></body>';
-  const one = (id: string, at: string, path: number[]) => ({
-    layer: layer({ at, tag: 'p', id, classes: [], place: { position: 'absolute', left: 0, top: 0, width: 1, height: 1 }, idRules: [
-      { selectors: ['#a\\.b', '#a'], body: 'color: red;', within: [] },
-      { selectors: ['#\\31'], body: 'font-weight: 700;', within: [] },
-    ] }),
-    target: { path, tags: ['p'], shape: { tag: 'p', children: [] } },
-  });
-  assert.ok(pastedPage(page, [one('a', '#a', [0])], 0)!.text.startsWith('<head><style>#a-copy { color: red; }</style>'));
-  const digit = pastedPage(page, [one('1', '#\\31 ', [1])], 0)!;
-  assert.ok(digit.text.startsWith('<head><style>#\\31 -copy { font-weight: 700; }</style>'), digit.text);
+  /* a one-digit id's copy, named so */
+  const digit = pastedPage('<head></head><body><p id="1">B</p></body>', [{
+    layer: layer({ at: '#\\31 ', tag: 'p', id: '1', classes: [], place: { position: 'absolute', left: 0, top: 0, width: 1, height: 1 } }),
+    target: { path: [0], tags: ['p'], shape: { tag: 'p', children: [] } },
+  }], 0)!;
   assert.deepEqual(digit.ats, ['#\\31 -copy']);
 });
