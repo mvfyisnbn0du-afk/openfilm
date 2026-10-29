@@ -274,7 +274,9 @@ export function registerLocalAgentIpc(ipcMain, { trusted, binDir = null, fallbac
         resume,
         binDir,
         fallbackDir,
-        env,
+        /* its name to Studio, by the chat's conversation: the `openfilm` commands it runs say so, and Studio tells it
+           once what the person changed while it worked (openfilm's studio/client.mjs agentName) */
+        env: { ...env, OPENFILM_AGENT: `app:${typeof meta?.sessionId === 'string' && meta.sessionId ? meta.sessionId : key}` },
         logDir: logDir(),
         skills: skillsFor(agent),
         harness: await harnessFor(agent),

@@ -704,6 +704,9 @@ function dispatch(turn: LocalAgentTurn, event: Record<string, unknown> & { kind:
 
 /** Recovered turns (see recoverLocalAgentTurns) wait on the shell's `done` for their key. */
 const doneWaiters = new Map<string, (result: { ok: true; stopReason: string } | { ok: false; error: string; balance?: Balance }) => void>();
+/** what to do when a turn's first event comes: the agent has the message (runLocalAgentTurn's `onStarted`) */
+const startedHooks = new Map<LocalAgentTurn, () => void>();
+const started = (turn: LocalAgentTurn) => { const hook = startedHooks.get(turn); startedHooks.delete(turn); hook?.(); };
 
 function listen(): void {
   if (unlisten) return;
@@ -762,6 +765,7 @@ function listen(): void {
       if (event.kind === 'permission' || event.kind === 'question') void denyUnlessHeld(event);
       return;
     }
+    started(turn);
     dispatch(turn, event as Record<string, unknown> & { kind: string });
   });
 }
@@ -818,6 +822,7 @@ export async function runLocalAgentTurn({
   options = {},
   onSessionInfo,
   onOptions,
+  onStarted,
   meta,
   images,
 }: {
@@ -838,12 +843,15 @@ export async function runLocalAgentTurn({
   options?: Record<string, unknown>;
   onSessionInfo?: (info: LocalAgentSessionInfo) => void;
   onOptions?: (options: LocalAgentSessionInfo['configOptions']) => void;
+  /** Called once the agent has the message: its first event of the turn, or the turn's end without one. */
+  onStarted?: () => void;
 }): Promise<{ stopReason: string; lastTurnId: string }> {
   const bridge = desktopBridge()?.localAgents;
   if (!bridge) throw new Error('This needs the OpenFilm Mac app.');
   listen();
   turns.set(turn.turnId, turn);
   current = turn;
+  if (onStarted) startedHooks.set(turn, onStarted);
 
   const sessionKey = `${projectId}:${conversation}:${agent}`;
   let session = sessions.get(sessionKey);
@@ -904,9 +912,11 @@ export async function runLocalAgentTurn({
        listening only once they have stopped coming, or the saved reply ends mid-sentence. */
     await drain(last());
     if (!r.ok) throw Object.assign(new Error(r.error), { lastTurnId: last().turnId }, r.balance ? { balance: r.balance } : {});
+    started(turn);
     turn.model = last().model = r.model ?? null;
     return { stopReason: r.stopReason, lastTurnId: last().turnId };
   } finally {
+    startedHooks.delete(turn);
     const ended = last();
     turn.seal();
     ended.seal();
