@@ -908,19 +908,6 @@ test('the preview\'s mixer gets a file\'s sound alone (?film-sound), never the w
   assert.equal(readdirSync(join(project.path, '.film', 'cache', 'audio')).length, 1);
   assert.equal((await fetch(`${folder}assets/talk.mp4?film-sound=1`)).status, 200);
   assert.equal(readdirSync(join(project.path, '.film', 'cache', 'audio')).length, 1, 'made once');
-  const fast = await fetch(`${folder}assets/talk.mp4?film-sound=4`);
-  assert.equal(fast.status, 200);
-  const fastFile = join(scratch, 'fast-preview.m4a');
-  writeFileSync(fastFile, Buffer.from(await fast.arrayBuffer()));
-  const duration = Number(execFileSync('ffprobe', ['-v', 'error', '-show_entries', 'format=duration', '-of', 'csv=p=0', fastFile], { encoding: 'utf8' }));
-  assert.ok(Math.abs(duration - 5) < 0.05, `20 source seconds become 5: ${duration}`);
-  assert.equal((await fetch(`${folder}assets/talk.mp4?film-sound=4`)).status, 200);
-  assert.equal(readdirSync(join(project.path, '.film', 'cache', 'audio')).length, 2, 'one copy per supported speed');
-  assert.equal((await fetch(`${folder}assets/mute.mp4?film-sound=4`)).status, 204);
-  assert.equal((await fetch(`${folder}assets/gone.mp4?film-sound=4`)).status, 404);
-  for (const speed of ['0', '2', '16', 'NaN', '../bad']) {
-    assert.equal((await fetch(`${folder}assets/talk.mp4?film-sound=${speed}`)).status, 400);
-  }
   assert.equal((await fetch(`${folder}assets/mute.mp4?film-sound=1`)).status, 204);
   assert.equal((await fetch(`${folder}assets/gone.mp4?film-sound=1`)).status, 404);
   assert.equal((await fetch(`${folder}.film/cache/audio/x.m4a?film-sound=1`)).status, 404, 'still nothing hidden');

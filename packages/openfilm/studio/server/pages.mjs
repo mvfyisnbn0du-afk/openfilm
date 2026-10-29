@@ -177,11 +177,8 @@ export async function startPages({ port, editorOrigin, secret, projects }) {
     try { plain = decodeURIComponent(path); } catch { /* folderFiles refuses it */ }
     if (!servable(entry.root, plain)) { res.writeHead(404, headers).end('not found'); return; }
     if (url.searchParams.has('film-sound')) {
-      const speed = Number(url.searchParams.get('film-sound') || 1);
-      if (speed !== 1 && speed !== 4) { res.writeHead(400, headers).end('sound speed: 1 or 4'); return; }
       /* waited for while it is made (a few seconds for a long recording): the mixer plays the film without it meanwhile */
-      const file = await soundOf(entry.root, plain.replace(/^\/+/, ''), speed).catch((/** @type {any} */ e) => (e?.status === 404 ? undefined : null));
-      if (res.destroyed) return; // the person sought away or changed speed while the copy was being made
+      const file = await soundOf(entry.root, plain.replace(/^\/+/, '')).catch((/** @type {any} */ e) => (e?.status === 404 ? undefined : null));
       if (file === undefined) { res.writeHead(404, headers).end('not found'); return; }
       if (!file) { res.writeHead(204, headers).end(); return; }
       if (!folderFiles(dirname(file), { headers: policy() })(req, res, `/${basename(file)}`, url.searchParams)) res.writeHead(403, headers).end();

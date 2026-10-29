@@ -94,34 +94,6 @@ function onset(file) {
   return i / 48000;
 }
 
-test('fast preview sound is cached at four times its speed with its pitch kept', { skip: !hasFfmpeg && 'no ffmpeg' }, async () => {
-  const root = mkdtempSync(join(tmpdir(), 'of-fast-sound-'));
-  mkdirSync(join(root, 'assets'));
-  const input = join(root, 'assets', 'fast.m4a');
-  execFileSync('ffmpeg', ['-v', 'error', '-f', 'lavfi', '-i', 'sine=frequency=440:duration=8', '-c:a', 'aac', input]);
-  const original = await soundOf(root, 'assets/fast.m4a');
-  const copies = await Promise.all([soundOf(root, 'assets/fast.m4a', 4), soundOf(root, 'assets/fast.m4a', 4)]);
-  assert.equal(original, input, 'ordinary playback still uses the compact source');
-  assert.notEqual(copies[0], original, 'fast playback has its own copy');
-  assert.equal(copies[0], copies[1], 'concurrent requests share the copy');
-  const copy = String(copies[0]);
-  const duration = Number(execFileSync('ffprobe', ['-v', 'error', '-show_entries', 'format=duration', '-of', 'csv=p=0', copy], { encoding: 'utf8' }));
-  assert.ok(Math.abs(duration - 2) < 0.05, `8 source seconds become 2: ${duration}`);
-  const pcm = execFileSync('ffmpeg', ['-v', 'error', '-ss', '0.5', '-i', copy, '-t', '1', '-ac', '1', '-ar', '48000', '-f', 's16le', '-']);
-  const samples = new Int16Array(pcm.buffer, pcm.byteOffset, pcm.length / 2);
-  let crossings = 0;
-  for (let i = 1; i < samples.length; i++) if (samples[i - 1] <= 0 && samples[i] > 0) crossings++;
-  assert.ok(Math.abs(crossings - 440) < 5, `pitch stays 440 Hz: ${crossings}`);
-  const modified = statSync(copy).mtimeMs;
-  assert.equal(await soundOf(root, 'assets/fast.m4a', 4), copy);
-  assert.equal(statSync(copy).mtimeMs, modified, 'the cached copy is reused');
-  utimesSync(input, new Date(), new Date(Date.now() + 5000));
-  assert.notEqual(await soundOf(root, 'assets/fast.m4a', 4), copy, 'a changed source gets a new copy');
-  for (const speed of [0, 2, 16, NaN]) {
-    await assert.rejects(soundOf(root, 'assets/fast.m4a', speed), (e) => e instanceof MediaError && e.status === 400);
-  }
-});
-
 test('a file\'s sound for the editor is small and in step: a video\'s AAC kept as it is, any other sound made AAC, once', { skip: !hasFfmpeg && 'no ffmpeg' }, async () => {
   const at = (/** @type {string} */ name) => join(root, 'assets', name);
   /* a beep 1.5 s in: a minute of busy picture around it, so the sound alone is a small part of the file */
