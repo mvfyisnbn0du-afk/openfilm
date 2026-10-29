@@ -123,7 +123,7 @@ export function useFilm(projectId: string, initial: FilmState | null, onChange: 
     setSteps((s) => (record === 'do' ? pushStep(s, step) : one ? moveStep(s, one, record) : s));
     const written = queue.current.then(async (): Promise<string | null> => {
       try {
-        const done = await api.edit(projectId, ref.current?.rev ?? null, ops);
+        const done = await api.edit(projectId, ref.current?.rev ?? null, ops, record === 'undo');
         ours.current.delete(done.rev);
         ours.current.add(done.rev);
         pending.current -= 1;

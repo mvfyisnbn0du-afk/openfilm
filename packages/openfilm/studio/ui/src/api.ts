@@ -148,7 +148,8 @@ export const api = {
   film: (id: string) => call<ProjectFilm>(p(id)),
   /** the person opened it here: the one `openfilm open` alone comes back to */
   opened: (id: string) => call<{ project: Project }>(`${p(id)}/opened`, { method: 'POST' }),
-  edit: (id: string, base: string | null, ops: Op[]) => call<{ text: string; rev: string; value: Film; doc: Film; rebased: boolean }>(`${p(id)}/edit`, { method: 'POST', json: { base, ops } }),
+  /* `undo`: the edit puts back an earlier one (Studio keeps the person's edits over an agent's writes until then) */
+  edit: (id: string, base: string | null, ops: Op[], undo = false) => call<{ text: string; rev: string; value: Film; doc: Film; rebased: boolean }>(`${p(id)}/edit`, { method: 'POST', json: { base, ops, ...(undo ? { undo: true } : {}) } }),
   files: (id: string) => call<Listing>(`${p(id)}/files`),
   /** the editor's settings of the project (`.film/settings.json`): its frame rate, its tracks' names */
   settings: (id: string) => call<{ settings: ProjectSettings }>(`${p(id)}/settings`).then((r) => r.settings),
